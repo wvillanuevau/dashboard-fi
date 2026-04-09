@@ -360,22 +360,29 @@ function totalGastosProyecto(pid){return gastosDeProyecto(pid).reduce((s,g)=>s+(
 function crearProyecto(){
   const nombre=document.getElementById('npNombre').value.trim();
   if(!nombre){toast('Ingrese nombre',true);return}
-  const p={id:genId(),nombre,marca:document.getElementById('npMarca').value,
+  const pid=genId();
+  const p={id:pid,nombre,marca:document.getElementById('npMarca').value,
     tipo:document.getElementById('npTipo').value,ubicacion:document.getElementById('npUbic').value.trim(),
     estado:'Sin iniciar',avanceFisico:0,
     montoObraCivil:0,
-    pagos:{imp:{monto:0,paid:false}},  // solo obra civil e imprevistos manual
+    pagos:{imp:{monto:0,paid:false}},
     cronograma:{aceptado:false,fechaInicio:'',partidas:[]},
     contratista:'',supervisor:'',observaciones:''};
-  S.proyectos.push(p);saveData();closeModal('modalNP');
+  S.proyectos.push(p);
+  // Crear Centro de Costo automáticamente vinculado al proyecto
+  S.centros.push({id:genId(),nombre:nombre,descripcion:'Centro de costo generado automáticamente',proyectoId:pid,auto:true});
+  saveData();closeModal('modalNP');
   document.getElementById('npNombre').value='';document.getElementById('npUbic').value='';
-  render();toast('✓ Proyecto creado');
+  render();toast('✓ Proyecto creado — Centro de Costo generado automáticamente');
 }
 
 function elimProyecto(id){
   const p=S.proyectos.find(x=>x.id===id);if(!p)return;
-  if(!confirm(`¿Eliminar "${p.nombre}"? No se puede deshacer.`))return;
-  S.proyectos=S.proyectos.filter(x=>x.id!==id);saveData();closeModal('modalDP');render();toast('✓ Eliminado');
+  if(!confirm(`¿Eliminar "${p.nombre}"? Se eliminará también su Centro de Costo vinculado. No se puede deshacer.`))return;
+  S.proyectos=S.proyectos.filter(x=>x.id!==id);
+  // Eliminar centros de costo que fueron auto-generados para este proyecto
+  S.centros=S.centros.filter(c=>!(c.proyectoId===id&&c.auto));
+  saveData();closeModal('modalDP');render();toast('✓ Proyecto y su Centro de Costo eliminados');
 }
 
 function updP(id,campo,val){const p=S.proyectos.find(x=>x.id===id);if(p){p[campo]=val;saveData()}}
@@ -731,34 +738,49 @@ function delProv(id){if(!confirm('¿Eliminar proveedor?'))return;S.proveedores=S
 //  CENTROS DE COSTO
 // ═══════════════════════════════════════════════════════
 function renderCentros(){
-  let rows=S.centros.length===0?`<tr><td colspan="4" class="empty">Sin centros de costo</td></tr>`:'';
+  let rows=S.centros.length===0?`<tr><td colspan="5" class="empty">Sin centros de costo</td></tr>`:'';
   S.centros.forEach(c=>{
-    const pname=c.proyectoId?S.proyectos.find(x=>x.id===c.proyectoId)?.nombre||'—':'—';
+    const pname=c.proyectoId?S.proyectos.find(x=>x.id===c.proyectoId)?.nombre||'(proyecto eliminado)':'—';
+    const origen=c.auto
+      ?`<span class="badge b-blue" title="Generado al crear el proyecto">🏗 ${esc(pname)}</span>`
+      :(c.proyectoId?`<span class="badge b-warn">${esc(pname)}</span>`:'<span class="badge b-neu">Independiente</span>');
+    const accion=c.auto
+      ?`<span style="font-size:11px;color:var(--muted)" title="Se elimina al borrar el proyecto">Auto</span>`
+      :`<button class="btn btn-danger btn-xs" onclick="delCentro('${c.id}')">✕</button>`;
     rows+=`<tr>
-      <td>${esc(c.nombre)}</td>
-      <td>${esc(c.descripcion||'—')}</td>
-      <td>${c.proyectoId?`<span class="badge b-blue">${esc(pname)}</span>`:'<span class="badge b-neu">Independiente</span>'}</td>
-      <td><button class="btn btn-danger btn-xs" onclick="delCentro('${c.id}')">✕</button></td>
+      <td><strong>${esc(c.nombre)}</strong></td>
+      <td style="font-size:12px;color:var(--muted)">${esc(c.descripcion||'—')}</td>
+      <td>${origen}</td>
+      <td>${c.auto?'<span class="badge b-ok" style="font-size:10px">Automático</span>':'<span class="badge b-neu" style="font-size:10px">Manual</span>'}</td>
+      <td>${accion}</td>
     </tr>`;
   });
   const proyOpts=`<option value="">— Sin proyecto —</option>`+S.proyectos.map(p=>`<option value="${p.id}">${esc(p.nombre)}</option>`).join('');
   document.getElementById('content').innerHTML=`
+  <div style="background:#0a1a10;border:1px solid #1a3a20;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#a0c8a8">
+    ℹ️ Al <strong style="color:var(--accent)">crear un proyecto</strong>, su Centro de Costo se genera automáticamente. Los centros manuales pueden existir de forma independiente o vincularse a un proyecto.
+  </div>
   <div class="card" style="margin-bottom:18px">
-    <div class="section-hdr">Nuevo Centro de Costo</div>
+    <div class="section-hdr">Nuevo Centro de Costo (independiente)</div>
     <div class="row3">
       <div class="fg"><label>Nombre *</label><input id="ccN" placeholder="Centro de costo"></div>
       <div class="fg"><label>Descripción</label><input id="ccD" placeholder="Descripción opcional"></div>
-      <div class="fg"><label>Vincular a Proyecto</label><select id="ccP">${proyOpts}</select></div>
+      <div class="fg"><label>Vincular a Proyecto (opcional)</label><select id="ccP">${proyOpts}</select></div>
     </div>
     <button class="btn btn-primary" onclick="addCentro()">+ Agregar</button>
   </div>
   <div class="tbl-wrap"><table>
-    <thead><tr><th>Nombre</th><th>Descripción</th><th>Proyecto</th><th></th></tr></thead>
+    <thead><tr><th>Nombre</th><th>Descripción</th><th>Proyecto vinculado</th><th>Origen</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;
 }
-function addCentro(){const n=document.getElementById('ccN').value.trim();if(!n){toast('Nombre requerido',true);return}S.centros.push({id:genId(),nombre:n,descripcion:document.getElementById('ccD').value.trim(),proyectoId:document.getElementById('ccP').value||null});saveData();render();toast('✓ Centro registrado')}
-function delCentro(id){if(!confirm('¿Eliminar centro?'))return;S.centros=S.centros.filter(x=>x.id!==id);saveData();render()}
+function addCentro(){const n=document.getElementById('ccN').value.trim();if(!n){toast('Nombre requerido',true);return}S.centros.push({id:genId(),nombre:n,descripcion:document.getElementById('ccD').value.trim(),proyectoId:document.getElementById('ccP').value||null,auto:false});saveData();render();toast('✓ Centro registrado')}
+function delCentro(id){
+  const c=S.centros.find(x=>x.id===id);
+  if(c?.auto){toast('Este centro fue creado automáticamente — elimine el proyecto para borrarlo',true);return}
+  if(!confirm('¿Eliminar centro de costo?'))return;
+  S.centros=S.centros.filter(x=>x.id!==id);saveData();render();
+}
 
 // ═══════════════════════════════════════════════════════
 //  CONFIGURACIÓN
