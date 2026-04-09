@@ -3,646 +3,872 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>Proyectos Pro — Dashboard</title>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Karla:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<title>Proyectos Pro</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Karla:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Karla',sans-serif;background:#0e0d0b;color:#e8e6e1}
 .app{display:flex;min-height:100vh}
-.sidebar{width:260px;background:#1a1815;border-right:1px solid #2a2824;padding:20px;position:fixed;height:100vh;overflow-y:auto;transition:transform 0.3s}
-.main{flex:1;margin-left:260px;padding:20px;transition:margin 0.3s}
-.logo{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:#e8a020;margin-bottom:10px}
-.nav-item{padding:10px;margin:5px 0;cursor:pointer;border-radius:8px}
-.nav-item:hover{background:#25221e}
-.nav-item.active{background:#e8a020;color:#000}
-.btn{padding:8px 16px;border-radius:8px;cursor:pointer;border:none;font-weight:bold}
+
+/* SIDEBAR */
+.sidebar{width:260px;background:#1a1815;border-right:1px solid #2a2824;padding:20px;position:fixed;height:100vh;overflow-y:auto;z-index:500;transition:transform .3s;display:flex;flex-direction:column}
+.main{flex:1;margin-left:260px;padding:24px}
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:400}
+.overlay.open{display:block}
+.logo{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:#e8a020;margin-bottom:2px}
+.logo-sub{font-size:12px;color:#666;margin-bottom:24px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:11px 14px;margin:2px 0;cursor:pointer;border-radius:10px;font-size:14px;color:#bbb;transition:background .15s,color .15s}
+.nav-item:hover{background:#25221e;color:#e8e6e1}
+.nav-item.active{background:#e8a020;color:#000;font-weight:700}
+.nav-bottom{margin-top:auto;padding-top:20px}
+
+/* BOTONES */
+.btn{padding:9px 18px;border-radius:9px;cursor:pointer;border:none;font-family:'Karla',sans-serif;font-weight:600;font-size:13px;transition:opacity .15s,transform .1s;display:inline-flex;align-items:center;gap:6px}
+.btn:active{transform:scale(.97)}
 .btn-primary{background:#e8a020;color:#000}
-.btn-secondary{background:#25221e;color:#fff;border:1px solid #3a3a3a}
-.btn-danger{background:#2a0f0f;color:#e84040}
-.btn-sm{padding:4px 10px;font-size:12px}
-.modal{position:fixed;inset:0;background:rgba(0,0,0,0.8);display:none;align-items:center;justify-content:center;z-index:1000}
-.modal.open{display:flex}
-.modal-content{background:#1a1815;padding:24px;border-radius:16px;width:90%;max-width:700px;max-height:90vh;overflow-y:auto}
-.form-group{margin-bottom:16px}
-.form-group label{display:block;margin-bottom:6px;font-size:13px;color:#aaa}
-input,select,textarea{width:100%;padding:10px;background:#25221e;border:1px solid #3a3a3a;border-radius:8px;color:#fff}
-.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
+.btn-primary:hover{opacity:.85}
+.btn-secondary{background:#25221e;color:#e8e6e1;border:1px solid #3a3a3a}
+.btn-secondary:hover{background:#2e2b27}
+.btn-danger{background:#2a0f0f;color:#e84040;border:1px solid #3a1515}
+.btn-danger:hover{background:#3a1515}
+.btn-sm{padding:5px 11px;font-size:12px}
+
+/* HEADER */
+.page-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;gap:12px;flex-wrap:wrap}
+.page-title{font-family:'Syne',sans-serif;font-size:22px;font-weight:700}
+
+/* CARDS */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px}
 .stat-card{background:#1a1815;padding:20px;border-radius:16px;border:1px solid #2a2824}
-.stat-label{font-size:12px;color:#aaa;text-transform:uppercase}
-.stat-value{font-size:28px;font-weight:700;font-family:monospace}
-.tabs{display:flex;gap:4px;border-bottom:1px solid #2a2824;margin-bottom:20px;overflow-x:auto}
-.tab{padding:10px 20px;cursor:pointer;color:#aaa}
-.tab.active{color:#e8a020;border-bottom:2px solid #e8a020}
-.table-wrap{overflow-x:auto}
+.stat-label{font-size:11px;color:#777;text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px}
+.stat-value{font-size:26px;font-weight:700;font-family:'Syne',sans-serif}
+
+/* TABLA */
+.table-wrap{overflow-x:auto;border-radius:12px;border:1px solid #2a2824}
 table{width:100%;border-collapse:collapse}
-th,td{padding:12px;text-align:left;border-bottom:1px solid #2a2824}
-.progress-bar{height:6px;background:#2a2824;border-radius:3px;overflow:hidden;margin:8px 0}
-.progress-fill{height:100%;background:#2db87a;width:0%}
-.badge{padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600}
+th{padding:11px 14px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#777;background:#161412;border-bottom:1px solid #2a2824}
+td{padding:11px 14px;border-bottom:1px solid #1e1c19;font-size:14px;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#1c1a17}
+
+/* FORMULARIOS */
+.form-group{margin-bottom:14px}
+.form-group label{display:block;margin-bottom:5px;font-size:11px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+input,select,textarea{width:100%;padding:10px 12px;background:#25221e;border:1px solid #3a3a3a;border-radius:9px;color:#e8e6e1;font-family:'Karla',sans-serif;font-size:14px;transition:border-color .15s}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#e8a020}
+input[type="range"]{padding:4px 0;background:none;border:none;cursor:pointer}
+input[type="checkbox"]{width:auto;accent-color:#e8a020}
+.input-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+/* PROGRESS */
+.progress-bar{height:6px;background:#2a2824;border-radius:3px;overflow:hidden;margin:6px 0}
+.progress-fill{height:100%;background:#2db87a;border-radius:3px;transition:width .4s ease}
+
+/* BADGES */
+.badge{padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;display:inline-block}
 .badge-success{background:#0d2a1a;color:#2db87a}
-.toast{position:fixed;bottom:20px;right:20px;background:#1a1815;border-left:3px solid #2db87a;padding:12px 20px;border-radius:8px;display:none;z-index:2000}
-.hamburger{display:none;position:fixed;bottom:20px;right:20px;width:56px;height:56px;border-radius:50%;background:#e8a020;border:none;font-size:24px;z-index:1000;cursor:pointer}
+.badge-warning{background:#2a1e0a;color:#e8a020}
+.badge-danger{background:#2a0f0f;color:#e84040}
+.badge-neutral{background:#25221e;color:#aaa}
+
+/* MODAL */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:1000;padding:16px}
+.modal.open{display:flex}
+.modal-content{background:#1a1815;padding:28px;border-radius:20px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;border:1px solid #2a2824}
+.modal-content.wide{max-width:740px}
+.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.modal-title{font-family:'Syne',sans-serif;font-size:17px;font-weight:700}
+
+/* TABS */
+.tabs{display:flex;gap:2px;border-bottom:1px solid #2a2824;margin-bottom:20px;overflow-x:auto}
+.tab{padding:10px 16px;cursor:pointer;color:#777;font-size:13px;font-weight:500;white-space:nowrap;border-bottom:2px solid transparent;transition:color .15s,border-color .15s}
+.tab.active{color:#e8a020;border-bottom-color:#e8a020}
+.tab:hover{color:#e8e6e1}
+
+/* TOAST */
+.toast{position:fixed;bottom:24px;right:24px;background:#1c1a17;border-left:3px solid #2db87a;padding:12px 20px;border-radius:10px;font-size:14px;display:none;z-index:3000;box-shadow:0 4px 24px rgba(0,0,0,.5)}
+
+/* LOGIN */
+.login-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0e0d0b;padding:20px}
+.login-box{background:#1a1815;padding:40px;border-radius:24px;width:100%;max-width:400px;text-align:center;border:1px solid #2a2824}
+.user-card{padding:14px 18px;background:#25221e;margin:8px 0;border-radius:10px;cursor:pointer;border:2px solid transparent;transition:border-color .15s,background .15s;text-align:left}
+.user-card:hover{background:#2e2b27}
+.user-card.selected{border-color:#e8a020;background:#2a2519}
+.pin-dots{display:flex;justify-content:center;gap:14px;margin:20px 0}
+.pin-dot{width:14px;height:14px;border-radius:50%;background:#2a2824;transition:background .15s}
+.pin-dot.filled{background:#e8a020}
+.pin-keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:220px;margin:0 auto}
+
+/* HAMBURGER */
+.hamburger{display:none;position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:#e8a020;border:none;font-size:22px;z-index:600;cursor:pointer;box-shadow:0 4px 16px rgba(232,160,32,.4);align-items:center;justify-content:center}
+
+.divider{border:none;border-top:1px solid #2a2824;margin:20px 0}
+.empty-state{text-align:center;padding:48px;color:#555;font-size:14px}
+
 @media(max-width:768px){
-  .sidebar{transform:translateX(-100%);position:fixed;z-index:1001}
+  .sidebar{transform:translateX(-100%)}
   .sidebar.open{transform:translateX(0)}
-  .main{margin-left:0}
-  .hamburger{display:block}
+  .main{margin-left:0;padding:16px}
+  .hamburger{display:flex}
+  .stats-grid{grid-template-columns:1fr 1fr}
+  .input-row{grid-template-columns:1fr}
+  .modal-content{padding:20px}
+}
+@media(max-width:400px){
+  .stats-grid{grid-template-columns:1fr}
 }
 </style>
 </head>
 <body>
-<!-- Pantalla de login (visible por defecto) -->
-<div id="loginScreen" style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0e0d0b;padding:20px">
-  <div style="background:#1a1815;padding:40px;border-radius:24px;max-width:400px;text-align:center">
-    <div style="font-size:28px;font-weight:800;color:#e8a020;margin-bottom:8px">📊 Proyectos Pro</div>
-    <div style="margin-bottom:32px;color:#aaa">Dashboard de Control</div>
-    <div class="form-group"><label>Código de Empresa</label><input id="empresaCode" placeholder="Ej: DEMO01"></div>
-    <button class="btn btn-primary" style="width:100%" onclick="checkEmpresa()">Continuar</button>
-    <div id="userPanel" style="margin-top:20px;display:none"></div>
+
+<div id="loginScreen" class="login-wrap">
+  <div class="login-box">
+    <div style="font-size:32px;margin-bottom:8px">📊</div>
+    <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:#e8a020;margin-bottom:4px">Proyectos Pro</div>
+    <div style="font-size:13px;color:#666;margin-bottom:28px">Dashboard de Control</div>
+    <div class="form-group" style="text-align:left">
+      <label>Código de Empresa</label>
+      <input id="empresaCode" placeholder="Ej: DEMO" onkeydown="if(event.key==='Enter')checkEmpresa()">
+    </div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="checkEmpresa()">Continuar →</button>
+    <div id="userPanel" style="display:none;margin-top:24px"></div>
   </div>
 </div>
 
-<!-- Contenedor principal (oculto hasta login) -->
-<div id="appContainer" class="app" style="display:none">
+<div id="appShell" style="display:none" class="app">
+  <div class="overlay" id="overlay" onclick="closeSidebar()"></div>
   <div class="sidebar" id="sidebar">
-    <div class="logo">📊 Proyectos Pro</div>
-    <div style="font-size:12px;color:#888;margin-bottom:20px">Dashboard de Control</div>
-    <div id="nav"></div>
-    <div style="margin-top:30px"><button class="btn btn-secondary" style="width:100%" onclick="logout()">🚪 Cerrar sesión</button></div>
+    <div>
+      <div class="logo">📊 Proyectos Pro</div>
+      <div class="logo-sub" id="empresaLabel">Dashboard</div>
+      <nav id="nav"></nav>
+    </div>
+    <div class="nav-bottom">
+      <button class="btn btn-secondary" style="width:100%;justify-content:center" onclick="logout()">🚪 Cerrar sesión</button>
+    </div>
   </div>
   <div class="main">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-      <h2 id="pageTitle">Dashboard</h2>
-      <button class="btn btn-primary" onclick="openModal('newProjectModal')">+ Nuevo proyecto</button>
+    <div class="page-header">
+      <h1 class="page-title" id="pageTitle">Dashboard</h1>
+      <div id="headerActions"></div>
     </div>
     <div id="content"></div>
   </div>
+  <button class="hamburger" id="hamburgerBtn" onclick="toggleSidebar()">☰</button>
 </div>
 
-<button class="hamburger" id="hamburgerBtn">☰</button>
 <div id="toast" class="toast"></div>
 
-<!-- MODALES -->
+<!-- MODAL NUEVO PROYECTO -->
 <div id="newProjectModal" class="modal">
   <div class="modal-content">
-    <h3>Nuevo Proyecto</h3>
-    <div class="form-group"><label>Nombre</label><input id="projNombre"></div>
-    <div class="form-group"><label>Marca</label><select id="projMarca"></select></div>
-    <div class="form-group"><label>Tipo</label><select id="projTipo"><option>Remodelación</option><option>Construcción nueva</option></select></div>
-    <div class="form-group"><label>Ubicación</label><input id="projUbicacion"></div>
-    <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:20px">
+    <div class="modal-header">
+      <span class="modal-title">➕ Nuevo Proyecto</span>
+      <button class="btn btn-secondary btn-sm" onclick="closeModal('newProjectModal')">✕</button>
+    </div>
+    <div class="input-row">
+      <div class="form-group"><label>Nombre *</label><input id="projNombre" placeholder="Ej: Local Centro Comercial"></div>
+      <div class="form-group"><label>Marca *</label><select id="projMarca"></select></div>
+    </div>
+    <div class="input-row">
+      <div class="form-group"><label>Tipo</label>
+        <select id="projTipo"><option>Remodelación</option><option>Construcción nueva</option></select>
+      </div>
+      <div class="form-group"><label>Ubicación</label><input id="projUbicacion" placeholder="Dirección o referencia"></div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
       <button class="btn btn-secondary" onclick="closeModal('newProjectModal')">Cancelar</button>
-      <button class="btn btn-primary" onclick="crearProyecto()">Crear</button>
+      <button class="btn btn-primary" onclick="crearProyecto()">✓ Crear</button>
     </div>
   </div>
 </div>
 
+<!-- MODAL DETALLE PROYECTO -->
 <div id="projectDetailModal" class="modal">
-  <div class="modal-content" style="max-width:700px">
+  <div class="modal-content wide">
     <div id="projectDetailContent"></div>
-    <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:20px">
+    <div style="display:flex;justify-content:flex-end;margin-top:16px">
       <button class="btn btn-secondary" onclick="closeModal('projectDetailModal')">Cerrar</button>
     </div>
   </div>
 </div>
 
 <script>
-// ==================== ESTADO GLOBAL ====================
-let STATE = {
-  empresa: "DEMO",
-  proyectos: [],
-  gastos: [],
-  proveedores: [],
-  centrosCosto: [],
-  marcas: ["Papa Johns", "Jimmy Johns"],
-  usuarios: [{ nombre: "Admin", pin: "1234", rol: "admin" }],
-  activeTab: "dashboard",
-  currentProjectId: null
+'use strict';
+
+// ===================== ESTADO =====================
+const S = {
+  empresa:'DEMO', proyectos:[], gastos:[], proveedores:[], centrosCosto:[],
+  marcas:['Papa Johns','Jimmy Johns'],
+  usuarios:[{nombre:'Admin',pin:'1234',rol:'admin'}],
+  activeTab:'dashboard', currentUser:null
 };
 
-// ==================== INICIALIZACIÓN Y PERSISTENCIA ====================
-function loadData() {
-  const saved = localStorage.getItem(`proyectos_${STATE.empresa}`);
-  if (saved) {
-    const data = JSON.parse(saved);
-    STATE.proyectos = data.proyectos || [];
-    STATE.gastos = data.gastos || [];
-    STATE.proveedores = data.proveedores || [];
-    STATE.centrosCosto = data.centrosCosto || [];
-    STATE.marcas = data.marcas || ["Papa Johns", "Jimmy Johns"];
-    STATE.usuarios = data.usuarios || [{ nombre: "Admin", pin: "1234", rol: "admin" }];
+// ===================== UTILS =====================
+function toast(msg, err=false){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.style.borderLeftColor=err?'#e84040':'#2db87a';
+  t.style.display='block'; clearTimeout(t._t);
+  t._t=setTimeout(()=>t.style.display='none',3000);
+}
+function fmt(n){'$'+(parseFloat(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});return '$'+(parseFloat(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
+function openModal(id){document.getElementById(id).classList.add('open');}
+function closeModal(id){document.getElementById(id).classList.remove('open');}
+function toggleSidebar(){
+  const s=document.getElementById('sidebar'),o=document.getElementById('overlay');
+  const isOpen=s.classList.contains('open');
+  if(isOpen){s.classList.remove('open');o.classList.remove('open');document.getElementById('hamburgerBtn').textContent='☰';}
+  else{s.classList.add('open');o.classList.add('open');document.getElementById('hamburgerBtn').textContent='✕';}
+}
+function closeSidebar(){
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('overlay').classList.remove('open');
+  document.getElementById('hamburgerBtn').textContent='☰';
+}
+function badgeEstado(e){
+  const m={'Sin iniciar':'badge-neutral','En ejecución':'badge-warning','Retrasado':'badge-danger','Finalizado':'badge-success'};
+  return `<span class="badge ${m[e]||'badge-neutral'}">${e}</span>`;
+}
+
+// ===================== STORAGE =====================
+function loadData(){
+  try{
+    const raw=localStorage.getItem('pj_v2_'+S.empresa);
+    if(raw){
+      const d=JSON.parse(raw);
+      S.proyectos=d.proyectos||[]; S.gastos=d.gastos||[];
+      S.proveedores=d.proveedores||[]; S.centrosCosto=d.centrosCosto||[];
+      S.marcas=d.marcas||['Papa Johns','Jimmy Johns'];
+      S.usuarios=d.usuarios||[{nombre:'Admin',pin:'1234',rol:'admin'}];
+    } else {
+      S.proyectos=[]; S.gastos=[];
+      S.proveedores=[{id:'1',nombre:'Proveedor Ejemplo',tipo:'General',telefono:''}];
+      S.centrosCosto=[{id:'1',nombre:'Oficina Central',descripcion:''}];
+    }
+  }catch(e){toast('Error al cargar datos',true);}
+}
+function saveData(){
+  try{
+    localStorage.setItem('pj_v2_'+S.empresa,JSON.stringify({
+      proyectos:S.proyectos,gastos:S.gastos,proveedores:S.proveedores,
+      centrosCosto:S.centrosCosto,marcas:S.marcas,usuarios:S.usuarios
+    }));
+  }catch(e){toast('Error al guardar (almacenamiento lleno)',true);}
+}
+function refreshMarcaSelect(){
+  const el=document.getElementById('projMarca');
+  if(el) el.innerHTML=S.marcas.map(m=>`<option>${m}</option>`).join('');
+}
+
+// ===================== LOGIN =====================
+let loginUserIdx=null, pinInput='';
+
+function checkEmpresa(){
+  const code=document.getElementById('empresaCode').value.trim().toUpperCase();
+  if(!code){toast('Ingrese un código de empresa',true);return;}
+  S.empresa=code; loadData();
+  const panel=document.getElementById('userPanel');
+  panel.style.display='block';
+  let html='<div style="text-align:left;font-size:12px;color:#777;margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px">Seleccione usuario</div>';
+  S.usuarios.forEach((u,i)=>{
+    html+=`<div class="user-card" id="uc${i}" onclick="seleccionarUsuario(${i})">
+      <div style="font-weight:600">${u.nombre}</div>
+      <div style="font-size:12px;color:#777">${u.rol}</div>
+    </div>`;
+  });
+  html+=`<div style="margin-top:20px">
+    <div class="pin-dots" id="pinDots"></div>
+    <div class="pin-keypad" id="pinKeypad"></div>
+    <div id="loginError" style="color:#e84040;font-size:13px;margin-top:10px;min-height:20px"></div>
+  </div>`;
+  panel.innerHTML=html;
+  actualizarPinDots();
+  generarPinKeypad();
+}
+
+function seleccionarUsuario(idx){
+  loginUserIdx=idx; pinInput='';
+  document.querySelectorAll('.user-card').forEach((c,i)=>c.classList.toggle('selected',i===idx));
+  actualizarPinDots();
+  document.getElementById('loginError').textContent='';
+}
+
+function actualizarPinDots(){
+  const el=document.getElementById('pinDots');
+  if(!el) return;
+  el.innerHTML=[0,1,2,3].map(i=>`<div class="pin-dot ${i<pinInput.length?'filled':''}"></div>`).join('');
+}
+
+function generarPinKeypad(){
+  const pad=document.getElementById('pinKeypad');
+  if(!pad) return;
+  pad.innerHTML='';
+  [1,2,3,4,5,6,7,8,9,'',0,'⌫'].forEach(k=>{
+    const b=document.createElement('button');
+    b.className='btn btn-secondary'; b.style.cssText='padding:16px;font-size:18px;font-weight:700;justify-content:center';
+    b.textContent=k===''?'':k;
+    if(k!=='') b.onclick=()=>ingresarPin(k.toString());
+    else b.disabled=true, b.style.opacity='0';
+    pad.appendChild(b);
+  });
+}
+
+function ingresarPin(k){
+  if(loginUserIdx===null){document.getElementById('loginError').textContent='Seleccione un usuario primero';return;}
+  if(k==='⌫') pinInput=pinInput.slice(0,-1);
+  else if(pinInput.length<4) pinInput+=k;
+  actualizarPinDots();
+  if(pinInput.length===4) setTimeout(verificarPin,80);
+}
+
+function verificarPin(){
+  const u=S.usuarios[loginUserIdx];
+  if(pinInput===u.pin){
+    S.currentUser=u;
+    document.getElementById('loginScreen').style.display='none';
+    const app=document.getElementById('appShell');
+    app.style.display='flex';
+    document.getElementById('empresaLabel').textContent=S.empresa;
+    refreshMarcaSelect();
+    S.activeTab='dashboard';
+    render();
+    toast('Bienvenido, '+u.nombre);
   } else {
-    STATE.proyectos = [];
-    STATE.gastos = [];
-    STATE.proveedores = [{ id: "1", nombre: "Proveedor Ejemplo", tipo: "General" }];
-    STATE.centrosCosto = [{ id: "1", nombre: "Oficina Central" }];
+    document.getElementById('loginError').textContent='PIN incorrecto';
+    pinInput=''; actualizarPinDots();
   }
-  const marcaSelect = document.getElementById("projMarca");
-  if (marcaSelect) marcaSelect.innerHTML = STATE.marcas.map(m => `<option>${m}</option>`).join("");
 }
 
-function saveData() {
-  const data = {
-    proyectos: STATE.proyectos,
-    gastos: STATE.gastos,
-    proveedores: STATE.proveedores,
-    centrosCosto: STATE.centrosCosto,
-    marcas: STATE.marcas,
-    usuarios: STATE.usuarios
+function logout(){
+  S.currentUser=null; loginUserIdx=null; pinInput='';
+  document.getElementById('appShell').style.display='none';
+  document.getElementById('loginScreen').style.display='flex';
+  document.getElementById('userPanel').style.display='none';
+  document.getElementById('empresaCode').value='';
+  closeSidebar();
+}
+
+// ===================== PROYECTOS =====================
+function crearProyecto(){
+  const nombre=document.getElementById('projNombre').value.trim();
+  if(!nombre){toast('Ingrese nombre del proyecto',true);return;}
+  const p={
+    id:genId(), nombre, marca:document.getElementById('projMarca').value,
+    tipo:document.getElementById('projTipo').value,
+    ubicacion:document.getElementById('projUbicacion').value.trim(),
+    estado:'Sin iniciar', avanceFisico:0, montoObraCivil:0,
+    pagos:{a1:{paid:false,pct:65},a2:{paid:false,pct:25},pf:{paid:false,pct:10},imp:{monto:0,paid:false}},
+    cronograma:[{id:genId(),nombre:'Obra base',dias:5,sub:[]}],
+    fechaInicio:'',fechaFin:'',contratista:'',supervisor:'',observaciones:''
   };
-  localStorage.setItem(`proyectos_${STATE.empresa}`, JSON.stringify(data));
+  S.proyectos.push(p); saveData();
+  closeModal('newProjectModal');
+  document.getElementById('projNombre').value='';
+  document.getElementById('projUbicacion').value='';
+  render(); toast('✓ Proyecto creado');
 }
 
-// ==================== UTILIDADES ====================
-function toast(msg, isError = false) {
-  const t = document.getElementById("toast");
-  if (!t) return;
-  t.textContent = msg;
-  t.style.borderLeftColor = isError ? "#e84040" : "#2db87a";
-  t.style.display = "block";
-  setTimeout(() => { if (t) t.style.display = "none"; }, 3000);
+function eliminarProyecto(id){
+  const p=S.proyectos.find(p=>p.id==id);
+  if(!p) return;
+  if(!confirm(`¿Eliminar "${p.nombre}"?\nEsta acción no se puede deshacer.`)) return;
+  S.proyectos=S.proyectos.filter(p=>p.id!=id);
+  saveData(); closeModal('projectDetailModal'); render(); toast('✓ Proyecto eliminado');
 }
 
-function fmt(n) {
-  return "$" + (parseFloat(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2 });
+function actualizarProyecto(id,campo,valor){
+  const p=S.proyectos.find(p=>p.id==id);
+  if(p){p[campo]=valor;saveData();}
 }
 
-function openModal(id) {
-  const modal = document.getElementById(id);
-  if (modal) modal.classList.add("open");
-}
-function closeModal(id) {
-  const modal = document.getElementById(id);
-  if (modal) modal.classList.remove("open");
+function actualizarPago(id,tipo,campo,valor){
+  const p=S.proyectos.find(p=>p.id==id);
+  if(p&&p.pagos[tipo]){p.pagos[tipo][campo]=valor;saveData();}
 }
 
-// Sidebar mobile
-const hamburgerBtn = document.getElementById("hamburgerBtn");
-const sidebar = document.getElementById("sidebar");
-if (hamburgerBtn) {
-  hamburgerBtn.onclick = () => {
-    if (sidebar) sidebar.classList.toggle("open");
-  };
-}
-function closeSidebarOnMobile() {
-  if (window.innerWidth <= 768 && sidebar) sidebar.classList.remove("open");
-}
-
-// ==================== PROYECTOS ====================
-function crearProyecto() {
-  const nombre = document.getElementById("projNombre").value.trim();
-  if (!nombre) { toast("Ingrese nombre", true); return; }
-  const nuevo = {
-    id: Date.now(),
-    nombre: nombre,
-    marca: document.getElementById("projMarca").value,
-    tipo: document.getElementById("projTipo").value,
-    ubicacion: document.getElementById("projUbicacion").value,
-    estado: "Sin iniciar",
-    avanceFisico: 0,
-    montoObraCivil: 0,
-    pagos: { a1: { paid: false, pct: 65 }, a2: { paid: false, pct: 25 }, pf: { paid: false, pct: 10 }, imp: { monto: 0, paid: false } },
-    planos: { dwg: [], pdf: [], renders: [] },
-    cronograma: [{ id: "p1", nombre: "Obra base", dias: 5, sub: [] }],
-    fechaInicio: "", fechaFin: "", contratista: "", supervisor: "", responsable: "", observaciones: ""
-  };
-  STATE.proyectos.push(nuevo);
-  saveData();
-  closeModal("newProjectModal");
-  render();
-  toast("✓ Proyecto creado");
-}
-
-function eliminarProyecto(id) {
-  if (!confirm("¿Eliminar proyecto?")) return;
-  STATE.proyectos = STATE.proyectos.filter(p => p.id != id);
-  saveData();
-  render();
-  toast("✓ Proyecto eliminado");
-  closeModal("projectDetailModal");
-}
-
-function actualizarProyecto(id, campo, valor) {
-  const p = STATE.proyectos.find(p => p.id == id);
-  if (p) { p[campo] = valor; saveData(); render(); }
-}
-
-function actualizarPago(id, tipo, campo, valor) {
-  const p = STATE.proyectos.find(p => p.id == id);
-  if (p && p.pagos[tipo]) { p.pagos[tipo][campo] = valor; saveData(); renderProyectoDetalle(id); }
-}
-
-function actualizarPorcentajePago(id, tipo, pct) {
-  const p = STATE.proyectos.find(p => p.id == id);
-  if (p && p.pagos[tipo]) { p.pagos[tipo].pct = parseFloat(pct); saveData(); renderProyectoDetalle(id); }
-}
-
-function verProyecto(id) {
-  STATE.currentProjectId = id;
-  renderProyectoDetalle(id);
-  openModal("projectDetailModal");
-}
-
-function renderProyectoDetalle(id) {
-  const p = STATE.proyectos.find(p => p.id == id);
-  if (!p) return;
-  const container = document.getElementById("projectDetailContent");
-  if (!container) return;
-  container.innerHTML = `
-    <h3>${p.nombre}</h3>
-    <div class="tabs" id="detailTabs">
-      <div class="tab active" data-tab="general">General</div>
-      <div class="tab" data-tab="planos">Planos</div>
-      <div class="tab" data-tab="pagos">Pagos</div>
-      <div class="tab" data-tab="cronograma">Cronograma</div>
+// ===================== VER PROYECTO =====================
+function verProyecto(id){
+  const p=S.proyectos.find(p=>p.id==id);
+  if(!p) return;
+  const c=document.getElementById('projectDetailContent');
+  c.innerHTML=`
+    <div class="modal-header">
+      <span class="modal-title">📋 ${p.nombre}</span>
+      ${badgeEstado(p.estado)}
     </div>
-    <div id="detailPanel">${renderGeneral(p)}</div>
-  `;
-  // Vincular tabs
-  document.querySelectorAll("#detailTabs .tab").forEach(tab => {
-    tab.onclick = (e) => {
-      document.querySelectorAll("#detailTabs .tab").forEach(t => t.classList.remove("active"));
-      tab.classList.add("active");
-      const tipo = tab.getAttribute("data-tab");
-      const panel = document.getElementById("detailPanel");
-      if (!panel) return;
-      if (tipo === "general") panel.innerHTML = renderGeneral(p);
-      else if (tipo === "planos") panel.innerHTML = renderPlanos(p);
-      else if (tipo === "pagos") panel.innerHTML = renderPagos(p);
-      else if (tipo === "cronograma") panel.innerHTML = renderCronograma(p, id);
+    <div class="tabs" id="detailTabs">
+      <div class="tab active" data-tab="general">⚙ General</div>
+      <div class="tab" data-tab="pagos">💰 Pagos</div>
+      <div class="tab" data-tab="cronograma">📅 Cronograma</div>
+    </div>
+    <div id="detailPanel">${renderGeneral(p)}</div>`;
+  openModal('projectDetailModal');
+  document.querySelectorAll('#detailTabs .tab').forEach(tab=>{
+    tab.onclick=()=>{
+      document.querySelectorAll('#detailTabs .tab').forEach(t=>t.classList.remove('active'));
+      tab.classList.add('active');
+      const fp=S.proyectos.find(x=>x.id==id);
+      const panel=document.getElementById('detailPanel');
+      if(tab.dataset.tab==='general')    panel.innerHTML=renderGeneral(fp);
+      if(tab.dataset.tab==='pagos')      panel.innerHTML=renderPagos(fp);
+      if(tab.dataset.tab==='cronograma') panel.innerHTML=renderCronograma(fp);
     };
   });
 }
 
-function renderGeneral(p) {
+function renderGeneral(p){
   return `
-    <div class="form-group"><label>Nombre</label><input value="${p.nombre}" onchange="actualizarProyecto(${p.id},'nombre',this.value)"></div>
-    <div class="form-group"><label>Marca</label><select onchange="actualizarProyecto(${p.id},'marca',this.value)">${STATE.marcas.map(m => `<option ${p.marca===m?"selected":""}>${m}</option>`).join("")}</select></div>
-    <div class="form-group"><label>Tipo</label><select onchange="actualizarProyecto(${p.id},'tipo',this.value)"><option ${p.tipo==="Remodelación"?"selected":""}>Remodelación</option><option ${p.tipo==="Construcción nueva"?"selected":""}>Construcción nueva</option></select></div>
-    <div class="form-group"><label>Ubicación</label><input value="${p.ubicacion || ""}" onchange="actualizarProyecto(${p.id},'ubicacion',this.value)"></div>
-    <div class="form-group"><label>Estado</label><select onchange="actualizarProyecto(${p.id},'estado',this.value)"><option ${p.estado==="Sin iniciar"?"selected":""}>Sin iniciar</option><option ${p.estado==="En ejecución"?"selected":""}>En ejecución</option><option ${p.estado==="Retrasado"?"selected":""}>Retrasado</option><option ${p.estado==="Finalizado"?"selected":""}>Finalizado</option></select></div>
-    <div class="form-group"><label>% Avance</label><input type="range" min="0" max="100" value="${p.avanceFisico}" oninput="this.nextElementSibling.innerText=this.value+'%'" onchange="actualizarProyecto(${p.id},'avanceFisico',parseInt(this.value))"><span>${p.avanceFisico}%</span></div>
-    <div class="form-group"><label>Monto Obra Civil</label><input type="number" value="${p.montoObraCivil}" onchange="actualizarProyecto(${p.id},'montoObraCivil',parseFloat(this.value))"></div>
-    <div class="form-group"><label>Contratista</label><input value="${p.contratista || ""}" onchange="actualizarProyecto(${p.id},'contratista',this.value)"></div>
-    <div class="form-group"><label>Supervisor</label><input value="${p.supervisor || ""}" onchange="actualizarProyecto(${p.id},'supervisor',this.value)"></div>
-    <div class="form-group"><label>Observaciones</label><textarea rows="3" onchange="actualizarProyecto(${p.id},'observaciones',this.value)">${p.observaciones || ""}</textarea></div>
-    <button class="btn btn-danger" onclick="eliminarProyecto(${p.id})">Eliminar proyecto</button>
-  `;
+  <div class="input-row">
+    <div class="form-group"><label>Nombre</label><input value="${esc(p.nombre)}" onchange="actualizarProyecto('${p.id}','nombre',this.value)"></div>
+    <div class="form-group"><label>Marca</label>
+      <select onchange="actualizarProyecto('${p.id}','marca',this.value)">
+        ${S.marcas.map(m=>`<option ${p.marca===m?'selected':''}>${m}</option>`).join('')}
+      </select>
+    </div>
+  </div>
+  <div class="input-row">
+    <div class="form-group"><label>Tipo</label>
+      <select onchange="actualizarProyecto('${p.id}','tipo',this.value)">
+        ${['Remodelación','Construcción nueva'].map(t=>`<option ${p.tipo===t?'selected':''}>${t}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group"><label>Ubicación</label><input value="${esc(p.ubicacion||'')}" onchange="actualizarProyecto('${p.id}','ubicacion',this.value)"></div>
+  </div>
+  <div class="input-row">
+    <div class="form-group"><label>Estado</label>
+      <select onchange="actualizarProyecto('${p.id}','estado',this.value)">
+        ${['Sin iniciar','En ejecución','Retrasado','Finalizado'].map(s=>`<option ${p.estado===s?'selected':''}>${s}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group"><label>Monto Obra Civil ($)</label>
+      <input type="number" min="0" value="${p.montoObraCivil||0}" onchange="actualizarProyecto('${p.id}','montoObraCivil',Math.max(0,parseFloat(this.value)||0))">
+    </div>
+  </div>
+  <div class="form-group">
+    <label>Avance Físico — <strong id="avLbl">${p.avanceFisico}%</strong></label>
+    <input type="range" min="0" max="100" value="${p.avanceFisico}"
+      oninput="document.getElementById('avLbl').textContent=this.value+'%'"
+      onchange="actualizarProyecto('${p.id}','avanceFisico',parseInt(this.value))">
+    <div class="progress-bar"><div class="progress-fill" style="width:${p.avanceFisico}%"></div></div>
+  </div>
+  <div class="input-row">
+    <div class="form-group"><label>Contratista</label><input value="${esc(p.contratista||'')}" onchange="actualizarProyecto('${p.id}','contratista',this.value)"></div>
+    <div class="form-group"><label>Supervisor</label><input value="${esc(p.supervisor||'')}" onchange="actualizarProyecto('${p.id}','supervisor',this.value)"></div>
+  </div>
+  <div class="input-row">
+    <div class="form-group"><label>Fecha Inicio</label><input type="date" value="${p.fechaInicio||''}" onchange="actualizarProyecto('${p.id}','fechaInicio',this.value)"></div>
+    <div class="form-group"><label>Fecha Fin Estimada</label><input type="date" value="${p.fechaFin||''}" onchange="actualizarProyecto('${p.id}','fechaFin',this.value)"></div>
+  </div>
+  <div class="form-group"><label>Observaciones</label>
+    <textarea rows="3" onchange="actualizarProyecto('${p.id}','observaciones',this.value)">${esc(p.observaciones||'')}</textarea>
+  </div>
+  <hr class="divider">
+  <button class="btn btn-danger" onclick="eliminarProyecto('${p.id}')">🗑 Eliminar proyecto</button>`;
 }
 
-function renderPlanos(p) {
-  return `<p>Subida de archivos DWG, PDF y renders.</p>
-    <button class="btn btn-secondary" onclick="alert('Función de subida de archivos (mock)')">Subir plano</button>`;
-}
-
-function renderPagos(p) {
-  const montoOC = p.montoObraCivil || 0;
-  const a1 = montoOC * (p.pagos.a1.pct/100);
-  const a2 = montoOC * (p.pagos.a2.pct/100);
-  const pf = montoOC * (p.pagos.pf.pct/100);
+function renderPagos(p){
+  const oc=parseFloat(p.montoObraCivil)||0;
+  const a1=oc*(p.pagos.a1.pct/100), a2=oc*(p.pagos.a2.pct/100), pf=oc*(p.pagos.pf.pct/100);
+  const imp=parseFloat(p.pagos.imp.monto)||0;
+  const pagado=(p.pagos.a1.paid?a1:0)+(p.pagos.a2.paid?a2:0)+(p.pagos.pf.paid?pf:0)+(p.pagos.imp.paid?imp:0);
+  const pendiente=(oc+imp)-pagado;
+  const frow=(tipo,label,monto,paid)=>`<tr>
+    <td>${label}</td><td><strong>${fmt(monto)}</strong></td>
+    <td><span class="badge ${paid?'badge-success':'badge-neutral'}">${paid?'Pagado':'Pendiente'}</span></td>
+    <td><label style="cursor:pointer;display:flex;align-items:center;gap:6px">
+      <input type="checkbox" ${paid?'checked':''} onchange="actualizarPago('${p.id}','${tipo}','paid',this.checked);reloadPagos('${p.id}')"> Marcar pagado
+    </label></td></tr>`;
   return `
-    <div class="stat-card"><div class="stat-label">Obra Civil</div><div class="stat-value">${fmt(montoOC)}</div></div>
-    <div style="margin-top:16px">
-      <label>1er Anticipo (%): <input type="number" step="1" value="${p.pagos.a1.pct}" onchange="actualizarPorcentajePago(${p.id},'a1',this.value)" style="width:70px"></label>
-      <div><label><input type="checkbox" ${p.pagos.a1.paid?"checked":""} onchange="actualizarPago(${p.id},'a1','paid',this.checked)"> Pagado - Monto: ${fmt(a1)}</label></div>
-    </div>
-    <div>
-      <label>2do Anticipo (%): <input type="number" step="1" value="${p.pagos.a2.pct}" onchange="actualizarPorcentajePago(${p.id},'a2',this.value)" style="width:70px"></label>
-      <div><label><input type="checkbox" ${p.pagos.a2.paid?"checked":""} onchange="actualizarPago(${p.id},'a2','paid',this.checked)"> Pagado - Monto: ${fmt(a2)}</label></div>
-    </div>
-    <div>
-      <label>Pago Final (%): <input type="number" step="1" value="${p.pagos.pf.pct}" onchange="actualizarPorcentajePago(${p.id},'pf',this.value)" style="width:70px"></label>
-      <div><label><input type="checkbox" ${p.pagos.pf.paid?"checked":""} onchange="actualizarPago(${p.id},'pf','paid',this.checked)"> Pagado - Monto: ${fmt(pf)}</label></div>
-    </div>
-    <div>
-      <label>Imprevistos: $<input type="number" value="${p.pagos.imp.monto}" onchange="actualizarPago(${p.id},'imp','monto',parseFloat(this.value))"></label>
-      <label><input type="checkbox" ${p.pagos.imp.paid?"checked":""} onchange="actualizarPago(${p.id},'imp','paid',this.checked)"> Pagado</label>
-    </div>
-  `;
+  <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
+    <div class="stat-card"><div class="stat-label">Obra Civil</div><div class="stat-value" style="font-size:20px">${fmt(oc)}</div></div>
+    <div class="stat-card"><div class="stat-label">Pagado</div><div class="stat-value" style="font-size:20px;color:#2db87a">${fmt(pagado)}</div></div>
+    <div class="stat-card"><div class="stat-label">Pendiente</div><div class="stat-value" style="font-size:20px;color:#e84040">${fmt(pendiente)}</div></div>
+  </div>
+  <div class="table-wrap" id="pagosWrap">
+    <table><thead><tr><th>Concepto</th><th>Monto</th><th>Estado</th><th>Acción</th></tr></thead>
+    <tbody>
+      ${frow('a1','1er Anticipo ('+p.pagos.a1.pct+'%)',a1,p.pagos.a1.paid)}
+      ${frow('a2','2do Anticipo ('+p.pagos.a2.pct+'%)',a2,p.pagos.a2.paid)}
+      ${frow('pf','Pago Final ('+p.pagos.pf.pct+'%)',pf,p.pagos.pf.paid)}
+      <tr>
+        <td>Imprevistos</td>
+        <td><input type="number" min="0" value="${imp}" style="width:120px"
+          onchange="actualizarPago('${p.id}','imp','monto',parseFloat(this.value)||0)"></td>
+        <td><span class="badge ${p.pagos.imp.paid?'badge-success':'badge-neutral'}">${p.pagos.imp.paid?'Pagado':'Pendiente'}</span></td>
+        <td><label style="cursor:pointer;display:flex;align-items:center;gap:6px">
+          <input type="checkbox" ${p.pagos.imp.paid?'checked':''} onchange="actualizarPago('${p.id}','imp','paid',this.checked);reloadPagos('${p.id}')"> Marcar pagado
+        </label></td>
+      </tr>
+    </tbody></table>
+  </div>`;
 }
 
-function renderCronograma(p, proyId) {
-  let html = `<div class="stats-grid"><div class="stat-card"><div class="stat-label">Días totales</div><div class="stat-value">${p.cronograma.reduce((s,m)=>s+(m.dias||0),0)}</div></div></div>
-  <div class="table-wrap"><table><thead><tr><th>Partida</th><th>Días</th><th>Subpartidas</th><th></th></tr></thead><tbody>`;
-  p.cronograma.forEach((m, idx) => {
-    html += `<tr><td><input value="${m.nombre}" data-idx="${idx}" data-field="nombre" class="crono-edit" style="width:100%"></td>
-    <td><input type="number" value="${m.dias}" data-idx="${idx}" data-field="dias" class="crono-edit" style="width:70px"></td>
-    <td>${(m.sub||[]).length}</td>
-    <td><button class="btn btn-secondary btn-sm" data-idx="${idx}" onclick="agregarSubpartida(${proyId},${idx})">+ Sub</button></td></tr>`;
-    (m.sub||[]).forEach((s, si) => {
-      html += `<tr style="background:#25221e"><td style="padding-left:30px"><input type="checkbox" ${s.done?"checked":""} data-midx="${idx}" data-sidx="${si}" data-field="done" class="sub-check"> <input value="${s.desc||""}" placeholder="Descripción" data-midx="${idx}" data-sidx="${si}" data-field="desc" class="sub-edit" style="width:150px"></td>
-      <td><input type="number" value="${s.dias||1}" data-midx="${idx}" data-sidx="${si}" data-field="dias" class="sub-edit" style="width:60px"></td>
-      <td colspan="2"><input type="number" placeholder="Cantidad" value="${s.cantidad||0}" data-midx="${idx}" data-sidx="${si}" data-field="cantidad" class="sub-edit" style="width:80px"> x <input type="number" placeholder="Precio" value="${s.precio||0}" data-midx="${idx}" data-sidx="${si}" data-field="precio" class="sub-edit" style="width:80px"> = <strong>${fmt((s.cantidad||0)*(s.precio||0))}</strong><button class="btn btn-sm btn-danger" style="margin-left:8px" data-midx="${idx}" data-sidx="${si}" onclick="eliminarSubpartida(${proyId},${idx},${si})">✕</button></td></tr>`;
+function reloadPagos(id){
+  const fp=S.proyectos.find(x=>x.id==id);
+  const panel=document.getElementById('detailPanel');
+  if(panel&&fp) panel.innerHTML=renderPagos(fp);
+}
+
+// ===================== CRONOGRAMA =====================
+function renderCronograma(p){
+  const diasTotal=p.cronograma.reduce((s,m)=>s+(parseInt(m.dias)||0),0);
+  let html=`<div class="stats-grid">
+    <div class="stat-card"><div class="stat-label">Días Totales</div><div class="stat-value">${diasTotal}</div></div>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Partida / Subpartida</th><th>Días</th><th>Cantidad</th><th>Precio Unit.</th><th>Total</th><th></th></tr></thead>
+    <tbody>`;
+  p.cronograma.forEach((m,mi)=>{
+    const subTotal=m.sub.reduce((s,x)=>s+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0);
+    html+=`<tr style="background:#161412">
+      <td><input value="${esc(m.nombre)}" style="font-weight:600"
+        onchange="updPartida('${p.id}',${mi},'nombre',this.value)"></td>
+      <td><input type="number" min="1" value="${m.dias||1}" style="width:70px"
+        onchange="updPartida('${p.id}',${mi},'dias',parseInt(this.value)||1)"></td>
+      <td colspan="2" style="color:#777;font-size:12px">${m.sub.length} subpartida(s)</td>
+      <td><strong>${fmt(subTotal)}</strong></td>
+      <td>
+        <button class="btn btn-secondary btn-sm" onclick="agregarSub('${p.id}',${mi})">+ Sub</button>
+        <button class="btn btn-danger btn-sm" onclick="elimPartida('${p.id}',${mi})">✕</button>
+      </td>
+    </tr>`;
+    m.sub.forEach((s,si)=>{
+      const tot=(parseFloat(s.cantidad)||0)*(parseFloat(s.precio)||0);
+      html+=`<tr style="background:#1a1815">
+        <td style="padding-left:28px">
+          <input type="checkbox" ${s.done?'checked':''} onchange="updSub('${p.id}',${mi},${si},'done',this.checked)">
+          <input value="${esc(s.desc||'')}" placeholder="Descripción" style="width:calc(100% - 28px)"
+            onchange="updSub('${p.id}',${mi},${si},'desc',this.value)">
+        </td>
+        <td><input type="number" min="1" value="${s.dias||1}" style="width:60px"
+          onchange="updSub('${p.id}',${mi},${si},'dias',parseInt(this.value)||1)"></td>
+        <td><input type="number" min="0" value="${s.cantidad||0}" style="width:80px" placeholder="Cant."
+          onchange="updSub('${p.id}',${mi},${si},'cantidad',parseFloat(this.value)||0)"></td>
+        <td><input type="number" min="0" value="${s.precio||0}" style="width:80px" placeholder="Precio"
+          onchange="updSub('${p.id}',${mi},${si},'precio',parseFloat(this.value)||0)"></td>
+        <td>${fmt(tot)}</td>
+        <td><button class="btn btn-danger btn-sm" onclick="elimSub('${p.id}',${mi},${si})">✕</button></td>
+      </tr>`;
     });
   });
-  html += `</tbody></table></div><button class="btn btn-primary" onclick="agregarPartida(${proyId})">+ Agregar Partida</button>`;
-  setTimeout(() => {
-    document.querySelectorAll(".crono-edit").forEach(el => {
-      el.onchange = () => {
-        const idx = parseInt(el.dataset.idx);
-        const field = el.dataset.field;
-        let val = el.value;
-        if (field === "dias") val = parseInt(val) || 0;
-        actualizarPartida(proyId, idx, field, val);
-      };
-    });
-    document.querySelectorAll(".sub-edit").forEach(el => {
-      el.onchange = () => {
-        const midx = parseInt(el.dataset.midx);
-        const sidx = parseInt(el.dataset.sidx);
-        const field = el.dataset.field;
-        let val = el.value;
-        if (field === "dias" || field === "cantidad" || field === "precio") val = parseFloat(val) || 0;
-        actualizarSubpartida(proyId, midx, sidx, field, val);
-      };
-    });
-    document.querySelectorAll(".sub-check").forEach(el => {
-      el.onchange = () => {
-        const midx = parseInt(el.dataset.midx);
-        const sidx = parseInt(el.dataset.sidx);
-        actualizarSubpartida(proyId, midx, sidx, "done", el.checked);
-      };
-    });
-  }, 50);
+  const grandTotal=p.cronograma.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0),0);
+  html+=`<tr style="background:#161412;font-weight:700">
+    <td colspan="4" style="text-align:right;padding-right:16px">TOTAL CRONOGRAMA:</td>
+    <td>${fmt(grandTotal)}</td><td></td>
+  </tr>`;
+  html+=`</tbody></table></div>
+  <div style="margin-top:14px">
+    <button class="btn btn-primary" onclick="agregarPartida('${p.id}')">+ Agregar Partida</button>
+  </div>`;
   return html;
 }
 
-function actualizarPartida(proyId, idx, campo, val) {
-  const p = STATE.proyectos.find(p => p.id == proyId);
-  if (p && p.cronograma[idx]) { p.cronograma[idx][campo] = val; saveData(); renderProyectoDetalle(proyId); }
+function updPartida(pid,mi,campo,val){
+  const p=S.proyectos.find(x=>x.id==pid);
+  if(p&&p.cronograma[mi]){p.cronograma[mi][campo]=val;saveData();}
 }
-function actualizarSubpartida(proyId, midx, sidx, campo, val) {
-  const p = STATE.proyectos.find(p => p.id == proyId);
-  if (p && p.cronograma[midx] && p.cronograma[midx].sub[sidx]) { p.cronograma[midx].sub[sidx][campo] = val; saveData(); renderProyectoDetalle(proyId); }
+function updSub(pid,mi,si,campo,val){
+  const p=S.proyectos.find(x=>x.id==pid);
+  if(p&&p.cronograma[mi]&&p.cronograma[mi].sub[si]){p.cronograma[mi].sub[si][campo]=val;saveData();}
 }
-function agregarPartida(proyId) {
-  const p = STATE.proyectos.find(p => p.id == proyId);
-  if (p) { p.cronograma.push({ id: "m"+Date.now(), nombre: "Nueva partida", dias: 5, sub: [] }); saveData(); renderProyectoDetalle(proyId); }
+function agregarPartida(pid){
+  const p=S.proyectos.find(x=>x.id==pid);
+  if(!p) return;
+  p.cronograma.push({id:genId(),nombre:'Nueva Partida',dias:5,sub:[]});
+  saveData(); reloadCronograma(pid);
 }
-function agregarSubpartida(proyId, midx) {
-  const p = STATE.proyectos.find(p => p.id == proyId);
-  if (p && p.cronograma[midx]) { p.cronograma[midx].sub.push({ id: "s"+Date.now(), desc: "", cantidad: 0, precio: 0, dias: 3, done: false }); saveData(); renderProyectoDetalle(proyId); }
+function agregarSub(pid,mi){
+  const p=S.proyectos.find(x=>x.id==pid);
+  if(!p||!p.cronograma[mi]) return;
+  p.cronograma[mi].sub.push({id:genId(),desc:'',cantidad:0,precio:0,dias:3,done:false});
+  saveData(); reloadCronograma(pid);
 }
-function eliminarSubpartida(proyId, midx, sidx) {
-  const p = STATE.proyectos.find(p => p.id == proyId);
-  if (p && p.cronograma[midx] && p.cronograma[midx].sub) { p.cronograma[midx].sub.splice(sidx,1); saveData(); renderProyectoDetalle(proyId); }
+function elimPartida(pid,mi){
+  const p=S.proyectos.find(x=>x.id==pid);
+  if(!p) return;
+  if(!confirm('¿Eliminar esta partida y sus subpartidas?')) return;
+  p.cronograma.splice(mi,1); saveData(); reloadCronograma(pid);
 }
-
-// ==================== GASTOS ====================
-function renderGastos() {
-  let total = STATE.gastos.reduce((s,g)=>s+(g.valor||0),0);
-  let rows = "";
-  for (let g of STATE.gastos.slice().reverse()) {
-    rows += `<tr><td>${g.factura}</td><td>${g.descripcion}</td><td>${g.proveedor}</td><td>${fmt(g.valor)}</div></td><td>${g.fecha}</td><td><button class="btn btn-sm btn-danger" onclick="eliminarGasto('${g.id}')">✕</button></div></tr>`;
-  }
-  document.getElementById("content").innerHTML = `
-    <div class="stats-grid"><div class="stat-card"><div class="stat-label">Total Gastos</div><div class="stat-value">${fmt(total)}</div></div></div>
-    <div class="form-group"><label>Factura</label><input id="gastoFactura"></div>
-    <div class="form-group"><label>Proveedor</label><select id="gastoProveedor"><option value="">-- Seleccionar --</option>${STATE.proveedores.map(p=>`<option value="${p.id}">${p.nombre}</option>`).join("")}</select></div>
-    <div class="form-group"><label>Valor</label><input type="number" id="gastoValor"></div>
-    <div class="form-group"><label>Descripción</label><input id="gastoDesc"></div>
-    <div class="form-group"><label>Fecha</label><input type="date" id="gastoFecha" value="${new Date().toISOString().slice(0,10)}"></div>
-    <button class="btn btn-primary" onclick="registrarGasto()">+ Registrar</button>
-    <div class="table-wrap"><td><thead><tr><th>Factura</th><th>Descripción</th><th>Proveedor</th><th>Valor</th><th>Fecha</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-  `;
+function elimSub(pid,mi,si){
+  const p=S.proyectos.find(x=>x.id==pid);
+  if(!p||!p.cronograma[mi]) return;
+  p.cronograma[mi].sub.splice(si,1); saveData(); reloadCronograma(pid);
 }
-function registrarGasto() {
-  const factura = document.getElementById("gastoFactura").value.trim();
-  const provId = document.getElementById("gastoProveedor").value;
-  const valor = parseFloat(document.getElementById("gastoValor").value) || 0;
-  const desc = document.getElementById("gastoDesc").value.trim();
-  const fecha = document.getElementById("gastoFecha").value;
-  if (!factura || !provId || !valor) { toast("Complete campos", true); return; }
-  if (STATE.gastos.some(g => g.factura === factura)) { toast("Factura ya registrada", true); return; }
-  const prov = STATE.proveedores.find(p => p.id === provId);
-  STATE.gastos.push({ id: "g"+Date.now(), factura, descripcion: desc, proveedor: prov ? prov.nombre : "", valor, fecha });
-  saveData();
-  render();
-  toast("✓ Gasto registrado");
-}
-function eliminarGasto(id) { STATE.gastos = STATE.gastos.filter(g => g.id !== id); saveData(); render(); }
-
-// ==================== PROVEEDORES ====================
-function renderProveedores() {
-  let rows = "";
-  for (let p of STATE.proveedores) {
-    rows += `<tr><td>${p.nombre}</td><td>${p.tipo || "—"}</td><td>${p.telefono || "—"}</td><td><button class="btn btn-sm btn-danger" onclick="eliminarProveedor('${p.id}')">✕</button></div></tr>`;
-  }
-  document.getElementById("content").innerHTML = `
-    <div class="form-group"><label>Nombre</label><input id="provNombre"></div>
-    <div class="form-group"><label>Tipo</label><input id="provTipo"></div>
-    <div class="form-group"><label>Teléfono</label><input id="provTelefono"></div>
-    <button class="btn btn-primary" onclick="registrarProveedor()">+ Registrar</button>
-    <div class="table-wrap"></table><thead><tr><th>Nombre</th><th>Tipo</th><th>Teléfono</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-  `;
-}
-function registrarProveedor() {
-  const nombre = document.getElementById("provNombre").value.trim();
-  if (!nombre) { toast("Nombre requerido", true); return; }
-  if (STATE.proveedores.some(p => p.nombre.toLowerCase() === nombre.toLowerCase())) { toast("Proveedor ya existe", true); return; }
-  STATE.proveedores.push({ id: "pv"+Date.now(), nombre, tipo: document.getElementById("provTipo").value, telefono: document.getElementById("provTelefono").value });
-  saveData();
-  render();
-  toast("✓ Proveedor registrado");
-}
-function eliminarProveedor(id) { STATE.proveedores = STATE.proveedores.filter(p => p.id !== id); saveData(); render(); }
-
-// ==================== CENTROS DE COSTO ====================
-function renderCentrosCosto() {
-  let rows = "";
-  for (let c of STATE.centrosCosto) {
-    rows += `<tr><td>${c.nombre}</td><td>${c.descripcion || "—"}</td><td><button class="btn btn-sm btn-danger" onclick="eliminarCentroCosto('${c.id}')">✕</button></div></tr>`;
-  }
-  document.getElementById("content").innerHTML = `
-    <div class="form-group"><label>Nombre</label><input id="ccNombre"></div>
-    <div class="form-group"><label>Descripción</label><input id="ccDesc"></div>
-    <button class="btn btn-primary" onclick="registrarCentroCosto()">+ Agregar</button>
-    <div class="table-wrap"></table><thead><tr><th>Nombre</th><th>Descripción</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-  `;
-}
-function registrarCentroCosto() {
-  const nombre = document.getElementById("ccNombre").value.trim();
-  if (!nombre) { toast("Nombre requerido", true); return; }
-  if (STATE.centrosCosto.some(c => c.nombre.toLowerCase() === nombre.toLowerCase())) { toast("Ya existe", true); return; }
-  STATE.centrosCosto.push({ id: "cc"+Date.now(), nombre, descripcion: document.getElementById("ccDesc").value });
-  saveData();
-  render();
-  toast("✓ Centro de costo agregado");
-}
-function eliminarCentroCosto(id) { STATE.centrosCosto = STATE.centrosCosto.filter(c => c.id !== id); saveData(); render(); }
-
-// ==================== CONFIGURACIÓN ====================
-function renderConfig() {
-  let marcasHtml = "";
-  for (let i=0; i<STATE.marcas.length; i++) {
-    marcasHtml += `<div style="display:flex;gap:8px;margin:8px 0"><input value="${STATE.marcas[i]}" onchange="actualizarMarca(${i},this.value)"><button class="btn btn-sm btn-danger" onclick="eliminarMarca(${i})">✕</button></div>`;
-  }
-  let usuariosHtml = "";
-  for (let i=0; i<STATE.usuarios.length; i++) {
-    usuariosHtml += `<div style="display:flex;gap:8px;margin:8px 0"><input value="${STATE.usuarios[i].nombre}" onchange="actualizarUsuario(${i},'nombre',this.value)"><input type="password" value="${STATE.usuarios[i].pin}" style="width:80px" onchange="actualizarUsuario(${i},'pin',this.value)"><button class="btn btn-sm btn-danger" onclick="eliminarUsuario(${i})">✕</button></div>`;
-  }
-  document.getElementById("content").innerHTML = `
-    <div class="stats-grid"><div class="stat-card"><div class="stat-label">Marcas</div>${marcasHtml}<div style="margin-top:12px"><input id="nuevaMarca" placeholder="Nueva marca"><button class="btn btn-primary btn-sm" onclick="agregarMarca()">+</button></div></div>
-    <div class="stat-card"><div class="stat-label">Usuarios</div>${usuariosHtml}<button class="btn btn-primary btn-sm" onclick="agregarUsuario()">+ Usuario</button></div></div>
-  `;
-}
-function actualizarMarca(idx, val) { STATE.marcas[idx] = val; saveData(); render(); }
-function agregarMarca() { const n = document.getElementById("nuevaMarca").value.trim(); if (n && !STATE.marcas.includes(n)) { STATE.marcas.push(n); saveData(); render(); toast("Marca agregada"); } }
-function eliminarMarca(idx) { STATE.marcas.splice(idx,1); saveData(); render(); }
-function actualizarUsuario(idx, campo, val) { STATE.usuarios[idx][campo] = val; saveData(); }
-function agregarUsuario() { STATE.usuarios.push({ nombre: "Nuevo", pin: "0000", rol: "viewer" }); saveData(); render(); }
-function eliminarUsuario(idx) { STATE.usuarios.splice(idx,1); saveData(); render(); }
-
-// ==================== RENDER PRINCIPAL ====================
-function render() {
-  const nav = document.getElementById("nav");
-  if (!nav) return;
-  const items = [
-    { id: "dashboard", label: "Dashboard" },
-    { id: "proyectos", label: "Proyectos" },
-    { id: "gastos", label: "Gastos" },
-    { id: "proveedores", label: "Proveedores" },
-    { id: "centros", label: "Centros de Costo" },
-    { id: "config", label: "Configuración" }
-  ];
-  nav.innerHTML = items.map(i => `<div class="nav-item ${STATE.activeTab===i.id?"active":""}" onclick="goTab('${i.id}')">${i.label}</div>`).join("");
-  const pageTitle = document.getElementById("pageTitle");
-  if (pageTitle) pageTitle.innerHTML = STATE.activeTab.charAt(0).toUpperCase() + STATE.activeTab.slice(1);
-  closeSidebarOnMobile();
-  if (STATE.activeTab === "dashboard") renderDashboard();
-  else if (STATE.activeTab === "proyectos") renderProyectos();
-  else if (STATE.activeTab === "gastos") renderGastos();
-  else if (STATE.activeTab === "proveedores") renderProveedores();
-  else if (STATE.activeTab === "centros") renderCentrosCosto();
-  else if (STATE.activeTab === "config") renderConfig();
+function reloadCronograma(pid){
+  const fp=S.proyectos.find(x=>x.id==pid);
+  const panel=document.getElementById('detailPanel');
+  if(panel&&fp) panel.innerHTML=renderCronograma(fp);
 }
 
-function renderDashboard() {
-  const total = STATE.proyectos.length;
-  const inversion = STATE.proyectos.reduce((s,p)=>s+(p.montoObraCivil||0),0);
-  let html = `<div class="stats-grid"><div class="stat-card"><div class="stat-label">Proyectos</div><div class="stat-value">${total}</div></div><div class="stat-card"><div class="stat-label">Inversión Total</div><div class="stat-value">${fmt(inversion)}</div></div></div>
-  <div class="table-wrap"><table><thead><tr><th>Proyecto</th><th>Marca</th><th>Estado</th><th>Avance</th><th></th></tr></thead><tbody>`;
-  for (let p of STATE.proyectos) {
-    html += `<tr><td>${p.nombre}</td><td>${p.marca}</td><td>${p.estado}</td><td><div class="progress-bar"><div class="progress-fill" style="width:${p.avanceFisico}%"></div></div>${p.avanceFisico}%</div></td><td><button class="btn btn-sm btn-primary" onclick="verProyecto(${p.id})">Ver</button></div></tr>`;
-  }
-  html += `</tbody></table></div>`;
-  document.getElementById("content").innerHTML = html;
+// ===================== GASTOS =====================
+function renderGastos(){
+  const total=S.gastos.reduce((s,g)=>s+(g.valor||0),0);
+  let rows=S.gastos.length===0?`<tr><td colspan="6" class="empty-state">Sin gastos registrados</td></tr>`:'';
+  [...S.gastos].reverse().forEach(g=>{
+    rows+=`<tr><td>${esc(g.factura)}</td><td>${esc(g.descripcion)}</td><td>${esc(g.proveedor)}</td>
+      <td><strong>${fmt(g.valor)}</strong></td><td>${g.fecha}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="eliminarGasto('${g.id}')">✕</button></td></tr>`;
+  });
+  document.getElementById('content').innerHTML=`
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-label">Total Gastos</div><div class="stat-value">${fmt(total)}</div></div>
+      <div class="stat-card"><div class="stat-label">Registros</div><div class="stat-value">${S.gastos.length}</div></div>
+    </div>
+    <div class="stat-card" style="margin-bottom:20px">
+      <div class="section-title" style="margin-top:0">Registrar Gasto</div>
+      <div class="input-row">
+        <div class="form-group"><label>Factura *</label><input id="gastoFactura" placeholder="No. factura"></div>
+        <div class="form-group"><label>Proveedor *</label>
+          <select id="gastoProveedor"><option value="">-- Seleccionar --</option>
+            ${S.proveedores.map(p=>`<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="input-row">
+        <div class="form-group"><label>Valor * ($)</label><input type="number" min="0" id="gastoValor" placeholder="0.00"></div>
+        <div class="form-group"><label>Fecha</label><input type="date" id="gastoFecha" value="${new Date().toISOString().slice(0,10)}"></div>
+      </div>
+      <div class="form-group"><label>Descripción</label><input id="gastoDesc" placeholder="Descripción del gasto"></div>
+      <button class="btn btn-primary" onclick="registrarGasto()">+ Registrar Gasto</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Factura</th><th>Descripción</th><th>Proveedor</th><th>Valor</th><th>Fecha</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
 }
 
-function renderProyectos() {
-  let html = `<div class="table-wrap"></td><thead><tr><th>Proyecto</th><th>Marca</th><th>Estado</th><th>Avance</th><th>Monto</th><th></th></tr></thead><tbody>`;
-  for (let p of STATE.proyectos) {
-    html += `<tr><td>${p.nombre}</td><td>${p.marca}</td><td>${p.estado}</td><td><div class="progress-bar"><div class="progress-fill" style="width:${p.avanceFisico}%"></div></div>${p.avanceFisico}%</div></td><td>${fmt(p.montoObraCivil)}</div></td><td><button class="btn btn-sm btn-primary" onclick="verProyecto(${p.id})">Ver</button> <button class="btn btn-sm btn-danger" onclick="eliminarProyecto(${p.id})">Eliminar</button></div></tr>`;
-  }
-  html += `</tbody></table></div>`;
-  document.getElementById("content").innerHTML = html;
+function registrarGasto(){
+  const factura=document.getElementById('gastoFactura').value.trim();
+  const provId=document.getElementById('gastoProveedor').value;
+  const valor=parseFloat(document.getElementById('gastoValor').value)||0;
+  const desc=document.getElementById('gastoDesc').value.trim();
+  const fecha=document.getElementById('gastoFecha').value;
+  if(!factura){toast('Ingrese número de factura',true);return;}
+  if(!provId){toast('Seleccione un proveedor',true);return;}
+  if(valor<=0){toast('Ingrese un valor mayor a 0',true);return;}
+  const prov=S.proveedores.find(p=>p.id===provId);
+  S.gastos.push({id:genId(),factura,descripcion:desc,proveedor:prov?prov.nombre:'',valor,fecha});
+  saveData(); render(); toast('✓ Gasto registrado');
 }
 
-function goTab(tab) { STATE.activeTab = tab; render(); }
-
-// ==================== LOGIN CORREGIDO ====================
-let loginUserIndex = null;
-let pinInput = "";
-
-function checkEmpresa() {
-  const code = document.getElementById("empresaCode").value.trim().toUpperCase();
-  if (!code) { toast("Ingrese código", true); return; }
-  STATE.empresa = code;
-  loadData();
-  const userPanel = document.getElementById("userPanel");
-  if (!userPanel) return;
-  userPanel.style.display = "block";
-  let html = "";
-  for (let i=0; i<STATE.usuarios.length; i++) {
-    html += `<div style="padding:12px;background:#25221e;margin:8px 0;border-radius:8px;cursor:pointer" onclick="seleccionarUsuario(${i})"><strong>${STATE.usuarios[i].nombre}</strong> (${STATE.usuarios[i].rol})</div>`;
-  }
-  html += `<div><div id="pinDots" style="display:flex;justify-content:center;gap:12px;margin:20px 0"></div><div id="pinKeypad" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px"></div><div id="loginError" style="color:#e84040;margin-top:10px"></div></div>`;
-  userPanel.innerHTML = html;
-  generarPinKeypad();
-  loginUserIndex = null;
-  pinInput = "";
+function eliminarGasto(id){
+  if(!confirm('¿Eliminar este gasto?')) return;
+  S.gastos=S.gastos.filter(g=>g.id!==id); saveData(); render();
 }
 
-function seleccionarUsuario(idx) { loginUserIndex = idx; pinInput = ""; actualizarPinDots(); const err = document.getElementById("loginError"); if (err) err.innerHTML = ""; }
-
-function actualizarPinDots() {
-  const dots = document.getElementById("pinDots");
-  if (!dots) return;
-  let html = "";
-  for (let i=0; i<4; i++) {
-    html += `<div style="width:14px;height:14px;border-radius:50%;background:${i<pinInput.length?"#e8a020":"#2a2824"};margin:0 4px"></div>`;
-  }
-  dots.innerHTML = html;
+// ===================== PROVEEDORES =====================
+function renderProveedores(){
+  let rows=S.proveedores.length===0?`<tr><td colspan="4" class="empty-state">Sin proveedores</td></tr>`:'';
+  S.proveedores.forEach(p=>{
+    rows+=`<tr><td>${esc(p.nombre)}</td><td>${esc(p.tipo||'—')}</td><td>${esc(p.telefono||'—')}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="eliminarProveedor('${p.id}')">✕</button></td></tr>`;
+  });
+  document.getElementById('content').innerHTML=`
+    <div class="stat-card" style="margin-bottom:20px">
+      <div class="section-title" style="margin-top:0">Nuevo Proveedor</div>
+      <div class="input-row">
+        <div class="form-group"><label>Nombre *</label><input id="provNombre" placeholder="Nombre del proveedor"></div>
+        <div class="form-group"><label>Tipo</label><input id="provTipo" placeholder="Ej: Eléctrico, Materiales"></div>
+      </div>
+      <div class="form-group"><label>Teléfono</label><input id="provTelefono" placeholder="+503 0000-0000"></div>
+      <button class="btn btn-primary" onclick="registrarProveedor()">+ Registrar</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Nombre</th><th>Tipo</th><th>Teléfono</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
 }
 
-function generarPinKeypad() {
-  const pad = document.getElementById("pinKeypad");
-  if (!pad) return;
-  pad.innerHTML = "";
-  for (let i=1;i<=9;i++) {
-    const b = document.createElement("button");
-    b.textContent = i;
-    b.className = "btn btn-secondary";
-    b.style.padding = "16px";
-    b.onclick = () => ingresarPin(i.toString());
-    pad.appendChild(b);
-  }
-  const zero = document.createElement("button");
-  zero.textContent = "0";
-  zero.className = "btn btn-secondary";
-  zero.style.padding = "16px";
-  zero.onclick = () => ingresarPin("0");
-  pad.appendChild(zero);
-  const del = document.createElement("button");
-  del.textContent = "⌫";
-  del.className = "btn btn-secondary";
-  del.style.padding = "16px";
-  del.onclick = () => ingresarPin("del");
-  pad.appendChild(del);
+function registrarProveedor(){
+  const nombre=document.getElementById('provNombre').value.trim();
+  if(!nombre){toast('Ingrese nombre del proveedor',true);return;}
+  S.proveedores.push({id:genId(),nombre,tipo:document.getElementById('provTipo').value.trim(),telefono:document.getElementById('provTelefono').value.trim()});
+  saveData(); render(); toast('✓ Proveedor registrado');
 }
 
-function ingresarPin(k) {
-  if (loginUserIndex === null) { const err = document.getElementById("loginError"); if (err) err.innerHTML = "Primero selecciona un usuario"; return; }
-  if (k === "del") pinInput = pinInput.slice(0,-1);
-  else if (pinInput.length < 4) pinInput += k;
-  actualizarPinDots();
-  if (pinInput.length === 4) verificarPin();
+function eliminarProveedor(id){
+  if(!confirm('¿Eliminar este proveedor?')) return;
+  S.proveedores=S.proveedores.filter(p=>p.id!==id); saveData(); render();
 }
 
-function verificarPin() {
-  const loginScreen = document.getElementById("loginScreen");
-  const appContainer = document.getElementById("appContainer");
-  const errorDiv = document.getElementById("loginError");
-  if (!loginScreen || !appContainer) return;
-  if (loginUserIndex === null) { if (errorDiv) errorDiv.innerHTML = "Seleccione usuario"; return; }
-  if (pinInput === STATE.usuarios[loginUserIndex].pin) {
-    loginScreen.style.display = "none";
-    appContainer.style.display = "flex";
-    render();
-    toast("Bienvenido");
-  } else {
-    if (errorDiv) errorDiv.innerHTML = "PIN incorrecto";
-    pinInput = "";
-    actualizarPinDots();
-  }
+// ===================== CONFIGURACIÓN =====================
+function renderConfig(){
+  const marcasHtml=S.marcas.map((m,i)=>`
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <input value="${esc(m)}" onchange="S.marcas[${i}]=this.value;saveData();refreshMarcaSelect()">
+      <button class="btn btn-danger btn-sm" onclick="S.marcas.splice(${i},1);saveData();render()">✕</button>
+    </div>`).join('');
+  const usuariosHtml=S.usuarios.map((u,i)=>`
+    <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <input value="${esc(u.nombre)}" style="flex:2;min-width:100px" placeholder="Nombre"
+        onchange="S.usuarios[${i}].nombre=this.value;saveData()">
+      <input type="password" value="${esc(u.pin)}" style="width:80px" placeholder="PIN" maxlength="4"
+        onchange="S.usuarios[${i}].pin=this.value;saveData()">
+      <select style="width:100px" onchange="S.usuarios[${i}].rol=this.value;saveData()">
+        <option ${u.rol==='admin'?'selected':''}>admin</option>
+        <option ${u.rol==='viewer'?'selected':''}>viewer</option>
+      </select>
+      <button class="btn btn-danger btn-sm" onclick="if(S.usuarios.length>1){S.usuarios.splice(${i},1);saveData();render();}else{toast('Debe haber al menos un usuario',true);}">✕</button>
+    </div>`).join('');
+  document.getElementById('content').innerHTML=`
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label" style="margin-bottom:14px">Marcas</div>
+        ${marcasHtml}
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <input id="nuevaMarca" placeholder="Nueva marca" style="flex:1">
+          <button class="btn btn-primary btn-sm" onclick="agregarMarca()">+</button>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label" style="margin-bottom:14px">Usuarios</div>
+        ${usuariosHtml}
+        <button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="agregarUsuario()">+ Usuario</button>
+      </div>
+    </div>
+    <div class="stat-card" style="margin-top:16px">
+      <div class="stat-label">Empresa activa</div>
+      <div style="font-size:22px;font-weight:700;margin-top:6px">${S.empresa}</div>
+      <div style="font-size:13px;color:#666;margin-top:4px">Usuario: ${S.currentUser?.nombre||'—'} · Rol: ${S.currentUser?.rol||'—'}</div>
+    </div>`;
 }
 
-function logout() {
-  const loginScreen = document.getElementById("loginScreen");
-  const appContainer = document.getElementById("appContainer");
-  if (loginScreen) loginScreen.style.display = "flex";
-  if (appContainer) appContainer.style.display = "none";
-  // Limpiar campos de login
-  const empresaCode = document.getElementById("empresaCode");
-  if (empresaCode) empresaCode.value = "";
-  const userPanel = document.getElementById("userPanel");
-  if (userPanel) userPanel.style.display = "none";
-  loginUserIndex = null;
-  pinInput = "";
+function agregarMarca(){
+  const n=document.getElementById('nuevaMarca')?.value.trim();
+  if(!n){toast('Ingrese nombre de marca',true);return;}
+  if(S.marcas.includes(n)){toast('Marca ya existe',true);return;}
+  S.marcas.push(n); saveData(); render(); toast('✓ Marca agregada');
 }
 
-// ==================== INICIO ====================
-// Asegurar que los selects del modal se llenen cuando se abra el modal (ya se llenan en loadData)
+function agregarUsuario(){
+  S.usuarios.push({nombre:'Nuevo Usuario',pin:'0000',rol:'viewer'});
+  saveData(); render();
+}
+
+// ===================== RENDER PRINCIPAL =====================
+const NAV=[
+  {id:'dashboard',label:'Dashboard',icon:'📊'},
+  {id:'proyectos',label:'Proyectos',icon:'🏗'},
+  {id:'gastos',label:'Gastos',icon:'🧾'},
+  {id:'proveedores',label:'Proveedores',icon:'🤝'},
+  {id:'centros',label:'Centros de Costo',icon:'📁'},
+  {id:'config',label:'Configuración',icon:'⚙'},
+];
+
+function render(){
+  // Cerrar sidebar en móvil al navegar
+  if(window.innerWidth<=768) closeSidebar();
+
+  document.getElementById('nav').innerHTML=NAV.map(i=>`
+    <div class="nav-item ${S.activeTab===i.id?'active':''}" onclick="goTab('${i.id}')">
+      <span>${i.icon}</span><span>${i.label}</span>
+    </div>`).join('');
+
+  const titles={dashboard:'Dashboard',proyectos:'Proyectos',gastos:'Gastos',
+    proveedores:'Proveedores',centros:'Centros de Costo',config:'Configuración'};
+  document.getElementById('pageTitle').textContent=titles[S.activeTab]||S.activeTab;
+
+  // Botón de header contextual
+  const ha=document.getElementById('headerActions');
+  if(S.activeTab==='proyectos'||S.activeTab==='dashboard'){
+    ha.innerHTML=`<button class="btn btn-primary" onclick="openModal('newProjectModal');refreshMarcaSelect()">+ Nuevo Proyecto</button>`;
+  } else { ha.innerHTML=''; }
+
+  if(S.activeTab==='dashboard')   renderDashboard();
+  else if(S.activeTab==='proyectos') renderProyectos();
+  else if(S.activeTab==='gastos')    renderGastos();
+  else if(S.activeTab==='proveedores') renderProveedores();
+  else if(S.activeTab==='centros')   renderCentros();
+  else if(S.activeTab==='config')    renderConfig();
+}
+
+function renderDashboard(){
+  const total=S.proyectos.length;
+  const inversion=S.proyectos.reduce((s,p)=>s+(parseFloat(p.montoObraCivil)||0),0);
+  const enEjecucion=S.proyectos.filter(p=>p.estado==='En ejecución').length;
+  const finalizados=S.proyectos.filter(p=>p.estado==='Finalizado').length;
+  let rows=S.proyectos.length===0?`<tr><td colspan="5" class="empty-state">Sin proyectos — cree el primero</td></tr>`:'';
+  S.proyectos.forEach(p=>{
+    rows+=`<tr><td><strong>${esc(p.nombre)}</strong></td><td>${esc(p.marca)}</td>
+      <td>${badgeEstado(p.estado)}</td>
+      <td><div class="progress-bar"><div class="progress-fill" style="width:${p.avanceFisico}%"></div></div>
+        <span style="font-size:12px;color:#888">${p.avanceFisico}%</span></td>
+      <td><button class="btn btn-secondary btn-sm" onclick="verProyecto('${p.id}')">Ver →</button></td></tr>`;
+  });
+  document.getElementById('content').innerHTML=`
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-label">Total Proyectos</div><div class="stat-value">${total}</div></div>
+      <div class="stat-card"><div class="stat-label">Inversión Total</div><div class="stat-value" style="font-size:20px">${fmt(inversion)}</div></div>
+      <div class="stat-card"><div class="stat-label">En Ejecución</div><div class="stat-value" style="color:#e8a020">${enEjecucion}</div></div>
+      <div class="stat-card"><div class="stat-label">Finalizados</div><div class="stat-value" style="color:#2db87a">${finalizados}</div></div>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Proyecto</th><th>Marca</th><th>Estado</th><th>Avance</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function renderProyectos(){
+  let rows=S.proyectos.length===0?`<tr><td colspan="6" class="empty-state">Sin proyectos registrados</td></tr>`:'';
+  S.proyectos.forEach(p=>{
+    rows+=`<tr><td><strong>${esc(p.nombre)}</strong><br><span style="font-size:12px;color:#777">${esc(p.ubicacion||'Sin ubicación')}</span></td>
+      <td>${esc(p.marca)}</td><td>${badgeEstado(p.estado)}</td>
+      <td><div class="progress-bar"><div class="progress-fill" style="width:${p.avanceFisico}%"></div></div>
+        <span style="font-size:12px;color:#888">${p.avanceFisico}%</span></td>
+      <td>${fmt(p.montoObraCivil)}</td>
+      <td style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-secondary btn-sm" onclick="verProyecto('${p.id}')">Ver →</button>
+        <button class="btn btn-danger btn-sm" onclick="eliminarProyecto('${p.id}')">🗑</button>
+      </td></tr>`;
+  });
+  document.getElementById('content').innerHTML=`
+    <div class="table-wrap"><table>
+      <thead><tr><th>Proyecto</th><th>Marca</th><th>Estado</th><th>Avance</th><th>Monto OC</th><th>Acciones</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function renderCentros(){
+  let rows=S.centrosCosto.length===0?`<tr><td colspan="3" class="empty-state">Sin centros de costo</td></tr>`:'';
+  S.centrosCosto.forEach(c=>{
+    rows+=`<tr><td>${esc(c.nombre)}</td><td>${esc(c.descripcion||'—')}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="eliminarCentro('${c.id}')">✕</button></td></tr>`;
+  });
+  document.getElementById('content').innerHTML=`
+    <div class="stat-card" style="margin-bottom:20px">
+      <div class="input-row">
+        <div class="form-group"><label>Nombre *</label><input id="ccNombre" placeholder="Centro de costo"></div>
+        <div class="form-group"><label>Descripción</label><input id="ccDesc" placeholder="Descripción opcional"></div>
+      </div>
+      <button class="btn btn-primary" onclick="registrarCentro()">+ Agregar</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Nombre</th><th>Descripción</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function registrarCentro(){
+  const nombre=document.getElementById('ccNombre').value.trim();
+  if(!nombre){toast('Ingrese nombre del centro',true);return;}
+  S.centrosCosto.push({id:genId(),nombre,descripcion:document.getElementById('ccDesc').value.trim()});
+  saveData(); render(); toast('✓ Centro registrado');
+}
+
+function eliminarCentro(id){
+  if(!confirm('¿Eliminar este centro de costo?')) return;
+  S.centrosCosto=S.centrosCosto.filter(c=>c.id!==id); saveData(); render();
+}
+
+function goTab(tab){S.activeTab=tab;render();}
+
+// ===================== ESCAPE HTML =====================
+function esc(s){
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Solo mostrar login al inicio, ya montado en el HTML
 </script>
 </body>
 </html>
