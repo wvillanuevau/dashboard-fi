@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Proyectos Pro</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Karla:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -280,19 +283,108 @@ function toggleSB(){const s=document.getElementById('sidebar'),o=document.getEle
 function closeSB(){document.getElementById('sidebar').classList.remove('open');document.getElementById('overlay').classList.remove('on');document.getElementById('hmbBtn').textContent='☰'}
 
 // ═══════════════════════════════════════════════════════
-//  STORAGE
+//  STORAGE — versión de esquema v4
+//  Si cambia la versión se migran los datos automáticamente
+//  y se limpian claves viejas (pp2_, proyectos_, pj_v2_)
 // ═══════════════════════════════════════════════════════
+const SCHEMA_VER = 4;
+const CLAVES_OBSOLETAS = ['proyectos_','pj_v2_','pp2_','pp3_']; // prefijos de versiones anteriores
+
+function limpiarClavesObsoletas(empresa){
+  // Elimina entradas de versiones anteriores para la misma empresa
+  CLAVES_OBSOLETAS.forEach(prefix=>{
+    const k=prefix+empresa;
+    if(localStorage.getItem(k)!==null){
+      localStorage.removeItem(k);
+      console.info('[PP] Clave obsoleta eliminada:',k);
+    }
+  });
+  // También barre cualquier clave que contenga el empresa-code en posiciones inesperadas
+  Object.keys(localStorage)
+    .filter(k=>k!==('pp4_'+empresa)&&(k.endsWith('_'+empresa)||k.includes(empresa+'_')))
+    .forEach(k=>{localStorage.removeItem(k);console.info('[PP] Residuo eliminado:',k);});
+}
+
+function migrateData(d){
+  // Migración de esquemas anteriores al actual
+  // v1-v3 → v4: proyectos sin campo cronograma.partidas → inicializar
+  (d.proyectos||[]).forEach(p=>{
+    if(!p.cronograma)p.cronograma={aceptado:false,fechaInicio:'',partidas:[]};
+    if(!p.cronograma.partidas)p.cronograma.partidas=p.cronograma.items||[];
+    if(!p.pagos)p.pagos={imp:{monto:0,paid:false}};
+    if(!p.pagos.imp)p.pagos.imp={monto:0,paid:false};
+    if(typeof p.pagos.imp.monto==='undefined')p.pagos.imp.monto=0;
+  });
+  // Gastos sin proyectoId → null explícito
+  (d.gastos||[]).forEach(g=>{if(!('proyectoId' in g))g.proyectoId=null;if(!('centroId' in g))g.centroId=null;});
+  // Centros sin flag auto → false
+  (d.centros||[]).forEach(c=>{if(!('auto' in c))c.auto=false;});
+  return d;
+}
+
 function loadData(){
   try{
-    const r=localStorage.getItem('pp3_'+S.empresa);
-    if(r){const d=JSON.parse(r);S.proyectos=d.proyectos||[];S.gastos=d.gastos||[];S.proveedores=d.proveedores||[];S.centros=d.centros||[];S.marcas=d.marcas||['Papa Johns','Jimmy Johns'];S.usuarios=d.usuarios||[{nombre:'Admin',pin:'1234',rol:'admin'}];}
-    else{S.proyectos=[];S.gastos=[];S.proveedores=[{id:'pv1',nombre:'Proveedor Demo',tipo:'General',tel:''}];S.centros=[{id:'cc1',nombre:'Oficina Central',proyectoId:'',descripcion:''}];}
-  }catch(e){toast('Error al cargar datos',true)}
+    limpiarClavesObsoletas(S.empresa);
+    const raw=localStorage.getItem('pp4_'+S.empresa);
+    if(raw){
+      let d=JSON.parse(raw);
+      if(d._v!==SCHEMA_VER){
+        console.info('[PP] Migrando esquema',d._v,'→',SCHEMA_VER);
+        d=migrateData(d);
+        d._v=SCHEMA_VER;
+        localStorage.setItem('pp4_'+S.empresa,JSON.stringify(d));
+      }
+      S.proyectos=d.proyectos||[];
+      S.gastos=d.gastos||[];
+      S.proveedores=d.proveedores||[];
+      S.centros=d.centros||[];
+      S.marcas=d.marcas||['Papa Johns','Jimmy Johns'];
+      S.usuarios=d.usuarios||[{nombre:'Admin',pin:'1234',rol:'admin'}];
+    } else {
+      // Intenta rescatar datos de versión anterior antes de empezar de cero
+      let rescued=false;
+      for(const prefix of ['pp3_','pj_v2_','pp2_','proyectos_']){
+        const old=localStorage.getItem(prefix+S.empresa);
+        if(old){
+          try{
+            let d=migrateData(JSON.parse(old));
+            d._v=SCHEMA_VER;
+            localStorage.setItem('pp4_'+S.empresa,JSON.stringify(d));
+            localStorage.removeItem(prefix+S.empresa);
+            S.proyectos=d.proyectos||[];S.gastos=d.gastos||[];
+            S.proveedores=d.proveedores||[];S.centros=d.centros||[];
+            S.marcas=d.marcas||['Papa Johns','Jimmy Johns'];
+            S.usuarios=d.usuarios||[{nombre:'Admin',pin:'1234',rol:'admin'}];
+            toast('✓ Datos migrados desde versión anterior');
+            rescued=true;
+          }catch(e2){console.warn('[PP] Fallo migración desde',prefix,e2);}
+          break;
+        }
+      }
+      if(!rescued){
+        S.proyectos=[];S.gastos=[];
+        S.proveedores=[{id:'pv1',nombre:'Proveedor Demo',tipo:'General',tel:''}];
+        S.centros=[{id:'cc1',nombre:'Oficina Central',proyectoId:null,descripcion:'',auto:false}];
+      }
+    }
+  }catch(e){
+    console.error('[PP] Error loadData:',e);
+    toast('Error al cargar datos — revise la consola',true);
+  }
 }
+
 function saveData(){
-  try{localStorage.setItem('pp3_'+S.empresa,JSON.stringify({proyectos:S.proyectos,gastos:S.gastos,proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios}))}
-  catch(e){toast('Error al guardar (almacenamiento lleno)',true)}
+  try{
+    const payload={_v:SCHEMA_VER,proyectos:S.proyectos,gastos:S.gastos,
+      proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios};
+    localStorage.setItem('pp4_'+S.empresa,JSON.stringify(payload));
+  }catch(e){
+    if(e.name==='QuotaExceededError')toast('Almacenamiento lleno — libera espacio en el navegador',true);
+    else toast('Error al guardar datos',true);
+    console.error('[PP] saveData:',e);
+  }
 }
+
 function refreshMarcaSel(){const el=document.getElementById('npMarca');if(el)el.innerHTML=S.marcas.map(m=>`<option>${m}</option>`).join('')}
 
 // ═══════════════════════════════════════════════════════
@@ -457,39 +549,94 @@ function tplGen(p){
   <button class="btn btn-danger" onclick="elimProyecto('${p.id}')">🗑 Eliminar proyecto</button>`;
 }
 
-// ── TAB PAGOS (solo obra civil e imprevistos manual) ──
+// ── TAB PAGOS ──
+function updOC(pid,val){updP(pid,'montoObraCivil',Math.max(0,parseFloat(val)||0));reloadTab('pagos',pid)}
+function updImpMonto(pid,val){const p=S.proyectos.find(x=>x.id===pid);if(!p)return;p.pagos.imp={monto:Math.max(0,parseFloat(val)||0),paid:p.pagos?.imp?.paid||false};saveData();reloadTab('pagos',pid)}
+function updImpPaid(pid,val){const p=S.proyectos.find(x=>x.id===pid);if(!p)return;p.pagos.imp={monto:p.pagos?.imp?.monto||0,paid:val};saveData();reloadTab('pagos',pid)}
+
 function tplPagos(p){
-  const oc=parseFloat(p.montoObraCivil)||0;
-  const imp=parseFloat(p.pagos?.imp?.monto)||0;
-  const gp=totalGastosProyecto(p.id);
-  const total=oc+imp;
+  const oc  = parseFloat(p.montoObraCivil)||0;
+  const imp = parseFloat(p.pagos?.imp?.monto)||0;
+  const impPaid = p.pagos?.imp?.paid||false;
+  const lista = gastosDeProyecto(p.id);
+  const gp  = lista.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
+  const grandTotal = oc+imp+gp;
+
+  // Filas de gastos vinculados
+  let gastoRows = lista.length===0
+    ? `<tr><td colspan="5" class="empty" style="padding:20px">Sin gastos registrados para este proyecto — asígnalos desde la sección <strong>Gastos</strong></td></tr>`
+    : '';
+  lista.forEach(g=>{
+    const cc = g.centroId ? S.centros.find(x=>x.id===g.centroId)?.nombre||'—' : '—';
+    gastoRows+=`<tr>
+      <td>${fmtDate(g.fecha)}</td>
+      <td><strong>${esc(g.factura)}</strong></td>
+      <td>${esc(g.descripcion||'—')}</td>
+      <td>${esc(g.proveedor)}</td>
+      <td>${esc(cc)}</td>
+      <td style="text-align:right"><strong style="color:var(--red)">${fmt(g.valor)}</strong></td>
+    </tr>`;
+  });
+
   return`
-  <div style="background:#0a1a10;border:1px solid #1a3a20;border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:13px;color:#a0c8a8">
-    ℹ️ La hoja de pagos registra manualmente el <strong style="color:var(--accent)">valor de la obra civil</strong> y los <strong style="color:var(--accent)">imprevistos</strong>. El resto de pagos y gastos se gestiona desde el apartado <strong>Gastos</strong> y quedan reflejados automáticamente aquí.
+  <div style="background:#0a1a10;border:1px solid #1a3a20;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#a0c8a8">
+    ℹ️ <strong style="color:var(--accent)">Obra Civil</strong> e <strong style="color:var(--accent)">Imprevistos</strong> se ingresan manualmente. Los demás gastos se asignan desde el módulo <strong>Gastos</strong> y se reflejan automáticamente aquí.
   </div>
-  <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
-    <div class="kpi"><div class="kpi-lbl">Obra Civil</div><div class="kpi-val" style="font-size:18px">${fmt(oc)}</div></div>
-    <div class="kpi"><div class="kpi-lbl">Imprevistos</div><div class="kpi-val" style="font-size:18px;color:var(--accent)">${fmt(imp)}</div></div>
-    <div class="kpi"><div class="kpi-lbl">Gastos registrados</div><div class="kpi-val" style="font-size:18px;color:var(--red)">${fmt(gp)}</div></div>
+
+  <!-- KPIs resumen -->
+  <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+    <div class="kpi">
+      <div class="kpi-lbl">Obra Civil</div>
+      <div class="kpi-val" style="font-size:18px">${fmt(oc)}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-lbl">Imprevistos</div>
+      <div class="kpi-val" style="font-size:18px;color:var(--accent)">${fmt(imp)}</div>
+      <div class="kpi-sub">${impPaid?'✓ Pagado':'Pendiente'}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-lbl">Gastos registrados</div>
+      <div class="kpi-val" style="font-size:18px;color:var(--red)">${fmt(gp)}</div>
+      <div class="kpi-sub">${lista.length} factura(s)</div>
+    </div>
+    <div class="kpi" style="border-color:var(--accent)">
+      <div class="kpi-lbl">Total del Proyecto</div>
+      <div class="kpi-val" style="font-size:18px;color:var(--accent)">${fmt(grandTotal)}</div>
+      <div class="kpi-sub">OC + Imp + Gastos</div>
+    </div>
   </div>
-  <div class="kpi" style="margin-bottom:16px">
-    <div class="kpi-lbl">Gasto total del proyecto</div>
-    <div class="kpi-val">${fmt(total+gp)}</div>
-    <div class="kpi-sub">Obra Civil + Imprevistos + Gastos registrados</div>
+
+  <!-- Detalle de gastos vinculados -->
+  <div class="section-hdr">Gastos vinculados a este proyecto</div>
+  <div class="tbl-wrap" style="margin-bottom:20px">
+    <table>
+      <thead><tr><th>Fecha</th><th>Factura</th><th>Descripción</th><th>Proveedor</th><th>Centro Costo</th><th style="text-align:right">Valor</th></tr></thead>
+      <tbody>
+        ${gastoRows}
+        ${lista.length>0?`<tr style="background:#111009">
+          <td colspan="5" style="text-align:right;font-size:12px;color:var(--muted);padding-right:12px">SUBTOTAL GASTOS:</td>
+          <td style="text-align:right"><strong style="color:var(--red)">${fmt(gp)}</strong></td>
+        </tr>`:''}
+      </tbody>
+    </table>
   </div>
+
   <div class="divider"></div>
   <div class="section-hdr">Edición manual</div>
   <div class="row2">
     <div class="fg"><label>Monto Obra Civil ($)</label>
-      <input type="number" min="0" value="${oc}" onchange="updP('${p.id}','montoObraCivil',Math.max(0,parseFloat(this.value)||0));reloadTab('pagos','${p.id}')">
+      <input type="number" min="0" value="${oc}"
+        onchange="updOC('${p.id}',this.value)">
     </div>
     <div class="fg"><label>Imprevistos ($)</label>
-      <input type="number" min="0" value="${imp}" onchange="let pag={...S.proyectos.find(x=>x.id==='${p.id}').pagos,imp:{monto:parseFloat(this.value)||0,paid:S.proyectos.find(x=>x.id==='${p.id}').pagos.imp?.paid||false}};updPago('${p.id}','imp',pag.imp)">
+      <input type="number" min="0" value="${imp}"
+        onchange="updImpMonto('${p.id}',this.value)">
     </div>
   </div>
-  <div class="fg" style="display:flex;align-items:center;gap:10px">
-    <input type="checkbox" id="impPaid" ${p.pagos?.imp?.paid?'checked':''} onchange="let imp2={monto:${imp},paid:this.checked};updPago('${p.id}','imp',imp2)">
-    <label for="impPaid" style="text-transform:none;font-size:13px;cursor:pointer">Imprevistos pagados</label>
+  <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+    <input type="checkbox" id="impPaid" ${impPaid?'checked':''}
+      onchange="updImpPaid('${p.id}',this.checked)">
+    <label for="impPaid" style="font-size:13px;cursor:pointer">Imprevistos pagados</label>
   </div>`;
 }
 
@@ -811,10 +958,62 @@ function renderConfig(){
     <div class="kpi-lbl">Empresa activa</div>
     <div style="font-size:22px;font-weight:700;margin:4px 0">${S.empresa}</div>
     <div style="font-size:12px;color:var(--muted)">Usuario: ${S.currentUser?.nombre||'—'} · Rol: ${S.currentUser?.rol||'—'}</div>
+  </div>
+  <div class="card" style="margin-top:14px;border-color:#3a2a0a">
+    <div class="section-hdr" style="color:var(--accent)">⚙ Almacenamiento y caché</div>
+    <div id="storageInfo" style="font-size:12px;color:var(--muted);margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-secondary btn-sm" onclick="verStorage()">🔍 Revisar storage</button>
+      <button class="btn btn-secondary btn-sm" onclick="limpiarResidual()">🧹 Limpiar claves obsoletas</button>
+      <button class="btn btn-danger btn-sm" onclick="borrarTodo()">⚠ Borrar TODOS los datos</button>
+    </div>
+    <div style="margin-top:10px;font-size:11px;color:#555;line-height:1.6">
+      Si la app muestra datos viejos después de actualizar, usa <strong style="color:var(--muted)">Limpiar claves obsoletas</strong>.<br>
+      En Chrome/Edge: <kbd style="background:#2a2824;padding:1px 5px;border-radius:4px;font-size:11px">Ctrl+Shift+R</kbd> fuerza recarga sin caché.
+    </div>
   </div>`;
 }
 function addMarca(){const n=document.getElementById('nmarca')?.value.trim();if(!n){toast('Ingrese nombre',true);return}if(S.marcas.includes(n)){toast('Ya existe',true);return}S.marcas.push(n);saveData();render();toast('✓ Marca agregada')}
 function addUsuario(){S.usuarios.push({nombre:'Nuevo Usuario',pin:'0000',rol:'viewer'});saveData();render()}
+
+function verStorage(){
+  const clave='pp4_'+S.empresa;
+  const raw=localStorage.getItem(clave);
+  const kb=raw?(raw.length/1024).toFixed(1):0;
+  const todas=Object.keys(localStorage);
+  const obsoletas=todas.filter(k=>k!==clave&&CLAVES_OBSOLETAS.some(p=>k.startsWith(p)));
+  const residuos=todas.filter(k=>k!==clave&&!CLAVES_OBSOLETAS.some(p=>k.startsWith(p))&&(k.includes(S.empresa)));
+  const el=document.getElementById('storageInfo');
+  if(el) el.innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
+      <div class="kpi" style="padding:12px"><div class="kpi-lbl">Clave activa</div><div style="font-size:12px;color:var(--green);word-break:break-all">${clave}</div></div>
+      <div class="kpi" style="padding:12px"><div class="kpi-lbl">Tamaño</div><div style="font-size:16px;font-weight:700">${kb} KB</div></div>
+      <div class="kpi" style="padding:12px"><div class="kpi-lbl">Claves obsoletas</div><div style="font-size:16px;font-weight:700;color:${(obsoletas.length+residuos.length)>0?'var(--red)':'var(--green)'}">${obsoletas.length+residuos.length}</div></div>
+    </div>
+    ${obsoletas.length>0?`<div style="color:var(--red);font-size:11px;margin-bottom:6px">⚠ Obsoletas: ${obsoletas.join(', ')}</div>`:''}
+    <div style="color:var(--green);font-size:11px">✓ Versión de esquema: v${SCHEMA_VER} | Proyectos: ${S.proyectos.length} | Gastos: ${S.gastos.length} | Centros: ${S.centros.length}</div>`;
+}
+
+function limpiarResidual(){
+  limpiarClavesObsoletas(S.empresa);
+  // También elimina cualquier versión anterior de OTRAS empresas si acumuló
+  const antes=Object.keys(localStorage).length;
+  Object.keys(localStorage)
+    .filter(k=>CLAVES_OBSOLETAS.some(p=>k.startsWith(p)))
+    .forEach(k=>{localStorage.removeItem(k);});
+  const despues=Object.keys(localStorage).length;
+  const eliminadas=antes-despues;
+  toast(eliminadas>0?`✓ ${eliminadas} clave(s) obsoleta(s) eliminada(s)`:'✓ Sin residuos — storage limpio');
+  verStorage();
+}
+
+function borrarTodo(){
+  if(!confirm(`¿Borrar TODOS los datos de la empresa "${S.empresa}"?\n\nEsto eliminará proyectos, gastos, proveedores y centros de costo. No se puede deshacer.`))return;
+  if(!confirm('Segunda confirmación: ¿Estás seguro? Se perderán TODOS los datos.'))return;
+  localStorage.removeItem('pp4_'+S.empresa);
+  CLAVES_OBSOLETAS.forEach(p=>localStorage.removeItem(p+S.empresa));
+  logout();toast('Datos eliminados — reinicia sesión');
+}
 
 // ═══════════════════════════════════════════════════════
 //  DASHBOARD
