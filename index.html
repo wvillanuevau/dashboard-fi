@@ -42,7 +42,6 @@ th,td{padding:12px;text-align:left;border-bottom:1px solid #2a2824}
 .badge-success{background:#0d2a1a;color:#2db87a}
 .toast{position:fixed;bottom:20px;right:20px;background:#1a1815;border-left:3px solid #2db87a;padding:12px 20px;border-radius:8px;display:none;z-index:2000}
 .hamburger{display:none;position:fixed;bottom:20px;right:20px;width:56px;height:56px;border-radius:50%;background:#e8a020;border:none;font-size:24px;z-index:1000;cursor:pointer}
-.loading{opacity:0.6;pointer-events:none}
 @media(max-width:768px){
   .sidebar{transform:translateX(-100%);position:fixed;z-index:1001}
   .sidebar.open{transform:translateX(0)}
@@ -52,7 +51,18 @@ th,td{padding:12px;text-align:left;border-bottom:1px solid #2a2824}
 </style>
 </head>
 <body>
-<!-- Contenedor principal que nunca se destruye -->
+<!-- Pantalla de login (visible por defecto) -->
+<div id="loginScreen" style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0e0d0b;padding:20px">
+  <div style="background:#1a1815;padding:40px;border-radius:24px;max-width:400px;text-align:center">
+    <div style="font-size:28px;font-weight:800;color:#e8a020;margin-bottom:8px">📊 Proyectos Pro</div>
+    <div style="margin-bottom:32px;color:#aaa">Dashboard de Control</div>
+    <div class="form-group"><label>Código de Empresa</label><input id="empresaCode" placeholder="Ej: DEMO01"></div>
+    <button class="btn btn-primary" style="width:100%" onclick="checkEmpresa()">Continuar</button>
+    <div id="userPanel" style="margin-top:20px;display:none"></div>
+  </div>
+</div>
+
+<!-- Contenedor principal (oculto hasta login) -->
 <div id="appContainer" class="app" style="display:none">
   <div class="sidebar" id="sidebar">
     <div class="logo">📊 Proyectos Pro</div>
@@ -68,19 +78,9 @@ th,td{padding:12px;text-align:left;border-bottom:1px solid #2a2824}
     <div id="content"></div>
   </div>
 </div>
+
 <button class="hamburger" id="hamburgerBtn">☰</button>
 <div id="toast" class="toast"></div>
-
-<!-- Pantalla de login (se muestra/oculta, no se destruye) -->
-<div id="loginScreen" style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0e0d0b;padding:20px">
-  <div style="background:#1a1815;padding:40px;border-radius:24px;max-width:400px;text-align:center">
-    <div style="font-size:28px;font-weight:800;color:#e8a020;margin-bottom:8px">📊 Proyectos Pro</div>
-    <div style="margin-bottom:32px;color:#aaa">Dashboard de Control</div>
-    <div class="form-group"><label>Código de Empresa</label><input id="empresaCode" placeholder="Ej: DEMO01"></div>
-    <button class="btn btn-primary" style="width:100%" onclick="checkEmpresa()">Continuar</button>
-    <div id="userPanel" style="margin-top:20px;display:none"></div>
-  </div>
-</div>
 
 <!-- MODALES -->
 <div id="newProjectModal" class="modal">
@@ -120,12 +120,6 @@ let STATE = {
   currentProjectId: null
 };
 
-// Elementos DOM fijos
-const appContainer = document.getElementById("appContainer");
-const loginScreen = document.getElementById("loginScreen");
-const hamburgerBtn = document.getElementById("hamburgerBtn");
-const sidebar = document.getElementById("sidebar");
-
 // ==================== INICIALIZACIÓN Y PERSISTENCIA ====================
 function loadData() {
   const saved = localStorage.getItem(`proyectos_${STATE.empresa}`);
@@ -143,7 +137,6 @@ function loadData() {
     STATE.proveedores = [{ id: "1", nombre: "Proveedor Ejemplo", tipo: "General" }];
     STATE.centrosCosto = [{ id: "1", nombre: "Oficina Central" }];
   }
-  // Actualizar selects que ya existen
   const marcaSelect = document.getElementById("projMarca");
   if (marcaSelect) marcaSelect.innerHTML = STATE.marcas.map(m => `<option>${m}</option>`).join("");
 }
@@ -163,27 +156,36 @@ function saveData() {
 // ==================== UTILIDADES ====================
 function toast(msg, isError = false) {
   const t = document.getElementById("toast");
+  if (!t) return;
   t.textContent = msg;
   t.style.borderLeftColor = isError ? "#e84040" : "#2db87a";
   t.style.display = "block";
-  setTimeout(() => t.style.display = "none", 3000);
+  setTimeout(() => { if (t) t.style.display = "none"; }, 3000);
 }
 
 function fmt(n) {
   return "$" + (parseFloat(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2 });
 }
 
-function openModal(id) { document.getElementById(id).classList.add("open"); }
-function closeModal(id) { document.getElementById(id).classList.remove("open"); }
-
-function toggleSidebar() {
-  sidebar.classList.toggle("open");
+function openModal(id) {
+  const modal = document.getElementById(id);
+  if (modal) modal.classList.add("open");
 }
-hamburgerBtn.onclick = toggleSidebar;
+function closeModal(id) {
+  const modal = document.getElementById(id);
+  if (modal) modal.classList.remove("open");
+}
 
-// Cerrar sidebar al hacer clic en un elemento del nav (mobile)
+// Sidebar mobile
+const hamburgerBtn = document.getElementById("hamburgerBtn");
+const sidebar = document.getElementById("sidebar");
+if (hamburgerBtn) {
+  hamburgerBtn.onclick = () => {
+    if (sidebar) sidebar.classList.toggle("open");
+  };
+}
 function closeSidebarOnMobile() {
-  if (window.innerWidth <= 768) sidebar.classList.remove("open");
+  if (window.innerWidth <= 768 && sidebar) sidebar.classList.remove("open");
 }
 
 // ==================== PROYECTOS ====================
@@ -245,6 +247,7 @@ function renderProyectoDetalle(id) {
   const p = STATE.proyectos.find(p => p.id == id);
   if (!p) return;
   const container = document.getElementById("projectDetailContent");
+  if (!container) return;
   container.innerHTML = `
     <h3>${p.nombre}</h3>
     <div class="tabs" id="detailTabs">
@@ -255,13 +258,14 @@ function renderProyectoDetalle(id) {
     </div>
     <div id="detailPanel">${renderGeneral(p)}</div>
   `;
-  // Vincular eventos de tabs
+  // Vincular tabs
   document.querySelectorAll("#detailTabs .tab").forEach(tab => {
     tab.onclick = (e) => {
       document.querySelectorAll("#detailTabs .tab").forEach(t => t.classList.remove("active"));
       tab.classList.add("active");
       const tipo = tab.getAttribute("data-tab");
       const panel = document.getElementById("detailPanel");
+      if (!panel) return;
       if (tipo === "general") panel.innerHTML = renderGeneral(p);
       else if (tipo === "planos") panel.innerHTML = renderPlanos(p);
       else if (tipo === "pagos") panel.innerHTML = renderPagos(p);
@@ -332,10 +336,9 @@ function renderCronograma(p, proyId) {
     });
   });
   html += `</tbody></table></div><button class="btn btn-primary" onclick="agregarPartida(${proyId})">+ Agregar Partida</button>`;
-  // Delegar eventos después de inyectar el HTML
   setTimeout(() => {
     document.querySelectorAll(".crono-edit").forEach(el => {
-      el.onchange = (e) => {
+      el.onchange = () => {
         const idx = parseInt(el.dataset.idx);
         const field = el.dataset.field;
         let val = el.value;
@@ -344,7 +347,7 @@ function renderCronograma(p, proyId) {
       };
     });
     document.querySelectorAll(".sub-edit").forEach(el => {
-      el.onchange = (e) => {
+      el.onchange = () => {
         const midx = parseInt(el.dataset.midx);
         const sidx = parseInt(el.dataset.sidx);
         const field = el.dataset.field;
@@ -354,7 +357,7 @@ function renderCronograma(p, proyId) {
       };
     });
     document.querySelectorAll(".sub-check").forEach(el => {
-      el.onchange = (e) => {
+      el.onchange = () => {
         const midx = parseInt(el.dataset.midx);
         const sidx = parseInt(el.dataset.sidx);
         actualizarSubpartida(proyId, midx, sidx, "done", el.checked);
@@ -390,7 +393,7 @@ function renderGastos() {
   let total = STATE.gastos.reduce((s,g)=>s+(g.valor||0),0);
   let rows = "";
   for (let g of STATE.gastos.slice().reverse()) {
-    rows += `<tr><td>${g.factura}</td><td>${g.descripcion}</td><td>${g.proveedor}</td><td>${fmt(g.valor)}</td><td>${g.fecha}</td><td><button class="btn btn-sm btn-danger" onclick="eliminarGasto('${g.id}')">✕</button></td></tr>`;
+    rows += `<tr><td>${g.factura}</td><td>${g.descripcion}</td><td>${g.proveedor}</td><td>${fmt(g.valor)}</div></td><td>${g.fecha}</td><td><button class="btn btn-sm btn-danger" onclick="eliminarGasto('${g.id}')">✕</button></div></tr>`;
   }
   document.getElementById("content").innerHTML = `
     <div class="stats-grid"><div class="stat-card"><div class="stat-label">Total Gastos</div><div class="stat-value">${fmt(total)}</div></div></div>
@@ -400,7 +403,7 @@ function renderGastos() {
     <div class="form-group"><label>Descripción</label><input id="gastoDesc"></div>
     <div class="form-group"><label>Fecha</label><input type="date" id="gastoFecha" value="${new Date().toISOString().slice(0,10)}"></div>
     <button class="btn btn-primary" onclick="registrarGasto()">+ Registrar</button>
-    <div class="table-wrap"><table><thead><tr><th>Factura</th><th>Descripción</th><th>Proveedor</th><th>Valor</th><th>Fecha</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="table-wrap"><td><thead><tr><th>Factura</th><th>Descripción</th><th>Proveedor</th><th>Valor</th><th>Fecha</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
   `;
 }
 function registrarGasto() {
@@ -423,14 +426,14 @@ function eliminarGasto(id) { STATE.gastos = STATE.gastos.filter(g => g.id !== id
 function renderProveedores() {
   let rows = "";
   for (let p of STATE.proveedores) {
-    rows += `<tr><td>${p.nombre}</td><td>${p.tipo || "—"}</td><td>${p.telefono || "—"}</td><td><button class="btn btn-sm btn-danger" onclick="eliminarProveedor('${p.id}')">✕</button></td></tr>`;
+    rows += `<tr><td>${p.nombre}</td><td>${p.tipo || "—"}</td><td>${p.telefono || "—"}</td><td><button class="btn btn-sm btn-danger" onclick="eliminarProveedor('${p.id}')">✕</button></div></tr>`;
   }
   document.getElementById("content").innerHTML = `
     <div class="form-group"><label>Nombre</label><input id="provNombre"></div>
     <div class="form-group"><label>Tipo</label><input id="provTipo"></div>
     <div class="form-group"><label>Teléfono</label><input id="provTelefono"></div>
     <button class="btn btn-primary" onclick="registrarProveedor()">+ Registrar</button>
-    <div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Tipo</th><th>Teléfono</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="table-wrap"></table><thead><tr><th>Nombre</th><th>Tipo</th><th>Teléfono</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
   `;
 }
 function registrarProveedor() {
@@ -448,13 +451,13 @@ function eliminarProveedor(id) { STATE.proveedores = STATE.proveedores.filter(p 
 function renderCentrosCosto() {
   let rows = "";
   for (let c of STATE.centrosCosto) {
-    rows += `<tr><td>${c.nombre}</td><td>${c.descripcion || "—"}</td><td><button class="btn btn-sm btn-danger" onclick="eliminarCentroCosto('${c.id}')">✕</button></td></tr>`;
+    rows += `<tr><td>${c.nombre}</td><td>${c.descripcion || "—"}</td><td><button class="btn btn-sm btn-danger" onclick="eliminarCentroCosto('${c.id}')">✕</button></div></tr>`;
   }
   document.getElementById("content").innerHTML = `
     <div class="form-group"><label>Nombre</label><input id="ccNombre"></div>
     <div class="form-group"><label>Descripción</label><input id="ccDesc"></div>
     <button class="btn btn-primary" onclick="registrarCentroCosto()">+ Agregar</button>
-    <div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Descripción</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="table-wrap"></table><thead><tr><th>Nombre</th><th>Descripción</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
   `;
 }
 function registrarCentroCosto() {
@@ -493,6 +496,7 @@ function eliminarUsuario(idx) { STATE.usuarios.splice(idx,1); saveData(); render
 // ==================== RENDER PRINCIPAL ====================
 function render() {
   const nav = document.getElementById("nav");
+  if (!nav) return;
   const items = [
     { id: "dashboard", label: "Dashboard" },
     { id: "proyectos", label: "Proyectos" },
@@ -502,8 +506,8 @@ function render() {
     { id: "config", label: "Configuración" }
   ];
   nav.innerHTML = items.map(i => `<div class="nav-item ${STATE.activeTab===i.id?"active":""}" onclick="goTab('${i.id}')">${i.label}</div>`).join("");
-  document.getElementById("pageTitle").innerHTML = STATE.activeTab.charAt(0).toUpperCase() + STATE.activeTab.slice(1);
-  // Cerrar sidebar en móvil al navegar
+  const pageTitle = document.getElementById("pageTitle");
+  if (pageTitle) pageTitle.innerHTML = STATE.activeTab.charAt(0).toUpperCase() + STATE.activeTab.slice(1);
   closeSidebarOnMobile();
   if (STATE.activeTab === "dashboard") renderDashboard();
   else if (STATE.activeTab === "proyectos") renderProyectos();
@@ -519,16 +523,16 @@ function renderDashboard() {
   let html = `<div class="stats-grid"><div class="stat-card"><div class="stat-label">Proyectos</div><div class="stat-value">${total}</div></div><div class="stat-card"><div class="stat-label">Inversión Total</div><div class="stat-value">${fmt(inversion)}</div></div></div>
   <div class="table-wrap"><table><thead><tr><th>Proyecto</th><th>Marca</th><th>Estado</th><th>Avance</th><th></th></tr></thead><tbody>`;
   for (let p of STATE.proyectos) {
-    html += `<tr><td>${p.nombre}</td><td>${p.marca}</td><td>${p.estado}</td><td><div class="progress-bar"><div class="progress-fill" style="width:${p.avanceFisico}%"></div></div>${p.avanceFisico}%</td><td><button class="btn btn-sm btn-primary" onclick="verProyecto(${p.id})">Ver</button></td></tr>`;
+    html += `<tr><td>${p.nombre}</td><td>${p.marca}</td><td>${p.estado}</td><td><div class="progress-bar"><div class="progress-fill" style="width:${p.avanceFisico}%"></div></div>${p.avanceFisico}%</div></td><td><button class="btn btn-sm btn-primary" onclick="verProyecto(${p.id})">Ver</button></div></tr>`;
   }
   html += `</tbody></table></div>`;
   document.getElementById("content").innerHTML = html;
 }
 
 function renderProyectos() {
-  let html = `<div class="table-wrap"><table><thead><tr><th>Proyecto</th><th>Marca</th><th>Estado</th><th>Avance</th><th>Monto</th><th></th></tr></thead><tbody>`;
+  let html = `<div class="table-wrap"></td><thead><tr><th>Proyecto</th><th>Marca</th><th>Estado</th><th>Avance</th><th>Monto</th><th></th></tr></thead><tbody>`;
   for (let p of STATE.proyectos) {
-    html += `<tr><td>${p.nombre}</td><td>${p.marca}</td><td>${p.estado}</td><td><div class="progress-bar"><div class="progress-fill" style="width:${p.avanceFisico}%"></div></div>${p.avanceFisico}%</td><td>${fmt(p.montoObraCivil)}</td><td><button class="btn btn-sm btn-primary" onclick="verProyecto(${p.id})">Ver</button> <button class="btn btn-sm btn-danger" onclick="eliminarProyecto(${p.id})">Eliminar</button></td></tr>`;
+    html += `<tr><td>${p.nombre}</td><td>${p.marca}</td><td>${p.estado}</td><td><div class="progress-bar"><div class="progress-fill" style="width:${p.avanceFisico}%"></div></div>${p.avanceFisico}%</div></td><td>${fmt(p.montoObraCivil)}</div></td><td><button class="btn btn-sm btn-primary" onclick="verProyecto(${p.id})">Ver</button> <button class="btn btn-sm btn-danger" onclick="eliminarProyecto(${p.id})">Eliminar</button></div></tr>`;
   }
   html += `</tbody></table></div>`;
   document.getElementById("content").innerHTML = html;
@@ -546,6 +550,7 @@ function checkEmpresa() {
   STATE.empresa = code;
   loadData();
   const userPanel = document.getElementById("userPanel");
+  if (!userPanel) return;
   userPanel.style.display = "block";
   let html = "";
   for (let i=0; i<STATE.usuarios.length; i++) {
@@ -558,7 +563,7 @@ function checkEmpresa() {
   pinInput = "";
 }
 
-function seleccionarUsuario(idx) { loginUserIndex = idx; pinInput = ""; actualizarPinDots(); document.getElementById("loginError").innerHTML = ""; }
+function seleccionarUsuario(idx) { loginUserIndex = idx; pinInput = ""; actualizarPinDots(); const err = document.getElementById("loginError"); if (err) err.innerHTML = ""; }
 
 function actualizarPinDots() {
   const dots = document.getElementById("pinDots");
@@ -597,7 +602,7 @@ function generarPinKeypad() {
 }
 
 function ingresarPin(k) {
-  if (loginUserIndex === null) { document.getElementById("loginError").innerHTML = "Primero selecciona un usuario"; return; }
+  if (loginUserIndex === null) { const err = document.getElementById("loginError"); if (err) err.innerHTML = "Primero selecciona un usuario"; return; }
   if (k === "del") pinInput = pinInput.slice(0,-1);
   else if (pinInput.length < 4) pinInput += k;
   actualizarPinDots();
@@ -605,36 +610,39 @@ function ingresarPin(k) {
 }
 
 function verificarPin() {
-  if (loginUserIndex === null) { document.getElementById("loginError").innerHTML = "Seleccione usuario"; return; }
+  const loginScreen = document.getElementById("loginScreen");
+  const appContainer = document.getElementById("appContainer");
+  const errorDiv = document.getElementById("loginError");
+  if (!loginScreen || !appContainer) return;
+  if (loginUserIndex === null) { if (errorDiv) errorDiv.innerHTML = "Seleccione usuario"; return; }
   if (pinInput === STATE.usuarios[loginUserIndex].pin) {
-    // Login exitoso: ocultar login, mostrar app
     loginScreen.style.display = "none";
     appContainer.style.display = "flex";
     render();
     toast("Bienvenido");
   } else {
-    document.getElementById("loginError").innerHTML = "PIN incorrecto";
+    if (errorDiv) errorDiv.innerHTML = "PIN incorrecto";
     pinInput = "";
     actualizarPinDots();
   }
 }
 
 function logout() {
-  appContainer.style.display = "none";
-  loginScreen.style.display = "flex";
+  const loginScreen = document.getElementById("loginScreen");
+  const appContainer = document.getElementById("appContainer");
+  if (loginScreen) loginScreen.style.display = "flex";
+  if (appContainer) appContainer.style.display = "none";
   // Limpiar campos de login
-  document.getElementById("empresaCode").value = "";
-  document.getElementById("userPanel").style.display = "none";
+  const empresaCode = document.getElementById("empresaCode");
+  if (empresaCode) empresaCode.value = "";
+  const userPanel = document.getElementById("userPanel");
+  if (userPanel) userPanel.style.display = "none";
   loginUserIndex = null;
   pinInput = "";
 }
 
 // ==================== INICIO ====================
-// Asegurar que los selects del modal se llenen al cargar la página (aunque aún no se haya hecho login)
-document.addEventListener("DOMContentLoaded", () => {
-  // Cargar marcas por si el usuario abre el modal antes de login? No, el modal solo se abre después de login.
-  // Pero para evitar errores, inicializamos vacío.
-});
+// Asegurar que los selects del modal se llenen cuando se abra el modal (ya se llenan en loadData)
 </script>
 </body>
 </html>
