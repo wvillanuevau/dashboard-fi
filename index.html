@@ -9,8 +9,8 @@
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Karla',sans-serif;background:#0e0d0b;color:#e8e6e1}
 .app{display:flex;min-height:100vh}
-.sidebar{width:260px;background:#1a1815;border-right:1px solid #2a2824;padding:20px;position:fixed;height:100vh;overflow-y:auto}
-.main{flex:1;margin-left:260px;padding:20px}
+.sidebar{width:260px;background:#1a1815;border-right:1px solid #2a2824;padding:20px;position:fixed;height:100vh;overflow-y:auto;transition:transform 0.3s}
+.main{flex:1;margin-left:260px;padding:20px;transition:margin 0.3s}
 .logo{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:#e8a020;margin-bottom:10px}
 .nav-item{padding:10px;margin:5px 0;cursor:pointer;border-radius:8px}
 .nav-item:hover{background:#25221e}
@@ -19,9 +19,10 @@ body{font-family:'Karla',sans-serif;background:#0e0d0b;color:#e8e6e1}
 .btn-primary{background:#e8a020;color:#000}
 .btn-secondary{background:#25221e;color:#fff;border:1px solid #3a3a3a}
 .btn-danger{background:#2a0f0f;color:#e84040}
+.btn-sm{padding:4px 10px;font-size:12px}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,0.8);display:none;align-items:center;justify-content:center;z-index:1000}
 .modal.open{display:flex}
-.modal-content{background:#1a1815;padding:24px;border-radius:16px;width:90%;max-width:500px}
+.modal-content{background:#1a1815;padding:24px;border-radius:16px;width:90%;max-width:700px;max-height:90vh;overflow-y:auto}
 .form-group{margin-bottom:16px}
 .form-group label{display:block;margin-bottom:6px;font-size:13px;color:#aaa}
 input,select,textarea{width:100%;padding:10px;background:#25221e;border:1px solid #3a3a3a;border-radius:8px;color:#fff}
@@ -40,12 +41,19 @@ th,td{padding:12px;text-align:left;border-bottom:1px solid #2a2824}
 .badge{padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600}
 .badge-success{background:#0d2a1a;color:#2db87a}
 .toast{position:fixed;bottom:20px;right:20px;background:#1a1815;border-left:3px solid #2db87a;padding:12px 20px;border-radius:8px;display:none;z-index:2000}
-.hamburger{display:none;position:fixed;bottom:20px;right:20px;width:56px;height:56px;border-radius:50%;background:#e8a020;border:none;font-size:24px;z-index:1000}
-@media(max-width:768px){.sidebar{transform:translateX(-100%);transition:0.3s}.sidebar.open{transform:translateX(0)}.main{margin-left:0}.hamburger{display:block}}
+.hamburger{display:none;position:fixed;bottom:20px;right:20px;width:56px;height:56px;border-radius:50%;background:#e8a020;border:none;font-size:24px;z-index:1000;cursor:pointer}
+.loading{opacity:0.6;pointer-events:none}
+@media(max-width:768px){
+  .sidebar{transform:translateX(-100%);position:fixed;z-index:1001}
+  .sidebar.open{transform:translateX(0)}
+  .main{margin-left:0}
+  .hamburger{display:block}
+}
 </style>
 </head>
 <body>
-<div class="app" id="app" style="display:none">
+<!-- Contenedor principal que nunca se destruye -->
+<div id="appContainer" class="app" style="display:none">
   <div class="sidebar" id="sidebar">
     <div class="logo">📊 Proyectos Pro</div>
     <div style="font-size:12px;color:#888;margin-bottom:20px">Dashboard de Control</div>
@@ -60,8 +68,19 @@ th,td{padding:12px;text-align:left;border-bottom:1px solid #2a2824}
     <div id="content"></div>
   </div>
 </div>
-<button class="hamburger" id="hamburgerBtn" onclick="toggleSidebar()">☰</button>
+<button class="hamburger" id="hamburgerBtn">☰</button>
 <div id="toast" class="toast"></div>
+
+<!-- Pantalla de login (se muestra/oculta, no se destruye) -->
+<div id="loginScreen" style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0e0d0b;padding:20px">
+  <div style="background:#1a1815;padding:40px;border-radius:24px;max-width:400px;text-align:center">
+    <div style="font-size:28px;font-weight:800;color:#e8a020;margin-bottom:8px">📊 Proyectos Pro</div>
+    <div style="margin-bottom:32px;color:#aaa">Dashboard de Control</div>
+    <div class="form-group"><label>Código de Empresa</label><input id="empresaCode" placeholder="Ej: DEMO01"></div>
+    <button class="btn btn-primary" style="width:100%" onclick="checkEmpresa()">Continuar</button>
+    <div id="userPanel" style="margin-top:20px;display:none"></div>
+  </div>
+</div>
 
 <!-- MODALES -->
 <div id="newProjectModal" class="modal">
@@ -101,7 +120,13 @@ let STATE = {
   currentProjectId: null
 };
 
-// ==================== INICIALIZACIÓN ====================
+// Elementos DOM fijos
+const appContainer = document.getElementById("appContainer");
+const loginScreen = document.getElementById("loginScreen");
+const hamburgerBtn = document.getElementById("hamburgerBtn");
+const sidebar = document.getElementById("sidebar");
+
+// ==================== INICIALIZACIÓN Y PERSISTENCIA ====================
 function loadData() {
   const saved = localStorage.getItem(`proyectos_${STATE.empresa}`);
   if (saved) {
@@ -118,11 +143,9 @@ function loadData() {
     STATE.proveedores = [{ id: "1", nombre: "Proveedor Ejemplo", tipo: "General" }];
     STATE.centrosCosto = [{ id: "1", nombre: "Oficina Central" }];
   }
-  // Actualizar selects del modal
+  // Actualizar selects que ya existen
   const marcaSelect = document.getElementById("projMarca");
-  if (marcaSelect) {
-    marcaSelect.innerHTML = STATE.marcas.map(m => `<option>${m}</option>`).join("");
-  }
+  if (marcaSelect) marcaSelect.innerHTML = STATE.marcas.map(m => `<option>${m}</option>`).join("");
 }
 
 function saveData() {
@@ -152,7 +175,16 @@ function fmt(n) {
 
 function openModal(id) { document.getElementById(id).classList.add("open"); }
 function closeModal(id) { document.getElementById(id).classList.remove("open"); }
-function toggleSidebar() { document.getElementById("sidebar").classList.toggle("open"); }
+
+function toggleSidebar() {
+  sidebar.classList.toggle("open");
+}
+hamburgerBtn.onclick = toggleSidebar;
+
+// Cerrar sidebar al hacer clic en un elemento del nav (mobile)
+function closeSidebarOnMobile() {
+  if (window.innerWidth <= 768) sidebar.classList.remove("open");
+}
 
 // ==================== PROYECTOS ====================
 function crearProyecto() {
@@ -195,16 +227,25 @@ function actualizarProyecto(id, campo, valor) {
 
 function actualizarPago(id, tipo, campo, valor) {
   const p = STATE.proyectos.find(p => p.id == id);
-  if (p && p.pagos[tipo]) { p.pagos[tipo][campo] = valor; saveData(); render(); }
+  if (p && p.pagos[tipo]) { p.pagos[tipo][campo] = valor; saveData(); renderProyectoDetalle(id); }
+}
+
+function actualizarPorcentajePago(id, tipo, pct) {
+  const p = STATE.proyectos.find(p => p.id == id);
+  if (p && p.pagos[tipo]) { p.pagos[tipo].pct = parseFloat(pct); saveData(); renderProyectoDetalle(id); }
 }
 
 function verProyecto(id) {
   STATE.currentProjectId = id;
+  renderProyectoDetalle(id);
+  openModal("projectDetailModal");
+}
+
+function renderProyectoDetalle(id) {
   const p = STATE.proyectos.find(p => p.id == id);
   if (!p) return;
-  const modal = document.getElementById("projectDetailModal");
-  const content = document.getElementById("projectDetailContent");
-  content.innerHTML = `
+  const container = document.getElementById("projectDetailContent");
+  container.innerHTML = `
     <h3>${p.nombre}</h3>
     <div class="tabs" id="detailTabs">
       <div class="tab active" data-tab="general">General</div>
@@ -214,17 +255,17 @@ function verProyecto(id) {
     </div>
     <div id="detailPanel">${renderGeneral(p)}</div>
   `;
-  modal.classList.add("open");
-  // Eventos tabs
+  // Vincular eventos de tabs
   document.querySelectorAll("#detailTabs .tab").forEach(tab => {
-    tab.onclick = () => {
+    tab.onclick = (e) => {
       document.querySelectorAll("#detailTabs .tab").forEach(t => t.classList.remove("active"));
       tab.classList.add("active");
       const tipo = tab.getAttribute("data-tab");
-      if (tipo === "general") document.getElementById("detailPanel").innerHTML = renderGeneral(p);
-      if (tipo === "planos") document.getElementById("detailPanel").innerHTML = renderPlanos(p);
-      if (tipo === "pagos") document.getElementById("detailPanel").innerHTML = renderPagos(p);
-      if (tipo === "cronograma") document.getElementById("detailPanel").innerHTML = renderCronograma(p);
+      const panel = document.getElementById("detailPanel");
+      if (tipo === "general") panel.innerHTML = renderGeneral(p);
+      else if (tipo === "planos") panel.innerHTML = renderPlanos(p);
+      else if (tipo === "pagos") panel.innerHTML = renderPagos(p);
+      else if (tipo === "cronograma") panel.innerHTML = renderCronograma(p, id);
     };
   });
 }
@@ -236,7 +277,7 @@ function renderGeneral(p) {
     <div class="form-group"><label>Tipo</label><select onchange="actualizarProyecto(${p.id},'tipo',this.value)"><option ${p.tipo==="Remodelación"?"selected":""}>Remodelación</option><option ${p.tipo==="Construcción nueva"?"selected":""}>Construcción nueva</option></select></div>
     <div class="form-group"><label>Ubicación</label><input value="${p.ubicacion || ""}" onchange="actualizarProyecto(${p.id},'ubicacion',this.value)"></div>
     <div class="form-group"><label>Estado</label><select onchange="actualizarProyecto(${p.id},'estado',this.value)"><option ${p.estado==="Sin iniciar"?"selected":""}>Sin iniciar</option><option ${p.estado==="En ejecución"?"selected":""}>En ejecución</option><option ${p.estado==="Retrasado"?"selected":""}>Retrasado</option><option ${p.estado==="Finalizado"?"selected":""}>Finalizado</option></select></div>
-    <div class="form-group"><label>% Avance</label><input type="range" min="0" max="100" value="${p.avanceFisico}" onchange="actualizarProyecto(${p.id},'avanceFisico',parseInt(this.value))"><span>${p.avanceFisico}%</span></div>
+    <div class="form-group"><label>% Avance</label><input type="range" min="0" max="100" value="${p.avanceFisico}" oninput="this.nextElementSibling.innerText=this.value+'%'" onchange="actualizarProyecto(${p.id},'avanceFisico',parseInt(this.value))"><span>${p.avanceFisico}%</span></div>
     <div class="form-group"><label>Monto Obra Civil</label><input type="number" value="${p.montoObraCivil}" onchange="actualizarProyecto(${p.id},'montoObraCivil',parseFloat(this.value))"></div>
     <div class="form-group"><label>Contratista</label><input value="${p.contratista || ""}" onchange="actualizarProyecto(${p.id},'contratista',this.value)"></div>
     <div class="form-group"><label>Supervisor</label><input value="${p.supervisor || ""}" onchange="actualizarProyecto(${p.id},'supervisor',this.value)"></div>
@@ -247,7 +288,7 @@ function renderGeneral(p) {
 
 function renderPlanos(p) {
   return `<p>Subida de archivos DWG, PDF y renders.</p>
-    <button class="btn btn-secondary" onclick="alert('Función de subida de archivos')">Subir plano</button>`;
+    <button class="btn btn-secondary" onclick="alert('Función de subida de archivos (mock)')">Subir plano</button>`;
 }
 
 function renderPagos(p) {
@@ -257,44 +298,91 @@ function renderPagos(p) {
   const pf = montoOC * (p.pagos.pf.pct/100);
   return `
     <div class="stat-card"><div class="stat-label">Obra Civil</div><div class="stat-value">${fmt(montoOC)}</div></div>
-    <div><label><input type="checkbox" ${p.pagos.a1.paid?"checked":""} onchange="actualizarPago(${p.id},'a1','paid',this.checked)"> 1er Anticipo (${p.pagos.a1.pct}%) - ${fmt(a1)}</label></div>
-    <div><label><input type="checkbox" ${p.pagos.a2.paid?"checked":""} onchange="actualizarPago(${p.id},'a2','paid',this.checked)"> 2do Anticipo (${p.pagos.a2.pct}%) - ${fmt(a2)}</label></div>
-    <div><label><input type="checkbox" ${p.pagos.pf.paid?"checked":""} onchange="actualizarPago(${p.id},'pf','paid',this.checked)"> Pago Final (${p.pagos.pf.pct}%) - ${fmt(pf)}</label></div>
-    <div><label>Imprevistos: $<input type="number" value="${p.pagos.imp.monto}" onchange="actualizarPago(${p.id},'imp','monto',parseFloat(this.value))"> <input type="checkbox" ${p.pagos.imp.paid?"checked":""} onchange="actualizarPago(${p.id},'imp','paid',this.checked)"> Pagado</label></div>
+    <div style="margin-top:16px">
+      <label>1er Anticipo (%): <input type="number" step="1" value="${p.pagos.a1.pct}" onchange="actualizarPorcentajePago(${p.id},'a1',this.value)" style="width:70px"></label>
+      <div><label><input type="checkbox" ${p.pagos.a1.paid?"checked":""} onchange="actualizarPago(${p.id},'a1','paid',this.checked)"> Pagado - Monto: ${fmt(a1)}</label></div>
+    </div>
+    <div>
+      <label>2do Anticipo (%): <input type="number" step="1" value="${p.pagos.a2.pct}" onchange="actualizarPorcentajePago(${p.id},'a2',this.value)" style="width:70px"></label>
+      <div><label><input type="checkbox" ${p.pagos.a2.paid?"checked":""} onchange="actualizarPago(${p.id},'a2','paid',this.checked)"> Pagado - Monto: ${fmt(a2)}</label></div>
+    </div>
+    <div>
+      <label>Pago Final (%): <input type="number" step="1" value="${p.pagos.pf.pct}" onchange="actualizarPorcentajePago(${p.id},'pf',this.value)" style="width:70px"></label>
+      <div><label><input type="checkbox" ${p.pagos.pf.paid?"checked":""} onchange="actualizarPago(${p.id},'pf','paid',this.checked)"> Pagado - Monto: ${fmt(pf)}</label></div>
+    </div>
+    <div>
+      <label>Imprevistos: $<input type="number" value="${p.pagos.imp.monto}" onchange="actualizarPago(${p.id},'imp','monto',parseFloat(this.value))"></label>
+      <label><input type="checkbox" ${p.pagos.imp.paid?"checked":""} onchange="actualizarPago(${p.id},'imp','paid',this.checked)"> Pagado</label>
+    </div>
   `;
 }
 
-function renderCronograma(p) {
-  let html = `<div class="stats-grid"><div class="stat-card"><div class="stat-label">Días totales</div><div class="stat-value">${p.cronograma.reduce((s,m)=>s+(m.dias||0),0)}</div></div></div><div class="table-wrap"><table><thead><tr><th>Partida</th><th>Días</th><th>Subpartidas</th><th></th></tr></thead><tbody>`;
+function renderCronograma(p, proyId) {
+  let html = `<div class="stats-grid"><div class="stat-card"><div class="stat-label">Días totales</div><div class="stat-value">${p.cronograma.reduce((s,m)=>s+(m.dias||0),0)}</div></div></div>
+  <div class="table-wrap"><table><thead><tr><th>Partida</th><th>Días</th><th>Subpartidas</th><th></th></tr></thead><tbody>`;
   p.cronograma.forEach((m, idx) => {
-    html += `<tr><td><input value="${m.nombre}" onchange="actualizarPartida(${p.id},${idx},'nombre',this.value)"></td><td><input type="number" value="${m.dias}" style="width:70px" onchange="actualizarPartida(${p.id},${idx},'dias',parseInt(this.value))"></td><td>${(m.sub||[]).length}</td><td><button class="btn btn-secondary btn-sm" onclick="agregarSubpartida(${p.id},${idx})">+ Sub</button> </div></td></tr>`;
+    html += `<tr><td><input value="${m.nombre}" data-idx="${idx}" data-field="nombre" class="crono-edit" style="width:100%"></td>
+    <td><input type="number" value="${m.dias}" data-idx="${idx}" data-field="dias" class="crono-edit" style="width:70px"></td>
+    <td>${(m.sub||[]).length}</td>
+    <td><button class="btn btn-secondary btn-sm" data-idx="${idx}" onclick="agregarSubpartida(${proyId},${idx})">+ Sub</button></td></tr>`;
     (m.sub||[]).forEach((s, si) => {
-      html += `<tr style="background:#25221e"><td style="padding-left:30px"><input type="checkbox" ${s.done?"checked":""} onchange="actualizarSubpartida(${p.id},${idx},${si},'done',this.checked)"> <input value="${s.desc||""}" placeholder="Descripción" onchange="actualizarSubpartida(${p.id},${idx},${si},'desc',this.value)"></td><td><input type="number" value="${s.dias||1}" style="width:60px" onchange="actualizarSubpartida(${p.id},${idx},${si},'dias',parseInt(this.value))"></td><td colspan="2"><input type="number" placeholder="Cantidad" value="${s.cantidad||0}" style="width:80px" onchange="actualizarSubpartida(${p.id},${idx},${si},'cantidad',parseFloat(this.value))"> x <input type="number" placeholder="Precio" value="${s.precio||0}" style="width:80px" onchange="actualizarSubpartida(${p.id},${idx},${si},'precio',parseFloat(this.value))"> = <strong>${fmt((s.cantidad||0)*(s.precio||0))}</strong><button class="btn btn-sm btn-danger" style="margin-left:8px" onclick="eliminarSubpartida(${p.id},${idx},${si})">✕</button> </div></td></tr>`;
+      html += `<tr style="background:#25221e"><td style="padding-left:30px"><input type="checkbox" ${s.done?"checked":""} data-midx="${idx}" data-sidx="${si}" data-field="done" class="sub-check"> <input value="${s.desc||""}" placeholder="Descripción" data-midx="${idx}" data-sidx="${si}" data-field="desc" class="sub-edit" style="width:150px"></td>
+      <td><input type="number" value="${s.dias||1}" data-midx="${idx}" data-sidx="${si}" data-field="dias" class="sub-edit" style="width:60px"></td>
+      <td colspan="2"><input type="number" placeholder="Cantidad" value="${s.cantidad||0}" data-midx="${idx}" data-sidx="${si}" data-field="cantidad" class="sub-edit" style="width:80px"> x <input type="number" placeholder="Precio" value="${s.precio||0}" data-midx="${idx}" data-sidx="${si}" data-field="precio" class="sub-edit" style="width:80px"> = <strong>${fmt((s.cantidad||0)*(s.precio||0))}</strong><button class="btn btn-sm btn-danger" style="margin-left:8px" data-midx="${idx}" data-sidx="${si}" onclick="eliminarSubpartida(${proyId},${idx},${si})">✕</button></td></tr>`;
     });
   });
-  html += `</tbody></table></div><button class="btn btn-primary" onclick="agregarPartida(${p.id})">+ Agregar Partida</button>`;
+  html += `</tbody></table></div><button class="btn btn-primary" onclick="agregarPartida(${proyId})">+ Agregar Partida</button>`;
+  // Delegar eventos después de inyectar el HTML
+  setTimeout(() => {
+    document.querySelectorAll(".crono-edit").forEach(el => {
+      el.onchange = (e) => {
+        const idx = parseInt(el.dataset.idx);
+        const field = el.dataset.field;
+        let val = el.value;
+        if (field === "dias") val = parseInt(val) || 0;
+        actualizarPartida(proyId, idx, field, val);
+      };
+    });
+    document.querySelectorAll(".sub-edit").forEach(el => {
+      el.onchange = (e) => {
+        const midx = parseInt(el.dataset.midx);
+        const sidx = parseInt(el.dataset.sidx);
+        const field = el.dataset.field;
+        let val = el.value;
+        if (field === "dias" || field === "cantidad" || field === "precio") val = parseFloat(val) || 0;
+        actualizarSubpartida(proyId, midx, sidx, field, val);
+      };
+    });
+    document.querySelectorAll(".sub-check").forEach(el => {
+      el.onchange = (e) => {
+        const midx = parseInt(el.dataset.midx);
+        const sidx = parseInt(el.dataset.sidx);
+        actualizarSubpartida(proyId, midx, sidx, "done", el.checked);
+      };
+    });
+  }, 50);
   return html;
 }
 
 function actualizarPartida(proyId, idx, campo, val) {
   const p = STATE.proyectos.find(p => p.id == proyId);
-  if (p && p.cronograma[idx]) { p.cronograma[idx][campo] = val; saveData(); verProyecto(proyId); }
+  if (p && p.cronograma[idx]) { p.cronograma[idx][campo] = val; saveData(); renderProyectoDetalle(proyId); }
 }
 function actualizarSubpartida(proyId, midx, sidx, campo, val) {
   const p = STATE.proyectos.find(p => p.id == proyId);
-  if (p && p.cronograma[midx] && p.cronograma[midx].sub[sidx]) { p.cronograma[midx].sub[sidx][campo] = val; saveData(); verProyecto(proyId); }
+  if (p && p.cronograma[midx] && p.cronograma[midx].sub[sidx]) { p.cronograma[midx].sub[sidx][campo] = val; saveData(); renderProyectoDetalle(proyId); }
 }
 function agregarPartida(proyId) {
   const p = STATE.proyectos.find(p => p.id == proyId);
-  if (p) { p.cronograma.push({ id: "m"+Date.now(), nombre: "Nueva partida", dias: 5, sub: [] }); saveData(); verProyecto(proyId); }
+  if (p) { p.cronograma.push({ id: "m"+Date.now(), nombre: "Nueva partida", dias: 5, sub: [] }); saveData(); renderProyectoDetalle(proyId); }
 }
 function agregarSubpartida(proyId, midx) {
   const p = STATE.proyectos.find(p => p.id == proyId);
-  if (p && p.cronograma[midx]) { p.cronograma[midx].sub.push({ id: "s"+Date.now(), desc: "", cantidad: 0, precio: 0, dias: 3, done: false }); saveData(); verProyecto(proyId); }
+  if (p && p.cronograma[midx]) { p.cronograma[midx].sub.push({ id: "s"+Date.now(), desc: "", cantidad: 0, precio: 0, dias: 3, done: false }); saveData(); renderProyectoDetalle(proyId); }
 }
 function eliminarSubpartida(proyId, midx, sidx) {
   const p = STATE.proyectos.find(p => p.id == proyId);
-  if (p && p.cronograma[midx] && p.cronograma[midx].sub) { p.cronograma[midx].sub.splice(sidx,1); saveData(); verProyecto(proyId); }
+  if (p && p.cronograma[midx] && p.cronograma[midx].sub) { p.cronograma[midx].sub.splice(sidx,1); saveData(); renderProyectoDetalle(proyId); }
 }
 
 // ==================== GASTOS ====================
@@ -302,7 +390,7 @@ function renderGastos() {
   let total = STATE.gastos.reduce((s,g)=>s+(g.valor||0),0);
   let rows = "";
   for (let g of STATE.gastos.slice().reverse()) {
-    rows += `<tr><td>${g.factura}</td><td>${g.descripcion}</td><td>${g.proveedor}</td><td>${fmt(g.valor)}</div></td><td>${g.fecha}</td><td><button class="btn btn-sm btn-danger" onclick="eliminarGasto('${g.id}')">✕</button></div></tr>`;
+    rows += `<tr><td>${g.factura}</td><td>${g.descripcion}</td><td>${g.proveedor}</td><td>${fmt(g.valor)}</td><td>${g.fecha}</td><td><button class="btn btn-sm btn-danger" onclick="eliminarGasto('${g.id}')">✕</button></td></tr>`;
   }
   document.getElementById("content").innerHTML = `
     <div class="stats-grid"><div class="stat-card"><div class="stat-label">Total Gastos</div><div class="stat-value">${fmt(total)}</div></div></div>
@@ -322,6 +410,7 @@ function registrarGasto() {
   const desc = document.getElementById("gastoDesc").value.trim();
   const fecha = document.getElementById("gastoFecha").value;
   if (!factura || !provId || !valor) { toast("Complete campos", true); return; }
+  if (STATE.gastos.some(g => g.factura === factura)) { toast("Factura ya registrada", true); return; }
   const prov = STATE.proveedores.find(p => p.id === provId);
   STATE.gastos.push({ id: "g"+Date.now(), factura, descripcion: desc, proveedor: prov ? prov.nombre : "", valor, fecha });
   saveData();
@@ -334,7 +423,7 @@ function eliminarGasto(id) { STATE.gastos = STATE.gastos.filter(g => g.id !== id
 function renderProveedores() {
   let rows = "";
   for (let p of STATE.proveedores) {
-    rows += `<tr><td>${p.nombre}</td><td>${p.tipo || "—"}</td><td>${p.telefono || "—"}</td><td><button class="btn btn-sm btn-danger" onclick="eliminarProveedor('${p.id}')">✕</button> </div></tr>`;
+    rows += `<tr><td>${p.nombre}</td><td>${p.tipo || "—"}</td><td>${p.telefono || "—"}</td><td><button class="btn btn-sm btn-danger" onclick="eliminarProveedor('${p.id}')">✕</button></td></tr>`;
   }
   document.getElementById("content").innerHTML = `
     <div class="form-group"><label>Nombre</label><input id="provNombre"></div>
@@ -347,9 +436,11 @@ function renderProveedores() {
 function registrarProveedor() {
   const nombre = document.getElementById("provNombre").value.trim();
   if (!nombre) { toast("Nombre requerido", true); return; }
+  if (STATE.proveedores.some(p => p.nombre.toLowerCase() === nombre.toLowerCase())) { toast("Proveedor ya existe", true); return; }
   STATE.proveedores.push({ id: "pv"+Date.now(), nombre, tipo: document.getElementById("provTipo").value, telefono: document.getElementById("provTelefono").value });
   saveData();
   render();
+  toast("✓ Proveedor registrado");
 }
 function eliminarProveedor(id) { STATE.proveedores = STATE.proveedores.filter(p => p.id !== id); saveData(); render(); }
 
@@ -357,21 +448,23 @@ function eliminarProveedor(id) { STATE.proveedores = STATE.proveedores.filter(p 
 function renderCentrosCosto() {
   let rows = "";
   for (let c of STATE.centrosCosto) {
-    rows += `<tr><td>${c.nombre}</td><td>${c.descripcion || "—"}</td><td><button class="btn btn-sm btn-danger" onclick="eliminarCentroCosto('${c.id}')">✕</button> </div></tr>`;
+    rows += `<tr><td>${c.nombre}</td><td>${c.descripcion || "—"}</td><td><button class="btn btn-sm btn-danger" onclick="eliminarCentroCosto('${c.id}')">✕</button></td></tr>`;
   }
   document.getElementById("content").innerHTML = `
     <div class="form-group"><label>Nombre</label><input id="ccNombre"></div>
     <div class="form-group"><label>Descripción</label><input id="ccDesc"></div>
     <button class="btn btn-primary" onclick="registrarCentroCosto()">+ Agregar</button>
-    <div class="table-wrap"><tr><thead><tr><th>Nombre</th><th>Descripción</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Descripción</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
   `;
 }
 function registrarCentroCosto() {
   const nombre = document.getElementById("ccNombre").value.trim();
   if (!nombre) { toast("Nombre requerido", true); return; }
+  if (STATE.centrosCosto.some(c => c.nombre.toLowerCase() === nombre.toLowerCase())) { toast("Ya existe", true); return; }
   STATE.centrosCosto.push({ id: "cc"+Date.now(), nombre, descripcion: document.getElementById("ccDesc").value });
   saveData();
   render();
+  toast("✓ Centro de costo agregado");
 }
 function eliminarCentroCosto(id) { STATE.centrosCosto = STATE.centrosCosto.filter(c => c.id !== id); saveData(); render(); }
 
@@ -399,7 +492,6 @@ function eliminarUsuario(idx) { STATE.usuarios.splice(idx,1); saveData(); render
 
 // ==================== RENDER PRINCIPAL ====================
 function render() {
-  // Renderizar navegación
   const nav = document.getElementById("nav");
   const items = [
     { id: "dashboard", label: "Dashboard" },
@@ -411,7 +503,8 @@ function render() {
   ];
   nav.innerHTML = items.map(i => `<div class="nav-item ${STATE.activeTab===i.id?"active":""}" onclick="goTab('${i.id}')">${i.label}</div>`).join("");
   document.getElementById("pageTitle").innerHTML = STATE.activeTab.charAt(0).toUpperCase() + STATE.activeTab.slice(1);
-  // Renderizar contenido
+  // Cerrar sidebar en móvil al navegar
+  closeSidebarOnMobile();
   if (STATE.activeTab === "dashboard") renderDashboard();
   else if (STATE.activeTab === "proyectos") renderProyectos();
   else if (STATE.activeTab === "gastos") renderGastos();
@@ -424,18 +517,18 @@ function renderDashboard() {
   const total = STATE.proyectos.length;
   const inversion = STATE.proyectos.reduce((s,p)=>s+(p.montoObraCivil||0),0);
   let html = `<div class="stats-grid"><div class="stat-card"><div class="stat-label">Proyectos</div><div class="stat-value">${total}</div></div><div class="stat-card"><div class="stat-label">Inversión Total</div><div class="stat-value">${fmt(inversion)}</div></div></div>
-  <div class="table-wrap"><table><thead><tr><th>Proyecto</th><th>Marca</th><th>Estado</th><th>Avance</th><th></th></td></thead><tbody>`;
+  <div class="table-wrap"><table><thead><tr><th>Proyecto</th><th>Marca</th><th>Estado</th><th>Avance</th><th></th></tr></thead><tbody>`;
   for (let p of STATE.proyectos) {
-    html += `<tr><td>${p.nombre}</td><td>${p.marca}</td><td>${p.estado}</div></td><td><div class="progress-bar"><div class="progress-fill" style="width:${p.avanceFisico}%"></div></div>${p.avanceFisico}%</div></td><td><button class="btn btn-sm btn-primary" onclick="verProyecto(${p.id})">Ver</button> </div></tr>`;
+    html += `<tr><td>${p.nombre}</td><td>${p.marca}</td><td>${p.estado}</td><td><div class="progress-bar"><div class="progress-fill" style="width:${p.avanceFisico}%"></div></div>${p.avanceFisico}%</td><td><button class="btn btn-sm btn-primary" onclick="verProyecto(${p.id})">Ver</button></td></tr>`;
   }
   html += `</tbody></table></div>`;
   document.getElementById("content").innerHTML = html;
 }
 
 function renderProyectos() {
-  let html = `<div class="table-wrap"><tr><thead><tr><th>Proyecto</th><th>Marca</th><th>Estado</th><th>Avance</th><th>Monto</th><th></th></tr></thead><tbody>`;
+  let html = `<div class="table-wrap"><table><thead><tr><th>Proyecto</th><th>Marca</th><th>Estado</th><th>Avance</th><th>Monto</th><th></th></tr></thead><tbody>`;
   for (let p of STATE.proyectos) {
-    html += `<tr><td>${p.nombre}</td><td>${p.marca}</div></td><td>${p.estado}</div></td><td><div class="progress-bar"><div class="progress-fill" style="width:${p.avanceFisico}%"></div></div>${p.avanceFisico}%</div></td><td>${fmt(p.montoObraCivil)}</div></td><td><button class="btn btn-sm btn-primary" onclick="verProyecto(${p.id})">Ver</button> <button class="btn btn-sm btn-danger" onclick="eliminarProyecto(${p.id})">Eliminar</button> </div></tr>`;
+    html += `<tr><td>${p.nombre}</td><td>${p.marca}</td><td>${p.estado}</td><td><div class="progress-bar"><div class="progress-fill" style="width:${p.avanceFisico}%"></div></div>${p.avanceFisico}%</td><td>${fmt(p.montoObraCivil)}</td><td><button class="btn btn-sm btn-primary" onclick="verProyecto(${p.id})">Ver</button> <button class="btn btn-sm btn-danger" onclick="eliminarProyecto(${p.id})">Eliminar</button></td></tr>`;
   }
   html += `</tbody></table></div>`;
   document.getElementById("content").innerHTML = html;
@@ -443,21 +536,10 @@ function renderProyectos() {
 
 function goTab(tab) { STATE.activeTab = tab; render(); }
 
-// ==================== LOGIN ====================
-let loginState = { empresa: "", userIndex: null, pin: "", attempts: 0 };
-function renderLogin() {
-  document.body.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0e0d0b;padding:20px">
-      <div style="background:#1a1815;padding:40px;border-radius:24px;max-width:400px;text-align:center">
-        <div style="font-size:28px;font-weight:800;color:#e8a020;margin-bottom:8px">📊 Proyectos Pro</div>
-        <div style="margin-bottom:32px;color:#aaa">Dashboard de Control</div>
-        <div class="form-group"><label>Código de Empresa</label><input id="empresaCode" placeholder="Ej: DEMO01"></div>
-        <button class="btn btn-primary" style="width:100%" onclick="checkEmpresa()">Continuar</button>
-        <div id="userPanel" style="margin-top:20px;display:none"></div>
-      </div>
-    </div>
-  `;
-}
+// ==================== LOGIN CORREGIDO ====================
+let loginUserIndex = null;
+let pinInput = "";
+
 function checkEmpresa() {
   const code = document.getElementById("empresaCode").value.trim().toUpperCase();
   if (!code) { toast("Ingrese código", true); return; }
@@ -472,10 +554,12 @@ function checkEmpresa() {
   html += `<div><div id="pinDots" style="display:flex;justify-content:center;gap:12px;margin:20px 0"></div><div id="pinKeypad" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px"></div><div id="loginError" style="color:#e84040;margin-top:10px"></div></div>`;
   userPanel.innerHTML = html;
   generarPinKeypad();
+  loginUserIndex = null;
+  pinInput = "";
 }
-let loginUserIndex = null;
-let pinInput = "";
-function seleccionarUsuario(idx) { loginUserIndex = idx; pinInput = ""; actualizarPinDots(); }
+
+function seleccionarUsuario(idx) { loginUserIndex = idx; pinInput = ""; actualizarPinDots(); document.getElementById("loginError").innerHTML = ""; }
+
 function actualizarPinDots() {
   const dots = document.getElementById("pinDots");
   if (!dots) return;
@@ -485,6 +569,7 @@ function actualizarPinDots() {
   }
   dots.innerHTML = html;
 }
+
 function generarPinKeypad() {
   const pad = document.getElementById("pinKeypad");
   if (!pad) return;
@@ -510,33 +595,46 @@ function generarPinKeypad() {
   del.onclick = () => ingresarPin("del");
   pad.appendChild(del);
 }
+
 function ingresarPin(k) {
+  if (loginUserIndex === null) { document.getElementById("loginError").innerHTML = "Primero selecciona un usuario"; return; }
   if (k === "del") pinInput = pinInput.slice(0,-1);
   else if (pinInput.length < 4) pinInput += k;
   actualizarPinDots();
   if (pinInput.length === 4) verificarPin();
 }
+
 function verificarPin() {
-  if (loginUserIndex === null) { document.getElementById("loginError").textContent = "Seleccione usuario"; return; }
+  if (loginUserIndex === null) { document.getElementById("loginError").innerHTML = "Seleccione usuario"; return; }
   if (pinInput === STATE.usuarios[loginUserIndex].pin) {
-    document.body.innerHTML = "";
-    const appDiv = document.getElementById("app");
-    const toastDiv = document.getElementById("toast");
-    appDiv.style.display = "flex";
-    document.body.appendChild(appDiv);
-    document.body.appendChild(toastDiv);
+    // Login exitoso: ocultar login, mostrar app
+    loginScreen.style.display = "none";
+    appContainer.style.display = "flex";
     render();
     toast("Bienvenido");
   } else {
-    document.getElementById("loginError").textContent = "PIN incorrecto";
+    document.getElementById("loginError").innerHTML = "PIN incorrecto";
     pinInput = "";
     actualizarPinDots();
   }
 }
-function logout() { renderLogin(); }
+
+function logout() {
+  appContainer.style.display = "none";
+  loginScreen.style.display = "flex";
+  // Limpiar campos de login
+  document.getElementById("empresaCode").value = "";
+  document.getElementById("userPanel").style.display = "none";
+  loginUserIndex = null;
+  pinInput = "";
+}
 
 // ==================== INICIO ====================
-renderLogin();
+// Asegurar que los selects del modal se llenen al cargar la página (aunque aún no se haya hecho login)
+document.addEventListener("DOMContentLoaded", () => {
+  // Cargar marcas por si el usuario abre el modal antes de login? No, el modal solo se abre después de login.
+  // Pero para evitar errores, inicializamos vacío.
+});
 </script>
 </body>
 </html>
