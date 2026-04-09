@@ -5,47 +5,91 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>Proyectos Pro</title>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Karla:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3135/3135715.png">
+<title>Proyectos Pro — Dashboard de Control</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Karla:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{font-family:'Karla',sans-serif;background:#0e0d0b;color:#e8e6e1}
-  .app{display:flex;min-height:100vh}
-  .sidebar{width:260px;background:#1a1815;border-right:1px solid #2a2824;padding:20px}
-  .logo{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:#e8a020}
-  .nav-item{padding:10px;margin:5px 0;cursor:pointer;border-radius:8px}
-  .nav-item:hover{background:#25221e}
-  .nav-item.active{background:#e8a020;color:#000}
-  .main{flex:1;padding:20px}
-  .btn{padding:8px 16px;border-radius:8px;cursor:pointer;background:#e8a020;border:none;font-weight:bold}
-  .btn-secondary{background:#25221e;color:#fff}
-  .modal{position:fixed;inset:0;background:rgba(0,0,0,0.8);display:none;align-items:center;justify-content:center;z-index:1000}
-  .modal.open{display:flex}
-  .modal-content{background:#1a1815;padding:20px;border-radius:16px;width:90%;max-width:500px}
-  .form-group{margin-bottom:15px}
-  .form-group label{display:block;margin-bottom:5px}
-  input,select{width:100%;padding:8px;background:#25221e;border:1px solid #2a2824;color:#fff;border-radius:6px}
-  .toast{position:fixed;bottom:20px;right:20px;background:#1a1815;padding:10px 20px;border-radius:8px;display:none;z-index:2000}
+/* ========== ESTILOS COMPLETOS ========== */
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0e0d0b;--surface:#1a1815;--surface2:#25221e;--border:#2a2824;
+  --text:#e8e6e1;--text2:#b8b5ad;--text3:#7a766c;
+  --accent:#e8a020;--accent2:#c88818;
+  --green:#2db87a;--gbg:#0d2a1a;
+  --red:#e84040;--rbg:#2a0f0f;
+  --blue:#4090e8;--bbg:#0a1a2a;
+  --amber:#fbbf24;--abg:#2a1f0a;
+  --r:16px;--rs:10px;--shadow:0 4px 20px rgba(0,0,0,0.3);
+}
+[data-theme="light"]{
+  --bg:#f5f3ef;--surface:#ffffff;--surface2:#f0ede8;--border:#e0ddd5;
+  --text:#1a1815;--text2:#5a5650;--text3:#9a9690;
+}
+body{font-family:'Karla',sans-serif;background:var(--bg);color:var(--text);font-size:16px;line-height:1.5;min-height:100vh}
+input,select,textarea{background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:12px 14px;color:var(--text);font-size:16px;width:100%}
+button{cursor:pointer;font-family:inherit}
+.btn{padding:10px 18px;border-radius:var(--rs);font-weight:600;border:none;cursor:pointer}
+.btn-primary{background:var(--accent);color:#000}
+.btn-secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+.btn-danger{background:var(--rbg);color:var(--red);border:1px solid var(--red)}
+.btn-sm{padding:6px 12px;font-size:12px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:2000;display:none;align-items:center;justify-content:center;padding:20px}
+.modal.open{display:flex}
+.modal-content{background:var(--surface);border-radius:var(--r);padding:24px;max-width:600px;width:100%;max-height:90vh;overflow-y:auto}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;margin-bottom:6px;font-size:13px;color:var(--text3)}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
+.stat-card{background:var(--surface);border-radius:var(--r);padding:20px;border:1px solid var(--border)}
+.stat-label{font-size:12px;color:var(--text3);text-transform:uppercase;margin-bottom:8px}
+.stat-value{font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:20px;overflow-x:auto}
+.tab{padding:10px 20px;cursor:pointer;border-radius:var(--rs) var(--rs) 0 0;color:var(--text3)}
+.tab.active{color:var(--accent);border-bottom:2px solid var(--accent)}
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th,td{padding:12px;text-align:left;border-bottom:1px solid var(--border)}
+.progress-bar{height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;margin:8px 0}
+.progress-fill{height:100%;background:var(--green);border-radius:3px}
+.badge{padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600}
+.badge-success{background:var(--gbg);color:var(--green)}
+.badge-warning{background:var(--abg);color:var(--amber)}
+.badge-danger{background:var(--rbg);color:var(--red)}
+.badge-info{background:var(--bbg);color:var(--blue)}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--surface);border-left:3px solid var(--green);padding:12px 20px;border-radius:var(--rs);z-index:3000;display:none}
+.hamburger{position:fixed;bottom:20px;right:20px;width:56px;height:56px;border-radius:28px;background:var(--accent);border:none;font-size:24px;z-index:1000;display:none}
+@media(max-width:768px){.hamburger{display:flex}}
+.app{display:flex;min-height:100vh}
+.sidebar{width:280px;background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:100;transition:transform 0.3s}
+.sidebar.closed{transform:translateX(-280px)}
+.main{flex:1;margin-left:280px;transition:margin 0.3s}
+.main.full{margin-left:0}
+.sb-header{padding:24px 20px;border-bottom:1px solid var(--border)}
+.logo{font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--green));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.nav-item{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--rs);cursor:pointer;color:var(--text2);margin-bottom:2px}
+.nav-item:hover{background:var(--surface2);color:var(--text)}
+.nav-item.active{background:var(--accent);color:#000}
+.top-bar{display:flex;justify-content:space-between;padding:16px 24px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:90}
+.content{padding:24px}
 </style>
 </head>
 <body>
 <div class="app">
-  <div class="sidebar" id="sidebar">
-    <div class="logo">📊 Proyectos Pro</div>
-    <div style="font-size:12px;color:#888;margin:10px 0">Dashboard de Control</div>
-    <div id="nav"></div>
-    <div style="margin-top:30px"><button class="btn btn-secondary" onclick="logout()">Cerrar sesión</button></div>
-  </div>
-  <div class="main">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-      <h2 id="pageTitle">Dashboard</h2>
-      <button class="btn" onclick="openModal('newProjectModal')">+ Nuevo proyecto</button>
-    </div>
-    <div id="content"></div>
-  </div>
+  <aside class="sidebar" id="sidebar">
+    <div class="sb-header"><div class="logo">📊 Proyectos Pro</div><div class="sb-sub">Dashboard de Control</div></div>
+    <nav id="nav"></nav>
+    <div style="padding:16px"><button class="btn btn-secondary" style="width:100%" onclick="logout()">🚪 Cerrar sesión</button></div>
+  </aside>
+  <main class="main" id="main">
+    <div class="top-bar"><h2 id="pageTitle">Dashboard</h2><button class="btn btn-primary" onclick="openModal('newProjectModal')">+ Nuevo proyecto</button></div>
+    <div class="content" id="content"></div>
+  </main>
 </div>
+<button class="hamburger" id="hamburger" onclick="toggleSidebar()">☰</button>
 <div id="toast" class="toast"></div>
 
+<!-- MODAL NUEVO PROYECTO -->
 <div id="newProjectModal" class="modal">
   <div class="modal-content">
     <h3>Nuevo Proyecto</h3>
@@ -53,154 +97,466 @@
     <div class="form-group"><label>Marca</label><select id="projMarca"></select></div>
     <div class="form-group"><label>Tipo</label><select id="projTipo"><option>Remodelación</option><option>Construcción nueva</option></select></div>
     <div class="form-group"><label>Ubicación</label><input id="projUbicacion"></div>
-    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
+    <div class="form-group"><label>Centro de Costo</label><select id="projCentroCosto"><option value="">-- Sin asignar --</option></select></div>
+    <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:20px">
       <button class="btn btn-secondary" onclick="closeModal('newProjectModal')">Cancelar</button>
-      <button class="btn" onclick="crearProyecto()">Crear</button>
+      <button class="btn btn-primary" onclick="crearProyecto()">Crear</button>
     </div>
   </div>
 </div>
 
 <script>
-// ==================== CONFIGURACIÓN INICIAL ====================
-let STATE = {
-  proyectos: [],
-  marcas: ["Papa Johns", "Jimmy Johns"],
-  usuarios: [{ nombre: "Admin", pin: "1234", rol: "admin" }],
-  empresaActual: "DEMO",
-  activeTab: "dashboard"
+// ==================== FIREBASE CONFIG ====================
+const FB_CONFIG = {
+  projectId: "dashboard-fi",
+  apiKey: "AIzaSyACUU3zz_3-L7M5KNE06my2GuFKcLDjNog",
+  baseUrl: "https://firestore.googleapis.com/v1/projects/dashboard-fi/databases/(default)/documents"
 };
 
-// ==================== FUNCIONES AUXILIARES ====================
-function toast(msg, isError) {
-  var t = document.getElementById("toast");
-  t.textContent = msg;
-  t.style.display = "block";
-  setTimeout(function() { t.style.display = "none"; }, 2000);
+// ==================== ESTADO GLOBAL ====================
+let STATE = {
+  user: null,
+  empresaActual: null,
+  proyectos: [],
+  gastos: [],
+  proveedores: [],
+  centrosCosto: [],
+  marcas: ["Papa Johns", "Jimmy Johns"],
+  coloresMarca: { "Papa Johns": "#e8a020", "Jimmy Johns": "#e84040" },
+  usuarios: [{ id: "u1", nombre: "Admin", pin: "1234", rol: "admin" }],
+  activeTab: "dashboard",
+  syncStatus: "ok"
+};
+
+// ==================== FIREBASE API (REST) ====================
+const FB = {
+  async request(endpoint, method, body) {
+    const url = `${FB_CONFIG.baseUrl}/${endpoint}?key=${FB_CONFIG.apiKey}`;
+    const opts = { method, headers: { "Content-Type": "application/json" } };
+    if (body) opts.body = JSON.stringify(body);
+    const res = await fetch(url, opts);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  },
+  serialize(obj) {
+    const result = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (v === undefined) continue;
+      if (typeof v === "boolean") result[k] = { booleanValue: v };
+      else if (typeof v === "number") result[k] = { doubleValue: v };
+      else if (typeof v === "string") result[k] = { stringValue: v };
+      else result[k] = { stringValue: JSON.stringify(v) };
+    }
+    return result;
+  },
+  deserialize(data) {
+    const result = {};
+    for (const [k, v] of Object.entries(data)) {
+      if (v.stringValue !== undefined) {
+        try { result[k] = JSON.parse(v.stringValue); } catch { result[k] = v.stringValue; }
+      } else if (v.booleanValue !== undefined) result[k] = v.booleanValue;
+      else if (v.doubleValue !== undefined) result[k] = v.doubleValue;
+    }
+    return result;
+  },
+  async getEmpresa(empresaId) {
+    try {
+      const res = await this.request(`empresas/${empresaId}`, "GET");
+      return this.deserialize(res.fields);
+    } catch { return null; }
+  },
+  async setEmpresa(empresaId, data) {
+    await this.request(`empresas/${empresaId}?updateMask.fieldPaths=datos`, "PATCH", {
+      fields: this.serialize({ datos: JSON.stringify(data) })
+    });
+  },
+  async loadEmpresaData(empresaId) {
+    const doc = await this.getEmpresa(empresaId);
+    if (doc && doc.datos) return JSON.parse(doc.datos);
+    return null;
+  },
+  async saveEmpresaData(empresaId, data) {
+    await this.setEmpresa(empresaId, data);
+  }
+};
+
+// ==================== PERSISTENCIA LOCAL ====================
+function saveToLocal() {
+  const key = `np_${STATE.empresaActual}`;
+  const data = {
+    proyectos: STATE.proyectos,
+    gastos: STATE.gastos,
+    proveedores: STATE.proveedores,
+    centrosCosto: STATE.centrosCosto,
+    marcas: STATE.marcas,
+    coloresMarca: STATE.coloresMarca,
+    usuarios: STATE.usuarios
+  };
+  localStorage.setItem(key, JSON.stringify(data));
 }
 
-function openModal(id) {
-  document.getElementById(id).classList.add("open");
-}
-function closeModal(id) {
-  document.getElementById(id).classList.remove("open");
+function loadFromLocal() {
+  const key = `np_${STATE.empresaActual}`;
+  const raw = localStorage.getItem(key);
+  if (raw) {
+    const data = JSON.parse(raw);
+    STATE.proyectos = data.proyectos || [];
+    STATE.gastos = data.gastos || [];
+    STATE.proveedores = data.proveedores || [];
+    STATE.centrosCosto = data.centrosCosto || [];
+    if (data.marcas) STATE.marcas = data.marcas;
+    if (data.coloresMarca) STATE.coloresMarca = data.coloresMarca;
+    if (data.usuarios) STATE.usuarios = data.usuarios;
+  }
+  if (!STATE.proyectos.length) initSampleData();
 }
 
-function fmt(n) {
-  return "$" + (parseFloat(n) || 0).toLocaleString("en-US", {minimumFractionDigits:2});
+function initSampleData() {
+  STATE.proyectos = [{
+    id: "demo1",
+    nombre: "Proyecto Demo",
+    marca: "Papa Johns",
+    tipo: "Remodelación",
+    ubicacion: "Ciudad Demo",
+    centroCosto: "",
+    estado: "Sin iniciar",
+    avanceFisico: 0,
+    montoObraCivil: 0,
+    pagos: { a1: { paid: false, pct: 65 }, a2: { paid: false, pct: 25 }, pf: { paid: false, pct: 10 }, imp: { monto: 0, paid: false } },
+    planos: { dwg: [], pdf: [], renders: [] },
+    cronograma: [{ id: "p1", nombre: "Obra base", dias: 5, sub: [] }]
+  }];
+  STATE.gastos = [];
+  STATE.proveedores = [{ id: "pv1", nombre: "Proveedor Ejemplo" }];
+  STATE.centrosCosto = [{ id: "cc1", nombre: "Centro Demo" }];
+  saveToLocal();
 }
 
-// ==================== PROYECTOS ====================
+// ==================== SINCRONIZACIÓN ====================
+let syncInProgress = false;
+async function syncToFirebase() {
+  if (!STATE.empresaActual || syncInProgress) return;
+  syncInProgress = true;
+  try {
+    await FB.saveEmpresaData(STATE.empresaActual, {
+      proyectos: STATE.proyectos,
+      gastos: STATE.gastos,
+      proveedores: STATE.proveedores,
+      centrosCosto: STATE.centrosCosto,
+      marcas: STATE.marcas,
+      coloresMarca: STATE.coloresMarca,
+      usuarios: STATE.usuarios
+    });
+    toast("✓ Sincronizado");
+  } catch(e) { toast("Error sync", true); }
+  finally { syncInProgress = false; }
+}
+
+async function loadFromFirebase() {
+  if (!STATE.empresaActual) return;
+  try {
+    const data = await FB.loadEmpresaData(STATE.empresaActual);
+    if (data) {
+      STATE.proyectos = data.proyectos || [];
+      STATE.gastos = data.gastos || [];
+      STATE.proveedores = data.proveedores || [];
+      STATE.centrosCosto = data.centrosCosto || [];
+      if (data.marcas) STATE.marcas = data.marcas;
+      if (data.coloresMarca) STATE.coloresMarca = data.coloresMarca;
+      if (data.usuarios) STATE.usuarios = data.usuarios;
+      saveToLocal();
+      render();
+      toast("✓ Datos cargados");
+    }
+  } catch(e) { console.error(e); }
+}
+
+// ==================== FUNCIONES DE PROYECTOS ====================
 function crearProyecto() {
-  var nombre = document.getElementById("projNombre").value.trim();
+  const nombre = document.getElementById("projNombre").value.trim();
   if (!nombre) { toast("Ingrese nombre", true); return; }
-  var nuevo = {
-    id: Date.now(),
+  const nuevo = {
+    id: Date.now() + "_" + Math.random().toString(36),
     nombre: nombre,
     marca: document.getElementById("projMarca").value,
     tipo: document.getElementById("projTipo").value,
     ubicacion: document.getElementById("projUbicacion").value,
+    centroCosto: document.getElementById("projCentroCosto").value,
     estado: "Sin iniciar",
     avanceFisico: 0,
-    montoObraCivil: 0
+    montoObraCivil: 0,
+    pagos: { a1: { paid: false, pct: 65 }, a2: { paid: false, pct: 25 }, pf: { paid: false, pct: 10 }, imp: { monto: 0, paid: false } },
+    planos: { dwg: [], pdf: [], renders: [] },
+    cronograma: [{ id: "p1", nombre: "Obra base", dias: 5, sub: [] }]
   };
   STATE.proyectos.push(nuevo);
-  localStorage.setItem("proyectos_demo", JSON.stringify(STATE.proyectos));
+  saveToLocal();
+  syncToFirebase();
   closeModal("newProjectModal");
   render();
-  toast("Proyecto creado");
+  toast("✓ Proyecto creado");
 }
 
 function eliminarProyecto(id) {
-  if (!confirm("¿Eliminar?")) return;
-  STATE.proyectos = STATE.proyectos.filter(function(p) { return p.id != id; });
-  localStorage.setItem("proyectos_demo", JSON.stringify(STATE.proyectos));
+  if (!confirm("¿Eliminar proyecto?")) return;
+  STATE.proyectos = STATE.proyectos.filter(p => p.id !== id);
+  saveToLocal();
+  syncToFirebase();
   render();
 }
 
-// ==================== RENDER ====================
+// ==================== RENDER PRINCIPAL ====================
 function render() {
   renderNav();
-  if (STATE.activeTab === "dashboard") renderDashboard();
-  else if (STATE.activeTab === "proyectos") renderProyectos();
+  const content = document.getElementById("content");
+  if (STATE.activeTab === "dashboard") renderDashboard(content);
+  else if (STATE.activeTab === "proyectos") renderProyectos(content);
+  else if (STATE.activeTab === "gastos") renderGastos(content);
+  else if (STATE.activeTab === "proveedores") renderProveedores(content);
+  else if (STATE.activeTab === "centros") renderCentrosCosto(content);
+  else renderConfig(content);
 }
 
 function renderNav() {
-  var nav = document.getElementById("nav");
-  var items = [
+  const nav = document.getElementById("nav");
+  const items = [
     { id: "dashboard", label: "Dashboard" },
-    { id: "proyectos", label: "Proyectos" }
+    { id: "proyectos", label: "Proyectos" },
+    { id: "gastos", label: "Gastos" },
+    { id: "proveedores", label: "Proveedores" },
+    { id: "centros", label: "Centros de Costo" },
+    { id: "config", label: "Configuración" }
   ];
-  var html = "";
-  for (var i = 0; i < items.length; i++) {
-    var active = (STATE.activeTab === items[i].id) ? "active" : "";
-    html += '<div class="nav-item ' + active + '" onclick="goTab(\'' + items[i].id + '\')">' + items[i].label + '</div>';
+  let html = "";
+  for (let i = 0; i < items.length; i++) {
+    const active = (STATE.activeTab === items[i].id) ? "active" : "";
+    html += `<div class="nav-item ${active}" onclick="goTab('${items[i].id}')">${items[i].label}</div>`;
   }
   nav.innerHTML = html;
 }
 
-function goTab(tab) {
-  STATE.activeTab = tab;
-  render();
+function goTab(tab) { STATE.activeTab = tab; render(); }
+
+function renderDashboard(container) {
+  const total = STATE.proyectos.length;
+  let inversion = 0;
+  for (let p of STATE.proyectos) inversion += p.montoObraCivil;
+  container.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-label">Proyectos</div><div class="stat-value">${total}</div></div>
+      <div class="stat-card"><div class="stat-label">Inversión Total</div><div class="stat-value">$${fmt(inversion)}</div></div>
+    </div>
+    <div class="table-wrap"> <table> <thead><tr><th>Proyecto</th><th>Marca</th><th>Estado</th><th>Avance</th><th></th></tr></thead><tbody>
+      ${STATE.proyectos.map(p => `<tr><td>${p.nombre}</td><td>${p.marca}</td><td>${p.estado}</td><td><div class="progress-bar"><div class="progress-fill" style="width:${p.avanceFisico}%"></div></div>${p.avanceFisico}%</td><td><button class="btn btn-sm btn-primary" onclick="verProyecto('${p.id}')">Ver</button></td></tr>`).join("")}
+    </tbody></table></div>`;
 }
 
-function renderDashboard() {
-  var total = STATE.proyectos.length;
-  var inversion = 0;
-  for (var i = 0; i < STATE.proyectos.length; i++) {
-    inversion += STATE.proyectos[i].montoObraCivil;
-  }
-  var html = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">';
-  html += '<div style="background:#1a1815;padding:20px;border-radius:12px"><div>Total Proyectos</div><div style="font-size:28px">' + total + '</div></div>';
-  html += '<div style="background:#1a1815;padding:20px;border-radius:12px"><div>Inversión Total</div><div style="font-size:28px">' + fmt(inversion) + '</div></div>';
-  html += '</div>';
-  document.getElementById("content").innerHTML = html;
+function verProyecto(id) {
+  const p = STATE.proyectos.find(x => x.id === id);
+  if (!p) return;
+  const content = document.getElementById("content");
+  content.innerHTML = `
+    <div><button class="btn btn-secondary" onclick="renderProyectos()">← Volver</button> <h2>${p.nombre}</h2></div>
+    <div class="tabs"><div class="tab active" onclick="mostrarPestanya('general', '${p.id}')">General</div><div class="tab" onclick="mostrarPestanya('planos', '${p.id}')">Planos</div><div class="tab" onclick="mostrarPestanya('pagos', '${p.id}')">Pagos</div><div class="tab" onclick="mostrarPestanya('crono', '${p.id}')">Cronograma</div></div>
+    <div id="proyectoDetalle"></div>`;
+  mostrarPestanya("general", p.id);
 }
 
-function renderProyectos() {
-  if (STATE.proyectos.length === 0) {
-    document.getElementById("content").innerHTML = '<div style="text-align:center;padding:40px">No hay proyectos. Crea uno nuevo.</div>';
-    return;
+function mostrarPestanya(tipo, id) {
+  const p = STATE.proyectos.find(x => x.id === id);
+  if (!p) return;
+  const div = document.getElementById("proyectoDetalle");
+  if (tipo === "general") {
+    div.innerHTML = `
+      <div class="form-group"><label>Nombre</label><input value="${p.nombre}" onchange="actualizarProyecto('${id}','nombre',this.value)"></div>
+      <div class="form-group"><label>Marca</label><select onchange="actualizarProyecto('${id}','marca',this.value)">${STATE.marcas.map(m => `<option ${p.marca===m?"selected":""}>${m}</option>`).join("")}</select></div>
+      <div class="form-group"><label>Estado</label><select onchange="actualizarProyecto('${id}','estado',this.value)"><option ${p.estado==="Sin iniciar"?"selected":""}>Sin iniciar</option><option ${p.estado==="En ejecución"?"selected":""}>En ejecución</option><option ${p.estado==="Finalizado"?"selected":""}>Finalizado</option></select></div>
+      <div class="form-group"><label>Avance %</label><input type="range" min="0" max="100" value="${p.avanceFisico}" onchange="actualizarProyecto('${id}','avanceFisico',parseInt(this.value))"><span>${p.avanceFisico}%</span></div>
+      <div class="form-group"><label>Monto Obra Civil</label><input type="number" value="${p.montoObraCivil}" onchange="actualizarProyecto('${id}','montoObraCivil',parseFloat(this.value))"></div>
+    `;
+  } else if (tipo === "pagos") {
+    div.innerHTML = `
+      <div class="form-group"><label>1er Anticipo (${p.pagos.a1.pct}%)</label><input type="checkbox" ${p.pagos.a1.paid?"checked":""} onchange="actualizarPago('${id}','a1','paid',this.checked)"> Pagado</div>
+      <div class="form-group"><label>2do Anticipo (${p.pagos.a2.pct}%)</label><input type="checkbox" ${p.pagos.a2.paid?"checked":""} onchange="actualizarPago('${id}','a2','paid',this.checked)"> Pagado</div>
+      <div class="form-group"><label>Pago Final (${p.pagos.pf.pct}%)</label><input type="checkbox" ${p.pagos.pf.paid?"checked":""} onchange="actualizarPago('${id}','pf','paid',this.checked)"> Pagado</div>
+      <div class="form-group"><label>Imprevistos</label><input type="number" value="${p.pagos.imp.monto}" onchange="actualizarPago('${id}','imp','monto',parseFloat(this.value))"><input type="checkbox" ${p.pagos.imp.paid?"checked":""} onchange="actualizarPago('${id}','imp','paid',this.checked)"> Pagado</div>
+    `;
+  } else if (tipo === "planos") {
+    div.innerHTML = `<p>Subida de planos (DWG, PDF, renders) - puedes implementar input file aquí.</p><button class="btn btn-secondary" onclick="alert('Función en desarrollo')">Subir archivo</button>`;
+  } else if (tipo === "crono") {
+    div.innerHTML = `<p>Cronograma de obra. Próximamente.</p>`;
   }
-  var html = '<div style="display:grid;gap:16px">';
-  for (var i = 0; i < STATE.proyectos.length; i++) {
-    var p = STATE.proyectos[i];
-    html += '<div style="background:#1a1815;padding:16px;border-radius:12px">';
-    html += '<div style="display:flex;justify-content:space-between"><strong>' + p.nombre + '</strong><button class="btn btn-secondary" onclick="eliminarProyecto(' + p.id + ')">Eliminar</button></div>';
-    html += '<div>Marca: ' + p.marca + '</div>';
-    html += '<div>Estado: ' + p.estado + '</div>';
-    html += '<div>Avance: ' + p.avanceFisico + '%</div>';
-    html += '<div>Monto: ' + fmt(p.montoObraCivil) + '</div>';
-    html += '</div>';
-  }
-  html += '</div>';
-  document.getElementById("content").innerHTML = html;
 }
 
-// ==================== LOGIN SIMULADO ====================
-function login() {
-  // Simulación: se salta el login para pruebas
-  // En realidad aquí iría la pantalla de código de empresa y PIN
-  // Pero para que funcione directamente, cargamos datos de ejemplo
-  var saved = localStorage.getItem("proyectos_demo");
-  if (saved) {
-    STATE.proyectos = JSON.parse(saved);
+function actualizarProyecto(id, campo, valor) {
+  const p = STATE.proyectos.find(x => x.id === id);
+  if (p) { p[campo] = valor; saveToLocal(); syncToFirebase(); render(); }
+}
+function actualizarPago(id, tipo, campo, valor) {
+  const p = STATE.proyectos.find(x => x.id === id);
+  if (p && p.pagos[tipo]) { p.pagos[tipo][campo] = valor; saveToLocal(); syncToFirebase(); mostrarPestanya("pagos", id); }
+}
+function renderProyectos() { STATE.activeTab = "proyectos"; render(); }
+
+// ==================== GASTOS ====================
+function renderGastos(container) {
+  let total = 0;
+  for (let g of STATE.gastos) total += g.valor || 0;
+  let rows = "";
+  for (let g of STATE.gastos.slice().reverse()) {
+    rows += `<tr><td>${g.factura}</td><td>${g.descripcion}</td><td>${g.proveedor}</td><td>$${fmt(g.valor)}</td><td>${g.fecha}</td><td><button class="btn btn-sm btn-danger" onclick="eliminarGasto('${g.id}')">✕</button></td></tr>`;
+  }
+  container.innerHTML = `
+    <div class="stats-grid"><div class="stat-card"><div class="stat-label">Total Gastos</div><div class="stat-value">$${fmt(total)}</div></div></div>
+    <div class="form-group"><label>Factura</label><input id="gastoFactura"></div>
+    <div class="form-group"><label>Proveedor</label><select id="gastoProveedor"><option value="">-- Seleccionar --</option>${STATE.proveedores.map(p => `<option value="${p.id}">${p.nombre}</option>`).join("")}</select></div>
+    <div class="form-group"><label>Valor</label><input type="number" id="gastoValor"></div>
+    <div class="form-group"><label>Descripción</label><input id="gastoDesc"></div>
+    <div class="form-group"><label>Fecha</label><input type="date" id="gastoFecha" value="${new Date().toISOString().slice(0,10)}"></div>
+    <button class="btn btn-primary" onclick="registrarGasto()">+ Registrar</button>
+    <div class="table-wrap"><table><thead><tr><th>Factura</th><th>Descripción</th><th>Proveedor</th><th>Valor</th><th>Fecha</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+  `;
+}
+function registrarGasto() {
+  const factura = document.getElementById("gastoFactura").value.trim();
+  const provId = document.getElementById("gastoProveedor").value;
+  const valor = parseFloat(document.getElementById("gastoValor").value) || 0;
+  const desc = document.getElementById("gastoDesc").value.trim();
+  const fecha = document.getElementById("gastoFecha").value;
+  if (!factura || !provId || !valor) { toast("Complete campos", true); return; }
+  const prov = STATE.proveedores.find(p => p.id === provId);
+  STATE.gastos.push({ id: "g"+Date.now(), factura, descripcion: desc, proveedor: prov ? prov.nombre : "", valor, fecha });
+  saveToLocal(); syncToFirebase(); render();
+  toast("✓ Gasto registrado");
+}
+function eliminarGasto(id) { STATE.gastos = STATE.gastos.filter(g => g.id !== id); saveToLocal(); syncToFirebase(); render(); }
+
+// ==================== PROVEEDORES ====================
+function renderProveedores(container) {
+  let rows = "";
+  for (let p of STATE.proveedores) {
+    rows += `<tr><td>${p.nombre}</td><td>${p.tipo || "—"}</td><td>${p.telefono || "—"}</td><td><button class="btn btn-sm btn-danger" onclick="eliminarProveedor('${p.id}')">✕</button></td></tr>`;
+  }
+  container.innerHTML = `
+    <div class="form-group"><label>Nombre</label><input id="provNombre"></div>
+    <div class="form-group"><label>Tipo</label><input id="provTipo"></div>
+    <div class="form-group"><label>Teléfono</label><input id="provTelefono"></div>
+    <button class="btn btn-primary" onclick="registrarProveedor()">+ Registrar</button>
+    <div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Tipo</th><th>Teléfono</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+  `;
+}
+function registrarProveedor() {
+  const nombre = document.getElementById("provNombre").value.trim();
+  if (!nombre) { toast("Nombre requerido", true); return; }
+  STATE.proveedores.push({ id: "pv"+Date.now(), nombre, tipo: document.getElementById("provTipo").value, telefono: document.getElementById("provTelefono").value });
+  saveToLocal(); syncToFirebase(); render();
+}
+function eliminarProveedor(id) { STATE.proveedores = STATE.proveedores.filter(p => p.id !== id); saveToLocal(); syncToFirebase(); render(); }
+
+// ==================== CENTROS DE COSTO ====================
+function renderCentrosCosto(container) {
+  let rows = "";
+  for (let cc of STATE.centrosCosto) {
+    rows += `<tr><td>${cc.nombre}</td><td>${cc.descripcion || "—"}</td><td><button class="btn btn-sm btn-danger" onclick="eliminarCentroCosto('${cc.id}')">✕</button></td></tr>`;
+  }
+  container.innerHTML = `
+    <div class="form-group"><label>Nombre</label><input id="ccNombre"></div>
+    <div class="form-group"><label>Descripción</label><input id="ccDesc"></div>
+    <button class="btn btn-primary" onclick="registrarCentroCosto()">+ Agregar</button>
+    <div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Descripción</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+  `;
+}
+function registrarCentroCosto() {
+  const nombre = document.getElementById("ccNombre").value.trim();
+  if (!nombre) { toast("Nombre requerido", true); return; }
+  STATE.centrosCosto.push({ id: "cc"+Date.now(), nombre, descripcion: document.getElementById("ccDesc").value });
+  saveToLocal(); syncToFirebase(); render();
+}
+function eliminarCentroCosto(id) { STATE.centrosCosto = STATE.centrosCosto.filter(c => c.id !== id); saveToLocal(); syncToFirebase(); render(); }
+
+// ==================== CONFIGURACIÓN ====================
+function renderConfig(container) {
+  let marcasHtml = "";
+  for (let i = 0; i < STATE.marcas.length; i++) {
+    marcasHtml += `<div><input value="${STATE.marcas[i]}" onchange="actualizarMarca(${i},this.value)"><button class="btn btn-sm btn-danger" onclick="eliminarMarca(${i})">✕</button></div>`;
+  }
+  container.innerHTML = `
+    <div class="stat-card"><div class="stat-label">Marcas</div>${marcasHtml}<div><input id="nuevaMarca" placeholder="Nueva marca"><button class="btn btn-primary btn-sm" onclick="agregarMarca()">+</button></div></div>
+    <div class="stat-card"><div class="stat-label">Usuarios</div>${STATE.usuarios.map((u,i)=>`<div><input value="${u.nombre}" onchange="actualizarUsuario(${i},'nombre',this.value)"><input type="password" value="${u.pin}" onchange="actualizarUsuario(${i},'pin',this.value)"><button class="btn btn-sm btn-danger" onclick="eliminarUsuario(${i})">✕</button></div>`).join("")}<button class="btn btn-primary btn-sm" onclick="agregarUsuario()">+ Usuario</button></div>
+  `;
+}
+function actualizarMarca(idx, val) { STATE.marcas[idx] = val; saveToLocal(); render(); }
+function agregarMarca() { const n = document.getElementById("nuevaMarca").value.trim(); if(n && !STATE.marcas.includes(n)) { STATE.marcas.push(n); saveToLocal(); render(); toast("Marca agregada"); } }
+function eliminarMarca(idx) { STATE.marcas.splice(idx,1); saveToLocal(); render(); }
+function actualizarUsuario(idx, campo, val) { STATE.usuarios[idx][campo] = val; saveToLocal(); }
+function agregarUsuario() { STATE.usuarios.push({ id: "u"+Date.now(), nombre: "Nuevo", pin: "0000", rol: "viewer" }); saveToLocal(); render(); }
+function eliminarUsuario(idx) { STATE.usuarios.splice(idx,1); saveToLocal(); render(); }
+
+// ==================== LOGIN ====================
+function renderLogin() {
+  document.body.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--bg);padding:20px">
+      <div style="background:var(--surface);padding:40px;border-radius:24px;max-width:400px;text-align:center">
+        <div class="logo" style="font-size:28px">📊 Proyectos Pro</div>
+        <div class="form-group"><label>Código de Empresa</label><input id="empresaCode" placeholder="Ej: DEMO01"></div>
+        <button class="btn btn-primary" onclick="checkEmpresa()">Continuar</button>
+        <div id="userPanel" style="display:none;margin-top:20px"></div>
+      </div>
+    </div>
+  `;
+}
+async function checkEmpresa() {
+  const code = document.getElementById("empresaCode").value.trim().toUpperCase();
+  if (!code) { toast("Ingrese código", true); return; }
+  STATE.empresaActual = code;
+  loadFromLocal();
+  await loadFromFirebase();
+  const userPanel = document.getElementById("userPanel");
+  userPanel.style.display = "block";
+  let usersHtml = "";
+  for (let i = 0; i < STATE.usuarios.length; i++) {
+    usersHtml += `<div style="padding:12px;background:var(--surface2);margin:8px 0;border-radius:8px;cursor:pointer" onclick="seleccionarUsuario(${i})"><strong>${STATE.usuarios[i].nombre}</strong> (${STATE.usuarios[i].rol})</div>`;
+  }
+  usersHtml += `<div><div class="pin-dots" id="pinDots"></div><div id="pinKeypad" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px"></div><div id="loginError" style="color:red"></div></div>`;
+  userPanel.innerHTML = usersHtml;
+  generarPinKeypad();
+}
+let loginUserIndex = null;
+let pinInput = "";
+function seleccionarUsuario(idx) { loginUserIndex = idx; pinInput = ""; actualizarPinDots(); generarPinKeypad(); }
+function actualizarPinDots() { const dots = document.getElementById("pinDots"); if(!dots) return; let html=""; for(let i=0;i<4;i++) html+=`<div style="width:14px;height:14px;border-radius:50%;background:${i<pinInput.length?"var(--accent)":"var(--border)"};margin:0 4px"></div>`; dots.innerHTML=html; }
+function generarPinKeypad() {
+  const pad = document.getElementById("pinKeypad"); if(!pad) return;
+  pad.innerHTML = "";
+  for(let i=1;i<=9;i++) { const b=document.createElement("div"); b.textContent=i; b.className="btn btn-secondary"; b.style.padding="16px"; b.onclick=()=>ingresarPin(i.toString()); pad.appendChild(b); }
+  const zero=document.createElement("div"); zero.textContent="0"; zero.className="btn btn-secondary"; zero.style.padding="16px"; zero.onclick=()=>ingresarPin("0"); pad.appendChild(zero);
+  const del=document.createElement("div"); del.textContent="⌫"; del.className="btn btn-secondary"; del.style.padding="16px"; del.onclick=()=>ingresarPin("del"); pad.appendChild(del);
+}
+function ingresarPin(k) { if(k==="del") pinInput=pinInput.slice(0,-1); else if(pinInput.length<4) pinInput+=k; actualizarPinDots(); if(pinInput.length===4) verificarPin(); }
+function verificarPin() {
+  if(loginUserIndex===null) { document.getElementById("loginError").textContent="Seleccione usuario"; return; }
+  if(pinInput === STATE.usuarios[loginUserIndex].pin) {
+    document.body.innerHTML = "";
+    document.body.appendChild(document.querySelector(".app"));
+    document.body.appendChild(document.getElementById("toast"));
+    render();
+    toast("Bienvenido");
   } else {
-    STATE.proyectos = [];
+    document.getElementById("loginError").textContent="PIN incorrecto";
+    pinInput=""; actualizarPinDots();
   }
-  // Cargar marcas en el select del modal
-  var selectMarca = document.getElementById("projMarca");
-  if (selectMarca) {
-    selectMarca.innerHTML = "";
-    for (var i = 0; i < STATE.marcas.length; i++) {
-      var option = document.createElement("option");
-      option.text = STATE.marcas[i];
-      selectMarca.appendChild(option);
-    }
-  }
-  render();
 }
+function logout() { renderLogin(); }
 
-login();
+// ==================== UTILIDADES ====================
+function fmt(n) { return (parseFloat(n)||0).toLocaleString("en-US",{minimumFractionDigits:2}); }
+function toast(msg, isError) { const t=document.getElementById("toast"); t.textContent=msg; t.style.borderLeftColor=isError?"var(--red)":"var(--green)"; t.style.display="block"; setTimeout(()=>t.style.display="none",3000); }
+function toggleSidebar() { document.getElementById("sidebar").classList.toggle("closed"); document.getElementById("main").classList.toggle("full"); }
+function openModal(id) { document.getElementById(id).classList.add("open"); }
+function closeModal(id) { document.getElementById(id).classList.remove("open"); }
+
+// ==================== INICIO ====================
+renderLogin();
 </script>
 </body>
 </html>
