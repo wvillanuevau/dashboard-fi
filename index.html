@@ -70,6 +70,20 @@ window.FB={
   onAuthChange(cb){_fbAuth.onAuthStateChanged(cb)},
   currentUser(){return _fbAuth.currentUser||null},
 
+  // Comprobantes en colección separada para no superar 1MB por documento Firestore
+  async saveComprobante(empresaId,refId,data){
+    try{
+      await _fbDb.collection('comprobantes').doc(`${empresaId}_${refId}`).set({empresaId,refId,data,_ts:Date.now()});
+      return{ok:true};
+    }catch(e){console.error('[FB] saveComp:',e.code);return{ok:false};}
+  },
+  async getComprobante(empresaId,refId){
+    try{const s=await _fbDb.collection('comprobantes').doc(`${empresaId}_${refId}`).get();return s.exists?s.data().data:null;}catch(e){return null;}
+  },
+  async delComprobante(empresaId,refId){
+    try{await _fbDb.collection('comprobantes').doc(`${empresaId}_${refId}`).delete();}catch(e){}
+  },
+
   // SA: obtener todos los usuarios
   async getAllUsuarios(){
     try{const s=await _fbDb.collection('usuariosApp').get();return s.docs.map(d=>({id:d.id,...d.data()}))}catch(e){return[]}
@@ -289,6 +303,14 @@ input[type=date]{color-scheme:dark}
   .kpi-val{font-size:20px}
   .nav-item{padding:10px 10px}
   .tabs .tab{padding:9px 12px;font-size:12px}
+}
+/* Columnas que se ocultan/muestran en móvil */
+.hide-sm{}.show-sm{display:none}
+@media(max-width:640px){
+  .hide-sm{display:none!important}
+  .show-sm{display:block!important}
+  .tbl-wrap table{font-size:12px}
+  .tbl-wrap th,.tbl-wrap td{padding:8px 6px}
 }
 </style>
 </head>
@@ -1405,7 +1427,7 @@ function tplGen(p){return`
   <div class="row2"><div class="fg"><label>Estado</label><select onchange="updP('${p.id}','estado',this.value)">${['Sin iniciar','En ejecución','Retrasado','Finalizado'].map(s=>`<option ${p.estado===s?'selected':''}>${s}</option>`).join('')}</select></div><div class="fg"><label>Monto Obra Civil ($)</label><input type="number" min="0" value="${p.montoObraCivil||0}" onchange="updP('${p.id}','montoObraCivil',Math.max(0,parseFloat(this.value)||0))"></div></div>
   <div class="fg"><label>Avance Físico — <strong id="avlbl">${p.avanceFisico}%</strong></label><input type="range" min="0" max="100" value="${p.avanceFisico}" oninput="document.getElementById('avlbl').textContent=this.value+'%'" onchange="updP('${p.id}','avanceFisico',parseInt(this.value))"><div class="prog" style="margin-top:4px"><div class="prog-fill" style="width:${p.avanceFisico}%"></div></div></div>
   <div class="row2"><div class="fg"><label>Contratista</label><input value="${esc(p.contratista||'')}" onchange="updP('${p.id}','contratista',this.value)"></div><div class="fg"><label>Supervisor</label><input value="${esc(p.supervisor||'')}" onchange="updP('${p.id}','supervisor',this.value)"></div></div>
-  <div class="row2"><div class="fg"><label>Fecha Inicio</label><input type="date" value="${p.fechaInicio||''}" onchange="updP('${p.id}','fechaInicio',this.value)"></div><div class="fg"><label>Fecha Fin Estimada</label><input type="date" value="${p.fechaFin||''}" onchange="updP('${p.id}','fechaFin',this.value)"></div></div>
+  <div class="row2"><div class="fg"><label>Fecha Inicio</label>${inputFecha(p.fechaInicio||'',`updP('${p.id}','fechaInicio',v)`)}</div><div class="fg"><label>Fecha Fin Estimada</label>${inputFecha(p.fechaFin||'',`updP('${p.id}','fechaFin',v)`)}</div></div>
   <div class="fg"><label>Observaciones</label><textarea rows="3" onchange="updP('${p.id}','observaciones',this.value)">${esc(p.observaciones||'')}</textarea></div>
   <div class="divider"></div><button class="btn btn-danger" onclick="elimProyecto('${p.id}')">🗑 Eliminar proyecto</button>`}
 
@@ -1581,7 +1603,7 @@ function tplCron(p){
   <div class="row2" style="margin-bottom:16px">
     <div class="fg">
       <label>📅 Fecha de inicio del proyecto (global)</label>
-      <input type="date" value="${cr.fechaInicio||''}" ${isCerrado?'disabled':''} onchange="updCron('${p.id}','fechaInicio',this.value)">
+      ${inputFecha(cr.fechaInicio||'',`updCron('${p.id}','fechaInicio',v);reloadTab('cron','${p.id}')`,isCerrado,'width:100%;font-size:14px;padding:9px 12px')}
       <div style="font-size:11px;color:var(--muted);margin-top:4px">Referencia global. Cada partida puede tener su propia fecha de inicio.</div>
     </div>
     <div class="fg">
@@ -1649,7 +1671,7 @@ function tplCron(p){
       </td>
       <td style="text-align:right"><strong>${fmt(tp)}</strong></td>
       <td>
-        <input type="date" value="${partidaFechaInicio}" ${isCerrado?'disabled':''} style="font-size:11px;padding:4px 5px;color:var(--accent);width:100%" onchange="updPartida('${p.id}',${mi},'fechaInicio',this.value);reloadTab('cron','${p.id}')">
+        ${inputFecha(partidaFechaInicio,`updPartida('${p.id}',${mi},'fechaInicio',v);reloadTab('cron','${p.id}')`,isCerrado,'color:var(--accent)')}
         ${partidaFechaFin?`<div style="font-size:10px;color:var(--muted);margin-top:2px">fin: ${fmtDate(partidaFechaFin)}</div>`:''}
       </td>
       ${!isCerrado?`<td class="td-act">
@@ -1701,7 +1723,7 @@ function tplCron(p){
         </td>
         <td style="text-align:right;font-weight:600;color:${t>0?(isDone?'#558855':'var(--accent)'):'var(--muted)'}">${fmt(t)}</td>
         <td>
-          <input type="date" value="${subFechaInicio}" ${isCerrado?'disabled':''} style="font-size:11px;padding:4px 5px;width:100%;color:var(--blue)" onchange="updSub('${p.id}',${mi},${si},'fechaInicio',this.value);syncPartidaFecha('${p.id}',${mi})">
+          ${inputFecha(subFechaInicio,`updSub('${p.id}',${mi},${si},'fechaInicio',v);syncPartidaFecha('${p.id}',${mi})`,isCerrado,'color:var(--blue)')}
         </td>
         ${!isCerrado?`<td><button class="btn btn-danger btn-xs" onclick="delSub('${p.id}',${mi},${si})">✕</button></td>`:''}
       </tr>`;
@@ -1798,6 +1820,37 @@ function stopSessionTimer(){
   clearTimeout(_sessionTimer);clearTimeout(_warnTimer);
 }
 
+// ── INPUT FECHA HELPER ─────────────────────────────────
+// Convierte texto DD/MM/YYYY a formato YYYY-MM-DD para guardar
+function parseFechaInput(val){
+  if(!val)return'';
+  // Si ya está en formato YYYY-MM-DD (desde date picker)
+  if(/^\d{4}-\d{2}-\d{2}$/.test(val))return val;
+  // Si está en DD/MM/YYYY
+  const m=val.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(m)return`${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  return val;
+}
+function fmtDateInput(isoDate){
+  if(!isoDate)return'';
+  // Mostrar como DD/MM/YYYY en el input
+  if(/^\d{4}-\d{2}-\d{2}$/.test(isoDate)){
+    const[y,m,d]=isoDate.split('-');
+    return`${d}/${m}/${y}`;
+  }
+  return isoDate;
+}
+// Input de fecha como texto con placeholder DD/MM/AAAA
+function inputFecha(value,onchangeCode,disabled=false,extraStyle=''){
+  const display=fmtDateInput(value);
+  const disAttr=disabled?'disabled':'';
+  return`<input type="text" value="${display}" placeholder="DD/MM/AAAA" maxlength="10"
+    style="font-size:12px;padding:5px 6px;${extraStyle}" ${disAttr}
+    oninput="this.value=this.value.replace(/[^0-9\/]/g,'');if(this.value.length===2&&this.value.indexOf('/')<0)this.value+='/';if(this.value.length===5&&this.value.lastIndexOf('/')<4)this.value+='/';"
+    onblur="const v=parseFechaInput(this.value);if(v||!this.value){${onchangeCode}}"
+    onkeydown="if(event.key==='Enter'){const v=parseFechaInput(this.value);if(v){${onchangeCode}}event.target.blur()}">`;
+}
+
 function updCron(pid,c,v){const p=S.proyectos.find(x=>x.id===pid);if(p){p.cronograma[c]=v;saveData();reloadTab('cron',pid)}}
 function toggleCronAcept(pid,v){const p=S.proyectos.find(x=>x.id===pid);if(p){p.cronograma.aceptado=v;saveData();reloadTab('cron',pid)}}
 function updPartida(pid,mi,c,v){const p=S.proyectos.find(x=>x.id===pid);if(p?.cronograma.partidas[mi]){p.cronograma.partidas[mi][c]=v;saveData()}}
@@ -1835,24 +1888,35 @@ function renderGastos(){
     const isImg=g.comprobante&&g.comprobante.startsWith('data:image');
     const isPDF=g.comprobante&&g.comprobante.startsWith('data:application/pdf');
     rows+=`<tr>
-      <td>${esc(g.factura)}</td>
-      <td>${esc(g.descripcion||'—')}</td>
-      <td>${esc(g.proveedor)}</td>
-      <td><strong>${fmt(g.valor)}</strong></td>
-      <td>${fmtDate(g.fecha)}</td>
+      <td>
+        <div style="font-weight:600">${esc(g.factura)}</div>
+        <div class="show-sm" style="font-size:11px;color:var(--muted)">${esc(g.proveedor)}</div>
+        <div class="show-sm" style="font-size:11px;color:var(--muted)">${esc(g.descripcion||'')}</div>
+      </td>
+      <td class="hide-sm">${esc(g.descripcion||'—')}</td>
+      <td class="hide-sm">${esc(g.proveedor)}</td>
+      <td><strong style="color:var(--accent)">${fmt(g.valor)}</strong></td>
+      <td class="hide-sm">${fmtDate(g.fecha)}</td>
       <td>${g.proyectoId
-        ?`<span class="badge b-blue">${esc(pname)}</span>`
+        ?`<span class="badge b-blue" style="font-size:10px;max-width:90px;overflow:hidden;text-overflow:ellipsis;display:inline-block">${esc(pname.length>10?pname.substring(0,10)+'…':pname)}</span>`
         :g.sumarAlProy===false&&g.centroId
-          ?`<span class="badge b-neu" title="Solo CC — no suma al proyecto">CC</span>`
-          :'<span class="badge b-neu">General</span>'
+          ?`<span class="badge b-neu" style="font-size:10px">CC</span>`
+          :'<span style="color:#555;font-size:11px">—</span>'
       }</td>
       <td style="text-align:center">${g.proyectoId||g.sumarAlProy===false
-        ?`<span title="${g.sumarAlProy===false?'No suma al proyecto':'Suma al proyecto'}" style="font-size:16px">${g.sumarAlProy===false?'⬜':'✅'}</span>`
-        :'<span style="color:#333;font-size:12px">—</span>'
+        ?`<span style="font-size:15px">${g.sumarAlProy===false?'⬜':'✅'}</span>`
+        :'<span style="color:#333">—</span>'
       }</td>
-      <td>${isImg?`<img src="${g.comprobante}" style="height:28px;border-radius:4px;cursor:pointer" onclick="verImagen('${g.comprobante}','${esc(g.factura)}')">`
-          :isPDF?`<a href="${g.comprobante}" download="factura_${g.factura}.pdf" style="font-size:11px">📄PDF</a>`
-          :'<span style="color:#444;font-size:11px">—</span>'}</td>
+      <td style="text-align:center">${g.comprobante
+        ?(g.comprobante.startsWith('ref:')
+          ?`<button class="btn btn-secondary btn-xs" onclick="verComprobanteGasto('${g.id}','Factura ${esc(g.factura)}')">📎 Ver</button>`
+          :(isImg
+            ?`<img src="${g.comprobante}" style="height:30px;width:38px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="verImagen('${g.comprobante}','Factura ${esc(g.factura)}')">`
+            :isPDF
+              ?`<a href="${g.comprobante}" download="factura.pdf" style="font-size:18px;text-decoration:none">📄</a>`
+              :'<span style="color:#444;font-size:12px">—</span>'))
+        :'<span style="color:#444;font-size:12px">—</span>'
+      }</td>
       <td><button class="btn btn-danger btn-xs" onclick="delGasto('${g.id}')">✕</button></td>
     </tr>`;
   });
@@ -1928,8 +1992,18 @@ function renderGastos(){
     <button class="btn btn-primary" onclick="regGasto()">+ Registrar Gasto</button>
   </div>
 
-  <div class="tbl-wrap"><table>
-    <thead><tr><th>Factura</th><th>Descripción</th><th>Proveedor</th><th>Valor</th><th>Fecha</th><th>Proyecto/CC</th><th style="text-align:center">Suma</th><th>Comp.</th><th></th></tr></thead>
+  <div class="tbl-wrap" style="overflow-x:auto"><table style="table-layout:auto;min-width:0">
+    <thead><tr>
+      <th style="min-width:80px">Factura</th>
+      <th class="hide-sm" style="min-width:100px">Descripción</th>
+      <th class="hide-sm">Proveedor</th>
+      <th style="min-width:70px">Valor</th>
+      <th class="hide-sm">Fecha</th>
+      <th>Proyecto</th>
+      <th style="text-align:center">✓</th>
+      <th style="text-align:center">📎</th>
+      <th></th>
+    </tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;
 }
@@ -2072,23 +2146,28 @@ function regGasto(){
   if(valor<=0){toast('Ingrese un valor mayor a 0',true);return}
 
   const prov=S.proveedores.find(x=>x.id===provId);
-  S.gastos.push({
-    id:genId(),
+  const gastoId=genId();
+  const gasto={
+    id:gastoId,
     factura,
     descripcion:document.getElementById('gDesc').value.trim(),
     proveedor:prov?prov.nombre:'',
     valor,
     fecha:document.getElementById('gFecha').value,
-    // Si sumarAlProy=true → proyectoId queda asignado (afecta presupuesto)
-    // Si sumarAlProy=false → proyectoId=null pero centroId queda (solo CC)
     proyectoId:sumarAlProy?pid:null,
     centroId:ccId||null,
-    sumarAlProy, // guardar el flag
-    comprobante:compData
-  });
+    sumarAlProy,
+    // NO guardar base64 aquí — va en colección separada
+    comprobante:compData?'ref:'+gastoId:null
+  };
+  S.gastos.push(gasto);
   logAction('CREAR','gastos',`Factura: ${factura}`);
+  // Guardar comprobante por separado si existe
+  if(compData){
+    window.FB.saveComprobante(S.empresa,'gasto_'+gastoId,compData).catch(console.error);
+  }
   saveData();render();
-  toast(sumarAlProy&&pid?'✓ Gasto registrado y sumado al proyecto':'✓ Gasto registrado en CC (sin sumar al proyecto)');
+  toast(sumarAlProy&&pid?'✓ Gasto registrado y sumado al proyecto':'✓ Gasto registrado en CC');
 }
 
 
@@ -2126,6 +2205,22 @@ function tplPlan(p){
     ${isMobile?`<input type="file" id="planCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
   </div>
   <div id="archList_${p.id}">${archHtml}</div>`;
+}
+
+async function verComprobanteTramo(pid,idx,titulo){
+  const refId=`tramo_${pid}_${idx}`;
+  const data=await window.FB.getComprobante(S.empresa,refId);
+  if(!data){toast('Comprobante no encontrado',true);return;}
+  verImagen(data,'Comprobante '+titulo);
+}
+
+async function verComprobanteGasto(gastoId,titulo){
+  const btn=event.target;
+  btn.textContent='⏳';
+  const data=await window.FB.getComprobante(S.empresa,'gasto_'+gastoId);
+  btn.textContent='📎 Ver';
+  if(!data){toast('Comprobante no encontrado',true);return;}
+  verImagen(data,titulo);
 }
 
 function verImagen(data,nombre){
@@ -2222,9 +2317,12 @@ function tplPagosYGastos(p){
         </td>
         <td>
           ${comp
-            ?(isImg
-              ?`<img src="${comp}" style="height:36px;border-radius:4px;cursor:pointer" onclick="verImagen('${comp}','Comprobante Tramo ${i+1}')"><button class="btn btn-danger btn-xs" style="margin-left:6px" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button>`
-              :`<a href="${comp}" download="comprobante_tramo${i+1}.pdf" class="btn btn-secondary btn-xs">📄 PDF</a><button class="btn btn-danger btn-xs" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button>`)
+            ?(comp.startsWith('ref:')
+              ?`<button class="btn btn-secondary btn-xs" onclick="verComprobanteTramo('${p.id}',${i},'Tramo ${i+1}')">📎 Ver</button>
+                <button class="btn btn-danger btn-xs" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button>`
+              :(isImg
+                ?`<img src="${comp}" style="height:36px;border-radius:4px;cursor:pointer" onclick="verImagen('${comp}','Comprobante Tramo ${i+1}')"><button class="btn btn-danger btn-xs" style="margin-left:6px" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button>`
+                :`<a href="${comp}" download="comprobante_tramo${i+1}.pdf" class="btn btn-secondary btn-xs">📄 PDF</a><button class="btn btn-danger btn-xs" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button>`))
             :`<div style="display:flex;gap:6px;align-items:center">
                 <button class="btn btn-secondary btn-xs" onclick="document.getElementById('compFI_${i}').click()">📎 Subir</button>
                 ${isMobile?`<button class="btn btn-secondary btn-xs" onclick="abrirCamaraComprobante('${p.id}',${i},'compCam_${i}')">📷</button>`:''}
@@ -2283,8 +2381,13 @@ function subirComprobante(pid,tramoIdx,input){
   if(file.size>2*1024*1024){toast('Comprobante supera 2MB',true);return;}
   leerArchivoBase64(file,(b64)=>{
     if(!p.pagos.tramos)p.pagos.tramos=[{pct:65,paid:false},{pct:25,paid:false},{pct:10,paid:false}];
-    p.pagos.tramos[tramoIdx].comprobante=b64;
-    saveData();reloadTab('pagosygastos',pid);toast('✓ Comprobante guardado');
+    const refId=`tramo_${pid}_${tramoIdx}`;
+    p.pagos.tramos[tramoIdx].comprobante='ref:'+refId;
+    // Guardar imagen en colección separada
+    window.FB.saveComprobante(S.empresa,refId,b64).then(r=>{
+      if(r.ok){saveData();reloadTab('pagosygastos',pid);toast('✓ Comprobante guardado');}
+      else toast('Error al guardar comprobante',true);
+    });
   });
   input.value='';
 }
@@ -2615,9 +2718,12 @@ function tplPagosYGastos(p){
         </td>
         <td>
           ${comp
-            ?(isImg
-              ?`<img src="${comp}" style="height:36px;border-radius:4px;cursor:pointer" onclick="verImagen('${comp}','Comprobante Tramo ${i+1}')"><button class="btn btn-danger btn-xs" style="margin-left:6px" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button>`
-              :`<a href="${comp}" download="comprobante_tramo${i+1}.pdf" class="btn btn-secondary btn-xs">📄 PDF</a><button class="btn btn-danger btn-xs" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button>`)
+            ?(comp.startsWith('ref:')
+              ?`<button class="btn btn-secondary btn-xs" onclick="verComprobanteTramo('${p.id}',${i},'Tramo ${i+1}')">📎 Ver</button>
+                <button class="btn btn-danger btn-xs" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button>`
+              :(isImg
+                ?`<img src="${comp}" style="height:36px;border-radius:4px;cursor:pointer" onclick="verImagen('${comp}','Comprobante Tramo ${i+1}')"><button class="btn btn-danger btn-xs" style="margin-left:6px" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button>`
+                :`<a href="${comp}" download="comprobante_tramo${i+1}.pdf" class="btn btn-secondary btn-xs">📄 PDF</a><button class="btn btn-danger btn-xs" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button>`))
             :`<div style="display:flex;gap:6px;align-items:center">
                 <button class="btn btn-secondary btn-xs" onclick="document.getElementById('compFI_${i}').click()">📎 Subir</button>
                 ${isMobile?`<button class="btn btn-secondary btn-xs" onclick="abrirCamaraComprobante('${p.id}',${i},'compCam_${i}')">📷</button>`:''}
@@ -2676,8 +2782,13 @@ function subirComprobante(pid,tramoIdx,input){
   if(file.size>2*1024*1024){toast('Comprobante supera 2MB',true);return;}
   leerArchivoBase64(file,(b64)=>{
     if(!p.pagos.tramos)p.pagos.tramos=[{pct:65,paid:false},{pct:25,paid:false},{pct:10,paid:false}];
-    p.pagos.tramos[tramoIdx].comprobante=b64;
-    saveData();reloadTab('pagosygastos',pid);toast('✓ Comprobante guardado');
+    const refId=`tramo_${pid}_${tramoIdx}`;
+    p.pagos.tramos[tramoIdx].comprobante='ref:'+refId;
+    // Guardar imagen en colección separada
+    window.FB.saveComprobante(S.empresa,refId,b64).then(r=>{
+      if(r.ok){saveData();reloadTab('pagosygastos',pid);toast('✓ Comprobante guardado');}
+      else toast('Error al guardar comprobante',true);
+    });
   });
   input.value='';
 }
@@ -3321,7 +3432,8 @@ function renderDashboard(){
       avance:p.avanceFisico||0
     }));
     const maxVal=Math.max(...data.map(d=>d.oc+d.gastos),1);
-    const BAR_W=Math.max(36,Math.min(60,280/np));
+    const containerW=Math.min(window.innerWidth-60,500);
+    const BAR_W=Math.max(28,Math.min(55,containerW/Math.max(np,1)-8));
     const GAP=8,PH=130,PW=np*(BAR_W+GAP);
     let bars='',xlabels='',ylabels='';
     // Y axis marks
@@ -3429,14 +3541,14 @@ function renderDashboard(){
   </div>`:''}
 
   <!-- Gráficos -->
-  <div style="display:grid;grid-template-columns:1fr 1.8fr;gap:14px;margin-bottom:18px">
-    <div class="card">
+  <div style="display:grid;grid-template-columns:minmax(160px,1fr) minmax(0,1.8fr);gap:14px;margin-bottom:18px">
+    <div class="card" style="min-width:0">
       <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;margin-bottom:12px;color:var(--muted)">ESTADOS</div>
       ${donaChart()}
     </div>
-    <div class="card">
+    <div class="card" style="min-width:0;overflow:hidden">
       <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;margin-bottom:12px;color:var(--muted)">INVERSIÓN POR PROYECTO</div>
-      ${barChart()}
+      <div style="overflow-x:auto">${barChart()}</div>
     </div>
   </div>
 
