@@ -611,7 +611,8 @@ const ROLES={
   supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','log']},
   empleado:{label:'Empleado',color:'b-ok',modulos:[]}, // permisos individuales
   viewer:{label:'Viewer',color:'b-neu',modulos:['dashboard','proyectos']},
-  cliente:{label:'Cliente',color:'b-purple',modulos:['proyectos']} // solo general, planificacion, cronograma
+  cliente:{label:'Cliente',color:'b-purple',modulos:['proyectos']}, // solo general, planificacion, cronograma
+  contratista:{label:'Contratista',color:'b-blue',modulos:['proyectos']} // solo cronograma: precio, fechas, checks, gantt, imprimir
 };
 
 // Unidades de medida para cronograma
@@ -1202,7 +1203,7 @@ async function renderSAUsuarios(){
     <div class="row3">
       <div class="fg"><label>Contraseña *</label><input type="password" id="saUPass" placeholder="mín. 6 caracteres"></div>
       <div class="fg"><label>Empresa *</label><select id="saUEmpresa"><option value="">— Seleccionar —</option>${empOpts}</select></div>
-      <div class="fg"><label>Rol *</label><select id="saURol" onchange="togglePermisosUI()"><option value="admin">Admin</option><option value="supervisor">Supervisor</option><option value="empleado">Empleado</option><option value="viewer">Viewer</option></select></div>
+      <div class="fg"><label>Rol *</label><select id="saURol" onchange="togglePermisosUI()"><option value="admin">Admin</option><option value="supervisor">Supervisor</option><option value="empleado">Empleado</option><option value="viewer">Viewer</option><option value="cliente">Cliente</option><option value="contratista">Contratista</option></select></div>
     </div>
     <div id="permisosUI" style="display:none">
       <div class="sec-hdr">Módulos — Empleado</div>
@@ -1278,7 +1279,7 @@ async function editarUsuarioSA(uid){
       <div class="fg"><label>Nombre</label><input id="euNombre" value="${esc(u.nombre||'')}"></div>
       <div class="row2">
         <div class="fg"><label>Empresa</label><select id="euEmpresa"><option value="">—</option>${empOpts}</select></div>
-        <div class="fg"><label>Rol</label><select id="euRol" onchange="toggleEUPermisos()"><option value="admin" ${u.rol==='admin'?'selected':''}>Admin</option><option value="supervisor" ${u.rol==='supervisor'?'selected':''}>Supervisor</option><option value="empleado" ${u.rol==='empleado'?'selected':''}>Empleado</option><option value="viewer" ${u.rol==='viewer'?'selected':''}>Viewer</option></select></div>
+        <div class="fg"><label>Rol</label><select id="euRol" onchange="toggleEUPermisos()"><option value="admin" ${u.rol==='admin'?'selected':''}>Admin</option><option value="supervisor" ${u.rol==='supervisor'?'selected':''}>Supervisor</option><option value="empleado" ${u.rol==='empleado'?'selected':''}>Empleado</option><option value="viewer" ${u.rol==='viewer'?'selected':''}>Viewer</option><option value="cliente" ${u.rol==='cliente'?'selected':''}>Cliente</option><option value="contratista" ${u.rol==='contratista'?'selected':''}>Contratista</option></select></div>
       </div>
       <div id="euPermisosUI" style="${u.rol==='empleado'?'':'display:none'}">
         <div class="sec-hdr">Módulos</div>
@@ -1525,10 +1526,15 @@ function updImpPaid(pid,val){const p=S.proyectos.find(x=>x.id===pid);if(!p)retur
 
 function verProy(id){
   const p=S.proyectos.find(x=>x.id===id);if(!p)return;
-  const esCliente=S.currentUser?.rol==='cliente';
+  const rol=S.currentUser?.rol;
+  const esCliente=rol==='cliente';
+  const esContratista=rol==='contratista';
   const c=document.getElementById('dpContent');
   // Tabs según rol
-  const tabs=esCliente?[
+  const tabs=esContratista?[
+    {t:'plan',label:'📁 Planificación'},
+    {t:'cron',label:'📅 Cronograma y Presupuesto'}
+  ]:esCliente?[
     {t:'gen',label:'⚙ General'},
     {t:'plan',label:'📁 Planificación'},
     {t:'cron',label:'📅 Cronograma'}
@@ -1538,11 +1544,12 @@ function verProy(id){
     {t:'cron',label:'📅 Cronograma y Presupuesto'},
     {t:'pagosygastos',label:'💰 Gastos y Pagos'}
   ];
+  const puedeImprimir=!esCliente; // contratista sí puede imprimir
   c.innerHTML=`
   <div class="modal-hdr">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <span class="modal-ttl">📋 ${esc(p.nombre)}</span>${badgeEst(p.estado)}
-      ${!esCliente?`<button class="btn btn-secondary btn-sm" onclick="imprimirCronograma('${id}')">🖨 Imprimir oferta</button>`:''}
+      ${puedeImprimir?`<button class="btn btn-secondary btn-sm" onclick="imprimirCronograma('${id}')">🖨 Imprimir oferta</button>`:''}
     </div>
   </div>
   <div class="tabs" id="dpTabs">
@@ -1718,6 +1725,11 @@ function tplCron(p){
   const cr=p.cronograma;
   const isAc=cr.aceptado;
   const isCerrado=cr.cerrado;
+  const rolActual=S.currentUser?.rol;
+  const esContratista=rolActual==='contratista';
+  // Contratista: solo puede editar precio, fechas inicio y checks. Todo lo demás bloqueado.
+  // Para el contratista se comporta siempre como si estuviera cerrado, más restricciones de precio/fecha
+  const bloqueado=isCerrado||esContratista;
   const totalDias=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+(parseInt(x.dias)||0),0),0);
   const grand=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0),0);
   const totalSubs=cr.partidas.reduce((s,m)=>s+m.sub.length,0);
@@ -1731,29 +1743,42 @@ function tplCron(p){
   let html=`
   <!-- Estado de oferta -->
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px;padding:14px 16px;background:var(--surface2);border-radius:12px;border:1px solid var(--border)">
-    ${isCerrado
+    ${esContratista
       ?`<div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap">
-          <span class="badge b-ok" style="font-size:13px;padding:7px 16px">🔒 OFERTA ACEPTADA</span>
+          <span class="badge b-blue" style="font-size:13px;padding:7px 16px">🔨 Modo Contratista</span>
           <div style="flex:1;min-width:180px">
-            <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Avance real: <strong style="color:var(--green)">${pctReal}%</strong> · ${doneSubs}/${totalSubs} actividades</div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Puedes editar: <strong style="color:var(--blue)">precio · fechas de inicio · actividades realizadas</strong></div>
             <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden">
               <div style="height:100%;width:${pctReal}%;background:var(--green);border-radius:4px;transition:width .5s"></div>
             </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:4px">Avance: <strong style="color:var(--green)">${pctReal}%</strong> · ${doneSubs}/${totalSubs} actividades completadas</div>
           </div>
         </div>
-        <button class="btn btn-danger btn-sm" onclick="reabrirOferta('${p.id}')">🔓 Reabrir oferta</button>`
-      :`<div style="flex:1">
-          ${isAc
-            ?`<span class="badge b-warn" style="font-size:12px;padding:6px 14px">✓ Pre-aceptado — pendiente de cierre formal</span>`
-            :`<span style="font-size:13px;color:var(--muted)">Cronograma en edición libre</span>`}
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          ${isAc
-            ?`<button class="btn btn-success" onclick="cerrarOferta('${p.id}')">🔒 Cerrar y aceptar oferta</button>
-              <button class="btn btn-secondary btn-sm" onclick="toggleCronAcept('${p.id}',false)">Desbloquear</button>`
-            :`<button class="btn btn-primary" onclick="toggleCronAcept('${p.id}',true)">✓ Pre-aceptar</button>`}
-        </div>`}
-    <button class="btn btn-secondary btn-sm" onclick="imprimirCronograma('${p.id}')">🖨 Imprimir contrato</button>
+        <button class="btn btn-secondary btn-sm" onclick="imprimirCronograma('${p.id}')">🖨 Imprimir</button>`
+      :isCerrado
+        ?`<div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap">
+            <span class="badge b-ok" style="font-size:13px;padding:7px 16px">🔒 OFERTA ACEPTADA</span>
+            <div style="flex:1;min-width:180px">
+              <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Avance real: <strong style="color:var(--green)">${pctReal}%</strong> · ${doneSubs}/${totalSubs} actividades</div>
+              <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden">
+                <div style="height:100%;width:${pctReal}%;background:var(--green);border-radius:4px;transition:width .5s"></div>
+              </div>
+            </div>
+          </div>
+          <button class="btn btn-danger btn-sm" onclick="reabrirOferta('${p.id}')">🔓 Reabrir oferta</button>
+          <button class="btn btn-secondary btn-sm" onclick="imprimirCronograma('${p.id}')">🖨 Imprimir contrato</button>`
+        :`<div style="flex:1">
+            ${isAc
+              ?`<span class="badge b-warn" style="font-size:12px;padding:6px 14px">✓ Pre-aceptado — pendiente de cierre formal</span>`
+              :`<span style="font-size:13px;color:var(--muted)">Cronograma en edición libre</span>`}
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            ${isAc
+              ?`<button class="btn btn-success" onclick="cerrarOferta('${p.id}')">🔒 Cerrar y aceptar oferta</button>
+                <button class="btn btn-secondary btn-sm" onclick="toggleCronAcept('${p.id}',false)">Desbloquear</button>`
+              :`<button class="btn btn-primary" onclick="toggleCronAcept('${p.id}',true)">✓ Pre-aceptar</button>`}
+            <button class="btn btn-secondary btn-sm" onclick="imprimirCronograma('${p.id}')">🖨 Imprimir contrato</button>
+          </div>`}
   </div>
 
   <!-- KPIs -->
@@ -1821,7 +1846,7 @@ function tplCron(p){
 
     html+=`<tr style="background:#0d0b09">
       <td>
-        ${!isCerrado
+        ${(!isCerrado&&!esContratista)
           ?`<input value="${esc(m.nombre)}" style="font-weight:700;background:transparent;border:none;color:var(--text);width:100%;font-size:13px" onchange="updPartida('${p.id}',${mi},'nombre',this.value)">`
           :`<span style="font-weight:700;font-size:13px">${esc(m.nombre)}</span>`}
         <div style="font-size:10px;color:var(--muted);margin-top:2px">${m.sub.length} subpartida(s)</div>
@@ -1836,10 +1861,10 @@ function tplCron(p){
       </td>
       <td style="text-align:right"><strong>${fmt(tp)}</strong></td>
       <td>
-        ${inputFecha(partidaFechaInicio,`updPartida('${p.id}',${mi},'fechaInicio',v);reloadTab('cron','${p.id}')`,isCerrado,'color:var(--accent)')}
+        ${inputFecha(partidaFechaInicio,`updPartida('${p.id}',${mi},'fechaInicio',v);reloadTab('cron','${p.id}')`,isCerrado&&!esContratista,'color:var(--accent)')}
         ${partidaFechaFin?`<div style="font-size:10px;color:var(--muted);margin-top:2px">fin: ${fmtDate(partidaFechaFin)}</div>`:''}
       </td>
-      ${!isCerrado?`<td class="td-act">
+      ${(!isCerrado&&!esContratista)?`<td class="td-act">
         <button class="btn btn-secondary btn-xs" onclick="addSub('${p.id}',${mi})">+S</button>
         <button class="btn btn-danger btn-xs" onclick="delPartida('${p.id}',${mi})">✕</button>
       </td>`:''}
@@ -1858,39 +1883,41 @@ function tplCron(p){
           <div style="display:flex;align-items:center;gap:6px">
             <input type="checkbox" ${isDone?'checked':''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--green);flex-shrink:0"
               onchange="marcarSubhecha('${p.id}',${mi},${si},this.checked)">
-            ${!isCerrado
+            ${(!isCerrado&&!esContratista)
               ?`<input value="${esc(sub.desc||'')}" placeholder="Actividad..." style="color:${textColor};font-size:13px" onchange="updSub('${p.id}',${mi},${si},'desc',this.value)">`
               :`<span style="color:${textColor};font-size:13px">${esc(sub.desc||'—')}</span>`}
             ${isDone?`<span style="color:var(--green);font-size:11px;flex-shrink:0;font-weight:700">✓</span>`:''}
           </div>
         </td>
         <td>
-          ${!isCerrado
+          ${(!isCerrado&&!esContratista)
             ?`<select style="width:100%;font-size:12px" onchange="updSub('${p.id}',${mi},${si},'unidad',this.value)">
                 <option value="">—</option>${unidSel(sub)}</select>`
             :`<span style="font-size:12px;color:${textColor}">${sub.unidad||'—'}</span>`}
         </td>
         <td>
-          ${!isCerrado
+          ${(!isCerrado&&!esContratista)
             ?`<input type="number" min="0" step="0.01" value="${sub.cantidad||0}" style="text-align:right" onchange="updSubCalc('${p.id}',${mi},${si},'cantidad',parseFloat(this.value)||0)">`
             :`<span style="color:${textColor}">${sub.cantidad||0}</span>`}
         </td>
         <td>
-          ${!isCerrado
-            ?`<input type="number" min="0" step="0.01" value="${sub.precio||0}" style="text-align:right" onchange="updSubCalc('${p.id}',${mi},${si},'precio',parseFloat(this.value)||0)">`
+          ${(!isCerrado||esContratista)
+            ?`<input type="number" min="0" step="0.01" value="${sub.precio||0}" style="text-align:right;${esContratista?'border-color:var(--blue)':''}" onchange="updSubCalc('${p.id}',${mi},${si},'precio',parseFloat(this.value)||0)">`
             :`<span style="color:${textColor}">$${parseFloat(sub.precio||0).toFixed(2)}</span>`}
         </td>
         <td>
-          <input type="number" min="1" value="${sub.dias||1}" style="text-align:center;color:${textColor}" onchange="updSubCalc('${p.id}',${mi},${si},'dias',parseInt(this.value)||1)">
+          ${esContratista
+            ?`<span style="color:${textColor}">${sub.dias||1}</span>`
+            :`<input type="number" min="1" value="${sub.dias||1}" style="text-align:center;color:${textColor}" onchange="updSubCalc('${p.id}',${mi},${si},'dias',parseInt(this.value)||1)">`}
         </td>
         <td style="text-align:center">
           ${isDone?`<span style="color:var(--green);font-size:16px">✅</span>`:`<span style="color:#333;font-size:14px">⬜</span>`}
         </td>
         <td style="text-align:right;font-weight:600;color:${t>0?(isDone?'#558855':'var(--accent)'):'var(--muted)'}">${fmt(t)}</td>
         <td>
-          ${inputFecha(subFechaInicio,`updSub('${p.id}',${mi},${si},'fechaInicio',v);syncPartidaFecha('${p.id}',${mi})`,isCerrado,'color:var(--blue)')}
+          ${inputFecha(subFechaInicio,`updSub('${p.id}',${mi},${si},'fechaInicio',v);syncPartidaFecha('${p.id}',${mi})`,isCerrado&&!esContratista,'color:var(--blue)')}
         </td>
-        ${!isCerrado?`<td><button class="btn btn-danger btn-xs" onclick="delSub('${p.id}',${mi},${si})">✕</button></td>`:''}
+        ${(!isCerrado&&!esContratista)?`<td><button class="btn btn-danger btn-xs" onclick="delSub('${p.id}',${mi},${si})">✕</button></td>`:''}
       </tr>`;
     });
   });
@@ -1902,7 +1929,7 @@ function tplCron(p){
     ${!isCerrado?'<td></td>':''}
   </tr></tbody></table></div>`;
 
-  if(!isCerrado){
+  if(!isCerrado&&!esContratista){
     html+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px">
       <button class="btn btn-primary" onclick="addPartida('${p.id}')">+ Agregar Partida</button>
     </div>`;
