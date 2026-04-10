@@ -117,7 +117,43 @@ _fbAuth.onAuthStateChanged(user=>{
 });
 </script>
 <style>
-:root{--bg:#0b0a08;--surface:#161410;--surface2:#1e1c19;--border:#2a2824;--text:#e8e6e1;--muted:#777;--accent:#e8a020;--green:#2db87a;--red:#e84040;--blue:#4ea8de;--sidebar:260px;--fs:15px;--fs-sm:13px;--fs-xs:11px}
+/* ═══ TEMAS DE COLOR ════════════════════════════════════════ */
+:root{--accent:#e8a020;--green:#2db87a;--red:#e84040;--blue:#4ea8de;--sidebar:260px;--fs:15px;--fs-sm:13px;--fs-xs:11px}
+
+/* Tema Oscuro (por defecto) */
+[data-theme="dark"],:root{
+  --bg:#0b0a08;--surface:#161410;--surface2:#1e1c19;--border:#2a2824;
+  --text:#e8e6e1;--muted:#777;--card-shadow:0 2px 12px rgba(0,0,0,.5)
+}
+/* Tema Gris */
+[data-theme="gray"]{
+  --bg:#1a1c1e;--surface:#24272b;--surface2:#2c3035;--border:#383c42;
+  --text:#d4d8dd;--muted:#8090a0;--card-shadow:0 2px 12px rgba(0,0,0,.4)
+}
+/* Tema Claro */
+[data-theme="light"]{
+  --bg:#f0f2f5;--surface:#ffffff;--surface2:#f5f7fa;--border:#dde1e7;
+  --text:#1a2030;--muted:#6b7a8d;--card-shadow:0 2px 12px rgba(0,0,0,.08)
+}
+/* Ajustes específicos para modo claro */
+[data-theme="light"] .nav-item{color:#4a5568}
+[data-theme="light"] .nav-item.active{background:var(--accent);color:#000}
+[data-theme="light"] .nav-item:hover:not(.active){background:#e8ecf0;color:#1a2030}
+[data-theme="light"] .sidebar{background:#fff;border-right:1px solid var(--border)}
+[data-theme="light"] tbody tr:hover td{background:#edf0f5}
+[data-theme="light"] th{background:#e8ecf2;color:#6b7a8d}
+[data-theme="light"] .kpi{box-shadow:var(--card-shadow)}
+[data-theme="light"] .card{box-shadow:var(--card-shadow)}
+[data-theme="light"] .topbar{background:#fff}
+[data-theme="light"] input,[data-theme="light"] select,[data-theme="light"] textarea{background:#fff;border-color:#c8d0db;color:#1a2030}
+[data-theme="light"] .toast{background:#fff;border-color:var(--green);color:#1a2030;box-shadow:0 4px 20px rgba(0,0,0,.15)}
+[data-theme="light"] .modal-box{background:#fff}
+[data-theme="light"] #loginPage .login-panel{background:#fff}
+[data-theme="light"] .b-neu{background:#e8ecf2;color:#4a5568}
+[data-theme="light"] .b-ok{background:#d4f0e4;color:#1a6a3a}
+[data-theme="light"] .b-warn{background:#fef3d0;color:#8a5a00}
+[data-theme="light"] .b-err{background:#fde8e8;color:#8a1a1a}
+[data-theme="light"] .b-blue{background:#dceefb;color:#1a4a7a}
 *{margin:0;padding:0;box-sizing:border-box}html,body{height:100%;overflow:hidden}
 body{font-family:'Karla',sans-serif;background:var(--bg);color:var(--text);font-size:var(--fs);line-height:1.5}
 #appShell{display:flex;height:100vh;overflow:hidden}
@@ -207,27 +243,59 @@ input[type=date]{color-scheme:dark}
 /* ── TOAST ────────────────────────────────────── */
 .toast{position:fixed;bottom:24px;right:20px;background:#1c1a17;border-left:3px solid var(--green);padding:13px 18px;border-radius:10px;font-size:var(--fs-sm);display:none;z-index:9999;box-shadow:0 6px 28px rgba(0,0,0,.6);max-width:340px}
 /* ── LOGIN ────────────────────────────────────── */
-#loginPage{position:fixed;inset:0;z-index:1000;display:flex;align-items:stretch}
-.login-bg{flex:1;position:relative;overflow:hidden;background:linear-gradient(135deg,#0e0c08 0%,#1a1508 50%,#0a0d0e 100%)}
-.login-bg-pattern{position:absolute;inset:0;background-image:radial-gradient(circle at 20% 50%,rgba(232,160,32,.12) 0%,transparent 50%),radial-gradient(circle at 80% 20%,rgba(45,184,122,.08) 0%,transparent 40%)}
-.login-bg-grid{position:absolute;inset:0;background-image:linear-gradient(rgba(232,160,32,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(232,160,32,.04) 1px,transparent 1px);background-size:60px 60px}
-.login-bg-content{position:relative;z-index:1;display:flex;flex-direction:column;justify-content:center;padding:60px;height:100%}
-.login-brand{display:flex;align-items:center;gap:16px;margin-bottom:48px}
-.login-brand-logo{width:56px;height:56px;border-radius:16px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#000;box-shadow:0 8px 32px rgba(232,160,32,.4);overflow:hidden;flex-shrink:0}
+/* ═══ LOGIN ════════════════════════════════════════════════ */
+#loginPage{position:fixed;inset:0;z-index:1000;display:flex;align-items:stretch;overflow:hidden}
+
+/* Panel izquierdo — sólo desktop */
+.login-bg{flex:1;position:relative;overflow:hidden;background:linear-gradient(145deg,#0a0900 0%,#161208 40%,#0a0d10 100%)}
+.login-bg-pattern{position:absolute;inset:0;background-image:
+  radial-gradient(circle at 25% 45%,rgba(232,160,32,.18) 0%,transparent 45%),
+  radial-gradient(circle at 75% 20%,rgba(45,184,122,.10) 0%,transparent 35%),
+  radial-gradient(circle at 60% 80%,rgba(78,168,222,.08) 0%,transparent 30%)}
+.login-bg-grid{position:absolute;inset:0;
+  background-image:linear-gradient(rgba(232,160,32,.05) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(232,160,32,.05) 1px,transparent 1px);
+  background-size:50px 50px}
+.login-bg-orbs{position:absolute;inset:0;pointer-events:none}
+.login-bg-orbs::before{content:'';position:absolute;width:400px;height:400px;border-radius:50%;
+  background:radial-gradient(circle,rgba(232,160,32,.08) 0%,transparent 70%);
+  top:-100px;left:-100px;animation:orb1 12s ease-in-out infinite}
+.login-bg-orbs::after{content:'';position:absolute;width:300px;height:300px;border-radius:50%;
+  background:radial-gradient(circle,rgba(45,184,122,.06) 0%,transparent 70%);
+  bottom:-80px;right:-60px;animation:orb2 15s ease-in-out infinite}
+@keyframes orb1{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(60px,40px) scale(1.1)}}
+@keyframes orb2{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(-40px,-30px) scale(1.05)}}
+.login-bg-content{position:relative;z-index:1;display:flex;flex-direction:column;justify-content:center;padding:64px;height:100%}
+.login-brand{display:flex;align-items:center;gap:18px;margin-bottom:52px}
+.login-brand-logo{width:60px;height:60px;border-radius:18px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:700;color:#000;box-shadow:0 8px 32px rgba(232,160,32,.5);overflow:hidden;flex-shrink:0}
 .login-brand-logo img{width:100%;height:100%;object-fit:cover}
-.login-brand-name{font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--text)}
-.login-tagline{font-family:'Syne',sans-serif;font-size:42px;font-weight:800;line-height:1.15;color:var(--text);margin-bottom:20px;max-width:480px}
-.login-tagline span{color:var(--accent)}
-.login-desc{font-size:15px;color:var(--muted);max-width:400px;line-height:1.7}
-.login-stats{display:flex;gap:32px;margin-top:48px}
-.login-stat-val{font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--accent)}
-.login-stat-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-top:2px}
-.login-panel{width:420px;flex-shrink:0;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;justify-content:center;padding:48px 40px;overflow-y:auto}
+.login-brand-name{font-family:'Syne',sans-serif;font-size:26px;font-weight:800;color:#fff}
+.login-tagline{font-family:'Syne',sans-serif;font-size:44px;font-weight:800;line-height:1.15;color:#fff;margin-bottom:20px;max-width:480px}
+.login-tagline span{color:var(--accent);position:relative}
+.login-tagline span::after{content:'';position:absolute;bottom:-4px;left:0;right:0;height:3px;background:var(--accent);border-radius:2px;opacity:.6}
+.login-desc{font-size:15px;color:rgba(255,255,255,.5);max-width:400px;line-height:1.8}
+.login-stats{display:flex;gap:0;margin-top:52px;background:rgba(255,255,255,.04);border-radius:16px;border:1px solid rgba(255,255,255,.08);overflow:hidden}
+.login-stat-item{flex:1;padding:20px 24px;border-right:1px solid rgba(255,255,255,.06)}
+.login-stat-item:last-child{border-right:none}
+.login-stat-val{font-family:'Syne',sans-serif;font-size:26px;font-weight:800;color:var(--accent)}
+.login-stat-lbl{font-size:10px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:1px;margin-top:3px}
+
+/* Panel derecho — formulario */
+.login-panel{width:440px;flex-shrink:0;background:#111009;border-left:1px solid rgba(232,160,32,.15);display:flex;flex-direction:column;justify-content:center;padding:52px 44px;overflow-y:auto;position:relative}
+.login-panel::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--accent),var(--green));opacity:.8}
 .login-step{display:none}.login-step.active{display:block}
-.login-h{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;margin-bottom:6px}
-.login-sub{font-size:13px;color:var(--muted);margin-bottom:28px;line-height:1.6}
-.login-back{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer;margin-bottom:20px;width:fit-content}
-.login-back:hover{color:var(--text)}
+.login-h{font-family:'Syne',sans-serif;font-size:24px;font-weight:800;margin-bottom:6px;color:#fff}
+.login-sub{font-size:13px;color:rgba(255,255,255,.45);margin-bottom:30px;line-height:1.6}
+.login-back{display:flex;align-items:center;gap:6px;font-size:12px;color:rgba(255,255,255,.4);cursor:pointer;margin-bottom:22px;width:fit-content;transition:color .15s}
+.login-back:hover{color:var(--accent)}
+/* Inputs del login con estilo propio independiente del tema */
+.login-panel input{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#fff;border-radius:10px}
+.login-panel input:focus{border-color:var(--accent);background:rgba(232,160,32,.06)}
+.login-panel input::placeholder{color:rgba(255,255,255,.25)}
+/* Feature chips */
+.login-features{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:28px}
+.login-chip{display:flex;align-items:center;gap:6px;padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:20px;font-size:11px;color:rgba(255,255,255,.5)}
+.login-chip span{font-size:14px}
 /* ── SUPERADMIN ───────────────────────────────── */
 #saPanel{position:fixed;inset:0;z-index:900;display:none;background:var(--bg)}
 .sa-layout{display:flex;height:100vh}
@@ -288,7 +356,22 @@ input[type=date]{color-scheme:dark}
   .kpi-grid{grid-template-columns:1fr 1fr}
   .content-scroll{padding:14px}
   .login-bg{display:none}
-  .login-panel{width:100%;border-left:none;padding:32px 22px}
+  .login-panel{width:100%;border-left:none;padding:0;background:linear-gradient(160deg,#0c0a06 0%,#161208 50%,#0a0c10 100%)}
+  .login-panel::before{height:2px}
+  #loginMobileLogo{display:flex!important}
+  /* En móvil, el panel ocupa toda la pantalla con layout de tarjeta central */
+  .login-panel .login-step.active{
+    background:rgba(255,255,255,.03);
+    border:1px solid rgba(255,255,255,.07);
+    border-radius:20px;
+    padding:28px 24px;
+    margin:0 16px;
+    backdrop-filter:blur(10px)
+  }
+  .login-panel > div:not(.login-step){padding:0 16px}
+  #loginMobileLogo{padding:32px 24px 0}
+  #fbStatus{padding:0 24px;margin-bottom:32px!important}
+  .login-panel .login-step:not(.active){display:none}
   .modal{padding:0}
   .modal-box{border-radius:0;min-height:100vh;padding:18px}
   .modal-box.sm,.modal-box.md,.modal-box.lg{max-width:100%}
@@ -318,64 +401,117 @@ input[type=date]{color-scheme:dark}
 
 <!-- LOGIN -->
 <div id="loginPage">
+  <!-- Panel izquierdo — branding (solo desktop) -->
   <div class="login-bg">
-    <div class="login-bg-pattern"></div><div class="login-bg-grid"></div>
+    <div class="login-bg-pattern"></div>
+    <div class="login-bg-grid"></div>
+    <div class="login-bg-orbs"></div>
     <div class="login-bg-content">
       <div class="login-brand">
         <div class="login-brand-logo" id="loginBrandLogo">📊</div>
-        <div><div class="login-brand-name" id="loginBrandName">Proyectos Pro</div><div style="font-size:12px;color:var(--muted)">Dashboard de Control</div></div>
+        <div>
+          <div class="login-brand-name" id="loginBrandName">Proyectos Pro</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.4);margin-top:2px">Dashboard de Control de Obras</div>
+        </div>
       </div>
-      <div class="login-tagline">Gestión de<br>proyectos <span>inteligente</span></div>
-      <div class="login-desc">Control total de obras civiles, gastos, cronogramas y equipos. Sincronización en tiempo real.</div>
+      <div class="login-tagline">Gestiona tus<br>obras con <span>precisión</span></div>
+      <div class="login-desc">Control total de obras civiles, cronogramas, gastos y equipos — todo sincronizado en tiempo real.</div>
       <div class="login-stats">
-        <div><div class="login-stat-val">100%</div><div class="login-stat-lbl">En la nube</div></div>
-        <div><div class="login-stat-val">RT</div><div class="login-stat-lbl">Tiempo real</div></div>
-        <div><div class="login-stat-val">∞</div><div class="login-stat-lbl">Dispositivos</div></div>
+        <div class="login-stat-item">
+          <div class="login-stat-val">100%</div>
+          <div class="login-stat-lbl">En la nube</div>
+        </div>
+        <div class="login-stat-item">
+          <div class="login-stat-val">RT</div>
+          <div class="login-stat-lbl">Tiempo real</div>
+        </div>
+        <div class="login-stat-item">
+          <div class="login-stat-val">∞</div>
+          <div class="login-stat-lbl">Dispositivos</div>
+        </div>
       </div>
     </div>
   </div>
+
+  <!-- Panel derecho — formulario -->
   <div class="login-panel">
-    <!-- PASO 1: Empresa -->
-    <div class="login-step active" id="step1">
-      <div class="login-h">Bienvenido</div>
-      <div class="login-sub">Ingresa el código de tu empresa</div>
-      <div class="fg"><label>Código de Empresa</label>
-        <input id="empCode" placeholder="Ej: DEMO" autocomplete="off" onkeydown="if(event.key==='Enter')goStep2()" style="font-size:16px;padding:12px 14px;letter-spacing:2px;text-transform:uppercase">
-      </div>
-      <button class="btn btn-primary" style="width:100%;justify-content:center;padding:12px" onclick="goStep2()">Continuar →</button>
-      <div id="step1Err" style="color:var(--red);font-size:12px;margin-top:10px;min-height:18px;text-align:center"></div>
-      <div style="margin-top:24px;text-align:center">
-        <span style="font-size:11px;color:#444;cursor:pointer" onclick="showSALogin()">⚙ Acceso SuperAdmin</span>
+    <!-- Logo visible solo en móvil -->
+    <div style="display:none;align-items:center;gap:14px;margin-bottom:32px" id="loginMobileLogo">
+      <div style="width:52px;height:52px;border-radius:14px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:26px;color:#000;box-shadow:0 6px 24px rgba(232,160,32,.5)" id="loginBrandLogoMobile">📊</div>
+      <div>
+        <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:#fff" id="loginBrandNameMobile">Proyectos Pro</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.4)">Dashboard de Control</div>
       </div>
     </div>
+
+    <!-- PASO 1: Empresa -->
+    <div class="login-step active" id="step1">
+      <div class="login-h">Bienvenido 👋</div>
+      <div class="login-sub">Ingresa el código de tu empresa para continuar</div>
+      <div class="login-features">
+        <div class="login-chip"><span>🏗</span> Obras civiles</div>
+        <div class="login-chip"><span>📊</span> Cronogramas</div>
+        <div class="login-chip"><span>💰</span> Gastos</div>
+        <div class="login-chip"><span>☁️</span> Nube</div>
+      </div>
+      <div class="fg">
+        <label style="color:rgba(255,255,255,.5)">Código de Empresa</label>
+        <input id="empCode" placeholder="Ej: PAPAJOHNS" autocomplete="off"
+          onkeydown="if(event.key==='Enter')goStep2()"
+          style="font-size:18px;padding:14px 16px;letter-spacing:3px;text-transform:uppercase;font-weight:700;text-align:center">
+      </div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;padding:14px;font-size:15px;border-radius:10px;letter-spacing:.5px" onclick="goStep2()">
+        Continuar →
+      </button>
+      <div id="step1Err" style="color:var(--red);font-size:12px;margin-top:12px;min-height:18px;text-align:center"></div>
+      <div style="margin-top:28px;text-align:center">
+        <span style="font-size:11px;color:rgba(255,255,255,.2);cursor:pointer;transition:color .2s" onmouseover="this.style.color='rgba(192,132,252,.6)'" onmouseout="this.style.color='rgba(255,255,255,.2)'" onclick="showSALogin()">⚙ Acceso SuperAdmin</span>
+      </div>
+    </div>
+
     <!-- PASO 2: Login -->
     <div class="login-step" id="step2">
       <div class="login-back" onclick="backStep1()">← Cambiar empresa</div>
       <div class="login-h">Iniciar sesión</div>
       <div class="login-sub" id="step2EmpLabel">Empresa: —</div>
-      <div class="fg"><label>Correo electrónico</label>
-        <input type="email" id="loginEmail" placeholder="tu@empresa.com" autocomplete="email" onkeydown="if(event.key==='Enter')document.getElementById('loginPass').focus()" style="padding:12px 14px;font-size:15px">
+      <div class="fg">
+        <label style="color:rgba(255,255,255,.5)">Correo electrónico</label>
+        <input type="email" id="loginEmail" placeholder="tu@empresa.com" autocomplete="email"
+          onkeydown="if(event.key==='Enter')document.getElementById('loginPass').focus()"
+          style="padding:13px 14px;font-size:15px">
       </div>
-      <div class="fg" style="position:relative"><label>Contraseña</label>
-        <input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()" style="padding:12px 14px;font-size:15px;padding-right:44px">
-        <button onclick="togglePassVis()" style="position:absolute;right:12px;bottom:10px;background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px" id="passVisBtn">👁</button>
+      <div class="fg" style="position:relative">
+        <label style="color:rgba(255,255,255,.5)">Contraseña</label>
+        <input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password"
+          onkeydown="if(event.key==='Enter')doLogin()"
+          style="padding:13px 14px;font-size:15px;padding-right:46px">
+        <button onclick="togglePassVis()" style="position:absolute;right:12px;bottom:11px;background:none;border:none;cursor:pointer;color:rgba(255,255,255,.4);font-size:18px" id="passVisBtn">👁</button>
       </div>
-      <button class="btn btn-primary" id="loginBtn" style="width:100%;justify-content:center;padding:12px;margin-bottom:12px" onclick="doLogin()">Entrar →</button>
+      <button class="btn btn-primary" id="loginBtn"
+        style="width:100%;justify-content:center;padding:14px;font-size:15px;border-radius:10px;margin-bottom:14px"
+        onclick="doLogin()">Entrar →</button>
       <div id="loginErr" style="color:var(--red);font-size:12px;min-height:18px;text-align:center;margin-bottom:8px"></div>
-      <div style="text-align:center"><span style="font-size:12px;color:var(--muted);cursor:pointer;text-decoration:underline" onclick="doResetPass()">¿Olvidaste tu contraseña?</span></div>
+      <div style="text-align:center">
+        <span style="font-size:12px;color:rgba(255,255,255,.3);cursor:pointer;text-decoration:underline" onclick="doResetPass()">¿Olvidaste tu contraseña?</span>
+      </div>
     </div>
+
     <!-- SA Login -->
     <div class="login-step" id="stepSA">
       <div class="login-back" onclick="showStep(1)">← Volver</div>
-      <div class="login-h" style="color:#c084fc">Super Admin</div>
-      <div class="login-sub">Acceso restringido</div>
-      <div class="fg"><label>Email SA</label><input type="email" id="saEmail" placeholder="superadmin@pf.local" style="padding:12px 14px"></div>
-      <div class="fg"><label>PIN</label><input type="password" id="saPin" placeholder="••••••" onkeydown="if(event.key==='Enter')doSALogin()" style="padding:12px 14px"></div>
-      <button class="btn" style="width:100%;justify-content:center;padding:12px;background:#1a0a2a;color:#c084fc;border:1px solid #3a1a5a" onclick="doSALogin()">Acceder →</button>
+      <div class="login-h" style="color:#c084fc">⚙ Super Admin</div>
+      <div class="login-sub">Acceso restringido al panel de control</div>
+      <div class="fg"><label style="color:rgba(255,255,255,.5)">Email SA</label>
+        <input type="email" id="saEmail" placeholder="superadmin@pf.local" style="padding:13px 14px"></div>
+      <div class="fg"><label style="color:rgba(255,255,255,.5)">PIN</label>
+        <input type="password" id="saPin" placeholder="••••••" onkeydown="if(event.key==='Enter')doSALogin()" style="padding:13px 14px"></div>
+      <button class="btn" style="width:100%;justify-content:center;padding:14px;font-size:15px;border-radius:10px;background:rgba(192,132,252,.15);color:#c084fc;border:1px solid rgba(192,132,252,.3)" onclick="doSALogin()">Acceder →</button>
       <div id="saErr" style="color:var(--red);font-size:12px;margin-top:10px;min-height:18px;text-align:center"></div>
     </div>
-    <div style="margin-top:32px;display:flex;align-items:center;gap:6px;font-size:11px;color:#555" id="fbStatus">
-      <div class="sync-dot" id="fbDot"></div><span id="fbStatusTxt">Conectando...</span>
+
+    <div style="margin-top:32px;display:flex;align-items:center;gap:8px;font-size:11px;color:rgba(255,255,255,.25)" id="fbStatus">
+      <div class="sync-dot" id="fbDot"></div>
+      <span id="fbStatusTxt">Conectando...</span>
     </div>
   </div>
 </div>
@@ -428,6 +564,11 @@ input[type=date]{color-scheme:dark}
       <div class="page-ttl" id="pageTitle">Dashboard</div>
       <div class="topbar-right">
         <div class="sync-badge" id="syncBadge"><div class="sync-dot" id="syncDot"></div><span id="syncTxt">—</span></div>
+        <div style="display:flex;gap:2px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:2px" title="Cambiar tema">
+          <button title="Oscuro" onclick="setTheme('dark')" id="themeD" style="padding:5px 8px;border:none;border-radius:6px;cursor:pointer;font-size:13px;background:transparent">🌑</button>
+          <button title="Gris" onclick="setTheme('gray')" id="themeG" style="padding:5px 8px;border:none;border-radius:6px;cursor:pointer;font-size:13px;background:transparent">🌫</button>
+          <button title="Claro" onclick="setTheme('light')" id="themeL" style="padding:5px 8px;border:none;border-radius:6px;cursor:pointer;font-size:13px;background:transparent">☀️</button>
+        </div>
         <div id="headerActions"></div>
       </div>
     </div>
@@ -671,7 +812,7 @@ function enterApp(email,rol,nombre,permisos){
   document.getElementById('sbUserName').textContent=nombre;
   document.getElementById('sbUserRol').textContent=(ROLES[rol]?.label||rol)+' · '+S.empresa;
   document.getElementById('sbEmpName').textContent=S.empresa;
-  applyBranding();refreshMarcaSel();startListening();
+  applyBranding();refreshMarcaSel();startListening();initTheme();
   startSessionTimer(); // iniciar timer de inactividad
   const primerModulo=MODULOS.find(m=>puedeVer(m.id));
   S.activeTab=primerModulo?primerModulo.id:'dashboard';
@@ -4203,6 +4344,27 @@ function renderProyectos(){
 // ═══════════════════════════════════════════════════════
 //  RENDER PRINCIPAL
 // ═══════════════════════════════════════════════════════
+// ═══ SISTEMA DE TEMAS ═══════════════════════════════════
+function setTheme(t){
+  document.documentElement.setAttribute('data-theme',t);
+  localStorage.setItem('pp_theme',t);
+  // Actualizar botones activos
+  ['dark','gray','light'].forEach(k=>{
+    const btn=document.getElementById('theme'+k.charAt(0).toUpperCase()+k.slice(1).charAt(0).toUpperCase());
+    if(btn) btn.style.background=k===t?'var(--accent)':'transparent';
+    // ids son themeD themeG themeL
+  });
+  const ids={dark:'themeD',gray:'themeG',light:'themeL'};
+  Object.entries(ids).forEach(([k,id])=>{
+    const el=document.getElementById(id);
+    if(el)el.style.background=k===t?'var(--accent)':'transparent';
+  });
+}
+function initTheme(){
+  const saved=localStorage.getItem('pp_theme')||'dark';
+  setTheme(saved);
+}
+
 function render(){
   if(window.innerWidth<=800)closeSB();
   // Sidebar — solo módulos permitidos
