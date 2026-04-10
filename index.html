@@ -1344,7 +1344,14 @@ async function renderSALog(){
 // ═══════════════════════════════════════════════════════
 //  GASTOS
 // ═══════════════════════════════════════════════════════
-function gastosDeProyecto(pid){return S.gastos.filter(g=>g.proyectoId===pid)}
+function gastosDeProyecto(pid){
+  // Incluir gastos del proyecto donde sumarAlProy no sea false explícitamente
+  return S.gastos.filter(g=>g.proyectoId===pid&&g.sumarAlProy!==false);
+}
+function todosGastosDeProyecto(pid){
+  // Todos los gastos vinculados al proyecto, incluyendo los que no suman
+  return S.gastos.filter(g=>g.proyectoId===pid);
+}
 function totalGastosProyecto(pid){return gastosDeProyecto(pid).reduce((s,g)=>s+(parseFloat(g.valor)||0),0)}
 
 // ═══════════════════════════════════════════════════════
@@ -1466,7 +1473,7 @@ function tplPagos(p){
 
   // Tabla de gastos
   let gastoRows=lista.length===0?`<tr><td colspan="5" class="empty">Sin gastos — asígnalos desde Gastos</td></tr>`:'';
-  lista.forEach(g=>{
+  listaTotal.forEach(g=>{
     const gIsImg=g.comprobante&&!g.comprobante.startsWith('ref:')&&g.comprobante.startsWith('data:image');
     const gIsRef=g.comprobante&&g.comprobante.startsWith('ref:');
     gastoRows+=`<tr>
@@ -2171,10 +2178,10 @@ function regGasto(){
     proveedor:prov?prov.nombre:'',
     valor,
     fecha:document.getElementById('gFecha').value,
-    proyectoId:sumarAlProy?pid:null,
+    // proyectoId siempre guardado — el flag sumarAlProy controla si afecta presupuesto
+    proyectoId:pid||null,
     centroId:ccId||null,
-    sumarAlProy,
-    // NO guardar base64 aquí — va en colección separada
+    sumarAlProy, // true = suma al presupuesto del proyecto, false = solo CC
     comprobante:compData?'ref:'+gastoId:null
   };
   S.gastos.push(gasto);
@@ -2311,7 +2318,7 @@ function tplPagosYGastos(p){
   <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
     <div class="kpi"><div class="kpi-lbl">Obra Civil</div><div class="kpi-val" style="font-size:18px">${fmt(oc)}</div><div class="kpi-sub">Pagado: ${fmt(pagadoOC)}</div></div>
     <div class="kpi"><div class="kpi-lbl">Imprevistos</div><div class="kpi-val" style="font-size:18px;color:var(--accent)">${fmt(imp)}</div><div class="kpi-sub">${impPaid?'✓ Pagado':'Pendiente'}</div></div>
-    <div class="kpi"><div class="kpi-lbl">Gastos</div><div class="kpi-val" style="font-size:18px;color:var(--red)">${fmt(gp)}</div><div class="kpi-sub">${lista.length} factura(s)</div></div>
+    <div class="kpi"><div class="kpi-lbl">Gastos</div><div class="kpi-val" style="font-size:18px;color:var(--red)">${fmt(gp)}</div><div class="kpi-sub">${listaTotal.length} factura(s) · ${lista.length} suman</div></div>
     <div class="kpi" style="border-color:var(--accent)"><div class="kpi-lbl">Total</div><div class="kpi-val" style="font-size:18px;color:var(--accent)">${fmt(oc+imp+gp)}</div></div>
   </div>
 
@@ -3229,30 +3236,66 @@ function delArchPlan(pid,idx){
 function tplPagosYGastos(p){
   const oc=parseFloat(p.montoObraCivil)||0;
   const imp=parseFloat(p.pagos?.imp?.monto)||0,impPaid=p.pagos?.imp?.paid||false;
-  const lista=gastosDeProyecto(p.id),gp=lista.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
+  const listaTotal=todosGastosDeProyecto(p.id); // todos para mostrar
+  const lista=gastosDeProyecto(p.id); // solo los que suman al presupuesto
+  const gp=lista.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
   const tramos=p.pagos?.tramos||[{pct:65,paid:false},{pct:25,paid:false},{pct:10,paid:false}];
   const isAdmin=S.currentUser?.rol==='admin';
   const pagadoOC=tramos.reduce((s,t)=>s+(t.paid?oc*(t.pct/100):0),0);
   const isMobile=/Android|iPhone|iPad/i.test(navigator.userAgent);
+  const impRef=p.pagos?.imp?.comprobante||null;
+  const impIsRef=impRef&&impRef.startsWith('ref:');
 
-  let gastoRows=lista.length===0?`<tr><td colspan="5" class="empty">Sin gastos vinculados</td></tr>`:'';
+  let gastoRows=lista.length===0?`<tr><td colspan="6" class="empty">Sin gastos vinculados</td></tr>`:'';
   lista.forEach(g=>{
-    gastoRows+=`<tr><td>${fmtDate(g.fecha)}</td><td><strong>${esc(g.factura)}</strong></td><td>${esc(g.descripcion||'—')}</td><td>${esc(g.proveedor)}</td><td style="text-align:right;color:var(--red)">${fmt(g.valor)}</td></tr>`;
+    const gIsImg=g.comprobante&&!g.comprobante.startsWith('ref:')&&g.comprobante.startsWith('data:image');
+    const gIsRef=g.comprobante&&g.comprobante.startsWith('ref:');
+    gastoRows+=`<tr>
+      <td><strong>${esc(g.factura)}</strong><div class="show-sm" style="font-size:11px;color:var(--muted)">${esc(g.proveedor)}</div></td>
+      <td class="hide-sm">${esc(g.descripcion||'—')}</td>
+      <td class="hide-sm">${esc(g.proveedor)}</td>
+      <td style="text-align:right;color:var(--red);font-weight:600">${fmt(g.valor)}</td>
+      <td class="hide-sm">${fmtDate(g.fecha)}</td>
+      <td style="text-align:center">${gIsImg
+        ?`<img src="${g.comprobante}" style="height:30px;width:38px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="verImagen('${g.comprobante}','${esc(g.factura)}')">`
+        :gIsRef?`<button class="btn btn-secondary btn-xs" onclick="verComprobanteGasto('${g.id}','${esc(g.factura)}')">📎 Ver</button>`
+        :'<span style="color:#444">—</span>'}</td>
+    </tr>`;
   });
 
   return`
-  <!-- KPIs -->
-  <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+  <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin-bottom:16px">
     <div class="kpi"><div class="kpi-lbl">Obra Civil</div><div class="kpi-val" style="font-size:18px">${fmt(oc)}</div><div class="kpi-sub">Pagado: ${fmt(pagadoOC)}</div></div>
     <div class="kpi"><div class="kpi-lbl">Imprevistos</div><div class="kpi-val" style="font-size:18px;color:var(--accent)">${fmt(imp)}</div><div class="kpi-sub">${impPaid?'✓ Pagado':'Pendiente'}</div></div>
     <div class="kpi"><div class="kpi-lbl">Gastos</div><div class="kpi-val" style="font-size:18px;color:var(--red)">${fmt(gp)}</div><div class="kpi-sub">${lista.length} factura(s)</div></div>
-    <div class="kpi" style="border-color:var(--accent)"><div class="kpi-lbl">Total</div><div class="kpi-val" style="font-size:18px;color:var(--accent)">${fmt(oc+imp+gp)}</div></div>
+    <div class="kpi" style="border-color:var(--accent)"><div class="kpi-lbl">Total proyecto</div><div class="kpi-val" style="font-size:18px;color:var(--accent)">${fmt(oc+imp+gp)}</div></div>
   </div>
 
-  <!-- Tramos OC -->
-  <div class="sec-hdr">Tramos de pago — Obra Civil</div>
-  <div class="tbl-wrap" style="margin-bottom:12px"><table>
-    <thead><tr><th>Tramo</th><th>%</th><th style="text-align:right">Monto</th><th>Aplicado</th><th>Comprobante</th></tr></thead>
+  <!-- MONTO OC PRIMERO con botón confirmar -->
+  <div class="card" style="margin-bottom:16px;border-color:#2a3a1a">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:10px">💰 Monto de Obra Civil</div>
+    <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:150px">
+        <input type="number" min="0" id="ocInput_${p.id}" value="${oc}" placeholder="0.00"
+          style="font-size:18px;font-weight:700;color:var(--accent)"
+          onkeydown="if(event.key==='Enter')confirmarOC('${p.id}')">
+      </div>
+      <button class="btn btn-primary" onclick="confirmarOC('${p.id}')">✓ Confirmar monto</button>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-top:8px">${oc>0
+      ?`Los tramos se calculan sobre: <strong style="color:var(--accent)">${fmt(oc)}</strong>`
+      :'⚠ Ingresa el monto y presiona Confirmar para calcular los tramos.'}</div>
+  </div>
+
+  <!-- TRAMOS + IMPREVISTOS unificados -->
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:8px">Tramos de pago</div>
+  <div class="tbl-wrap" style="margin-bottom:12px"><table style="table-layout:auto">
+    <thead><tr>
+      <th>Concepto</th><th style="width:60px">%</th>
+      <th style="text-align:right">Monto</th>
+      <th style="text-align:center">✓</th>
+      <th>Comprobante</th>
+    </tr></thead>
     <tbody>
     ${tramos.map((t,i)=>{
       const monto=oc*(t.pct/100);
@@ -3262,29 +3305,52 @@ function tplPagosYGastos(p){
         <td><strong>Tramo ${i+1}</strong></td>
         <td><span class="badge b-warn">${t.pct}%</span></td>
         <td style="text-align:right"><strong>${fmt(monto)}</strong></td>
-        <td>
-          <input type="checkbox" ${t.paid?'checked':''} onchange="updTramoOC('${p.id}',${i},'paid',this.checked)" style="width:18px;height:18px;cursor:pointer">
-          <span class="badge ${t.paid?'b-ok':'b-neu'}" style="margin-left:6px">${t.paid?'✓ Pagado':'Pendiente'}</span>
+        <td style="text-align:center">
+          <div style="display:flex;align-items:center;gap:6px;justify-content:center">
+            <input type="checkbox" ${t.paid?'checked':''} onchange="updTramoOC('${p.id}',${i},'paid',this.checked)" style="width:18px;height:18px;cursor:pointer">
+            <span class="badge ${t.paid?'b-ok':'b-neu'}">${t.paid?'✓ Pagado':'Pendiente'}</span>
+          </div>
         </td>
         <td>
-          ${comp
-            ?(comp.startsWith('ref:')
-              ?`<button class="btn btn-secondary btn-xs" onclick="verComprobanteTramo('${p.id}',${i},'Tramo ${i+1}')">📎 Ver</button>
-                <button class="btn btn-danger btn-xs" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button>`
-              :(isImg
-                ?`<img src="${comp}" style="height:36px;border-radius:4px;cursor:pointer" onclick="verImagen('${comp}','Comprobante Tramo ${i+1}')"><button class="btn btn-danger btn-xs" style="margin-left:6px" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button>`
-                :`<a href="${comp}" download="comprobante_tramo${i+1}.pdf" class="btn btn-secondary btn-xs">📄 PDF</a><button class="btn btn-danger btn-xs" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button>`))
-            :`<div style="display:flex;gap:6px;align-items:center">
-                <button class="btn btn-secondary btn-xs" onclick="document.getElementById('compFI_${i}').click()">📎 Subir</button>
-                ${isMobile?`<button class="btn btn-secondary btn-xs" onclick="abrirCamaraComprobante('${p.id}',${i},'compCam_${i}')">📷</button>`:''}
-              </div>
-              <input type="file" id="compFI_${i}" accept="image/*,.pdf" style="display:none" onchange="subirComprobante('${p.id}',${i},this)">
-              ${isMobile?`<input type="file" id="compCam_${i}" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
-            `}
+          ${comp?(comp.startsWith('ref:')
+            ?`<div style="display:flex;gap:5px"><button class="btn btn-secondary btn-xs" onclick="verComprobanteTramo('${p.id}',${i},'Tramo ${i+1}')">📎 Ver</button><button class="btn btn-danger btn-xs" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button></div>`
+            :isImg?`<div style="display:flex;align-items:center;gap:5px"><img src="${comp}" style="height:30px;width:38px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="verImagen('${comp}','Tramo ${i+1}')"><button class="btn btn-danger btn-xs" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button></div>`
+            :`<a href="${comp}" download="comp.pdf" class="btn btn-secondary btn-xs">📄</a>`)
+          :`<div style="display:flex;gap:5px">
+              <button class="btn btn-secondary btn-xs" onclick="document.getElementById('compFI_${i}').click()">📎 Subir</button>
+              ${isMobile?`<button class="btn btn-secondary btn-xs" onclick="abrirCamaraComprobante('${p.id}',${i},'compCam_${i}')">📷</button>`:''}
+            </div>
+            <input type="file" id="compFI_${i}" accept="image/*,.pdf" style="display:none" onchange="subirComprobante('${p.id}',${i},this)">
+            ${isMobile?`<input type="file" id="compCam_${i}" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
+          `}
         </td>
       </tr>`;
     }).join('')}
-    <tr style="background:#0e0c0a">
+    <tr style="background:#1a1208">
+      <td><strong style="color:var(--accent)">⚠ Imprevistos</strong></td>
+      <td><span class="badge b-neu" style="font-size:10px">Adicional</span></td>
+      <td><input type="number" min="0" id="impInput_${p.id}" value="${imp}" style="text-align:right;font-weight:700;color:var(--accent)"
+        onblur="updImpMonto('${p.id}',this.value)" onkeydown="if(event.key==='Enter'){updImpMonto('${p.id}',this.value);this.blur()}"></td>
+      <td style="text-align:center">
+        <div style="display:flex;align-items:center;gap:6px;justify-content:center">
+          <input type="checkbox" ${impPaid?'checked':''} onchange="updImpPaid('${p.id}',this.checked)" style="width:18px;height:18px;cursor:pointer">
+          <span class="badge ${impPaid?'b-ok':'b-neu'}">${impPaid?'✓ Pagado':'Pendiente'}</span>
+        </div>
+      </td>
+      <td>
+        ${impRef?(impIsRef
+          ?`<div style="display:flex;gap:5px"><button class="btn btn-secondary btn-xs" onclick="verComprobanteImp('${p.id}')">📎 Ver</button><button class="btn btn-danger btn-xs" onclick="updImpComp('${p.id}',null)">✕</button></div>`
+          :`<div style="display:flex;align-items:center;gap:5px"><img src="${impRef}" style="height:30px;width:38px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="verImagen('${impRef}','Imprevistos')"><button class="btn btn-danger btn-xs" onclick="updImpComp('${p.id}',null)">✕</button></div>`)
+        :`<div style="display:flex;gap:5px">
+            <button class="btn btn-secondary btn-xs" onclick="document.getElementById('compFI_imp').click()">📎 Subir</button>
+            ${isMobile?`<button class="btn btn-secondary btn-xs" onclick="abrirCamaraComprobante('${p.id}','imp','compCam_imp')">📷</button>`:''}
+          </div>
+          <input type="file" id="compFI_imp" accept="image/*,.pdf" style="display:none" onchange="subirComprobanteImp('${p.id}',this)">
+          ${isMobile?`<input type="file" id="compCam_imp" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
+        `}
+      </td>
+    </tr>
+    <tr style="background:#0e0c0a;border-top:2px solid var(--border)">
       <td colspan="2" style="text-align:right;font-size:11px;color:var(--muted)">PENDIENTE OC:</td>
       <td style="text-align:right"><strong style="color:var(--accent)">${fmt(oc-pagadoOC)}</strong></td>
       <td colspan="2"></td>
@@ -3292,8 +3358,8 @@ function tplPagosYGastos(p){
     </tbody>
   </table></div>
 
-  ${isAdmin?`<div class="card" style="margin-bottom:12px;border-color:#2a2010">
-    <div class="sec-hdr">⚙ Configurar porcentajes (Solo Admin)</div>
+  ${isAdmin?`<div class="card" style="margin-bottom:16px;border-color:#2a2010">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:8px">⚙ Configurar porcentajes (Admin)</div>
     <div class="row3">
       <div class="fg"><label>Tramo 1 (%)</label><input type="number" id="tp0" min="0" max="100" value="${tramos[0]?.pct||65}"></div>
       <div class="fg"><label>Tramo 2 (%)</label><input type="number" id="tp1" min="0" max="100" value="${tramos[1]?.pct||25}"></div>
@@ -3305,38 +3371,22 @@ function tplPagosYGastos(p){
     </div>
   </div>`:''}
 
-  <!-- Imprevistos -->
   <div class="divider"></div>
-  <div class="row2">
-    <div class="fg"><label>Monto Obra Civil ($)</label><input type="number" min="0" value="${oc}" onchange="updOC('${p.id}',this.value)"></div>
-    <div class="fg"><label>Imprevistos ($)</label><input type="number" min="0" value="${imp}" onchange="updImpMonto('${p.id}',this.value)"></div>
-  </div>
-  <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
-    <input type="checkbox" id="impPaid" ${impPaid?'checked':''} onchange="updImpPaid('${p.id}',this.checked)">
-    <label for="impPaid" style="cursor:pointer">Imprevistos pagados</label>
-  </div>
-
-  <!-- Gastos vinculados -->
-  <div class="divider"></div>
-  <div class="sec-hdr">Gastos vinculados al proyecto</div>
-  <div class="tbl-wrap" style="margin-bottom:12px;overflow-x:auto"><table style="table-layout:auto">
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:8px">Gastos vinculados al proyecto</div>
+  <div class="tbl-wrap" style="margin-bottom:12px"><table style="table-layout:auto">
     <thead><tr>
-      <th>Factura</th>
-      <th class="hide-sm">Descripción</th>
-      <th class="hide-sm">Proveedor</th>
-      <th style="text-align:right">Valor</th>
-      <th>Fecha</th>
+      <th>Factura</th><th class="hide-sm">Descripción</th><th class="hide-sm">Proveedor</th>
+      <th style="text-align:right">Valor</th><th class="hide-sm">Fecha</th>
       <th style="text-align:center">📎</th>
     </tr></thead>
     <tbody>${gastoRows}${lista.length>0?`<tr style="background:#0e0c0a">
       <td colspan="3" style="text-align:right;font-size:11px;color:var(--muted)">SUBTOTAL:</td>
-      <td style="text-align:right"><strong style="color:var(--red)">${fmt(gp)}</strong></td>
+      <td style="text-align:right;color:var(--red);font-weight:700">${fmt(gp)}</td>
       <td colspan="2"></td>
     </tr>`:''}</tbody>
   </table></div>
   <div style="font-size:12px;color:var(--muted)">ℹ Para agregar gastos ve al módulo <strong>Gastos</strong> y selecciona este proyecto.</div>`;
 }
-
 function subirComprobante(pid,tramoIdx,input){
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   const file=input.files[0];if(!file)return;
