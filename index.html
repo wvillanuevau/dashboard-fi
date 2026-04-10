@@ -467,7 +467,11 @@ function migrateData(){
     while(p.pagos.tramos.length<3)p.pagos.tramos.push({pct:0,paid:false});
     if(!p.planificacion)p.planificacion={archivos:[]};
     // Asegurar unidad en subpartidas
-    p.cronograma.partidas.forEach(m=>m.sub.forEach(s=>{if(!s.unidad)s.unidad='';}));
+    p.cronograma.partidas.forEach(m=>{
+      m.sub.forEach(s=>{if(!s.unidad)s.unidad='';});
+      if(!('fechaInicio' in m))m.fechaInicio=''; // fecha propia de cada partida
+    });
+    if(!('condiciones' in p.cronograma))p.cronograma.condiciones='';
   });
   S.gastos.forEach(g=>{if(!('proyectoId' in g))g.proyectoId=null;if(!('centroId' in g))g.centroId=null;if(!('sumarAlProy' in g))g.sumarAlProy=true;});
   S.centros.forEach(c=>{if(!('auto' in c))c.auto=false;});
@@ -1464,17 +1468,19 @@ function syncAvance(pid){
 function tplCron(p){
   const cr=p.cronograma;
   const isAc=cr.aceptado;
-  const isCerrado=cr.cerrado; // oferta aceptada = bloqueado
+  const isCerrado=cr.cerrado;
   const totalDias=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+(parseInt(x.dias)||0),0),0);
-  const fechaFin=addDias(cr.fechaInicio,totalDias);
   const grand=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0),0);
   const totalSubs=cr.partidas.reduce((s,m)=>s+m.sub.length,0);
   const doneSubs=cr.partidas.reduce((s,m)=>s+m.sub.filter(x=>x.done).length,0);
   const pctReal=totalSubs>0?Math.round((doneSubs/totalSubs)*100):0;
   const unidSel=(sub)=>UNIDADES.map(u=>`<option${sub.unidad===u?' selected':''}>${u}</option>`).join('');
 
+  // Calcular fecha fin desde fecha global
+  const fechaFin=addDias(cr.fechaInicio,totalDias);
+
   let html=`
-  <!-- Barra de estado -->
+  <!-- Estado de oferta -->
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px;padding:14px 16px;background:var(--surface2);border-radius:12px;border:1px solid var(--border)">
     ${isCerrado
       ?`<div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap">
@@ -1489,34 +1495,44 @@ function tplCron(p){
         <button class="btn btn-danger btn-sm" onclick="reabrirOferta('${p.id}')">🔓 Reabrir oferta</button>`
       :`<div style="flex:1">
           ${isAc
-            ?`<span class="badge b-warn" style="font-size:12px;padding:6px 14px">✓ Cronograma aceptado — pendiente de cierre</span>`
+            ?`<span class="badge b-warn" style="font-size:12px;padding:6px 14px">✓ Pre-aceptado — pendiente de cierre formal</span>`
             :`<span style="font-size:13px;color:var(--muted)">Cronograma en edición libre</span>`}
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           ${isAc
             ?`<button class="btn btn-success" onclick="cerrarOferta('${p.id}')">🔒 Cerrar y aceptar oferta</button>
-              <button class="btn btn-secondary btn-sm" onclick="toggleCronAcept('${p.id}',false)">Desbloquear edición</button>`
-            :`<button class="btn btn-primary" onclick="toggleCronAcept('${p.id}',true)">✓ Pre-aceptar cronograma</button>`}
+              <button class="btn btn-secondary btn-sm" onclick="toggleCronAcept('${p.id}',false)">Desbloquear</button>`
+            :`<button class="btn btn-primary" onclick="toggleCronAcept('${p.id}',true)">✓ Pre-aceptar</button>`}
         </div>`}
-    <button class="btn btn-secondary btn-sm" onclick="imprimirCronograma('${p.id}')">🖨 Imprimir oferta</button>
+    <button class="btn btn-secondary btn-sm" onclick="imprimirCronograma('${p.id}')">🖨 Imprimir contrato</button>
   </div>
 
-  <!-- Resumen superior -->
+  <!-- KPIs -->
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
     <div class="kpi"><div class="kpi-lbl">Partidas</div><div class="kpi-val">${cr.partidas.length}</div></div>
     <div class="kpi"><div class="kpi-lbl">Días totales</div><div class="kpi-val" style="color:var(--accent)">${totalDias}</div></div>
     <div class="kpi"><div class="kpi-lbl">Total presupuesto</div><div class="kpi-val" style="font-size:16px;color:var(--accent)">${fmt(grand)}</div></div>
-    <div class="kpi"><div class="kpi-lbl">Fecha fin est.</div><div class="kpi-val" style="font-size:15px;color:var(--green)">${fechaFin?fmtDate(fechaFin):'—'}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Fecha fin est.</div><div class="kpi-val" style="font-size:14px;color:var(--green)">${fechaFin?fmtDate(fechaFin):'—'}</div></div>
   </div>
 
-  <!-- Fecha de inicio -->
-  <div class="row2" style="margin-bottom:14px">
-    <div class="fg"><label>Fecha de inicio</label>
-      <input type="date" value="${cr.fechaInicio||''}" onchange="updCron('${p.id}','fechaInicio',this.value)">
+  <!-- Fecha global del proyecto -->
+  <div class="row2" style="margin-bottom:16px">
+    <div class="fg">
+      <label>📅 Fecha de inicio del proyecto (global)</label>
+      <input type="date" value="${cr.fechaInicio||''}" ${isCerrado?'disabled':''} onchange="updCron('${p.id}','fechaInicio',this.value)">
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Referencia global. Cada partida puede tener su propia fecha de inicio.</div>
     </div>
-    <div class="fg"><label>Fecha estimada de fin (calculada)</label>
+    <div class="fg">
+      <label>Fecha estimada de fin (calculada)</label>
       <input value="${fechaFin?fmtDate(fechaFin):'—'}" disabled style="color:var(--green)">
     </div>
+  </div>
+
+  <!-- Condiciones de la oferta -->
+  <div class="fg" style="margin-bottom:16px">
+    <label>📋 Condiciones de la oferta / Notas del contrato</label>
+    <textarea id="condOferta_${p.id}" rows="4" placeholder="Describe las condiciones generales: forma de pago, garantías, alcance del trabajo, exclusiones, penalizaciones..." ${isCerrado?'disabled style="color:var(--muted);background:var(--surface2)"':''} onchange="updCron('${p.id}','condiciones',this.value)">${esc(cr.condiciones||'')}</textarea>
+    ${isCerrado?'<div style="font-size:11px;color:var(--muted);margin-top:4px">🔒 Condiciones bloqueadas — oferta aceptada</div>':''}
   </div>
 
   <!-- Tabla partidas -->
@@ -1527,7 +1543,7 @@ function tplCron(p){
       <th style="text-align:right">Cant.</th>
       <th style="text-align:right">P.Unit.</th>
       <th style="text-align:center">Días</th>
-      ${isCerrado?'<th style="text-align:center">✓ Hecho</th>':''}
+      <th style="text-align:center">✓</th>
       <th style="text-align:right">Total</th>
       ${!isCerrado?'<th></th>':''}
     </tr></thead>
@@ -1538,23 +1554,33 @@ function tplCron(p){
     const tp=m.sub.reduce((s,x)=>s+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0);
     const doneM=m.sub.filter(x=>x.done).length;
     const pctM=m.sub.length>0?Math.round((doneM/m.sub.length)*100):0;
+    const partidaFechaInicio=m.fechaInicio||cr.fechaInicio||'';
+    const partidaFechaFin=addDias(partidaFechaInicio,dp);
 
-    html+=`<tr style="background:#0e0c0a">
-      <td colspan="2">
-        ${!isCerrado
-          ?`<input value="${esc(m.nombre)}" style="font-weight:700;background:transparent;border:none;color:var(--text);width:100%;font-size:13px" onchange="updPartida('${p.id}',${mi},'nombre',this.value)">`
-          :`<span style="font-weight:700;font-size:13px;padding:0 4px">${esc(m.nombre)}</span>`}
+    html+=`<tr style="background:#0d0b09">
+      <td>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          ${!isCerrado
+            ?`<input value="${esc(m.nombre)}" style="font-weight:700;background:transparent;border:none;color:var(--text);width:100%;font-size:13px" onchange="updPartida('${p.id}',${mi},'nombre',this.value)">`
+            :`<span style="font-weight:700;font-size:13px;padding:0 2px">${esc(m.nombre)}</span>`}
+          <div style="display:flex;align-items:center;gap:8px">
+            <label style="font-size:10px;color:var(--muted);white-space:nowrap">Inicio partida:</label>
+            <input type="date" value="${partidaFechaInicio}" ${isCerrado?'disabled':''} style="font-size:11px;padding:3px 6px;width:130px;color:var(--accent)" onchange="updPartida('${p.id}',${mi},'fechaInicio',this.value);reloadTab('cron','${p.id}')">
+            ${partidaFechaFin?`<span style="font-size:10px;color:var(--muted)">→ fin est: ${fmtDate(partidaFechaFin)}</span>`:''}
+          </div>
+        </div>
       </td>
-      <td colspan="2" style="color:var(--muted);font-size:11px">${m.sub.length} subpartida(s)</td>
-      <td style="text-align:center"><strong style="color:var(--accent)">${dp}</strong></td>
-      ${isCerrado?`<td style="text-align:center;font-size:11px">
-        <span style="color:${pctM===100?'var(--green)':'var(--muted)'}">${doneM}/${m.sub.length}</span>
-        <div style="height:4px;background:var(--border);border-radius:2px;margin-top:3px;overflow:hidden">
+      <td colspan="1" style="color:var(--muted);font-size:11px;vertical-align:top;padding-top:10px">${m.sub.length} sub</td>
+      <td colspan="2"></td>
+      <td style="text-align:center;vertical-align:top;padding-top:10px"><strong style="color:var(--accent)">${dp}</strong></td>
+      <td style="text-align:center;vertical-align:top;padding-top:8px">
+        <span style="font-size:11px;color:${pctM===100?'var(--green)':'var(--muted)'}">${doneM}/${m.sub.length}</span>
+        <div style="height:4px;background:var(--border);border-radius:2px;margin-top:3px;overflow:hidden;width:40px;margin-left:auto;margin-right:auto">
           <div style="height:100%;width:${pctM}%;background:var(--green)"></div>
         </div>
-      </td>`:''}
-      <td style="text-align:right"><strong>${fmt(tp)}</strong></td>
-      ${!isCerrado?`<td class="td-act">
+      </td>
+      <td style="text-align:right;vertical-align:top;padding-top:10px"><strong>${fmt(tp)}</strong></td>
+      ${!isCerrado?`<td style="vertical-align:top;padding-top:8px" class="td-act">
         <button class="btn btn-secondary btn-xs" onclick="addSub('${p.id}',${mi})">+Sub</button>
         <button class="btn btn-danger btn-xs" onclick="delPartida('${p.id}',${mi})">✕</button>
       </td>`:''}
@@ -1562,62 +1588,67 @@ function tplCron(p){
 
     m.sub.forEach((sub,si)=>{
       const t=(parseFloat(sub.cantidad)||0)*(parseFloat(sub.precio)||0);
-      html+=`<tr style="background:${sub.done?'#0a1a0a':'#111009'};${sub.done?'opacity:.85':''}">
+      const isDone=!!sub.done;
+      // Color según estado — NO tachar, cambiar color
+      const rowBg=isDone?'#0a140a':'#111009';
+      const textColor=isDone?'#558855':'var(--text)';
+
+      html+=`<tr style="background:${rowBg}">
         <td style="padding-left:20px">
           <div style="display:flex;align-items:center;gap:8px">
-            ${isCerrado?`<input type="checkbox" ${sub.done?'checked':''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--green)"
-              onchange="marcarSubhecha('${p.id}',${mi},${si},this.checked)">`:'<span style="display:inline-block;width:20px"></span>'}
+            <input type="checkbox" ${isDone?'checked':''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--green);flex-shrink:0"
+              onchange="marcarSubhecha('${p.id}',${mi},${si},this.checked)">
             ${!isCerrado
-              ?`<input value="${esc(sub.desc||'')}" placeholder="Descripción de la actividad" style="flex:1;${sub.done?'text-decoration:line-through;color:var(--muted)':''}" onchange="updSub('${p.id}',${mi},${si},'desc',this.value)">`
-              :`<span style="${sub.done?'text-decoration:line-through;color:var(--muted)':'color:var(--text)'};font-size:13px">${esc(sub.desc||'—')}</span>`}
+              ?`<input value="${esc(sub.desc||'')}" placeholder="Descripción de la actividad" style="flex:1;color:${textColor}" onchange="updSub('${p.id}',${mi},${si},'desc',this.value)">`
+              :`<span style="color:${textColor};font-size:13px">${esc(sub.desc||'—')}</span>`}
+            ${isDone?`<span style="color:var(--green);font-size:12px;flex-shrink:0">✓</span>`:''}
           </div>
         </td>
         <td>
           ${!isCerrado
             ?`<select style="width:82px;font-size:12px" onchange="updSub('${p.id}',${mi},${si},'unidad',this.value)">
-                <option value="">—</option>${unidSel(sub)}
-              </select>`
-            :`<span style="font-size:12px;color:var(--muted)">${sub.unidad||'—'}</span>`}
+                <option value="">—</option>${unidSel(sub)}</select>`
+            :`<span style="font-size:12px;color:${textColor}">${sub.unidad||'—'}</span>`}
         </td>
         <td style="text-align:right">
           ${!isCerrado
             ?`<input type="number" min="0" step="0.01" value="${sub.cantidad||0}" style="width:70px;text-align:right" onchange="updSubCalc('${p.id}',${mi},${si},'cantidad',parseFloat(this.value)||0)">`
-            :`<span>${sub.cantidad||0}</span>`}
+            :`<span style="color:${textColor}">${sub.cantidad||0}</span>`}
         </td>
         <td style="text-align:right">
           ${!isCerrado
             ?`<input type="number" min="0" step="0.01" value="${sub.precio||0}" style="width:80px;text-align:right" onchange="updSubCalc('${p.id}',${mi},${si},'precio',parseFloat(this.value)||0)">`
-            :`<span>$${parseFloat(sub.precio||0).toFixed(2)}</span>`}
+            :`<span style="color:${textColor}">$${parseFloat(sub.precio||0).toFixed(2)}</span>`}
         </td>
         <td style="text-align:center">
-          <input type="number" min="1" value="${sub.dias||1}" style="width:55px;text-align:center" onchange="updSubCalc('${p.id}',${mi},${si},'dias',parseInt(this.value)||1)">
+          <input type="number" min="1" value="${sub.dias||1}" style="width:55px;text-align:center;color:${textColor}" onchange="updSubCalc('${p.id}',${mi},${si},'dias',parseInt(this.value)||1)">
         </td>
-        ${isCerrado?'<td></td>':''}
-        <td style="text-align:right;font-weight:600;color:${t>0?'var(--accent)':'var(--muted)'}">${fmt(t)}</td>
+        <td style="text-align:center">
+          ${isDone?`<span style="color:var(--green);font-size:16px">✅</span>`:`<span style="color:#444;font-size:14px">⬜</span>`}
+        </td>
+        <td style="text-align:right;font-weight:600;color:${t>0?(isDone?'#558855':'var(--accent)'):'var(--muted)'}">${fmt(t)}</td>
         ${!isCerrado?`<td><button class="btn btn-danger btn-xs" onclick="delSub('${p.id}',${mi},${si})">✕</button></td>`:''}
       </tr>`;
     });
   });
 
   html+=`<tr style="background:#0a0908;border-top:2px solid var(--accent)">
-    <td colspan="${isCerrado?4:3}" style="text-align:right;color:var(--muted);font-size:11px">TOTAL PRESUPUESTO:</td>
+    <td colspan="${4}" style="text-align:right;color:var(--muted);font-size:11px">TOTAL PRESUPUESTO:</td>
     <td></td><td></td>
-    ${isCerrado?'<td></td>':''}
     <td style="text-align:right"><strong style="color:var(--accent);font-size:17px">${fmt(grand)}</strong></td>
     ${!isCerrado?'<td></td>':''}
   </tr></tbody></table></div>`;
 
-  // Botones inferiores
   if(!isCerrado){
     html+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px">
       <button class="btn btn-primary" onclick="addPartida('${p.id}')">+ Agregar Partida</button>
     </div>`;
   }
 
-  // GANTT
   html+=ganttHTML(p);
   return html;
 }
+
 function cerrarOferta(pid){
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   if(!confirm('¿Confirmas que la oferta ha sido aceptada por el cliente?\n\nEsto bloqueará la edición de partidas y subpartidas.\nSolo podrás modificar días y marcar actividades como realizadas.'))return;
@@ -1767,11 +1798,11 @@ function renderGastos(){
       <label>Foto / Comprobante de factura (opcional)</label>
       <div style="display:flex;gap:8px;align-items:center">
         <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('gCompFI').click()">📎 Archivo</button>
-        ${/Android|iPhone|iPad/i.test(navigator.userAgent)?`<button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('gCompCam').click()">📷 Cámara</button>`:''}
+        ${/Android|iPhone|iPad/i.test(navigator.userAgent)?`<button type="button" class="btn btn-secondary btn-sm" onclick="abrirCamaraGasto('gCompCam')">📷 Cámara</button>`:''}
         <span id="gCompNombre" style="font-size:12px;color:var(--muted)">Sin archivo</span>
       </div>
       <input type="file" id="gCompFI" accept="image/*,.pdf" style="display:none" onchange="selGastoComp(this)">
-      <input type="file" id="gCompCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none" onchange="selGastoComp(this)">
+      <input type="file" id="gCompCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">
       <div id="gCompPreview" style="margin-top:6px"></div>
       <input type="hidden" id="gCompData">
     </div>
@@ -1813,26 +1844,63 @@ function onGastoProyChange(){
   }
 }
 
+// ── HELPER GLOBAL DE CÁMARA/ARCHIVO ─────────────────────
+// Solución al problema de onchange no disparándose después de captura con cámara:
+// Usamos addEventListener cada vez que se abre el input para garantizar el evento.
+function abrirArchivoConCallback(inputEl, callback){
+  if(!inputEl)return;
+  // Limpiar listeners anteriores clonando el nodo
+  const clone=inputEl.cloneNode(true);
+  inputEl.parentNode.replaceChild(clone,inputEl);
+  // Registrar el listener fresco
+  clone.addEventListener('change',function handler(e){
+    clone.removeEventListener('change',handler);
+    if(e.target.files&&e.target.files.length>0){
+      callback(e.target);
+    }
+    // Resetear para permitir seleccionar el mismo archivo de nuevo
+    setTimeout(()=>{try{clone.value='';}catch(err){}},200);
+  });
+  clone.click();
+}
+
+function leerArchivoBase64(file, onDone, maxMB=1.5){
+  if(file.size>maxMB*1024*1024){toast('Archivo supera '+maxMB+'MB',true);return;}
+  const reader=new FileReader();
+  reader.onload=e=>onDone(e.target.result,file);
+  reader.readAsDataURL(file);
+}
+
 function selGastoComp(input){
   const file=input.files[0];if(!file)return;
-  if(file.size>1.5*1024*1024){toast('Archivo supera 1.5MB',true);return;}
-  const lbl=document.getElementById('gCompNombre');
-  const prev=document.getElementById('gCompPreview');
-  const data=document.getElementById('gCompData');
-  if(lbl)lbl.textContent=file.name;
-  const reader=new FileReader();
-  reader.onload=e=>{
-    if(data)data.value=e.target.result;
+  leerArchivoBase64(file,(b64,f)=>{
+    const lbl=document.getElementById('gCompNombre');
+    const prev=document.getElementById('gCompPreview');
+    const data=document.getElementById('gCompData');
+    if(lbl)lbl.textContent=f.name;
+    if(data)data.value=b64;
     if(prev){
-      if(file.type.startsWith('image/')){
-        prev.innerHTML=`<img src="${e.target.result}" style="max-height:80px;border-radius:6px;margin-top:4px">`;
+      if(f.type.startsWith('image/')){
+        prev.innerHTML=`<img src="${b64}" style="max-height:80px;border-radius:6px;margin-top:4px">`;
       } else {
-        prev.innerHTML=`<span style="font-size:12px;color:var(--green)">📄 ${file.name} listo</span>`;
+        prev.innerHTML=`<span style="font-size:12px;color:var(--green)">📄 ${f.name} listo</span>`;
       }
     }
-  };
-  reader.readAsDataURL(file);
-  input.value='';
+  });
+}
+
+// Versión con abrirArchivoConCallback para cámara
+function abrirCamaraGasto(inputId){
+  const el=document.getElementById(inputId);
+  abrirArchivoConCallback(el,(input)=>selGastoComp(input));
+}
+function abrirCamaraPlan(pid,inputId){
+  const el=document.getElementById(inputId);
+  abrirArchivoConCallback(el,(input)=>subirArchPlan(pid,input));
+}
+function abrirCamaraComprobante(pid,idx,inputId){
+  const el=document.getElementById(inputId);
+  abrirArchivoConCallback(el,(input)=>subirComprobante(pid,idx,input));
 }
 
 function regGasto(){
@@ -1899,10 +1967,10 @@ function tplPlan(p){
       <div style="font-size:32px;margin-bottom:8px">📤</div>
       <div style="font-size:14px;font-weight:600">Subir archivo</div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">DWG, PDF, JPG, PNG — máx 2MB por archivo</div>
-      ${isMobile?`<div style="margin-top:12px"><button class="btn btn-primary btn-sm" onclick="event.stopPropagation();document.getElementById('planCam').click()">📷 Usar cámara</button></div>`:''}
+      ${isMobile?`<div style="margin-top:12px"><button class="btn btn-primary btn-sm" onclick="event.stopPropagation();abrirCamaraPlan('${p.id}','planCam')">📷 Usar cámara</button></div>`:''}
     </div>
     <input type="file" id="planFI" multiple accept=".dwg,.pdf,.jpg,.jpeg,.png,.gif,.webp,.dxf" style="display:none" onchange="subirArchPlan('${p.id}',this)">
-    ${isMobile?`<input type="file" id="planCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none" onchange="subirArchPlan('${p.id}',this)">`:''}
+    ${isMobile?`<input type="file" id="planCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
   </div>
   <div id="archList_${p.id}">${archHtml}</div>`;
 }
@@ -2009,10 +2077,408 @@ function tplPagosYGastos(p){
               :`<a href="${comp}" download="comprobante_tramo${i+1}.pdf" class="btn btn-secondary btn-xs">📄 PDF</a><button class="btn btn-danger btn-xs" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button>`)
             :`<div style="display:flex;gap:6px;align-items:center">
                 <button class="btn btn-secondary btn-xs" onclick="document.getElementById('compFI_${i}').click()">📎 Subir</button>
-                ${isMobile?`<button class="btn btn-secondary btn-xs" onclick="document.getElementById('compCam_${i}').click()">📷</button>`:''}
+                ${isMobile?`<button class="btn btn-secondary btn-xs" onclick="abrirCamaraComprobante('${p.id}',${i},'compCam_${i}')">📷</button>`:''}
               </div>
               <input type="file" id="compFI_${i}" accept="image/*,.pdf" style="display:none" onchange="subirComprobante('${p.id}',${i},this)">
-              ${isMobile?`<input type="file" id="compCam_${i}" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none" onchange="subirComprobante('${p.id}',${i},this)">`:''}
+              ${isMobile?`<input type="file" id="compCam_${i}" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
+            `}
+        </td>
+      </tr>`;
+    }).join('')}
+    <tr style="background:#0e0c0a">
+      <td colspan="2" style="text-align:right;font-size:11px;color:var(--muted)">PENDIENTE OC:</td>
+      <td style="text-align:right"><strong style="color:var(--accent)">${fmt(oc-pagadoOC)}</strong></td>
+      <td colspan="2"></td>
+    </tr>
+    </tbody>
+  </table></div>
+
+  ${isAdmin?`<div class="card" style="margin-bottom:12px;border-color:#2a2010">
+    <div class="sec-hdr">⚙ Configurar porcentajes (Solo Admin)</div>
+    <div class="row3">
+      <div class="fg"><label>Tramo 1 (%)</label><input type="number" id="tp0" min="0" max="100" value="${tramos[0]?.pct||65}"></div>
+      <div class="fg"><label>Tramo 2 (%)</label><input type="number" id="tp1" min="0" max="100" value="${tramos[1]?.pct||25}"></div>
+      <div class="fg"><label>Tramo 3 (%)</label><input type="number" id="tp2" min="0" max="100" value="${tramos[2]?.pct||10}"></div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <button class="btn btn-primary btn-sm" onclick="updTramosPct('${p.id}')">✓ Aplicar</button>
+      <span style="font-size:11px;color:var(--muted)">Deben sumar 100%</span>
+    </div>
+  </div>`:''}
+
+  <!-- Imprevistos -->
+  <div class="divider"></div>
+  <div class="row2">
+    <div class="fg"><label>Monto Obra Civil ($)</label><input type="number" min="0" value="${oc}" onchange="updOC('${p.id}',this.value)"></div>
+    <div class="fg"><label>Imprevistos ($)</label><input type="number" min="0" value="${imp}" onchange="updImpMonto('${p.id}',this.value)"></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+    <input type="checkbox" id="impPaid" ${impPaid?'checked':''} onchange="updImpPaid('${p.id}',this.checked)">
+    <label for="impPaid" style="cursor:pointer">Imprevistos pagados</label>
+  </div>
+
+  <!-- Gastos vinculados -->
+  <div class="divider"></div>
+  <div class="sec-hdr">Gastos vinculados al proyecto</div>
+  <div class="tbl-wrap" style="margin-bottom:12px"><table>
+    <thead><tr><th>Fecha</th><th>Factura</th><th>Descripción</th><th>Proveedor</th><th style="text-align:right">Valor</th></tr></thead>
+    <tbody>${gastoRows}${lista.length>0?`<tr style="background:#0e0c0a"><td colspan="4" style="text-align:right;font-size:11px;color:var(--muted)">SUBTOTAL:</td><td style="text-align:right"><strong style="color:var(--red)">${fmt(gp)}</strong></td></tr>`:''}</tbody>
+  </table></div>
+  <div style="font-size:12px;color:var(--muted)">ℹ Para agregar gastos, ve al módulo <strong>Gastos</strong> y selecciona este proyecto.</div>`;
+}
+
+function subirComprobante(pid,tramoIdx,input){
+  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
+  const file=input.files[0];if(!file)return;
+  if(file.size>2*1024*1024){toast('Comprobante supera 2MB',true);return;}
+  const reader=new FileReader();
+  reader.onload=e=>{
+    if(!p.pagos.tramos)p.pagos.tramos=[{pct:65,paid:false},{pct:25,paid:false},{pct:10,paid:false}];
+    p.pagos.tramos[tramoIdx].comprobante=e.target.result;
+    saveData();reloadTab('pagosygastos',pid);toast('✓ Comprobante guardado');
+  };
+  reader.readAsDataURL(file);
+  input.value='';
+}
+
+// ═══ IMPRIMIR CRONOGRAMA ═══
+function imprimirCronograma(pid){
+  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
+  const cr=p.cronograma;
+  const cfg=S.config||{};
+  const totalDias=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+(parseInt(x.dias)||0),0),0);
+  const grand=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0),0);
+  const fechaFin=addDias(cr.fechaInicio,totalDias);
+  const hoy=new Date().toLocaleDateString('es-SV',{year:'numeric',month:'long',day:'numeric'});
+
+  let partRows='';
+  cr.partidas.forEach((m,mi)=>{
+    const tp=m.sub.reduce((s,x)=>s+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0);
+    const dp=m.sub.reduce((s,x)=>s+(parseInt(x.dias)||0),0);
+    const pFecha=m.fechaInicio?`<span style="color:#888;font-size:10px;margin-left:8px">Inicio: ${fmtDate(m.fechaInicio)}</span>`:'';
+    partRows+=`<tr style="background:#f5f3ee;page-break-inside:avoid">
+      <td colspan="6" style="padding:8px 10px;font-weight:700;font-size:13px;border-bottom:1px solid #ddd">
+        ${mi+1}. ${m.nombre} ${pFecha}
+      </td>
+      <td style="text-align:right;padding:8px 10px;font-weight:700">$${tp.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
+    </tr>`;
+    m.sub.forEach((sub,si)=>{
+      const t=(parseFloat(sub.cantidad)||0)*(parseFloat(sub.precio)||0);
+      partRows+=`<tr style="page-break-inside:avoid">
+        <td style="padding:5px 10px 5px 24px;color:#555;font-size:11px">${mi+1}.${si+1}</td>
+        <td style="padding:5px 10px;font-size:12px">${sub.desc||'—'}</td>
+        <td style="text-align:center;padding:5px 10px;font-size:12px">${sub.unidad||'—'}</td>
+        <td style="text-align:right;padding:5px 10px;font-size:12px">${sub.cantidad||0}</td>
+        <td style="text-align:right;padding:5px 10px;font-size:12px">$${parseFloat(sub.precio||0).toFixed(2)}</td>
+        <td style="text-align:center;padding:5px 10px;font-size:12px">${sub.dias||1}</td>
+        <td style="text-align:right;padding:5px 10px;font-size:12px;font-weight:600">$${t.toFixed(2)}</td>
+      </tr>`;
+    });
+  });
+
+  const logoHTML=cfg.logoUrl?`<img src="${cfg.logoUrl}" style="width:60px;height:60px;object-fit:cover;border-radius:10px">`:`<div style="width:60px;height:60px;background:#c8a030;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:28px">📊</div>`;
+
+  const win=window.open('','_blank','width=960,height=800');
+  win.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
+  <title>Contrato — ${p.nombre}</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Arial',sans-serif;font-size:12px;color:#1a1a1a;background:#fff;padding:0}
+    .page{max-width:870px;margin:0 auto;padding:30px 40px}
+    /* ENCABEZADO */
+    .hdr{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:16px;border-bottom:3px solid #c8a030;margin-bottom:20px}
+    .hdr-left{display:flex;align-items:center;gap:14px}
+    .co-name{font-size:22px;font-weight:700;color:#c8a030;line-height:1}
+    .co-sub{font-size:11px;color:#888;margin-top:3px}
+    .doc-ref{text-align:right}
+    .doc-ref .doc-tipo{font-size:18px;font-weight:700;color:#333;text-transform:uppercase;letter-spacing:1px}
+    .doc-ref .doc-fecha{font-size:11px;color:#888;margin-top:4px}
+    /* INFO PROYECTO */
+    .section{margin-bottom:20px}
+    .section-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#c8a030;border-bottom:1px solid #e8d898;padding-bottom:4px;margin-bottom:10px}
+    .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 30px}
+    .info-row{display:flex;gap:6px;font-size:12px}
+    .info-lbl{font-weight:700;color:#555;min-width:110px;flex-shrink:0}
+    /* CONDICIONES */
+    .condiciones-box{background:#faf8f4;border:1px solid #e8d898;border-radius:8px;padding:14px;font-size:12px;line-height:1.8;color:#333;white-space:pre-wrap}
+    /* TABLA */
+    table{width:100%;border-collapse:collapse;font-size:11px}
+    th{background:#1a1a10;color:#c8a030;padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;border:1px solid #333}
+    td{border:1px solid #ddd;vertical-align:top}
+    tr:nth-child(even) td{background:#fafaf8}
+    .total-row td{background:#1a1a10!important;color:#c8a030;font-weight:700;font-size:14px;padding:10px;border:1px solid #333}
+    /* FIRMAS */
+    .firmas{display:grid;grid-template-columns:1fr 1fr;gap:50px;margin-top:50px;page-break-inside:avoid}
+    .firma-box{border-top:2px solid #333;padding-top:8px}
+    .firma-rol{font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+    .firma-nombre{font-size:11px;color:#555;margin-bottom:30px}
+    .firma-linea{border-top:1px solid #555;margin-top:50px;padding-top:5px;font-size:10px;color:#888;text-align:center}
+    /* FOOTER */
+    .footer-doc{text-align:center;font-size:10px;color:#aaa;margin-top:30px;padding-top:10px;border-top:1px solid #eee}
+    /* SELLADO */
+    .estado-sello{display:inline-block;padding:4px 12px;border:2px solid ${cr.cerrado?'#2a8a4a':'#aaa'};color:${cr.cerrado?'#2a8a4a':'#aaa'};font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:1px;border-radius:4px;margin-left:10px;transform:rotate(-2deg);display:inline-block}
+    @media print{
+      body{padding:0}
+      .page{padding:20px 30px}
+      .no-print{display:none!important}
+      @page{margin:0;size:letter}
+    }
+  </style></head><body>
+  <div class="no-print" style="background:#1a1810;padding:12px 20px;display:flex;gap:12px;align-items:center;position:sticky;top:0;z-index:10">
+    <button onclick="window.print()" style="background:#c8a030;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px">🖨 Imprimir / Guardar PDF</button>
+    <button onclick="window.close()" style="background:rgba(255,255,255,.1);border:none;color:#fff;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px">✕ Cerrar</button>
+    <span style="color:#888;font-size:12px">Para guardar como PDF: Imprimir → Guardar como PDF</span>
+  </div>
+  <div class="page">
+    <!-- ENCABEZADO -->
+    <div class="hdr">
+      <div class="hdr-left">
+        ${logoHTML}
+        <div>
+          <div class="co-name">${esc(cfg.appName||'Proyectos Pro')}</div>
+          <div class="co-sub">Empresa: ${esc(S.empresa)}</div>
+        </div>
+      </div>
+      <div class="doc-ref">
+        <div class="doc-tipo">Contrato de Obra
+          <span class="estado-sello">${cr.cerrado?'ACEPTADO':'BORRADOR'}</span>
+        </div>
+        <div class="doc-fecha">Fecha de elaboración: <strong>${hoy}</strong></div>
+        ${cr.fechaCierre?`<div class="doc-fecha">Fecha de aceptación: <strong>${new Date(cr.fechaCierre).toLocaleDateString('es-SV',{year:'numeric',month:'long',day:'numeric'})}</strong></div>`:''}
+      </div>
+    </div>
+
+    <!-- DATOS DEL PROYECTO -->
+    <div class="section">
+      <div class="section-title">Datos del Proyecto</div>
+      <div class="info-grid">
+        <div class="info-row"><span class="info-lbl">Proyecto:</span><strong>${esc(p.nombre)}</strong></div>
+        <div class="info-row"><span class="info-lbl">Marca / Cliente:</span>${esc(p.marca||'—')}</div>
+        <div class="info-row"><span class="info-lbl">Ubicación:</span>${esc(p.ubicacion||'—')}</div>
+        <div class="info-row"><span class="info-lbl">Tipo de obra:</span>${esc(p.tipo||'—')}</div>
+        <div class="info-row"><span class="info-lbl">Fecha de inicio:</span><strong>${fmtDate(cr.fechaInicio||'')}</strong></div>
+        <div class="info-row"><span class="info-lbl">Fecha fin est.:</span><strong>${fechaFin?fmtDate(fechaFin):'—'}</strong></div>
+        <div class="info-row"><span class="info-lbl">Duración total:</span>${totalDias} días</div>
+        <div class="info-row"><span class="info-lbl">Estado:</span>${p.estado}</div>
+      </div>
+    </div>
+
+    <!-- DATOS DEL CONTRATISTA -->
+    <div class="section">
+      <div class="section-title">Contratista Aceptado</div>
+      <div class="info-grid">
+        <div class="info-row"><span class="info-lbl">Contratista:</span><strong>${esc(p.contratista||'Por definir')}</strong></div>
+        <div class="info-row"><span class="info-lbl">Supervisor:</span>${esc(p.supervisor||'—')}</div>
+      </div>
+    </div>
+
+    <!-- CONDICIONES -->
+    ${cr.condiciones?`<div class="section">
+      <div class="section-title">Condiciones de la Oferta</div>
+      <div class="condiciones-box">${esc(cr.condiciones)}</div>
+    </div>`:''}
+
+    <!-- PRESUPUESTO -->
+    <div class="section">
+      <div class="section-title">Presupuesto Detallado</div>
+      <table>
+        <thead><tr>
+          <th style="width:40px">#</th>
+          <th>Descripción</th>
+          <th style="width:60px;text-align:center">Unidad</th>
+          <th style="width:60px;text-align:right">Cant.</th>
+          <th style="width:80px;text-align:right">P.Unit.</th>
+          <th style="width:50px;text-align:center">Días</th>
+          <th style="width:90px;text-align:right">Total</th>
+        </tr></thead>
+        <tbody>
+          ${partRows}
+          <tr><td colspan="5" style="text-align:right;padding:10px;font-weight:700;background:#f5f3ee">TOTAL GENERAL DE LA OBRA:</td>
+          <td colspan="2" style="text-align:right;padding:10px;font-weight:700;font-size:15px;background:#f5f3ee;color:#1a1a10">$${grand.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- FIRMAS -->
+    <div class="firmas">
+      <div class="firma-box">
+        <div class="firma-rol">Contratista</div>
+        <div class="firma-nombre">${esc(p.contratista||'_______________________________')}</div>
+        <div class="firma-linea">Firma y sello</div>
+        <div style="font-size:10px;color:#aaa;margin-top:6px">Fecha: _____ / _____ / _______</div>
+      </div>
+      <div class="firma-box">
+        <div class="firma-rol">Cliente / Propietario</div>
+        <div class="firma-nombre">_______________________________</div>
+        <div class="firma-linea">Firma y sello</div>
+        <div style="font-size:10px;color:#aaa;margin-top:6px">Fecha: _____ / _____ / _______</div>
+      </div>
+      <div class="firma-box" style="margin-top:30px">
+        <div class="firma-rol">Supervisor / Testigo</div>
+        <div class="firma-nombre">${esc(p.supervisor||'_______________________________')}</div>
+        <div class="firma-linea">Firma</div>
+        <div style="font-size:10px;color:#aaa;margin-top:6px">Fecha: _____ / _____ / _______</div>
+      </div>
+      <div class="firma-box" style="margin-top:30px">
+        <div class="firma-rol">Representante Legal</div>
+        <div class="firma-nombre">_______________________________</div>
+        <div class="firma-linea">Firma y sello</div>
+        <div style="font-size:10px;color:#aaa;margin-top:6px">Fecha: _____ / _____ / _______</div>
+      </div>
+    </div>
+
+    <div class="footer-doc">
+      Documento generado por ${esc(cfg.appName||'Proyectos Pro')} · Empresa: ${esc(S.empresa)} · ${hoy}
+      ${cr.cerrado?'· <strong>CONTRATO ACEPTADO Y FIRMADO</strong>':'· BORRADOR — pendiente de aceptación'}
+    </div>
+  </div>
+  </body></html>`);
+  win.document.close();
+}
+
+
+// ═══ TAB: PLANIFICACIÓN INICIAL ═══
+function tplPlan(p){
+  if(!p.planificacion)p.planificacion={archivos:[]};
+  const arch=p.planificacion.archivos||[];
+  const isMobile=/Android|iPhone|iPad/i.test(navigator.userAgent);
+
+  let archHtml=arch.length===0?'<div class="empty" style="padding:20px">Sin archivos — sube planos, renders u otros documentos</div>':'';
+  arch.forEach((a,i)=>{
+    const isImg=a.tipo&&a.tipo.startsWith('image/');
+    const isPDF=a.tipo==='application/pdf';
+    archHtml+=`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
+      <div style="font-size:24px">${isImg?'🖼':isPDF?'📄':'📎'}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.nombre)}</div>
+        <div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div>
+      </div>
+      ${isImg?`<img src="${a.data}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${a.data}','${esc(a.nombre)}')">`:''}
+      ${isPDF?`<a href="${a.data}" download="${esc(a.nombre)}" class="btn btn-secondary btn-xs">⬇ PDF</a>`:''}
+      <button class="btn btn-danger btn-xs" onclick="delArchPlan('${p.id}',${i})">✕</button>
+    </div>`;
+  });
+
+  return`<div class="info-box">📁 Sube planos (DWG guardado como referencia), fotos de render, imágenes de referencia y documentos del proyecto.</div>
+  <div style="margin-bottom:16px">
+    <div class="logo-upload-area" onclick="document.getElementById('planFI').click()" style="padding:30px">
+      <div style="font-size:32px;margin-bottom:8px">📤</div>
+      <div style="font-size:14px;font-weight:600">Subir archivo</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">DWG, PDF, JPG, PNG — máx 2MB por archivo</div>
+      ${isMobile?`<div style="margin-top:12px"><button class="btn btn-primary btn-sm" onclick="event.stopPropagation();abrirCamaraPlan('${p.id}','planCam')">📷 Usar cámara</button></div>`:''}
+    </div>
+    <input type="file" id="planFI" multiple accept=".dwg,.pdf,.jpg,.jpeg,.png,.gif,.webp,.dxf" style="display:none" onchange="subirArchPlan('${p.id}',this)">
+    ${isMobile?`<input type="file" id="planCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
+  </div>
+  <div id="archList_${p.id}">${archHtml}</div>`;
+}
+
+function verImagen(data,nombre){
+  const div=document.createElement('div');
+  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px';
+  div.innerHTML=`<img src="${data}" style="max-width:95vw;max-height:85vh;object-fit:contain;border-radius:8px"><div style="color:#fff;font-size:13px">${esc(nombre)}</div><button onclick="this.parentElement.remove()" style="background:rgba(255,255,255,.15);border:none;color:#fff;padding:8px 20px;border-radius:8px;cursor:pointer;font-size:14px">✕ Cerrar</button>`;
+  div.onclick=e=>{if(e.target===div)div.remove()};
+  document.body.appendChild(div);
+}
+
+function subirArchPlan(pid,input){
+  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
+  if(!p.planificacion)p.planificacion={archivos:[]};
+  const files=Array.from(input.files);
+  let pendientes=files.length;
+  files.forEach(file=>{
+    if(file.size>2*1024*1024){toast(`"${file.name}" supera 2MB — no subido`,true);pendientes--;if(!pendientes)renderPlanArchivos(pid);return;}
+    const reader=new FileReader();
+    reader.onload=e=>{
+      const kb=(file.size/1024).toFixed(0);
+      p.planificacion.archivos.push({nombre:file.name,tipo:file.type,tamaño:kb+'KB',data:e.target.result,ts:Date.now()});
+      pendientes--;
+      if(!pendientes){saveData();renderPlanArchivos(pid);logAction('CREAR','proyectos',`Archivo subido: ${file.name}`);}
+    };
+    reader.readAsDataURL(file);
+  });
+  input.value='';
+}
+
+function renderPlanArchivos(pid){
+  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
+  const contenedor=document.getElementById('archList_'+pid);
+  if(!contenedor){reloadTab('plan',pid);return;}
+  const arch=p.planificacion?.archivos||[];
+  let html=arch.length===0?'<div class="empty" style="padding:20px">Sin archivos</div>':'';
+  arch.forEach((a,i)=>{
+    const isImg=a.tipo&&a.tipo.startsWith('image/');
+    const isPDF=a.tipo==='application/pdf';
+    html+=`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
+      <div style="font-size:24px">${isImg?'🖼':isPDF?'📄':'📎'}</div>
+      <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">${esc(a.nombre)}</div><div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div></div>
+      ${isImg?`<img src="${a.data}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${a.data}','${esc(a.nombre)}')">`:''}
+      ${isPDF?`<a href="${a.data}" download="${esc(a.nombre)}" class="btn btn-secondary btn-xs">⬇</a>`:''}
+      <button class="btn btn-danger btn-xs" onclick="delArchPlan('${pid}',${i})">✕</button>
+    </div>`;
+  });
+  contenedor.innerHTML=html;
+}
+
+function delArchPlan(pid,idx){
+  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
+  if(!confirm('¿Eliminar este archivo?'))return;
+  p.planificacion.archivos.splice(idx,1);
+  saveData();renderPlanArchivos(pid);toast('✓ Archivo eliminado');
+}
+
+// ═══ TAB: GASTOS Y PAGOS UNIFICADO ═══
+function tplPagosYGastos(p){
+  const oc=parseFloat(p.montoObraCivil)||0;
+  const imp=parseFloat(p.pagos?.imp?.monto)||0,impPaid=p.pagos?.imp?.paid||false;
+  const lista=gastosDeProyecto(p.id),gp=lista.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
+  const tramos=p.pagos?.tramos||[{pct:65,paid:false},{pct:25,paid:false},{pct:10,paid:false}];
+  const isAdmin=S.currentUser?.rol==='admin';
+  const pagadoOC=tramos.reduce((s,t)=>s+(t.paid?oc*(t.pct/100):0),0);
+  const isMobile=/Android|iPhone|iPad/i.test(navigator.userAgent);
+
+  let gastoRows=lista.length===0?`<tr><td colspan="5" class="empty">Sin gastos vinculados</td></tr>`:'';
+  lista.forEach(g=>{
+    gastoRows+=`<tr><td>${fmtDate(g.fecha)}</td><td><strong>${esc(g.factura)}</strong></td><td>${esc(g.descripcion||'—')}</td><td>${esc(g.proveedor)}</td><td style="text-align:right;color:var(--red)">${fmt(g.valor)}</td></tr>`;
+  });
+
+  return`
+  <!-- KPIs -->
+  <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+    <div class="kpi"><div class="kpi-lbl">Obra Civil</div><div class="kpi-val" style="font-size:18px">${fmt(oc)}</div><div class="kpi-sub">Pagado: ${fmt(pagadoOC)}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Imprevistos</div><div class="kpi-val" style="font-size:18px;color:var(--accent)">${fmt(imp)}</div><div class="kpi-sub">${impPaid?'✓ Pagado':'Pendiente'}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Gastos</div><div class="kpi-val" style="font-size:18px;color:var(--red)">${fmt(gp)}</div><div class="kpi-sub">${lista.length} factura(s)</div></div>
+    <div class="kpi" style="border-color:var(--accent)"><div class="kpi-lbl">Total</div><div class="kpi-val" style="font-size:18px;color:var(--accent)">${fmt(oc+imp+gp)}</div></div>
+  </div>
+
+  <!-- Tramos OC -->
+  <div class="sec-hdr">Tramos de pago — Obra Civil</div>
+  <div class="tbl-wrap" style="margin-bottom:12px"><table>
+    <thead><tr><th>Tramo</th><th>%</th><th style="text-align:right">Monto</th><th>Aplicado</th><th>Comprobante</th></tr></thead>
+    <tbody>
+    ${tramos.map((t,i)=>{
+      const monto=oc*(t.pct/100);
+      const comp=t.comprobante;
+      const isImg=comp&&comp.startsWith('data:image');
+      return`<tr>
+        <td><strong>Tramo ${i+1}</strong></td>
+        <td><span class="badge b-warn">${t.pct}%</span></td>
+        <td style="text-align:right"><strong>${fmt(monto)}</strong></td>
+        <td>
+          <input type="checkbox" ${t.paid?'checked':''} onchange="updTramoOC('${p.id}',${i},'paid',this.checked)" style="width:18px;height:18px;cursor:pointer">
+          <span class="badge ${t.paid?'b-ok':'b-neu'}" style="margin-left:6px">${t.paid?'✓ Pagado':'Pendiente'}</span>
+        </td>
+        <td>
+          ${comp
+            ?(isImg
+              ?`<img src="${comp}" style="height:36px;border-radius:4px;cursor:pointer" onclick="verImagen('${comp}','Comprobante Tramo ${i+1}')"><button class="btn btn-danger btn-xs" style="margin-left:6px" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button>`
+              :`<a href="${comp}" download="comprobante_tramo${i+1}.pdf" class="btn btn-secondary btn-xs">📄 PDF</a><button class="btn btn-danger btn-xs" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button>`)
+            :`<div style="display:flex;gap:6px;align-items:center">
+                <button class="btn btn-secondary btn-xs" onclick="document.getElementById('compFI_${i}').click()">📎 Subir</button>
+                ${isMobile?`<button class="btn btn-secondary btn-xs" onclick="abrirCamaraComprobante('${p.id}',${i},'compCam_${i}')">📷</button>`:''}
+              </div>
+              <input type="file" id="compFI_${i}" accept="image/*,.pdf" style="display:none" onchange="subirComprobante('${p.id}',${i},this)">
+              ${isMobile?`<input type="file" id="compCam_${i}" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
             `}
         </td>
       </tr>`;
@@ -2517,27 +2983,38 @@ function ganttHTML(p){
   const today=new Date();today.setHours(0,0,0,0);
   const diffToday=Math.floor((today-startDate)/86400000);
 
-  // Calcular posición acumulada de cada subpartida
+  // Calcular posición usando fecha propia de cada partida
+  // Si la partida tiene fechaInicio propia, calcular offset desde la fecha global
   let rows=[];
-  let cursor=0;
   cr.partidas.forEach((m,mi)=>{
-    // Fila de partida
     const pDays=m.sub.reduce((s,x)=>s+(parseInt(x.dias)||0),0);
     const doneM=m.sub.filter(x=>x.done).length;
-    rows.push({type:'partida',label:m.nombre,start:cursor,days:pDays,mi,done:doneM,total:m.sub.length});
+    // Offset: si la partida tiene fecha propia, calcular días desde fecha global
+    const partidaStart=m.fechaInicio||cr.fechaInicio;
+    let startOffset=0;
+    if(partidaStart&&cr.fechaInicio){
+      const base=new Date(cr.fechaInicio+'T00:00:00');
+      const pStart=new Date(partidaStart+'T00:00:00');
+      startOffset=Math.max(0,Math.round((pStart-base)/86400000));
+    }
+    rows.push({type:'partida',label:m.nombre,start:startOffset,days:pDays,mi,done:doneM,total:m.sub.length});
+    let cursor=startOffset;
     m.sub.forEach((sub,si)=>{
       const d=parseInt(sub.dias)||1;
       rows.push({type:'sub',label:sub.desc||'—',start:cursor,days:d,mi,si,done:sub.done,unidad:sub.unidad||''});
       cursor+=d;
     });
   });
+  // Calcular el rango total del gantt considerando todas las partidas
+  const ganttEnd=rows.reduce((m,r)=>Math.max(m,r.start+r.days),totalDias);
 
-  const W=Math.max(totalDias*DAY_W,400);
+  const W=Math.max((ganttEnd||totalDias)*DAY_W,400);
   const H=HEAD_H+rows.length*ROW_H+40;
 
   // Generar marcas de días/semanas
   let dayMarks='',dayBgs='';
-  for(let d=0;d<totalDias;d++){
+  const totalGanttDias=ganttEnd||totalDias;
+  for(let d=0;d<totalGanttDias;d++){
     const x=LABEL_W+d*DAY_W;
     const dt=new Date(startDate);dt.setDate(dt.getDate()+d);
     const dow=dt.getDay();
@@ -2546,7 +3023,7 @@ function ganttHTML(p){
     if(isWeekend)dayBgs+=`<rect x="${x}" y="${HEAD_H}" width="${DAY_W}" height="${H-HEAD_H-40}" fill="${isToday?'rgba(232,160,32,.15)':'rgba(255,255,255,.025)'}"/>`;
     if(isToday)dayBgs+=`<rect x="${x}" y="0" width="${DAY_W}" height="${H}" fill="rgba(232,160,32,.08)"/>`;
     // Etiquetas: cada 7 días o todos si totalDias<=30
-    if(totalDias<=30||(d%7===0)||(d===totalDias-1)){
+    if(totalGanttDias<=30||(d%7===0)||(d===totalGanttDias-1)){
       const label=`${dt.getDate()}/${dt.getMonth()+1}`;
       dayMarks+=`<text x="${x+DAY_W/2}" y="${HEAD_H-6}" text-anchor="middle" font-size="10" fill="${isToday?'#e8a020':'#666'}" font-weight="${isToday?'700':'400'}">${label}</text>`;
     }
@@ -2595,7 +3072,7 @@ function ganttHTML(p){
 
   // Línea de hoy
   let todayLine='';
-  if(diffToday>=0&&diffToday<=totalDias){
+  if(diffToday>=0&&diffToday<=totalGanttDias){
     const tx=LABEL_W+diffToday*DAY_W+DAY_W/2;
     todayLine=`<line x1="${tx}" y1="${HEAD_H}" x2="${tx}" y2="${H-40}" stroke="#e8a020" stroke-width="2" stroke-dasharray="6,3" opacity=".8"/>
     <text x="${tx}" y="${HEAD_H-16}" text-anchor="middle" font-size="10" fill="#e8a020" font-weight="700">HOY</text>`;
