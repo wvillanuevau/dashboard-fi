@@ -33,6 +33,7 @@ const _errMap={'auth/user-not-found':'Usuario no encontrado','auth/wrong-passwor
 
 window.FB={
   ready(){return!!_fbAuth&&!!_fbDb},
+  _db(){return _fbDb}, // exponer para acceso directo por UID
   async login(email,pw){try{const r=await _fbAuth.signInWithEmailAndPassword(email,pw);return{ok:true,uid:r.user.uid,email:r.user.email}}catch(e){return{ok:false,err:_errMap[e.code]||e.message}}},
   async logout(){try{if(_unsub){_unsub();_unsub=null}await _fbAuth.signOut()}catch(e){console.error(e)}},
   async crearUsuario(email,pw,nombre,rol,empresa,permisos){
@@ -783,12 +784,47 @@ async function doLogin(){
   btn.textContent='Cargando...';
   const user=await window.FB.waitForAuth();
   if(!user){btn.disabled=false;btn.innerHTML='Entrar →';errEl.textContent='Error de sesión';return}
-  await loadData();
-  // Buscar datos del usuario en Firestore
-  const usuarios=await window.FB.getUsuariosEmpresa(S.empresa);
-  S.usuarios=usuarios;
-  const uData=usuarios.find(u=>u.email===user.email);
-  if(!uData){btn.disabled=false;btn.innerHTML='Entrar →';errEl.textContent='Usuario no autorizado para esta empresa';await window.FB.logout();return}
+
+  // Buscar datos del usuario por su UID directamente (más confiable que query por empresa)
+  let uData=null;
+  try{
+    const snap=await window.FB._db().collection('usuariosApp').doc(user.uid).get();
+    if(snap.exists){
+      uData=snap.data();
+      // Verificar que pertenece a la empresa correcta
+      if(uData.empresa!==S.empresa){
+        btn.disabled=false;btn.innerHTML='Entrar →';
+        errEl.textContent='Usuario no pertenece a la empresa '+S.empresa;
+        await window.FB.logout();return;
+      }
+    }
+  }catch(e){console.warn('[login] getByUID failed, trying query:',e.message)}
+
+  // Fallback: buscar por query si el UID directo falló
+  if(!uData){
+    const usuarios=await window.FB.getUsuariosEmpresa(S.empresa);
+    S.usuarios=usuarios;
+    uData=usuarios.find(u=>u.email===user.email)||null;
+  }
+
+  if(!uData){
+    btn.disabled=false;btn.innerHTML='Entrar →';
+    errEl.textContent='Usuario no autorizado para esta empresa';
+    await window.FB.logout();return;
+  }
+
+  // Solo cargar datos si el rol lo permite (no sobreescribir empresa con datos vacíos)
+  if(uData.rol!=='contratista'&&uData.rol!=='cliente'&&uData.rol!=='viewer'){
+    await loadData();
+  } else {
+    // Roles de solo lectura: cargar datos sin riesgo de sobreescritura
+    try{
+      const remote=await window.FB.load(S.empresa);
+      if(remote){applyData(remote,false);setSyncUI('ok','Sincronizado');startListening();}
+      else{setSyncUI('err','Sin datos');}
+    }catch(e){setSyncUI('err','Error al cargar');}
+  }
+
   btn.disabled=false;btn.innerHTML='Entrar →';
   logAction('LOGIN','auth',`Sesión iniciada desde ${navigator.userAgent.substring(0,50)}`);
   enterApp(user.email,uData.rol,uData.nombre,uData.permisos||{});
@@ -1202,7 +1238,13 @@ async function renderSAUsuarios(){
     </div>
     <div class="row3">
       <div class="fg"><label>Contraseña *</label><input type="password" id="saUPass" placeholder="mín. 6 caracteres"></div>
-      <div class="fg"><label>Empresa *</label><select id="saUEmpresa"><option value="">— Seleccionar —</option>${empOpts}</select></div>
+      <div class="fg"><label>Empresa *</label>
+        <select id="saUEmpresa" onchange="document.getElementById('saUEmpresaManual').value=this.value">
+          <option value="">— Seleccionar empresa —</option>${empOpts}
+        </select>
+        <input id="saUEmpresaManual" placeholder="O escribe el código exacto (ej: FISDC)" style="margin-top:6px;font-size:13px" oninput="document.getElementById('saUEmpresa').value=''">
+        <div style="font-size:11px;color:var(--muted);margin-top:3px">El código debe coincidir exactamente con el que usan al iniciar sesión (mayúsculas/minúsculas importan)</div>
+      </div>
       <div class="fg"><label>Rol *</label><select id="saURol" onchange="togglePermisosUI()"><option value="admin">Admin</option><option value="supervisor">Supervisor</option><option value="empleado">Empleado</option><option value="viewer">Viewer</option><option value="cliente">Cliente</option><option value="contratista">Contratista</option></select></div>
     </div>
     <div id="permisosUI" style="display:none">
@@ -1253,7 +1295,10 @@ async function crearUsuarioSA(){
   const nombre=document.getElementById('saUNombre').value.trim();
   const email=document.getElementById('saUEmail').value.trim();
   const pass=document.getElementById('saUPass').value;
-  const empresa=document.getElementById('saUEmpresa').value;
+  // Empresa: preferir input manual si tiene valor, si no usar select
+  const empresaSelect=document.getElementById('saUEmpresa').value;
+  const empresaManual=document.getElementById('saUEmpresaManual')?.value.trim().toUpperCase();
+  const empresa=empresaManual||empresaSelect;
   const rol=document.getElementById('saURol').value;
   const errEl=document.getElementById('saUErr');
   if(!email||!pass||!empresa||!rol){errEl.style.color='var(--red)';errEl.textContent='Completa todos los campos obligatorios';return}
