@@ -1611,7 +1611,7 @@ function verProy(id){
   </div>
   <div id="dpPanel"></div>`;
   openModal('modalDP');
-  swTab('gen',id);
+  swTab(tabs[0].t, id);
   document.querySelectorAll('#dpTabs .tab').forEach(t=>{
     t.onclick=()=>{
       document.querySelectorAll('#dpTabs .tab').forEach(x=>x.classList.remove('active'));
@@ -4485,9 +4485,19 @@ function renderDashboard(){
 }
 
 function renderProyectos(){
-  let rows=S.proyectos.length===0?`<tr><td colspan="6" class="empty">Sin proyectos</td></tr>`:'';
-  proyectosVisibles().forEach(p=>{const gp=totalGastosProyecto(p.id);rows+=`<tr style="cursor:pointer" onclick="verProy('${p.id}')"><td><div style="font-weight:600">${esc(p.nombre)}</div><div style="font-size:11px;color:var(--muted)">${esc(p.ubicacion||'Sin ubicación')}</div></td><td>${esc(p.marca)}</td><td>${badgeEst(p.estado)}</td><td><div class="prog"><div class="prog-fill" style="width:${p.avanceFisico}%"></div></div><span style="font-size:11px;color:var(--muted)">${p.avanceFisico}%</span></td><td>${fmt(p.montoObraCivil)} <span style="color:var(--red);font-size:11px">+${fmt(gp)}</span></td></tr>`;});
-  document.getElementById('content').innerHTML=`<div style="font-size:12px;color:var(--muted);margin-bottom:8px">💡 Haz clic en cualquier proyecto para ver el detalle</div><div class="tbl-wrap"><table><thead><tr><th>Proyecto</th><th>Marca</th><th>Estado</th><th>Avance</th><th>OC + Gastos</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  const esC=S.currentUser?.rol==='contratista';
+  let rows=S.proyectos.length===0?`<tr><td colspan="5" class="empty">Sin proyectos</td></tr>`:'';
+  proyectosVisibles().forEach(p=>{
+    const gp=totalGastosProyecto(p.id);
+    rows+=`<tr style="cursor:pointer" onclick="verProy('${p.id}')">
+      <td><div style="font-weight:600">${esc(p.nombre)}</div><div style="font-size:11px;color:var(--muted)">${esc(p.ubicacion||'Sin ubicación')}</div></td>
+      <td>${esc(p.marca)}</td>
+      <td>${badgeEst(p.estado)}</td>
+      <td><div class="prog"><div class="prog-fill" style="width:${p.avanceFisico}%"></div></div><span style="font-size:11px;color:var(--muted)">${p.avanceFisico}%</span></td>
+      ${!esC?`<td>${fmt(p.montoObraCivil)} <span style="color:var(--red);font-size:11px">+${fmt(gp)}</span></td>`:''}
+    </tr>`;
+  });
+  document.getElementById('content').innerHTML=`<div style="font-size:12px;color:var(--muted);margin-bottom:8px">💡 Haz clic en cualquier proyecto para ver el detalle</div><div class="tbl-wrap"><table><thead><tr><th>Proyecto</th><th>Marca</th><th>Estado</th><th>Avance</th>${!esC?'<th>OC + Gastos</th>':''}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 // ═══════════════════════════════════════════════════════
