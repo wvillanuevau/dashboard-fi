@@ -640,6 +640,12 @@ function puedeVer(modulo){
   return false;
 }
 
+function proyectosVisibles(){
+  const permitidos=S.currentUser&&S.currentUser.proyectosPermitidos;
+  if(!permitidos||!Array.isArray(permitidos)||permitidos.length===0)return S.proyectos;
+  return S.proyectos.filter(function(p){return permitidos.indexOf(p.id)>=0;});
+}
+
 // ═══════════════════════════════════════════════════════
 //  ESTADO
 // ═══════════════════════════════════════════════════════
@@ -757,7 +763,7 @@ window.addEventListener('fb-ready',(e)=>{
   const user=e.detail?.user;
   if(user&&!S.currentUser){
     const empSaved=localStorage.getItem('pp_empresa');
-    if(empSaved){S.empresa=empSaved;loadData().then(()=>{window.FB.getUsuariosEmpresa(empSaved).then(usuarios=>{S.usuarios=usuarios;const uData=usuarios.find(u=>u.email===user.email)||{nombre:user.email.split('@')[0],rol:'viewer',permisos:{}};enterApp(user.email,uData.rol,uData.nombre,uData.permisos||{});});});}
+    if(empSaved){S.empresa=empSaved;loadData().then(()=>{window.FB.getUsuariosEmpresa(empSaved).then(usuarios=>{S.usuarios=usuarios;const uData=usuarios.find(u=>u.email===user.email)||{nombre:user.email.split('@')[0],rol:'viewer',permisos:{}};enterApp(user.email,uData.rol,uData.nombre,uData.permisos||{},uData.proyectosPermitidos||[]);});});}
   }
 });
 setTimeout(()=>{const txt=document.getElementById('fbStatusTxt');if(txt&&txt.textContent==='Conectando...'){txt.textContent='Sin conexión';const d=document.getElementById('fbDot');if(d)d.className='sync-dot err';}},5000);
@@ -827,7 +833,7 @@ async function doLogin(){
 
   btn.disabled=false;btn.innerHTML='Entrar →';
   logAction('LOGIN','auth',`Sesión iniciada desde ${navigator.userAgent.substring(0,50)}`);
-  enterApp(user.email,uData.rol,uData.nombre,uData.permisos||{});
+  enterApp(user.email,uData.rol,uData.nombre,uData.permisos||{},uData.proyectosPermitidos||[]);
 }
 
 async function doResetPass(){
@@ -839,9 +845,9 @@ async function doResetPass(){
   errEl.textContent=res.ok?'✓ Email de recuperación enviado':'Error: '+res.err;
 }
 
-function enterApp(email,rol,nombre,permisos){
+function enterApp(email,rol,nombre,permisos,proyectosPermitidos){
   nombre=nombre||email.split('@')[0];
-  S.currentUser={email,rol,nombre,permisos:permisos||{}};
+  S.currentUser={email,rol,nombre,permisos:permisos||{},proyectosPermitidos:proyectosPermitidos||[]};
   localStorage.setItem('pp_empresa',S.empresa);
   document.getElementById('loginPage').style.display='none';
   document.getElementById('appShell').style.display='flex';
@@ -1571,6 +1577,9 @@ function updImpPaid(pid,val){const p=S.proyectos.find(x=>x.id===pid);if(!p)retur
 
 function verProy(id){
   const p=S.proyectos.find(x=>x.id===id);if(!p)return;
+  // Verificar que el usuario tiene acceso a este proyecto
+  const permitidos=S.currentUser&&S.currentUser.proyectosPermitidos;
+  if(permitidos&&permitidos.length>0&&permitidos.indexOf(id)<0){toast('Sin acceso a este proyecto',true);return;}
   const rol=S.currentUser?.rol;
   const esCliente=rol==='cliente';
   const esContratista=rol==='contratista';
@@ -2432,8 +2441,12 @@ function tplPlan(p){
     </div>`;
   });
 
-  return`<div class="info-box">📁 Sube planos (DWG guardado como referencia), fotos de render, imágenes de referencia y documentos del proyecto.</div>
-  <div style="margin-bottom:16px">
+  const esContratistaP=S.currentUser?.rol==='contratista';
+  return`
+  ${esContratistaP
+    ?'<div class="info-box">📁 Documentos del proyecto — solo lectura.</div>'
+    :'<div class="info-box">📁 Sube planos (DWG guardado como referencia), fotos de render, imágenes de referencia y documentos del proyecto.</div>'}
+  ${!esContratistaP?`<div style="margin-bottom:16px">
     <div class="logo-upload-area" onclick="document.getElementById('planFI').click()" style="padding:30px">
       <div style="font-size:32px;margin-bottom:8px">📤</div>
       <div style="font-size:14px;font-weight:600">Subir archivo</div>
@@ -2442,7 +2455,7 @@ function tplPlan(p){
     </div>
     <input type="file" id="planFI" multiple accept=".dwg,.pdf,.jpg,.jpeg,.png,.gif,.webp,.dxf" style="display:none" onchange="subirArchPlan('${p.id}',this)">
     ${isMobile?`<input type="file" id="planCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
-  </div>
+  </div>`:''}
   <div id="archList_${p.id}">${archHtml}</div>`;
 }
 
@@ -2500,7 +2513,7 @@ function renderPlanArchivos(pid){
       <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">${esc(a.nombre)}</div><div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div></div>
       ${isImg?`<img src="${a.data}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${a.data}','${esc(a.nombre)}')">`:''}
       ${isPDF?`<a href="${a.data}" download="${esc(a.nombre)}" class="btn btn-secondary btn-xs">⬇</a>`:''}
-      <button class="btn btn-danger btn-xs" onclick="delArchPlan('${pid}',${i})">✕</button>
+      ${S.currentUser?.rol!=='contratista'?`<button class="btn btn-danger btn-xs" onclick="delArchPlan('${pid}',${i})">✕</button>`:''}
     </div>`;
   });
   contenedor.innerHTML=html;
@@ -2905,8 +2918,12 @@ function tplPlan(p){
     </div>`;
   });
 
-  return`<div class="info-box">📁 Sube planos (DWG guardado como referencia), fotos de render, imágenes de referencia y documentos del proyecto.</div>
-  <div style="margin-bottom:16px">
+  const esContratistaP=S.currentUser?.rol==='contratista';
+  return`
+  ${esContratistaP
+    ?'<div class="info-box">📁 Documentos del proyecto — solo lectura.</div>'
+    :'<div class="info-box">📁 Sube planos (DWG guardado como referencia), fotos de render, imágenes de referencia y documentos del proyecto.</div>'}
+  ${!esContratistaP?`<div style="margin-bottom:16px">
     <div class="logo-upload-area" onclick="document.getElementById('planFI').click()" style="padding:30px">
       <div style="font-size:32px;margin-bottom:8px">📤</div>
       <div style="font-size:14px;font-weight:600">Subir archivo</div>
@@ -2915,7 +2932,7 @@ function tplPlan(p){
     </div>
     <input type="file" id="planFI" multiple accept=".dwg,.pdf,.jpg,.jpeg,.png,.gif,.webp,.dxf" style="display:none" onchange="subirArchPlan('${p.id}',this)">
     ${isMobile?`<input type="file" id="planCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
-  </div>
+  </div>`:''}
   <div id="archList_${p.id}">${archHtml}</div>`;
 }
 
@@ -2957,7 +2974,7 @@ function renderPlanArchivos(pid){
       <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">${esc(a.nombre)}</div><div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div></div>
       ${isImg?`<img src="${a.data}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${a.data}','${esc(a.nombre)}')">`:''}
       ${isPDF?`<a href="${a.data}" download="${esc(a.nombre)}" class="btn btn-secondary btn-xs">⬇</a>`:''}
-      <button class="btn btn-danger btn-xs" onclick="delArchPlan('${pid}',${i})">✕</button>
+      ${S.currentUser?.rol!=='contratista'?`<button class="btn btn-danger btn-xs" onclick="delArchPlan('${pid}',${i})">✕</button>`:''}
     </div>`;
   });
   contenedor.innerHTML=html;
@@ -3382,8 +3399,12 @@ function tplPlan(p){
     </div>`;
   });
 
-  return`<div class="info-box">📁 Sube planos (DWG guardado como referencia), fotos de render, imágenes de referencia y documentos del proyecto.</div>
-  <div style="margin-bottom:16px">
+  const esContratistaP=S.currentUser?.rol==='contratista';
+  return`
+  ${esContratistaP
+    ?'<div class="info-box">📁 Documentos del proyecto — solo lectura.</div>'
+    :'<div class="info-box">📁 Sube planos (DWG guardado como referencia), fotos de render, imágenes de referencia y documentos del proyecto.</div>'}
+  ${!esContratistaP?`<div style="margin-bottom:16px">
     <div class="logo-upload-area" onclick="document.getElementById('planFI').click()" style="padding:30px">
       <div style="font-size:32px;margin-bottom:8px">📤</div>
       <div style="font-size:14px;font-weight:600">Subir archivo</div>
@@ -3392,7 +3413,7 @@ function tplPlan(p){
     </div>
     <input type="file" id="planFI" multiple accept=".dwg,.pdf,.jpg,.jpeg,.png,.gif,.webp,.dxf" style="display:none" onchange="subirArchPlan('${p.id}',this)">
     ${isMobile?`<input type="file" id="planCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
-  </div>
+  </div>`:''}
   <div id="archList_${p.id}">${archHtml}</div>`;
 }
 
@@ -3434,7 +3455,7 @@ function renderPlanArchivos(pid){
       <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">${esc(a.nombre)}</div><div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div></div>
       ${isImg?`<img src="${a.data}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${a.data}','${esc(a.nombre)}')">`:''}
       ${isPDF?`<a href="${a.data}" download="${esc(a.nombre)}" class="btn btn-secondary btn-xs">⬇</a>`:''}
-      <button class="btn btn-danger btn-xs" onclick="delArchPlan('${pid}',${i})">✕</button>
+      ${S.currentUser?.rol!=='contratista'?`<button class="btn btn-danger btn-xs" onclick="delArchPlan('${pid}',${i})">✕</button>`:''}
     </div>`;
   });
   contenedor.innerHTML=html;
@@ -3984,21 +4005,73 @@ async function renderUsuarios(){
 
 async function editarUsuario(uid){
   const u=S.usuarios.find(x=>x.id===uid);if(!u)return;
-  const nuevoRol=prompt(`Rol actual: ${u.rol}\nNuevo rol (admin/supervisor/empleado/viewer):`,u.rol);
-  if(!nuevoRol||!ROLES[nuevoRol]){toast('Rol inválido',true);return}
-  const datos={rol:nuevoRol};
+  const proyOpts=S.proyectos.map(p=>{
+    const sel=(u.proyectosPermitidos||[]).includes(p.id)?'checked':'';
+    return`<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);cursor:pointer;margin-bottom:5px">
+      <input type="checkbox" value="${p.id}" ${sel} style="accent-color:var(--accent);width:16px;height:16px">
+      <span style="font-size:13px">${esc(p.nombre)}</span>
+      <span style="font-size:11px;color:var(--muted);margin-left:auto">${esc(p.marca||'')}</span>
+    </label>`;
+  }).join('');
+
+  const rolOpts=Object.entries(ROLES).map(([k,v])=>`<option value="${k}" ${u.rol===k?'selected':''}>${v.label}</option>`).join('');
+  const modOpts=MODULOS.map(m=>`<label class="perm-item ${u.permisos&&u.permisos[m.id]?'on':''}">
+    <input type="checkbox" id="em_${m.id}" ${u.permisos&&u.permisos[m.id]?'checked':''} style="accent-color:var(--accent)"> ${m.ic} ${m.label}
+  </label>`).join('');
+
+  const div=document.createElement('div');
+  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto';
+  div.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto">
+    <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:16px">✏️ Editar usuario</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:14px">${esc(u.email)}</div>
+    <div class="row2" style="margin-bottom:12px">
+      <div class="fg"><label>Nombre</label><input id="euNombreLocal" value="${esc(u.nombre||'')}"></div>
+      <div class="fg"><label>Rol</label>
+        <select id="euRolLocal" onchange="document.getElementById('euPermisosLocal').style.display=this.value==='empleado'?'block':'none'">
+          ${rolOpts}
+        </select>
+      </div>
+    </div>
+    <div id="euPermisosLocal" style="display:${u.rol==='empleado'?'block':'none'};margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:8px">Módulos</div>
+      <div class="perm-grid">${modOpts}</div>
+    </div>
+    <div style="margin-bottom:14px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px">Proyectos permitidos</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Deja todos sin marcar para que vea todos los proyectos</div>
+      <div id="euProyLocal" style="max-height:200px;overflow-y:auto">${proyOpts||'<div style="color:#555;font-size:12px">Sin proyectos creados</div>'}</div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-secondary" onclick="document.getElementById('editUsuModal').remove()">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarEditUsuario('${uid}')">✓ Guardar cambios</button>
+    </div>
+  </div>`;
+  div.id='editUsuModal';
+  document.body.appendChild(div);
+}
+
+async function guardarEditUsuario(uid){
+  const u=S.usuarios.find(x=>x.id===uid);if(!u)return;
+  const nuevoRol=document.getElementById('euRolLocal').value;
+  const nuevoNombre=document.getElementById('euNombreLocal').value.trim();
+  const datos={rol:nuevoRol,nombre:nuevoNombre};
   if(nuevoRol==='empleado'){
-    const modList=MODULOS.map(m=>m.id+': '+m.label).join('\n');
-    const selMods=prompt(`Módulos para empleado (separados por coma):\n${modList}`,'');
-    if(selMods!==null){
-      const permisos={};
-      selMods.split(',').map(s=>s.trim()).forEach(id=>{if(MODULOS.find(m=>m.id===id))permisos[id]=true;});
-      datos.permisos=permisos;
-    }
+    const permisos={};
+    MODULOS.forEach(m=>{const ck=document.getElementById('em_'+m.id);if(ck&&ck.checked)permisos[m.id]=true;});
+    datos.permisos=permisos;
   }
+  // Proyectos permitidos
+  const checkboxes=document.querySelectorAll('#euProyLocal input[type=checkbox]');
+  const permitidos=[];
+  checkboxes.forEach(cb=>{if(cb.checked)permitidos.push(cb.value);});
+  datos.proyectosPermitidos=permitidos; // [] = todos
   const res=await window.FB.actualizarUsuario(uid,datos);
-  if(res.ok){toast('✓ Usuario actualizado');logAction('EDITAR','usuarios',`Usuario: ${u.email}, nuevo rol: ${nuevoRol}`);renderUsuarios();}
-  else toast('Error: '+res.err,true);
+  if(res.ok){
+    document.getElementById('editUsuModal')?.remove();
+    toast('✓ Usuario actualizado');
+    logAction('EDITAR','usuarios',`${u.email} → rol:${nuevoRol}, proyectos:${permitidos.length||'todos'}`);
+    renderUsuarios();
+  } else toast('Error: '+res.err,true);
 }
 
 async function toggleUsuario(uid,activo){
@@ -4200,14 +4273,15 @@ function ganttHTML(p){
 }
 
 function renderDashboard(){
-  const np=S.proyectos.length;
-  const inv=S.proyectos.reduce((s,p)=>s+(parseFloat(p.montoObraCivil)||0),0);
+  const _proyectos=proyectosVisibles();
+  const np=_proyectos.length;
+  const inv=_proyectos.reduce((s,p)=>s+(parseFloat(p.montoObraCivil)||0),0);
   const gtotalGastos=S.gastos.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
   const totalGeneral=S.proyectos.reduce((s,p)=>s+(parseFloat(p.montoObraCivil)||0)+totalGastosProyecto(p.id),0);
-  const enEj=S.proyectos.filter(p=>p.estado==='En ejecución').length;
-  const fin=S.proyectos.filter(p=>p.estado==='Finalizado').length;
-  const sin=S.proyectos.filter(p=>p.estado==='Sin iniciar').length;
-  const avProm=np>0?Math.round(S.proyectos.reduce((s,p)=>s+(p.avanceFisico||0),0)/np):0;
+  const enEj=_proyectos.filter(p=>p.estado==='En ejecución').length;
+  const fin=_proyectos.filter(p=>p.estado==='Finalizado').length;
+  const sin=_proyectos.filter(p=>p.estado==='Sin iniciar').length;
+  const avProm=np>0?Math.round(_proyectos.reduce((s,p)=>s+(p.avanceFisico||0),0)/np):0;
 
   // Dona — solo 3 estados (sin Retrasado)
   const estados=[
@@ -4250,7 +4324,7 @@ function renderDashboard(){
   function barChart(){
     if(np===0)return`<div class="empty" style="padding:30px">Sin proyectos</div>`;
     const PROJ_COLORS_B=['#4ea8de','#c084fc','#2db87a','#e8a020','#f06060','#60c8f0','#a0e060','#f0c040'];
-    const data=S.proyectos.map((p,i)=>({
+    const data=_proyectos.map((p,i)=>({
       label:p.nombre,
       oc:parseFloat(p.montoObraCivil)||0,
       gastos:totalGastosProyecto(p.id),
@@ -4309,7 +4383,7 @@ function renderDashboard(){
   // Tabla proyectos
   let rows=np===0?`<tr><td colspan="4" class="empty" style="padding:30px">Sin proyectos — crea el primero</td></tr>`:'';
   const PROJ_COLORS=['#4ea8de','#c084fc','#2db87a','#e8a020','#f06060','#60c8f0','#a0e060','#f0c040'];
-  S.proyectos.forEach((p,pidx)=>{
+  _proyectos.forEach((p,pidx)=>{
     const gp=totalGastosProyecto(p.id);
     const total=parseFloat(p.montoObraCivil||0)+gp;
     const ec={'Sin iniciar':'#555','En ejecución':'#e8a020','Retrasado':'#e84040','Finalizado':'#2db87a'}[p.estado]||'#555';
@@ -4334,15 +4408,15 @@ function renderDashboard(){
           <span style="font-size:12px;font-weight:600;color:${pc};min-width:30px">${p.avanceFisico}%</span>
         </div>
       </td>
-      <td style="text-align:right">
+      ${!_esContratistaDash?`<td style="text-align:right">
         <div style="font-size:13px;font-weight:700;color:${pc}">${fmt(total)}</div>
         <div style="font-size:10px;color:var(--muted)">OC: ${fmt(p.montoObraCivil||0)}</div>
-      </td>
+      </td>`:''}
     </tr>`;
   });
 
+  const _esContratistaDash=S.currentUser?.rol==='contratista';
   document.getElementById('content').innerHTML=`
-  <!-- KPIs — 5 en desktop, 2x2 en móvil -->
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px">
     <div class="kpi" style="border-color:#c084fc33">
       <div class="kpi-lbl">Proyectos</div>
@@ -4357,6 +4431,7 @@ function renderDashboard(){
       <div class="kpi-lbl">Finalizados</div>
       <div class="kpi-val" style="color:var(--green)">${fin}</div>
     </div>
+    ${!_esContratistaDash?`
     <div class="kpi">
       <div class="kpi-lbl">Total Inv. (OC+Gastos)</div>
       <div class="kpi-val" style="font-size:15px;color:var(--accent)">${fmt(totalGeneral)}</div>
@@ -4365,7 +4440,7 @@ function renderDashboard(){
     <div class="kpi">
       <div class="kpi-lbl">Total Gastos</div>
       <div class="kpi-val" style="font-size:15px;color:var(--red)">${fmt(gtotalGastos)}</div>
-    </div>
+    </div>`:''}
   </div>
 
   <!-- Avance promedio -->
@@ -4402,7 +4477,7 @@ function renderDashboard(){
         <th>Proyecto</th>
         <th class="hide-sm">Estado</th>
         <th>Avance</th>
-        <th style="text-align:right">Total</th>
+        ${!_esContratistaDash?`<th style="text-align:right">Total</th>`:''}
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
@@ -4411,7 +4486,7 @@ function renderDashboard(){
 
 function renderProyectos(){
   let rows=S.proyectos.length===0?`<tr><td colspan="6" class="empty">Sin proyectos</td></tr>`:'';
-  S.proyectos.forEach(p=>{const gp=totalGastosProyecto(p.id);rows+=`<tr style="cursor:pointer" onclick="verProy('${p.id}')"><td><div style="font-weight:600">${esc(p.nombre)}</div><div style="font-size:11px;color:var(--muted)">${esc(p.ubicacion||'Sin ubicación')}</div></td><td>${esc(p.marca)}</td><td>${badgeEst(p.estado)}</td><td><div class="prog"><div class="prog-fill" style="width:${p.avanceFisico}%"></div></div><span style="font-size:11px;color:var(--muted)">${p.avanceFisico}%</span></td><td>${fmt(p.montoObraCivil)} <span style="color:var(--red);font-size:11px">+${fmt(gp)}</span></td></tr>`;});
+  proyectosVisibles().forEach(p=>{const gp=totalGastosProyecto(p.id);rows+=`<tr style="cursor:pointer" onclick="verProy('${p.id}')"><td><div style="font-weight:600">${esc(p.nombre)}</div><div style="font-size:11px;color:var(--muted)">${esc(p.ubicacion||'Sin ubicación')}</div></td><td>${esc(p.marca)}</td><td>${badgeEst(p.estado)}</td><td><div class="prog"><div class="prog-fill" style="width:${p.avanceFisico}%"></div></div><span style="font-size:11px;color:var(--muted)">${p.avanceFisico}%</span></td><td>${fmt(p.montoObraCivil)} <span style="color:var(--red);font-size:11px">+${fmt(gp)}</span></td></tr>`;});
   document.getElementById('content').innerHTML=`<div style="font-size:12px;color:var(--muted);margin-bottom:8px">💡 Haz clic en cualquier proyecto para ver el detalle</div><div class="tbl-wrap"><table><thead><tr><th>Proyecto</th><th>Marca</th><th>Estado</th><th>Avance</th><th>OC + Gastos</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
