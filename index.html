@@ -2846,12 +2846,6 @@ function imprimirCronograma(pid){
       </div>
     </div>
 
-    <!-- CONDICIONES -->
-    ${cr.condiciones?`<div class="section">
-      <div class="section-title">Condiciones de la Oferta</div>
-      <div class="condiciones-box">${esc(cr.condiciones)}</div>
-    </div>`:''}
-
     <!-- PRESUPUESTO -->
     <div class="section">
       <div class="section-title">Presupuesto Detallado</div>
@@ -2872,6 +2866,17 @@ function imprimirCronograma(pid){
         </tbody>
       </table>
     </div>
+
+    <!-- CONDICIONES ANTES DE FIRMAS -->
+    ${cr.condiciones
+      ?`<div class="section" style="page-break-inside:avoid;margin-top:20px">
+          <div class="section-title">Condiciones de la Oferta</div>
+          <div class="condiciones-box">${esc(cr.condiciones)}</div>
+        </div>`
+      :`<div style="margin-top:20px;background:#faf8f4;border:1px dashed #ccc;border-radius:8px;padding:12px">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#c8a030;margin-bottom:6px">Condiciones de la Oferta</div>
+          <div style="font-size:12px;color:#aaa;font-style:italic">Sin condiciones definidas.</div>
+        </div>`}
 
     <!-- FIRMAS -->
     <div class="firmas">
@@ -3327,12 +3332,6 @@ function imprimirCronograma(pid){
       </div>
     </div>
 
-    <!-- CONDICIONES -->
-    ${cr.condiciones?`<div class="section">
-      <div class="section-title">Condiciones de la Oferta</div>
-      <div class="condiciones-box">${esc(cr.condiciones)}</div>
-    </div>`:''}
-
     <!-- PRESUPUESTO -->
     <div class="section">
       <div class="section-title">Presupuesto Detallado</div>
@@ -3353,6 +3352,17 @@ function imprimirCronograma(pid){
         </tbody>
       </table>
     </div>
+
+    <!-- CONDICIONES ANTES DE FIRMAS -->
+    ${cr.condiciones
+      ?`<div class="section" style="page-break-inside:avoid;margin-top:20px">
+          <div class="section-title">Condiciones de la Oferta</div>
+          <div class="condiciones-box">${esc(cr.condiciones)}</div>
+        </div>`
+      :`<div style="margin-top:20px;background:#faf8f4;border:1px dashed #ccc;border-radius:8px;padding:12px">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#c8a030;margin-bottom:6px">Condiciones de la Oferta</div>
+          <div style="font-size:12px;color:#aaa;font-style:italic">Sin condiciones definidas.</div>
+        </div>`}
 
     <!-- FIRMAS -->
     <div class="firmas">
