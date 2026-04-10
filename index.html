@@ -2880,15 +2880,7 @@ function imprimirCronograma(pid){
     </div>
 
     <!-- CONDICIONES ANTES DE FIRMAS -->
-    ${cr.condiciones
-      ?`<div class="section" style="page-break-inside:avoid;margin-top:20px">
-          <div class="section-title">Condiciones de la Oferta</div>
-          <div class="condiciones-box">${esc(cr.condiciones)}</div>
-        </div>`
-      :`<div style="margin-top:20px;background:#faf8f4;border:1px dashed #ccc;border-radius:8px;padding:12px">
-          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#c8a030;margin-bottom:6px">Condiciones de la Oferta</div>
-          <div style="font-size:12px;color:#aaa;font-style:italic">Sin condiciones definidas.</div>
-        </div>`}
+    ${cr.condiciones?`<div class="section" style="page-break-inside:avoid;margin-top:20px"><div class="section-title">Condiciones de la Oferta</div><div class="condiciones-box">${esc(cr.condiciones)}</div></div>`:`<div style="margin-top:20px;background:#faf8f4;border:1px dashed #ccc;border-radius:8px;padding:12px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#c8a030;margin-bottom:6px">Condiciones de la Oferta</div><div style="font-size:12px;color:#aaa;font-style:italic">Sin condiciones definidas.</div></div>`}
 
     <!-- FIRMAS -->
     <div class="firmas">
@@ -3369,15 +3361,7 @@ function imprimirCronograma(pid){
     </div>
 
     <!-- CONDICIONES ANTES DE FIRMAS -->
-    ${cr.condiciones
-      ?`<div class="section" style="page-break-inside:avoid;margin-top:20px">
-          <div class="section-title">Condiciones de la Oferta</div>
-          <div class="condiciones-box">${esc(cr.condiciones)}</div>
-        </div>`
-      :`<div style="margin-top:20px;background:#faf8f4;border:1px dashed #ccc;border-radius:8px;padding:12px">
-          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#c8a030;margin-bottom:6px">Condiciones de la Oferta</div>
-          <div style="font-size:12px;color:#aaa;font-style:italic">Sin condiciones definidas.</div>
-        </div>`}
+    ${cr.condiciones?`<div class="section" style="page-break-inside:avoid;margin-top:20px"><div class="section-title">Condiciones de la Oferta</div><div class="condiciones-box">${esc(cr.condiciones)}</div></div>`:`<div style="margin-top:20px;background:#faf8f4;border:1px dashed #ccc;border-radius:8px;padding:12px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#c8a030;margin-bottom:6px">Condiciones de la Oferta</div><div style="font-size:12px;color:#aaa;font-style:italic">Sin condiciones definidas.</div></div>`}
 
     <!-- FIRMAS -->
     <div class="firmas">
@@ -3836,15 +3820,7 @@ function imprimirCronograma(pid){
     </div>
 
     <!-- CONDICIONES ANTES DE FIRMAS -->
-    ${cr.condiciones
-      ?`<div class="section" style="page-break-inside:avoid;margin-top:20px">
-          <div class="section-title">Condiciones de la Oferta</div>
-          <div class="condiciones-box">${esc(cr.condiciones)}</div>
-        </div>`
-      :`<div style="margin-top:20px;background:#faf8f4;border:1px dashed #ccc;border-radius:8px;padding:12px">
-          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#c8a030;margin-bottom:6px">Condiciones de la Oferta</div>
-          <div style="font-size:12px;color:#aaa;font-style:italic">Sin condiciones definidas.</div>
-        </div>`}
+    ${cr.condiciones?`<div class="section" style="page-break-inside:avoid;margin-top:20px"><div class="section-title">Condiciones de la Oferta</div><div class="condiciones-box">${esc(cr.condiciones)}</div></div>`:`<div style="margin-top:20px;background:#faf8f4;border:1px dashed #ccc;border-radius:8px;padding:12px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#c8a030;margin-bottom:6px">Condiciones de la Oferta</div><div style="font-size:12px;color:#aaa;font-style:italic">Sin condiciones definidas.</div></div>`}
 
     <!-- FIRMAS -->
     <div class="firmas">
@@ -4418,6 +4394,7 @@ function ganttHTML(p){
 }
 
 function renderDashboard(){
+  const _esContratistaDash=S.currentUser&&S.currentUser.rol==='contratista';
   const _proyectos=proyectosVisibles();
   const np=_proyectos.length;
   const inv=_proyectos.reduce((s,p)=>s+(parseFloat(p.montoObraCivil)||0),0);
@@ -4553,14 +4530,36 @@ function renderDashboard(){
           <span style="font-size:12px;font-weight:600;color:${pc};min-width:30px">${p.avanceFisico}%</span>
         </div>
       </td>
-      ${!_esContratistaDash?`<td style="text-align:right">
-        <div style="font-size:13px;font-weight:700;color:${pc}">${fmt(total)}</div>
-        <div style="font-size:10px;color:var(--muted)">OC: ${fmt(p.montoObraCivil||0)}</div>
-      </td>`:''}
+      ${_esContratistaDash?'':
+        `<td style="text-align:right">
+          <div style="font-size:13px;font-weight:700;color:${pc}">${fmt(total)}</div>
+          <div style="font-size:10px;color:var(--muted)">OC: ${fmt(p.montoObraCivil||0)}</div>
+        </td>`}
     </tr>`;
   });
 
-  const _esContratistaDash=S.currentUser?.rol==='contratista';
+  const kpiEconomicos=_esContratistaDash?'':
+    `<div class="kpi">
+      <div class="kpi-lbl">Total Inv. (OC+Gastos)</div>
+      <div class="kpi-val" style="font-size:15px;color:var(--accent)">${fmt(totalGeneral)}</div>
+      <div class="kpi-sub">OC: ${fmt(inv)}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-lbl">Total Gastos</div>
+      <div class="kpi-val" style="font-size:15px;color:var(--red)">${fmt(gtotalGastos)}</div>
+    </div>`;
+  const avanceBanner=np===0?'':
+    `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;gap:14px">
+      <div style="flex:1">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.6px;font-weight:700">Avance promedio</div>
+        <div style="height:10px;background:var(--border);border-radius:5px;overflow:hidden">
+          <div style="height:100%;width:${avProm}%;background:linear-gradient(90deg,#1a5a8a,#e8a020);border-radius:5px"></div>
+        </div>
+      </div>
+      <div style="font-family:'Syne',sans-serif;font-size:32px;font-weight:800;color:var(--accent)">${avProm}%</div>
+    </div>`;
+  const thTotalDash=_esContratistaDash?'':'<th style="text-align:right">Total</th>';
+
   document.getElementById('content').innerHTML=`
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px">
     <div class="kpi" style="border-color:#c084fc33">
@@ -4576,30 +4575,10 @@ function renderDashboard(){
       <div class="kpi-lbl">Finalizados</div>
       <div class="kpi-val" style="color:var(--green)">${fin}</div>
     </div>
-    ${!_esContratistaDash?`
-    <div class="kpi">
-      <div class="kpi-lbl">Total Inv. (OC+Gastos)</div>
-      <div class="kpi-val" style="font-size:15px;color:var(--accent)">${fmt(totalGeneral)}</div>
-      <div class="kpi-sub">OC: ${fmt(inv)}</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-lbl">Total Gastos</div>
-      <div class="kpi-val" style="font-size:15px;color:var(--red)">${fmt(gtotalGastos)}</div>
-    </div>`:''}
+    ${kpiEconomicos}
   </div>
 
-  <!-- Avance promedio -->
-  ${np>0?`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;gap:14px">
-    <div style="flex:1">
-      <div style="font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.6px;font-weight:700">Avance promedio</div>
-      <div style="height:10px;background:var(--border);border-radius:5px;overflow:hidden">
-        <div style="height:100%;width:${avProm}%;background:linear-gradient(90deg,#1a5a8a,#e8a020);border-radius:5px"></div>
-      </div>
-    </div>
-    <div style="font-family:'Syne',sans-serif;font-size:32px;font-weight:800;color:var(--accent)">${avProm}%</div>
-  </div>`:''}
-
-  <!-- Gráficos en columnas adaptables -->
+  ${avanceBanner}
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-bottom:16px">
     <div class="card">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:12px">Estados</div>
@@ -4622,7 +4601,7 @@ function renderDashboard(){
         <th>Proyecto</th>
         <th class="hide-sm">Estado</th>
         <th>Avance</th>
-        ${!_esContratistaDash?`<th style="text-align:right">Total</th>`:''}
+        ${_esContratistaDash?'':'<th style="text-align:right">Total</th>'}
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
