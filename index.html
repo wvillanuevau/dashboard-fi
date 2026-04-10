@@ -458,8 +458,12 @@ input[type=date]{color-scheme:dark}
       <div class="fg">
         <label style="color:rgba(255,255,255,.5)">Código de Empresa</label>
         <input id="empCode" placeholder="Ej: PAPAJOHNS" autocomplete="off"
+          list="empresasList"
           onkeydown="if(event.key==='Enter')goStep2()"
+          oninput="this.value=this.value.toUpperCase()"
           style="font-size:18px;padding:14px 16px;letter-spacing:3px;text-transform:uppercase;font-weight:700;text-align:center">
+        <datalist id="empresasList"></datalist>
+        <div id="empSuggestions" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px"></div>
       </div>
       <button class="btn btn-primary" style="width:100%;justify-content:center;padding:14px;font-size:15px;border-radius:10px;letter-spacing:.5px" onclick="goStep2()">
         Continuar →
@@ -760,6 +764,17 @@ function showSALogin(){showStep('SA')}
 window.addEventListener('fb-ready',(e)=>{
   const dot=document.getElementById('fbDot'),txt=document.getElementById('fbStatusTxt');
   if(dot)dot.className='sync-dot ok';if(txt)txt.textContent='Firebase activo';
+  // Cargar lista de empresas para el login
+  window.FB.getAllEmpresas().then(empresas=>{
+    const dl=document.getElementById('empresasList');
+    const sugg=document.getElementById('empSuggestions');
+    if(dl){
+      dl.innerHTML=empresas.map(e=>`<option value="${e.id}">${e.id}${e.nombre?' — '+e.nombre:''}</option>`).join('');
+    }
+    if(sugg&&empresas.length>0){
+      sugg.innerHTML=empresas.map(e=>`<span style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:6px;padding:5px 12px;font-size:12px;color:rgba(255,255,255,.7);cursor:pointer;font-weight:600;letter-spacing:1px" onclick="document.getElementById('empCode').value='${e.id}';document.getElementById('empSuggestions').style.display='none'">${e.id}</span>`).join('');
+    }
+  }).catch(()=>{});
   const user=e.detail?.user;
   if(user&&!S.currentUser){
     const empSaved=localStorage.getItem('pp_empresa');
@@ -1960,9 +1975,9 @@ function tplCron(p){
             :`<span style="color:${textColor}">$${parseFloat(sub.precio||0).toFixed(2)}</span>`}
         </td>
         <td>
-          ${esContratista
+          ${(isCerrado&&!esContratista)
             ?`<span style="color:${textColor}">${sub.dias||1}</span>`
-            :`<input type="number" min="1" value="${sub.dias||1}" style="text-align:center;color:${textColor}" onchange="updSubCalc('${p.id}',${mi},${si},'dias',parseInt(this.value)||1)">`}
+            :`<input type="number" min="1" value="${sub.dias||1}" style="text-align:center;color:${textColor}${esContratista?';border-color:var(--blue)':''}" onchange="updSubCalc('${p.id}',${mi},${si},'dias',parseInt(this.value)||1)">`}
         </td>
         <td style="text-align:center">
           ${isDone?`<span style="color:var(--green);font-size:16px">✅</span>`:`<span style="color:#333;font-size:14px">⬜</span>`}
