@@ -1874,7 +1874,7 @@ function tplCron(p){
   <!-- Condiciones de la oferta -->
   <div class="fg" style="margin-bottom:16px">
     <label>📋 Condiciones de la oferta / Notas del contrato</label>
-    <textarea id="condOferta_${p.id}" rows="4" placeholder="Describe las condiciones generales: forma de pago, garantías, alcance del trabajo, exclusiones, penalizaciones..." ${isCerrado?'disabled style="color:var(--muted);background:var(--surface2)"':''} onchange="updCron('${p.id}','condiciones',this.value)">${esc(cr.condiciones||'')}</textarea>
+    <textarea id="condOferta_${p.id}" rows="4" placeholder="Describe las condiciones generales: forma de pago, garantías, alcance del trabajo, exclusiones, penalizaciones..." ${isCerrado?'disabled style="color:var(--muted);background:var(--surface2)"':''} oninput="updCronCondiciones('${p.id}',this.value)" onchange="updCronCondiciones('${p.id}',this.value)">${esc(cr.condiciones||'')}</textarea>
     ${isCerrado?'<div style="font-size:11px;color:var(--muted);margin-top:4px">🔒 Condiciones bloqueadas — oferta aceptada</div>':''}
   </div>
 
@@ -2113,6 +2113,15 @@ function inputFecha(value,onchangeCode,disabled=false,extraStyle=''){
 }
 
 function updCron(pid,c,v){const p=S.proyectos.find(x=>x.id===pid);if(p){p.cronograma[c]=v;saveData();reloadTab('cron',pid)}}
+
+// Guardar condiciones con debounce para no saturar Firestore al escribir
+let _condTimer=null;
+function updCronCondiciones(pid,val){
+  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
+  p.cronograma.condiciones=val; // actualizar en memoria inmediatamente
+  clearTimeout(_condTimer);
+  _condTimer=setTimeout(()=>{ saveData(); },800); // guardar 800ms después de dejar de escribir
+}
 function toggleCronAcept(pid,v){const p=S.proyectos.find(x=>x.id===pid);if(p){p.cronograma.aceptado=v;saveData();reloadTab('cron',pid)}}
 function updPartida(pid,mi,c,v){const p=S.proyectos.find(x=>x.id===pid);if(p?.cronograma.partidas[mi]){p.cronograma.partidas[mi][c]=v;saveData()}}
 function updSub(pid,mi,si,c,v){const p=S.proyectos.find(x=>x.id===pid);if(p?.cronograma.partidas[mi]?.sub[si]){p.cronograma.partidas[mi].sub[si][c]=v;saveData();if(c==='dias')reloadTab('cron',pid)}}
@@ -2718,6 +2727,9 @@ function subirComprobante(pid,tramoIdx,input){
 // ═══ IMPRIMIR CRONOGRAMA ═══
 function imprimirCronograma(pid){
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
+  // Leer condiciones del textarea si está visible (puede no haberse guardado aún)
+  const taEl=document.getElementById('condOferta_'+pid);
+  if(taEl&&taEl.value!==undefined){p.cronograma.condiciones=taEl.value;}
   const cr=p.cronograma;
   const cfg=S.config||{};
   const totalDias=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+(parseInt(x.dias)||0),0),0);
@@ -3204,6 +3216,9 @@ function subirComprobante(pid,tramoIdx,input){
 // ═══ IMPRIMIR CRONOGRAMA ═══
 function imprimirCronograma(pid){
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
+  // Leer condiciones del textarea si está visible (puede no haberse guardado aún)
+  const taEl=document.getElementById('condOferta_'+pid);
+  if(taEl&&taEl.value!==undefined){p.cronograma.condiciones=taEl.value;}
   const cr=p.cronograma;
   const cfg=S.config||{};
   const totalDias=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+(parseInt(x.dias)||0),0),0);
@@ -3668,6 +3683,9 @@ function subirComprobante(pid,tramoIdx,input){
 // ═══ IMPRIMIR CRONOGRAMA ═══
 function imprimirCronograma(pid){
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
+  // Leer condiciones del textarea si está visible (puede no haberse guardado aún)
+  const taEl=document.getElementById('condOferta_'+pid);
+  if(taEl&&taEl.value!==undefined){p.cronograma.condiciones=taEl.value;}
   const cr=p.cronograma;
   const totalDias=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+(parseInt(x.dias)||0),0),0);
   const grand=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0),0);
