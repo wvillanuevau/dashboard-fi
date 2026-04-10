@@ -1465,7 +1465,23 @@ function tplPagos(p){
 
   // Tabla de gastos
   let gastoRows=lista.length===0?`<tr><td colspan="5" class="empty">Sin gastos — asígnalos desde Gastos</td></tr>`:'';
-  lista.forEach(g=>{gastoRows+=`<tr><td>${fmtDate(g.fecha)}</td><td><strong>${esc(g.factura)}</strong></td><td>${esc(g.descripcion||'—')}</td><td>${esc(g.proveedor)}</td><td style="text-align:right"><strong style="color:var(--red)">${fmt(g.valor)}</strong></td></tr>`;});
+  lista.forEach(g=>{
+    const gIsImg=g.comprobante&&!g.comprobante.startsWith('ref:')&&g.comprobante.startsWith('data:image');
+    const gIsRef=g.comprobante&&g.comprobante.startsWith('ref:');
+    gastoRows+=`<tr>
+      <td><strong>${esc(g.factura)}</strong></td>
+      <td class="hide-sm">${esc(g.descripcion||'—')}</td>
+      <td class="hide-sm">${esc(g.proveedor)}</td>
+      <td style="text-align:right"><strong style="color:var(--red)">${fmt(g.valor)}</strong></td>
+      <td>${fmtDate(g.fecha)}</td>
+      <td style="text-align:center">${gIsImg
+        ?`<img src="${g.comprobante}" style="height:28px;width:34px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="verImagen('${g.comprobante}','${esc(g.factura)}')">`
+        :gIsRef
+          ?`<button class="btn btn-secondary btn-xs" onclick="verComprobanteGasto('${g.id}','${esc(g.factura)}')">📎</button>`
+          :'—'
+      }</td>
+    </tr>`;
+  });
 
   return`<div class="info-box">ℹ️ <strong>Obra Civil</strong> se divide en 3 tramos configurables. <strong>Imprevistos</strong> y demás gastos se registran por separado.</div>
   
@@ -2368,11 +2384,22 @@ function tplPagosYGastos(p){
   <!-- Gastos vinculados -->
   <div class="divider"></div>
   <div class="sec-hdr">Gastos vinculados al proyecto</div>
-  <div class="tbl-wrap" style="margin-bottom:12px"><table>
-    <thead><tr><th>Fecha</th><th>Factura</th><th>Descripción</th><th>Proveedor</th><th style="text-align:right">Valor</th></tr></thead>
-    <tbody>${gastoRows}${lista.length>0?`<tr style="background:#0e0c0a"><td colspan="4" style="text-align:right;font-size:11px;color:var(--muted)">SUBTOTAL:</td><td style="text-align:right"><strong style="color:var(--red)">${fmt(gp)}</strong></td></tr>`:''}</tbody>
+  <div class="tbl-wrap" style="margin-bottom:12px;overflow-x:auto"><table style="table-layout:auto">
+    <thead><tr>
+      <th>Factura</th>
+      <th class="hide-sm">Descripción</th>
+      <th class="hide-sm">Proveedor</th>
+      <th style="text-align:right">Valor</th>
+      <th>Fecha</th>
+      <th style="text-align:center">📎</th>
+    </tr></thead>
+    <tbody>${gastoRows}${lista.length>0?`<tr style="background:#0e0c0a">
+      <td colspan="3" style="text-align:right;font-size:11px;color:var(--muted)">SUBTOTAL:</td>
+      <td style="text-align:right"><strong style="color:var(--red)">${fmt(gp)}</strong></td>
+      <td colspan="2"></td>
+    </tr>`:''}</tbody>
   </table></div>
-  <div style="font-size:12px;color:var(--muted)">ℹ Para agregar gastos, ve al módulo <strong>Gastos</strong> y selecciona este proyecto.</div>`;
+  <div style="font-size:12px;color:var(--muted)">ℹ Para agregar gastos ve al módulo <strong>Gastos</strong> y selecciona este proyecto.</div>`;
 }
 
 function subirComprobante(pid,tramoIdx,input){
@@ -2769,11 +2796,22 @@ function tplPagosYGastos(p){
   <!-- Gastos vinculados -->
   <div class="divider"></div>
   <div class="sec-hdr">Gastos vinculados al proyecto</div>
-  <div class="tbl-wrap" style="margin-bottom:12px"><table>
-    <thead><tr><th>Fecha</th><th>Factura</th><th>Descripción</th><th>Proveedor</th><th style="text-align:right">Valor</th></tr></thead>
-    <tbody>${gastoRows}${lista.length>0?`<tr style="background:#0e0c0a"><td colspan="4" style="text-align:right;font-size:11px;color:var(--muted)">SUBTOTAL:</td><td style="text-align:right"><strong style="color:var(--red)">${fmt(gp)}</strong></td></tr>`:''}</tbody>
+  <div class="tbl-wrap" style="margin-bottom:12px;overflow-x:auto"><table style="table-layout:auto">
+    <thead><tr>
+      <th>Factura</th>
+      <th class="hide-sm">Descripción</th>
+      <th class="hide-sm">Proveedor</th>
+      <th style="text-align:right">Valor</th>
+      <th>Fecha</th>
+      <th style="text-align:center">📎</th>
+    </tr></thead>
+    <tbody>${gastoRows}${lista.length>0?`<tr style="background:#0e0c0a">
+      <td colspan="3" style="text-align:right;font-size:11px;color:var(--muted)">SUBTOTAL:</td>
+      <td style="text-align:right"><strong style="color:var(--red)">${fmt(gp)}</strong></td>
+      <td colspan="2"></td>
+    </tr>`:''}</tbody>
   </table></div>
-  <div style="font-size:12px;color:var(--muted)">ℹ Para agregar gastos, ve al módulo <strong>Gastos</strong> y selecciona este proyecto.</div>`;
+  <div style="font-size:12px;color:var(--muted)">ℹ Para agregar gastos ve al módulo <strong>Gastos</strong> y selecciona este proyecto.</div>`;
 }
 
 function subirComprobante(pid,tramoIdx,input){
@@ -3376,193 +3414,199 @@ function ganttHTML(p){
 function renderDashboard(){
   const np=S.proyectos.length;
   const inv=S.proyectos.reduce((s,p)=>s+(parseFloat(p.montoObraCivil)||0),0);
+  const gtotalGastos=S.gastos.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
+  const totalGeneral=S.proyectos.reduce((s,p)=>s+(parseFloat(p.montoObraCivil)||0)+totalGastosProyecto(p.id),0);
   const enEj=S.proyectos.filter(p=>p.estado==='En ejecución').length;
   const fin=S.proyectos.filter(p=>p.estado==='Finalizado').length;
-  const ret=S.proyectos.filter(p=>p.estado==='Retrasado').length;
   const sin=S.proyectos.filter(p=>p.estado==='Sin iniciar').length;
-  const gtotal=S.gastos.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
   const avProm=np>0?Math.round(S.proyectos.reduce((s,p)=>s+(p.avanceFisico||0),0)/np):0;
 
-  // Gráfico dona — estados
+  // Dona — solo 3 estados (sin Retrasado)
   const estados=[
-    {label:'Sin iniciar',val:sin,color:'#555'},
-    {label:'En ejecución',val:enEj,color:'#e8a020'},
-    {label:'Retrasado',val:ret,color:'#e84040'},
-    {label:'Finalizado',val:fin,color:'#2db87a'}
+    {label:'Sin iniciar', val:sin,  color:'#555'},
+    {label:'En ejecución',val:enEj, color:'#e8a020'},
+    {label:'Finalizado',  val:fin,  color:'#2db87a'}
   ].filter(e=>e.val>0);
 
   function donaChart(){
-    if(np===0)return`<div class="empty" style="height:160px;display:flex;align-items:center">Sin proyectos</div>`;
-    const r=70,cx=90,cy=90,stroke=22;
-    const circ=2*Math.PI*r;
+    if(np===0)return`<div class="empty" style="padding:30px">Sin proyectos</div>`;
+    const r=60,cx=75,cy=75,stroke=20,circ=2*Math.PI*r;
     let offset=0,arcs='',legend='';
     estados.forEach(e=>{
-      const pct=e.val/np;
-      const dash=pct*circ;
-      arcs+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${e.color}" stroke-width="${stroke}" stroke-dasharray="${dash} ${circ-dash}" stroke-dashoffset="${-offset}" style="transition:stroke-dasharray .5s"><title>${e.label}: ${e.val}</title></circle>`;
+      const dash=(e.val/np)*circ;
+      arcs+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${e.color}" stroke-width="${stroke}"
+        stroke-dasharray="${dash} ${circ-dash}" stroke-dashoffset="${-offset}"><title>${e.label}: ${e.val}</title></circle>`;
       offset+=dash;
-      legend+=`<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+      legend+=`<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
         <span style="width:10px;height:10px;border-radius:50%;background:${e.color};flex-shrink:0"></span>
-        <span style="font-size:11px;color:var(--muted)">${e.label}</span>
-        <strong style="font-size:12px;color:var(--text);margin-left:auto">${e.val}</strong>
+        <span style="font-size:12px;color:var(--muted);flex:1">${e.label}</span>
+        <strong style="font-size:13px">${e.val}</strong>
       </div>`;
     });
-    return`<div style="display:flex;align-items:center;gap:16px">
-      <div style="position:relative;flex-shrink:0">
-        <svg width="180" height="180" style="transform:rotate(-90deg)">
+    return`<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <div style="position:relative;flex-shrink:0;width:150px;height:150px">
+        <svg width="150" height="150" style="transform:rotate(-90deg)">
           <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#1a1815" stroke-width="${stroke}"/>
           ${arcs}
         </svg>
         <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
-          <div style="font-family:'Syne',sans-serif;font-size:26px;font-weight:800">${np}</div>
+          <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800">${np}</div>
           <div style="font-size:10px;color:var(--muted)">proyectos</div>
         </div>
       </div>
-      <div style="flex:1">${legend}</div>
+      <div style="flex:1;min-width:100px">${legend}</div>
     </div>`;
   }
 
-  // Gráfico barras — inversión por proyecto
+  // Barras horizontales — más legibles en móvil y muestran valores exactos
   function barChart(){
-    if(np===0)return`<div class="empty" style="height:160px;display:flex;align-items:center">Sin proyectos</div>`;
+    if(np===0)return`<div class="empty" style="padding:30px">Sin proyectos</div>`;
     const data=S.proyectos.map(p=>({
-      label:p.nombre.length>14?p.nombre.substring(0,12)+'…':p.nombre,
+      label:p.nombre,
       oc:parseFloat(p.montoObraCivil)||0,
       gastos:totalGastosProyecto(p.id),
-      avance:p.avanceFisico||0
+      avance:p.avanceFisico||0,
+      color:{'Sin iniciar':'#555','En ejecución':'#e8a020','Retrasado':'#e84040','Finalizado':'#2db87a'}[p.estado]||'#555'
     }));
     const maxVal=Math.max(...data.map(d=>d.oc+d.gastos),1);
-    const containerW=Math.min(window.innerWidth-60,500);
-    const BAR_W=Math.max(28,Math.min(55,containerW/Math.max(np,1)-8));
-    const GAP=8,PH=130,PW=np*(BAR_W+GAP);
-    let bars='',xlabels='',ylabels='';
-    // Y axis marks
-    for(let i=0;i<=4;i++){
-      const v=(maxVal/4)*i;
-      const y=PH-(PH*(v/maxVal));
-      ylabels+=`<text x="-4" y="${y+4}" text-anchor="end" font-size="9" fill="#555">$${v>=1000?(v/1000).toFixed(0)+'k':v.toFixed(0)}</text>
-      <line x1="0" y1="${y}" x2="${PW}" y2="${y}" stroke="#1a1815" stroke-width="1"/>`;
-    }
-    data.forEach((d,i)=>{
-      const x=i*(BAR_W+GAP);
-      const hOC=PH*(d.oc/maxVal);
-      const hG=PH*(d.gastos/maxVal);
-      bars+=`
-      <rect x="${x}" y="${PH-hOC}" width="${BAR_W}" height="${hOC}" fill="#2a3a5a" rx="4"><title>OC: $${d.oc.toFixed(0)}</title></rect>
-      <rect x="${x}" y="${PH-hOC-hG}" width="${BAR_W}" height="${hG}" fill="#3a1a1a" rx="4"><title>Gastos: $${d.gastos.toFixed(0)}</title></rect>
-      <rect x="${x}" y="${PH-hOC}" width="${BAR_W*(d.avance/100)}" height="4" fill="#e8a020" rx="2"><title>Avance: ${d.avance}%</title></rect>`;
-      xlabels+=`<text x="${x+BAR_W/2}" y="16" text-anchor="middle" font-size="10" fill="#888">${d.label}</text>`;
+    let rows='';
+    data.forEach(d=>{
+      const total=d.oc+d.gastos;
+      const pctOC=maxVal>0?(d.oc/maxVal)*100:0;
+      const pctG=maxVal>0?(d.gastos/maxVal)*100:0;
+      rows+=`<div style="margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+          <span style="font-size:13px;font-weight:600;color:var(--text)">${esc(d.label)}</span>
+          <span style="font-size:13px;font-weight:700;color:var(--accent)">${fmt(total)}</span>
+        </div>
+        <!-- Barra OC -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+          <span style="font-size:10px;color:var(--muted);width:38px;flex-shrink:0">OC</span>
+          <div style="flex:1;height:14px;background:#0a1a2a;border-radius:4px;overflow:hidden;position:relative">
+            <div style="height:100%;width:${pctOC}%;background:#2a5a8a;border-radius:4px;transition:width .5s"></div>
+            ${d.oc>0?`<span style="position:absolute;right:6px;top:50%;transform:translateY(-50%);font-size:10px;color:#aaa;white-space:nowrap">${fmt(d.oc)}</span>`:''}
+          </div>
+        </div>
+        <!-- Barra Gastos -->
+        ${d.gastos>0?`<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+          <span style="font-size:10px;color:var(--muted);width:38px;flex-shrink:0">Gastos</span>
+          <div style="flex:1;height:14px;background:#200a0a;border-radius:4px;overflow:hidden;position:relative">
+            <div style="height:100%;width:${pctG}%;background:#5a2a2a;border-radius:4px;transition:width .5s"></div>
+            <span style="position:absolute;right:6px;top:50%;transform:translateY(-50%);font-size:10px;color:#aaa;white-space:nowrap">${fmt(d.gastos)}</span>
+          </div>
+        </div>`:''}
+        <!-- Avance -->
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:10px;color:var(--muted);width:38px;flex-shrink:0">${d.avance}%</span>
+          <div style="flex:1;height:5px;background:var(--border);border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:${d.avance}%;background:${d.color};transition:width .5s"></div>
+          </div>
+        </div>
+      </div>`;
     });
-    return`<div style="overflow-x:auto">
-      <svg width="${PW+40}" height="${PH+36}" style="display:block;overflow:visible;margin-left:36px">
-        <g transform="translate(0,4)">${ylabels}${bars}</g>
-        <g transform="translate(0,${PH+16})">${xlabels}</g>
-      </svg>
-      <div style="display:flex;gap:16px;margin-top:6px;margin-left:36px">
-        <span style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted)"><span style="width:12px;height:8px;background:#2a3a5a;border-radius:2px;display:inline-block"></span>Obra Civil</span>
-        <span style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted)"><span style="width:12px;height:8px;background:#3a1a1a;border-radius:2px;display:inline-block"></span>Gastos</span>
-        <span style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted)"><span style="width:12px;height:4px;background:#e8a020;border-radius:2px;display:inline-block"></span>Avance</span>
+    return`<div>${rows}
+      <div style="display:flex;gap:16px;margin-top:4px;flex-wrap:wrap">
+        <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><span style="width:14px;height:8px;background:#2a5a8a;border-radius:2px;display:inline-block"></span>Obra Civil</span>
+        <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><span style="width:14px;height:8px;background:#5a2a2a;border-radius:2px;display:inline-block"></span>Gastos</span>
+        <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><span style="width:14px;height:4px;background:var(--accent);border-radius:2px;display:inline-block"></span>Avance</span>
       </div>
     </div>`;
   }
 
-  // Tabla de proyectos mejorada
-  let rows=np===0?`<tr><td colspan="5" class="empty" style="padding:30px">Sin proyectos — crea el primero →</td></tr>`:'';
+  // Tabla proyectos
+  let rows=np===0?`<tr><td colspan="4" class="empty" style="padding:30px">Sin proyectos — crea el primero</td></tr>`:'';
   S.proyectos.forEach(p=>{
     const gp=totalGastosProyecto(p.id);
     const total=parseFloat(p.montoObraCivil||0)+gp;
-    const estadoColors={'Sin iniciar':'#555','En ejecución':'#e8a020','Retrasado':'#e84040','Finalizado':'#2db87a'};
-    const ec=estadoColors[p.estado]||'#555';
+    const ec={'Sin iniciar':'#555','En ejecución':'#e8a020','Retrasado':'#e84040','Finalizado':'#2db87a'}[p.estado]||'#555';
     rows+=`<tr style="cursor:pointer" onclick="verProy('${p.id}')">
       <td>
-        <div style="display:flex;align-items:center;gap:10px">
-          <div style="width:4px;height:36px;border-radius:2px;background:${ec};flex-shrink:0"></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:4px;height:32px;border-radius:2px;background:${ec};flex-shrink:0"></div>
           <div>
             <div style="font-weight:700;font-size:13px">${esc(p.nombre)}</div>
             <div style="font-size:11px;color:var(--muted)">${esc(p.marca)} · ${esc(p.ubicacion||'Sin ubicación')}</div>
           </div>
         </div>
       </td>
-      <td><span class="badge" style="background:${ec}22;color:${ec};border:1px solid ${ec}44">${p.estado}</span></td>
+      <td class="hide-sm"><span class="badge" style="background:${ec}22;color:${ec};border:1px solid ${ec}44">${p.estado}</span></td>
       <td>
-        <div style="display:flex;align-items:center;gap:8px">
-          <div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden;min-width:60px">
-            <div style="height:100%;width:${p.avanceFisico}%;background:${ec};border-radius:3px;transition:width .4s"></div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden;min-width:40px">
+            <div style="height:100%;width:${p.avanceFisico}%;background:${ec};transition:width .4s"></div>
           </div>
-          <span style="font-size:12px;font-weight:600;color:${ec};min-width:32px">${p.avanceFisico}%</span>
+          <span style="font-size:12px;font-weight:600;color:${ec};min-width:30px">${p.avanceFisico}%</span>
         </div>
       </td>
       <td style="text-align:right">
-        <div style="font-size:13px;font-weight:600">${fmt(total)}</div>
+        <div style="font-size:13px;font-weight:700;color:var(--accent)">${fmt(total)}</div>
         <div style="font-size:10px;color:var(--muted)">OC: ${fmt(p.montoObraCivil||0)}</div>
       </td>
-      <td style="text-align:right;font-size:11px;color:var(--red)">${gp>0?fmt(gp):'—'}</td>
     </tr>`;
   });
 
   document.getElementById('content').innerHTML=`
-  <!-- KPIs row -->
-  <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:18px">
-    <div class="kpi" style="border-color:#c084fc22">
-      <div class="kpi-lbl">Total proyectos</div>
+  <!-- KPIs — 5 en desktop, 2x2 en móvil -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px">
+    <div class="kpi" style="border-color:#c084fc33">
+      <div class="kpi-lbl">Proyectos</div>
       <div class="kpi-val" style="color:#c084fc">${np}</div>
+      <div class="kpi-sub">${sin} pendientes</div>
     </div>
-    <div class="kpi" style="border-color:#e8a02222">
+    <div class="kpi" style="border-color:#e8a02033">
       <div class="kpi-lbl">En ejecución</div>
       <div class="kpi-val" style="color:var(--accent)">${enEj}</div>
     </div>
-    <div class="kpi" style="border-color:#e8404022">
-      <div class="kpi-lbl">Retrasados</div>
-      <div class="kpi-val" style="color:var(--red)">${ret}</div>
-    </div>
-    <div class="kpi" style="border-color:#2db87a22">
+    <div class="kpi" style="border-color:#2db87a33">
       <div class="kpi-lbl">Finalizados</div>
       <div class="kpi-val" style="color:var(--green)">${fin}</div>
     </div>
     <div class="kpi">
-      <div class="kpi-lbl">Inv. Obra Civil</div>
-      <div class="kpi-val" style="font-size:15px">${fmt(inv)}</div>
+      <div class="kpi-lbl">Total Inv. (OC+Gastos)</div>
+      <div class="kpi-val" style="font-size:15px;color:var(--accent)">${fmt(totalGeneral)}</div>
+      <div class="kpi-sub">OC: ${fmt(inv)}</div>
     </div>
     <div class="kpi">
-      <div class="kpi-lbl">Total gastos</div>
-      <div class="kpi-val" style="font-size:15px;color:var(--red)">${fmt(gtotal)}</div>
+      <div class="kpi-lbl">Total Gastos</div>
+      <div class="kpi-val" style="font-size:15px;color:var(--red)">${fmt(gtotalGastos)}</div>
     </div>
   </div>
 
-  <!-- Avance promedio banner -->
-  ${np>0?`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;gap:16px">
+  <!-- Avance promedio -->
+  ${np>0?`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;gap:14px">
     <div style="flex:1">
-      <div style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.6px">Avance promedio de todos los proyectos</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.6px;font-weight:700">Avance promedio</div>
       <div style="height:10px;background:var(--border);border-radius:5px;overflow:hidden">
-        <div style="height:100%;width:${avProm}%;background:linear-gradient(90deg,#1a5a8a,#e8a020);border-radius:5px;transition:width .6s"></div>
+        <div style="height:100%;width:${avProm}%;background:linear-gradient(90deg,#1a5a8a,#e8a020);border-radius:5px"></div>
       </div>
     </div>
-    <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--accent)">${avProm}%</div>
+    <div style="font-family:'Syne',sans-serif;font-size:32px;font-weight:800;color:var(--accent)">${avProm}%</div>
   </div>`:''}
 
-  <!-- Gráficos -->
-  <div style="display:grid;grid-template-columns:minmax(160px,1fr) minmax(0,1.8fr);gap:14px;margin-bottom:18px">
-    <div class="card" style="min-width:0">
-      <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;margin-bottom:12px;color:var(--muted)">ESTADOS</div>
+  <!-- Gráficos en columnas adaptables -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-bottom:16px">
+    <div class="card">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:12px">Estados</div>
       ${donaChart()}
     </div>
-    <div class="card" style="min-width:0;overflow:hidden">
-      <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;margin-bottom:12px;color:var(--muted)">INVERSIÓN POR PROYECTO</div>
-      <div style="overflow-x:auto">${barChart()}</div>
+    <div class="card">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:12px">Inversión por proyecto</div>
+      ${barChart()}
     </div>
   </div>
 
   <!-- Tabla proyectos -->
   <div class="card" style="padding:0;overflow:hidden">
-    <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
-      <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:var(--muted)">PROYECTOS <span style="color:var(--text)">(${np})</span></div>
-      <div style="font-size:11px;color:var(--muted)">Clic en fila para ver detalle</div>
+    <div style="padding:12px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted)">Proyectos (${np})</div>
+      <div style="font-size:11px;color:var(--muted)">Toca para ver detalle</div>
     </div>
-    <table style="border-radius:0">
+    <table style="table-layout:auto">
       <thead><tr>
-        <th>Proyecto</th><th>Estado</th><th>Avance</th>
-        <th style="text-align:right">Total (OC+Gastos)</th>
-        <th style="text-align:right">Gastos adl.</th>
+        <th>Proyecto</th>
+        <th class="hide-sm">Estado</th>
+        <th>Avance</th>
+        <th style="text-align:right">Total</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
