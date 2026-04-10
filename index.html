@@ -68,7 +68,33 @@ window.FB={
   },
   waitForAuth(){return new Promise(r=>{const u=_fbAuth.onAuthStateChanged(user=>{u();r(user)})})},
   onAuthChange(cb){_fbAuth.onAuthStateChanged(cb)},
-  currentUser(){return _fbAuth.currentUser||null}
+  currentUser(){return _fbAuth.currentUser||null},
+
+  // SA: obtener todos los usuarios
+  async getAllUsuarios(){
+    try{const s=await _fbDb.collection('usuariosApp').get();return s.docs.map(d=>({id:d.id,...d.data()}))}catch(e){return[]}
+  },
+  // SA: guardar configuración de planes
+  async savePlanes(data){
+    try{await _fbDb.collection('_config').doc('planes').set({...data,_ts:Date.now()});return{ok:true}}catch(e){return{ok:false,err:e.message}}
+  },
+  async getPlanes(){
+    try{const s=await _fbDb.collection('_config').doc('planes').get();return s.exists?s.data():null}catch(e){return null}
+  },
+  // SA: guardar pago/factura de empresa
+  async saveFactura(empresaId,data){
+    try{const id=data.id||Date.now().toString(36);await _fbDb.collection('_facturas').doc(id).set({...data,empresaId,_ts:Date.now()});return{ok:true,id}}catch(e){return{ok:false,err:e.message}}
+  },
+  async getFacturas(empresaId){
+    try{const s=await _fbDb.collection('_facturas').where('empresaId','==',empresaId).orderBy('_ts','desc').get();return s.docs.map(d=>({id:d.id,...d.data()}))}catch(e){return[]}
+  },
+  // SA: log de acciones del superadmin
+  async logSA(accion,detalle){
+    try{await _fbDb.collection('_logSA').add({accion,detalle,ts:Date.now(),fecha:new Date().toISOString()})}catch(e){}
+  },
+  async getLogSA(){
+    try{const s=await _fbDb.collection('_logSA').orderBy('ts','desc').limit(100).get();return s.docs.map(d=>({id:d.id,...d.data()}))}catch(e){return[]}
+  }
 };
 
 let _fbReadyFired=false;
@@ -579,8 +605,26 @@ async function logout(){
 // ═══════════════════════════════════════════════════════
 //  SUPERADMIN
 // ═══════════════════════════════════════════════════════
-let SA_TAB='empresas';
-const SA_NAV=[{id:'empresas',label:'Empresas',ic:'🏢'},{id:'usuarios',label:'Usuarios',ic:'👥'},{id:'permisos',label:'Permisos',ic:'🔐'}];
+let SA_TAB='dashboard';
+let SA_PLANES_CACHE=null;
+
+const SA_NAV=[
+  {id:'dashboard',label:'Dashboard',ic:'📊'},
+  {id:'empresas',label:'Empresas',ic:'🏢'},
+  {id:'usuarios',label:'Usuarios',ic:'👥'},
+  {id:'planes',label:'Planes',ic:'💳'},
+  {id:'facturacion',label:'Facturación',ic:'📄'},
+  {id:'seguridad',label:'Seguridad',ic:'🔐'},
+  {id:'logsa',label:'Actividad SA',ic:'🕐'},
+];
+
+// Generador de código desde nombre
+function genCodigo(nombre){
+  const words=nombre.toUpperCase().replace(/[^A-Z0-9 ]/g,'').split(/\s+/).filter(Boolean);
+  if(words.length===1)return words[0].substring(0,6);
+  if(words.length===2)return words[0].substring(0,3)+words[1].substring(0,3);
+  return words.map(w=>w[0]).join('').substring(0,6);
+}
 
 function doSALogin(){
   const email=document.getElementById('saEmail').value.trim();
@@ -595,74 +639,328 @@ function doSALogin(){
   }
 }
 
-function saLogout(){document.getElementById('saPanel').style.display='none';document.getElementById('loginPage').style.display='flex';showStep(1)}
+function saLogout(){
+  document.getElementById('saPanel').style.display='none';
+  document.getElementById('loginPage').style.display='flex';
+  showStep(1);
+}
 
 function renderSA(){
-  document.getElementById('saNav').innerHTML=SA_NAV.map(n=>`<div class="sa-nav-item ${SA_TAB===n.id?'active':''}" onclick="goSATab('${n.id}')">${n.ic} ${n.label}</div>`).join('');
-  document.getElementById('saTitleBar').textContent='SuperAdmin — '+SA_NAV.find(n=>n.id===SA_TAB)?.label;
-  if(SA_TAB==='empresas')renderSAEmpresas();
-  else if(SA_TAB==='usuarios')renderSAUsuarios();
-  else if(SA_TAB==='permisos')renderSAPermisos();
+  document.getElementById('saNav').innerHTML=SA_NAV.map(n=>`
+    <div class="sa-nav-item ${SA_TAB===n.id?'active':''}" onclick="goSATab('${n.id}')">
+      <span>${n.ic}</span> ${n.label}
+    </div>`).join('');
+  const cur=SA_NAV.find(n=>n.id===SA_TAB);
+  document.getElementById('saTitleBar').textContent=(cur?cur.ic+' ':'')+' SuperAdmin — '+(cur?.label||'');
+  const fns={dashboard:renderSADashboard,empresas:renderSAEmpresas,usuarios:renderSAUsuarios,planes:renderSAPlanes,facturacion:renderSAFacturacion,seguridad:renderSASeguridad,logsa:renderSALog};
+  if(fns[SA_TAB])fns[SA_TAB]();
 }
 function goSATab(t){SA_TAB=t;renderSA()}
 
+async function renderSADashboard(){
+  const [empresas,usuarios]=await Promise.all([window.FB.getAllEmpresas(),window.FB.getAllUsuarios()]);
+  const activas=empresas.filter(e=>e.activa!==false).length;
+  const suspendidas=empresas.filter(e=>e.activa===false).length;
+  const hoy=Date.now();
+  const proxVencer=empresas.filter(e=>e.licenciaVence&&e.licenciaVence>hoy&&e.licenciaVence-hoy<30*86400000).length;
+  const sinUsuarios=empresas.filter(e=>!usuarios.some(u=>u.empresa===e.id)).length;
+  const planes={basico:0,profesional:0,enterprise:0,sin:0};
+  empresas.forEach(e=>{if(e.plan&&planes[e.plan]!==undefined)planes[e.plan]++;else planes.sin++;});
+  document.getElementById('saContent').innerHTML=`
+  <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
+    <div class="kpi"><div class="kpi-lbl">Total empresas</div><div class="kpi-val" style="color:#c084fc">${empresas.length}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Activas</div><div class="kpi-val" style="color:var(--green)">${activas}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Suspendidas</div><div class="kpi-val" style="color:var(--red)">${suspendidas}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Total usuarios</div><div class="kpi-val">${usuarios.length}</div></div>
+  </div>
+  <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
+    <div class="kpi"><div class="kpi-lbl">Plan Básico</div><div class="kpi-val">${planes.basico}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Plan Profesional</div><div class="kpi-val">${planes.profesional}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Plan Enterprise</div><div class="kpi-val" style="color:#c084fc">${planes.enterprise}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Sin plan</div><div class="kpi-val" style="color:var(--muted)">${planes.sin}</div></div>
+  </div>
+  ${proxVencer>0?`<div class="warn-box">⚠ <strong>${proxVencer}</strong> empresa(s) con licencia próxima a vencer (menos de 30 días)</div>`:''}
+  ${sinUsuarios>0?`<div class="warn-box">⚠ <strong>${sinUsuarios}</strong> empresa(s) sin usuarios registrados</div>`:''}
+  <div class="sec-hdr">Empresas por plan</div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Empresa</th><th>Plan</th><th>Estado</th><th>Usuarios</th><th>Licencia</th></tr></thead>
+    <tbody>${empresas.map(e=>{
+      const u=usuarios.filter(u=>u.empresa===e.id).length;
+      const vence=e.licenciaVence?new Date(e.licenciaVence).toLocaleDateString('es-SV'):'—';
+      const planColors={basico:'b-blue',profesional:'b-warn',enterprise:'b-purple',undefined:'b-neu'};
+      return`<tr>
+        <td><strong>${esc(e.id)}</strong><br><span style="font-size:11px;color:var(--muted)">${esc(e.nombre||'—')}</span></td>
+        <td><span class="badge ${planColors[e.plan]||'b-neu'}">${e.plan||'Sin plan'}</span></td>
+        <td><span class="badge ${e.activa!==false?'b-ok':'b-err'}">${e.activa!==false?'Activa':'Suspendida'}</span></td>
+        <td>${u} usuario(s)</td>
+        <td style="font-size:12px">${vence}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div>`;
+}
+
 async function renderSAEmpresas(){
   const empresas=await window.FB.getAllEmpresas();
-  let rows=empresas.length===0?`<tr><td colspan="5" class="empty">Sin empresas registradas</td></tr>`:'';
+  document.getElementById('saContent').innerHTML=`
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700">${empresas.length} empresa(s) registrada(s)</div>
+    <button class="btn btn-sm" style="background:#1a0a2a;color:#c084fc;border:1px solid #3a1a5a" onclick="abrirModalEmpresa(null)">+ Nueva empresa</button>
+  </div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Código</th><th>Nombre legal</th><th>Plan</th><th>Estado</th><th>Ver datos</th><th>Usuarios</th><th></th></tr></thead>
+    <tbody id="empTbody"><tr><td colspan="7" class="empty">Cargando...</td></tr></tbody>
+  </table></div>
+  <!-- MODAL EMPRESA -->
+  <div id="modalEmp" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:500;overflow-y:auto;padding:20px">
+    <div style="max-width:800px;margin:0 auto;background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:28px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:22px">
+        <div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:#c084fc" id="empModalTitle">Nueva Empresa</div>
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('modalEmp').style.display='none'">✕</button>
+      </div>
+      <div id="empModalBody"></div>
+    </div>
+  </div>`;
+  // Cargar filas con usuarios
+  const usuarios=await window.FB.getAllUsuarios();
+  const planColors={basico:'b-blue',profesional:'b-warn',enterprise:'b-purple'};
+  let rows=empresas.length===0?`<tr><td colspan="7" class="empty">Sin empresas</td></tr>`:'';
   empresas.forEach(e=>{
+    const u=usuarios.filter(u=>u.empresa===e.id).length;
     rows+=`<tr>
       <td><strong>${esc(e.id)}</strong></td>
-      <td>${esc(e.nombre||'—')}</td>
+      <td><div style="font-weight:600">${esc(e.nombre||'—')}</div><div style="font-size:11px;color:var(--muted)">${esc(e.nombreLegal||'')}</div></td>
+      <td><span class="badge ${planColors[e.plan]||'b-neu'}">${e.plan||'Sin plan'}</span></td>
       <td><span class="badge ${e.activa!==false?'b-ok':'b-err'}">${e.activa!==false?'Activa':'Suspendida'}</span></td>
       <td>${e.verDatos?'<span class="badge b-blue">Sí</span>':'<span class="badge b-neu">No</span>'}</td>
+      <td>${u}</td>
       <td class="td-act">
-        <button class="btn btn-secondary btn-xs" onclick="editarEmpresa('${e.id}')">✏</button>
+        <button class="btn btn-secondary btn-xs" onclick="abrirModalEmpresa('${e.id}')">✏ Editar</button>
         <button class="btn ${e.activa!==false?'btn-danger':'btn-success'} btn-xs" onclick="toggleEmpresa('${e.id}',${e.activa!==false})">${e.activa!==false?'Suspender':'Activar'}</button>
       </td>
     </tr>`;
   });
-  document.getElementById('saContent').innerHTML=`
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-    <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700">Empresas registradas</div>
-    <button class="btn btn-sm" style="background:#1a0a2a;color:#c084fc;border:1px solid #3a1a5a" onclick="nuevaEmpresa()">+ Nueva empresa</button>
+  document.getElementById('empTbody').innerHTML=rows;
+}
+
+const PLANES_DEF=[
+  {id:'basico',label:'Básico',maxUsuarios:3,precio:29,precioAnual:290,modulos:['dashboard','proyectos','gastos'],color:'#4ea8de'},
+  {id:'profesional',label:'Profesional',maxUsuarios:10,precio:79,precioAnual:790,modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','log'],color:'#e8a020'},
+  {id:'enterprise',label:'Enterprise',maxUsuarios:999,precio:199,precioAnual:1990,modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','log','usuarios','config'],color:'#c084fc'}
+];
+
+async function abrirModalEmpresa(id){
+  const modal=document.getElementById('modalEmp');
+  const title=document.getElementById('empModalTitle');
+  const body=document.getElementById('empModalBody');
+  let e={};
+  if(id){
+    const empresas=await window.FB.getAllEmpresas();
+    e=empresas.find(x=>x.id===id)||{};
+    title.textContent='Editar: '+e.nombre;
+  } else {
+    title.textContent='Nueva Empresa';
+  }
+  const planes=await window.FB.getPlanes()||{};
+  const planOpts=PLANES_DEF.map(p=>`<option value="${p.id}" ${e.plan===p.id?'selected':''}>${p.label} — $${planes[p.id]?.precio||p.precio}/mes</option>`).join('');
+  const today=new Date().toISOString().slice(0,10);
+  body.innerHTML=`
+  <!-- TABS del modal -->
+  <div class="tabs" id="empModalTabs">
+    <div class="tab active" onclick="swEmpTab('gen',this)">General</div>
+    <div class="tab" onclick="swEmpTab('legal',this)">Datos legales</div>
+    <div class="tab" onclick="swEmpTab('rep',this)">Representante</div>
+    <div class="tab" onclick="swEmpTab('plan',this)">Plan y licencia</div>
   </div>
-  <div class="tbl-wrap"><table>
-    <thead><tr><th>Código</th><th>Nombre</th><th>Estado</th><th>Admin puede ver datos</th><th></th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table></div>`;
+  <!-- General -->
+  <div id="empTab_gen">
+    <div class="row2">
+      <div class="fg"><label>Nombre comercial *</label><input id="eNombre" value="${esc(e.nombre||'')}" oninput="if(!document.getElementById('eCodigo').dataset.manual)document.getElementById('eCodigo').value=genCodigo(this.value)" placeholder="Nombre de la empresa"></div>
+      <div class="fg"><label>Código *</label><input id="eCodigo" value="${esc(e.id||id||'')}" placeholder="AUTO" data-manual="${id?'1':''}" style="text-transform:uppercase;letter-spacing:2px" oninput="this.dataset.manual='1';this.value=this.value.toUpperCase()"></div>
+    </div>
+    <div class="row2">
+      <div class="fg"><label>Sector / Industria</label><select id="eSector"><option value="">—</option>${['Franquicias','Construcción','Retail','Manufactura','Servicios','Tecnología','Salud','Educación','Otro'].map(s=>`<option ${e.sector===s?'selected':''}>${s}</option>`).join('')}</select></div>
+      <div class="fg"><label>Email corporativo</label><input type="email" id="eEmail" value="${esc(e.email||'')}" placeholder="info@empresa.com"></div>
+    </div>
+    <div class="row2">
+      <div class="fg"><label>Teléfono principal</label><input id="eTel1" value="${esc(e.tel1||'')}" placeholder="+503 0000-0000"></div>
+      <div class="fg"><label>Teléfono secundario</label><input id="eTel2" value="${esc(e.tel2||'')}" placeholder="+503 0000-0000"></div>
+    </div>
+    <div class="fg"><label>Sitio web</label><input id="eWeb" value="${esc(e.web||'')}" placeholder="https://www.empresa.com"></div>
+    <div class="fg"><label>Notas internas (solo visibles para SuperAdmin)</label><textarea id="eNotas" rows="2">${esc(e.notas||'')}</textarea></div>
+    <div class="fg"><label>Admin puede ver datos de la empresa</label>
+      <select id="eVerDatos"><option value="false" ${!e.verDatos?'selected':''}>No</option><option value="true" ${e.verDatos?'selected':''}>Sí</option></select>
+    </div>
+  </div>
+  <!-- Legal -->
+  <div id="empTab_legal" style="display:none">
+    <div class="row2">
+      <div class="fg"><label>Nombre legal completo</label><input id="eNombreLegal" value="${esc(e.nombreLegal||'')}" placeholder="Razón social completa"></div>
+      <div class="fg"><label>Tipo de sociedad</label><select id="eTipoSoc"><option value="">—</option>${['S.A. de C.V.','S.R.L.','S.A.','Persona natural','Otro'].map(s=>`<option ${e.tipoSoc===s?'selected':''}>${s}</option>`).join('')}</select></div>
+    </div>
+    <div class="row2">
+      <div class="fg"><label>NIT / RUC</label><input id="eNit" value="${esc(e.nit||'')}" placeholder="0000-000000-000-0"></div>
+      <div class="fg"><label>NRC</label><input id="eNrc" value="${esc(e.nrc||'')}" placeholder="Número de Registro de Contribuyente"></div>
+    </div>
+    <div class="fg"><label>Giro / Actividad económica</label><input id="eGiro" value="${esc(e.giro||'')}" placeholder="Descripción de la actividad"></div>
+    <div class="row2">
+      <div class="fg"><label>Fecha de constitución</label><input type="date" id="eFechaConst" value="${e.fechaConst||''}"></div>
+      <div class="fg"><label>País</label><select id="ePais"><option value="">—</option>${['El Salvador','Guatemala','Honduras','Nicaragua','Costa Rica','Panamá','México','Colombia','Otro'].map(s=>`<option ${e.pais===s?'selected':''}>${s}</option>`).join('')}</select></div>
+    </div>
+    <div class="row2">
+      <div class="fg"><label>Departamento / Estado</label><input id="eDepto" value="${esc(e.depto||'')}" placeholder="San Salvador"></div>
+      <div class="fg"><label>Ciudad / Municipio</label><input id="eCiudad" value="${esc(e.ciudad||'')}" placeholder="San Salvador"></div>
+    </div>
+    <div class="fg"><label>Dirección fiscal completa</label><textarea id="eDireccion" rows="2">${esc(e.direccion||'')}</textarea></div>
+  </div>
+  <!-- Representante -->
+  <div id="empTab_rep" style="display:none">
+    <div class="row2">
+      <div class="fg"><label>Nombre completo</label><input id="rNombre" value="${esc(e.rep?.nombre||'')}" placeholder="Nombre del representante legal"></div>
+      <div class="fg"><label>Cargo / Título</label><input id="rCargo" value="${esc(e.rep?.cargo||'')}" placeholder="Director General, Propietario..."></div>
+    </div>
+    <div class="row2">
+      <div class="fg"><label>DUI / Documento</label><input id="rDui" value="${esc(e.rep?.dui||'')}" placeholder="00000000-0"></div>
+      <div class="fg"><label>Email personal</label><input type="email" id="rEmail" value="${esc(e.rep?.email||'')}" placeholder="nombre@personal.com"></div>
+    </div>
+    <div class="row2">
+      <div class="fg"><label>Teléfono directo</label><input id="rTel" value="${esc(e.rep?.tel||'')}" placeholder="+503 0000-0000"></div>
+      <div class="fg"><label>Firma autorizada</label><select id="rFirma"><option value="si" ${e.rep?.firma==='si'?'selected':''}>Sí</option><option value="no" ${e.rep?.firma!=='si'?'selected':''}>No</option></select></div>
+    </div>
+    <div class="fg"><label>Notas del representante</label><textarea id="rNotas" rows="2">${esc(e.rep?.notas||'')}</textarea></div>
+  </div>
+  <!-- Plan -->
+  <div id="empTab_plan" style="display:none">
+    <div class="row2">
+      <div class="fg"><label>Plan contratado</label><select id="ePlan" onchange="updPlanInfo()">${['<option value="">Sin plan</option>',...PLANES_DEF.map(p=>`<option value="${p.id}" ${e.plan===p.id?'selected':''}>${p.label}</option>`)].join('')}</select></div>
+      <div class="fg"><label>Moneda</label><select id="eMoneda"><option value="USD" ${e.moneda==='USD'||!e.moneda?'selected':''}>USD — Dólar</option><option value="EUR" ${e.moneda==='EUR'?'selected':''}>EUR — Euro</option><option value="GTQ" ${e.moneda==='GTQ'?'selected':''}>GTQ — Quetzal</option></select></div>
+    </div>
+    <div id="planInfoBox" class="info-box" style="margin:8px 0"></div>
+    <div class="row2">
+      <div class="fg"><label>Fecha inicio servicio</label><input type="date" id="eFechaInicio" value="${e.fechaInicio||today}"></div>
+      <div class="fg"><label>Fecha vencimiento licencia</label><input type="date" id="eLicVence" value="${e.licenciaVence?new Date(e.licenciaVence).toISOString().slice(0,10):''}"></div>
+    </div>
+    <div class="row2">
+      <div class="fg"><label>Estado de pago</label><select id="eEstadoPago"><option value="aldía" ${e.estadoPago==='aldía'?'selected':''}>Al día</option><option value="pendiente" ${e.estadoPago==='pendiente'?'selected':''}>Pendiente</option><option value="vencido" ${e.estadoPago==='vencido'?'selected':''}>Vencido</option></select></div>
+      <div class="fg"><label>Método de pago (referencia)</label><select id="eMetodoPago"><option value="">—</option>${['Transferencia bancaria','Tarjeta','Efectivo','Cheque','Otro'].map(s=>`<option ${e.metodoPago===s?'selected':''}>${s}</option>`).join('')}</select></div>
+    </div>
+    <div class="fg"><label>Notas de facturación</label><textarea id="eNotasFact" rows="2">${esc(e.notasFact||'')}</textarea></div>
+  </div>
+  <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+    <button class="btn btn-secondary" onclick="document.getElementById('modalEmp').style.display='none'">Cancelar</button>
+    <button class="btn" style="background:#2a0a4a;color:#c084fc;border:1px solid #5a1a9a" onclick="guardarEmpresa('${id||''}')">✓ Guardar empresa</button>
+  </div>`;
+  modal.style.display='block';
+  updPlanInfo();
 }
 
-function nuevaEmpresa(){
-  const codigo=prompt('Código de empresa (ej: ACME):')?.trim().toUpperCase();
-  if(!codigo)return;
-  const nombre=prompt('Nombre de la empresa:')||codigo;
-  window.FB.saveEmpresa(codigo,{nombre,activa:true,verDatos:false,creadoEn:Date.now()}).then(r=>{
-    if(r.ok){toast('✓ Empresa creada');renderSA();}
-    else toast('Error: '+r.err,true);
-  });
+function swEmpTab(tab,el){
+  document.querySelectorAll('#empModalTabs .tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  ['gen','legal','rep','plan'].forEach(t=>{const d=document.getElementById('empTab_'+t);if(d)d.style.display=t===tab?'block':'none';});
 }
 
-async function editarEmpresa(id){
-  const empresas=await window.FB.getAllEmpresas();
-  const e=empresas.find(x=>x.id===id);if(!e)return;
-  const nombre=prompt('Nombre de la empresa:',e.nombre)||e.nombre;
-  const verDatos=confirm('¿El admin puede ver datos de esta empresa?\n(Actualmente: '+(e.verDatos?'SÍ':'NO')+')');
-  await window.FB.saveEmpresa(id,{nombre,verDatos});
-  toast('✓ Empresa actualizada');renderSA();
+function updPlanInfo(){
+  const planId=document.getElementById('ePlan')?.value;
+  const box=document.getElementById('planInfoBox');
+  if(!box)return;
+  if(!planId){box.textContent='Sin plan seleccionado';return}
+  const p=PLANES_DEF.find(x=>x.id===planId);
+  if(!p){box.textContent='';return}
+  box.innerHTML=`<strong style="color:#c084fc">${p.label}</strong> — Hasta <strong>${p.maxUsuarios===999?'∞':p.maxUsuarios}</strong> usuarios · Módulos: ${p.modulos.length} · Precio referencia: <strong>$${p.precio}/mes</strong> · <strong>$${p.precioAnual}/año</strong>`;
+}
+
+async function guardarEmpresa(editId){
+  const codigo=(document.getElementById('eCodigo')?.value||'').trim().toUpperCase();
+  const nombre=(document.getElementById('eNombre')?.value||'').trim();
+  if(!codigo){toast('El código es requerido',true);return}
+  if(!nombre){toast('El nombre es requerido',true);return}
+  const licVence=document.getElementById('eLicVence')?.value;
+  const data={
+    nombre,
+    nombreLegal:document.getElementById('eNombreLegal')?.value||'',
+    sector:document.getElementById('eSector')?.value||'',
+    email:document.getElementById('eEmail')?.value||'',
+    tel1:document.getElementById('eTel1')?.value||'',
+    tel2:document.getElementById('eTel2')?.value||'',
+    web:document.getElementById('eWeb')?.value||'',
+    notas:document.getElementById('eNotas')?.value||'',
+    verDatos:document.getElementById('eVerDatos')?.value==='true',
+    tipoSoc:document.getElementById('eTipoSoc')?.value||'',
+    nit:document.getElementById('eNit')?.value||'',
+    nrc:document.getElementById('eNrc')?.value||'',
+    giro:document.getElementById('eGiro')?.value||'',
+    fechaConst:document.getElementById('eFechaConst')?.value||'',
+    pais:document.getElementById('ePais')?.value||'',
+    depto:document.getElementById('eDepto')?.value||'',
+    ciudad:document.getElementById('eCiudad')?.value||'',
+    direccion:document.getElementById('eDireccion')?.value||'',
+    rep:{
+      nombre:document.getElementById('rNombre')?.value||'',
+      cargo:document.getElementById('rCargo')?.value||'',
+      dui:document.getElementById('rDui')?.value||'',
+      email:document.getElementById('rEmail')?.value||'',
+      tel:document.getElementById('rTel')?.value||'',
+      firma:document.getElementById('rFirma')?.value||'no',
+      notas:document.getElementById('rNotas')?.value||''
+    },
+    plan:document.getElementById('ePlan')?.value||'',
+    moneda:document.getElementById('eMoneda')?.value||'USD',
+    fechaInicio:document.getElementById('eFechaInicio')?.value||'',
+    licenciaVence:licVence?new Date(licVence).getTime():null,
+    estadoPago:document.getElementById('eEstadoPago')?.value||'',
+    metodoPago:document.getElementById('eMetodoPago')?.value||'',
+    notasFact:document.getElementById('eNotasFact')?.value||'',
+    activa:true,
+    creadoEn:editId?undefined:Date.now()
+  };
+  if(!editId)data.creadoEn=Date.now();
+  const r=await window.FB.saveEmpresa(codigo,data);
+  if(r.ok){
+    await window.FB.logSA(editId?'EDITAR_EMPRESA':'CREAR_EMPRESA',`Empresa: ${codigo} — ${nombre}`);
+    toast('✓ Empresa guardada');
+    document.getElementById('modalEmp').style.display='none';
+    renderSA();
+  } else toast('Error: '+r.err,true);
 }
 
 async function toggleEmpresa(id,activa){
   if(!confirm(`¿${activa?'Suspender':'Activar'} la empresa ${id}?`))return;
   await window.FB.saveEmpresa(id,{activa:!activa});
+  await window.FB.logSA(activa?'SUSPENDER_EMPRESA':'ACTIVAR_EMPRESA',`Empresa: ${id}`);
   toast('✓ Estado actualizado');renderSA();
 }
 
 async function renderSAUsuarios(){
-  const empresas=await window.FB.getAllEmpresas();
+  const [empresas,todos]=await Promise.all([window.FB.getAllEmpresas(),window.FB.getAllUsuarios()]);
   const empOpts=empresas.map(e=>`<option value="${e.id}">${esc(e.id)} — ${esc(e.nombre||e.id)}</option>`).join('');
+  let filtroEmp='',filtroRol='',filtroBusq='';
+
+  function buildRows(lista){
+    if(lista.length===0)return`<tr><td colspan="7" class="empty">Sin resultados</td></tr>`;
+    return lista.map(u=>{
+      const rolInfo=ROLES[u.rol]||{label:u.rol,color:'b-neu'};
+      const emp=empresas.find(e=>e.id===u.empresa);
+      return`<tr>
+        <td><div style="font-weight:600">${esc(u.nombre||'—')}</div><div style="font-size:11px;color:var(--muted)">${esc(u.email)}</div></td>
+        <td><span class="badge b-neu" style="font-size:10px">${esc(u.empresa||'—')}</span></td>
+        <td><span class="badge ${rolInfo.color}">${rolInfo.label}</span></td>
+        <td>${u.rol==='empleado'?Object.values(u.permisos||{}).filter(Boolean).length+' mód.':ROLES[u.rol]?.modulos?.length+' mód.'||'—'}</td>
+        <td><span class="badge ${u.activo!==false?'b-ok':'b-err'}">${u.activo!==false?'Activo':'Inactivo'}</span></td>
+        <td style="font-size:11px;color:var(--muted)">${u.creadoEn?new Date(u.creadoEn).toLocaleDateString('es-SV'):'—'}</td>
+        <td class="td-act">
+          <button class="btn btn-secondary btn-xs" onclick="editarUsuarioSA('${u.id}')">✏</button>
+          <button class="btn ${u.activo!==false?'btn-danger':'btn-success'} btn-xs" onclick="toggleUsuarioSA('${u.id}',${u.activo!==false})">${u.activo!==false?'⊘':'✓'}</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
   document.getElementById('saContent').innerHTML=`
-  <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:16px">Crear usuario</div>
-  <div class="card" style="margin-bottom:20px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+    <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700">${todos.length} usuario(s) en total</div>
+  </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="sec-hdr">Crear nuevo usuario</div>
     <div class="row2">
       <div class="fg"><label>Nombre</label><input id="saUNombre" placeholder="Nombre completo"></div>
       <div class="fg"><label>Email *</label><input type="email" id="saUEmail" placeholder="usuario@empresa.com"></div>
@@ -670,26 +968,44 @@ async function renderSAUsuarios(){
     <div class="row3">
       <div class="fg"><label>Contraseña *</label><input type="password" id="saUPass" placeholder="mín. 6 caracteres"></div>
       <div class="fg"><label>Empresa *</label><select id="saUEmpresa"><option value="">— Seleccionar —</option>${empOpts}</select></div>
-      <div class="fg"><label>Rol *</label>
-        <select id="saURol" onchange="togglePermisosUI()">
-          <option value="admin">Admin</option>
-          <option value="supervisor">Supervisor</option>
-          <option value="empleado">Empleado</option>
-          <option value="viewer">Viewer</option>
-        </select>
-      </div>
+      <div class="fg"><label>Rol *</label><select id="saURol" onchange="togglePermisosUI()"><option value="admin">Admin</option><option value="supervisor">Supervisor</option><option value="empleado">Empleado</option><option value="viewer">Viewer</option></select></div>
     </div>
     <div id="permisosUI" style="display:none">
-      <div class="sec-hdr">Módulos permitidos para Empleado</div>
-      <div class="perm-grid">
-        ${MODULOS.map(m=>`<label class="perm-item" id="perm_${m.id}"><input type="checkbox" id="ck_${m.id}" value="${m.id}"> ${m.ic} ${m.label}</label>`).join('')}
-      </div>
+      <div class="sec-hdr">Módulos — Empleado</div>
+      <div class="perm-grid">${MODULOS.map(m=>`<label class="perm-item"><input type="checkbox" id="ck_${m.id}"> ${m.ic} ${m.label}</label>`).join('')}</div>
     </div>
-    <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
+    <div style="display:flex;gap:10px;align-items:center;margin-top:12px">
       <button class="btn btn-sm" style="background:#1a0a2a;color:#c084fc;border:1px solid #3a1a5a" onclick="crearUsuarioSA()">+ Crear usuario</button>
-      <div id="saUErr" style="font-size:12px;color:var(--red);min-height:16px"></div>
+      <div id="saUErr" style="font-size:12px;min-height:16px"></div>
     </div>
-  </div>`;
+  </div>
+  <!-- Filtros -->
+  <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+    <input id="busqU" placeholder="🔍 Buscar nombre o email..." style="flex:1;min-width:180px" oninput="filtrarUsuariosSA()">
+    <select id="filtEmp" style="width:200px" onchange="filtrarUsuariosSA()"><option value="">Todas las empresas</option>${empOpts}</select>
+    <select id="filtRol" style="width:140px" onchange="filtrarUsuariosSA()"><option value="">Todos los roles</option>${Object.keys(ROLES).map(r=>`<option value="${r}">${ROLES[r].label}</option>`).join('')}</select>
+  </div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Usuario</th><th>Empresa</th><th>Rol</th><th>Acceso</th><th>Estado</th><th>Creado</th><th></th></tr></thead>
+    <tbody id="uTbody">${buildRows(todos)}</tbody>
+  </table></div>`;
+
+  window._SA_USUARIOS=todos;
+  window._SA_buildRows=buildRows;
+}
+
+function filtrarUsuariosSA(){
+  const busq=(document.getElementById('busqU')?.value||'').toLowerCase();
+  const emp=document.getElementById('filtEmp')?.value;
+  const rol=document.getElementById('filtRol')?.value;
+  const lista=(window._SA_USUARIOS||[]).filter(u=>{
+    const matchBusq=!busq||(u.nombre||'').toLowerCase().includes(busq)||(u.email||'').toLowerCase().includes(busq);
+    const matchEmp=!emp||u.empresa===emp;
+    const matchRol=!rol||u.rol===rol;
+    return matchBusq&&matchEmp&&matchRol;
+  });
+  const tbody=document.getElementById('uTbody');
+  if(tbody&&window._SA_buildRows)tbody.innerHTML=window._SA_buildRows(lista);
 }
 
 function togglePermisosUI(){
@@ -705,32 +1021,232 @@ async function crearUsuarioSA(){
   const empresa=document.getElementById('saUEmpresa').value;
   const rol=document.getElementById('saURol').value;
   const errEl=document.getElementById('saUErr');
-  if(!email||!pass||!empresa||!rol){errEl.textContent='Completa todos los campos obligatorios';return}
-  // Permisos para empleado
+  if(!email||!pass||!empresa||!rol){errEl.style.color='var(--red)';errEl.textContent='Completa todos los campos obligatorios';return}
   const permisos={};
-  if(rol==='empleado'){
-    MODULOS.forEach(m=>{const ck=document.getElementById('ck_'+m.id);if(ck&&ck.checked)permisos[m.id]=true;});
-  }
-  errEl.textContent='Creando...';
+  if(rol==='empleado'){MODULOS.forEach(m=>{const ck=document.getElementById('ck_'+m.id);if(ck&&ck.checked)permisos[m.id]=true;});}
+  errEl.style.color='var(--muted)';errEl.textContent='Creando...';
   const res=await window.FB.crearUsuario(email,pass,nombre||email.split('@')[0],rol,empresa,permisos);
-  if(res.ok){errEl.style.color='var(--green)';errEl.textContent='✓ Usuario creado exitosamente';toast('✓ Usuario '+email+' creado');}
-  else{errEl.style.color='var(--red)';errEl.textContent='Error: '+res.err;}
+  if(res.ok){
+    await window.FB.logSA('CREAR_USUARIO',`${email} en ${empresa} como ${rol}`);
+    errEl.style.color='var(--green)';errEl.textContent='✓ Usuario creado: '+email;
+    toast('✓ Usuario creado');
+    renderSAUsuarios();
+  } else {errEl.style.color='var(--red)';errEl.textContent='Error: '+res.err;}
 }
 
-function renderSAPermisos(){
-  document.getElementById('saContent').innerHTML=`
-  <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:16px">Matriz de permisos por rol</div>
-  <div class="tbl-wrap"><table>
-    <thead><tr><th>Módulo</th>${Object.keys(ROLES).map(r=>`<th>${ROLES[r].label}</th>`).join('')}</tr></thead>
-    <tbody>
-      ${MODULOS.map(m=>`<tr>
-        <td><strong>${m.ic} ${m.label}</strong></td>
-        ${Object.entries(ROLES).map(([rk,rv])=>`<td>${rk==='empleado'?'<span style="font-size:11px;color:var(--muted)">Individual</span>':rv.modulos.includes(m.id)?'<span class="badge b-ok">✓</span>':'<span style="color:#333">—</span>'}</td>`).join('')}
-      </tr>`).join('')}
-    </tbody>
-  </table></div>
-  <div class="warn-box" style="margin-top:16px">⚠ Para modificar permisos de un rol existente, edita la constante ROLES en el código fuente. Los permisos del rol <strong>Empleado</strong> se asignan individualmente al crear o editar el usuario.</div>`;
+async function editarUsuarioSA(uid){
+  const u=(window._SA_USUARIOS||[]).find(x=>x.id===uid);if(!u)return;
+  const empresas=await window.FB.getAllEmpresas();
+  const empOpts=empresas.map(e=>`<option value="${e.id}" ${u.empresa===e.id?'selected':''}>${esc(e.id)} — ${esc(e.nombre||e.id)}</option>`).join('');
+  const html=`<div style="position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:600;display:flex;align-items:center;justify-content:center;padding:20px" id="editUModal">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:520px">
+      <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:16px;color:#c084fc">Editar: ${esc(u.email)}</div>
+      <div class="fg"><label>Nombre</label><input id="euNombre" value="${esc(u.nombre||'')}"></div>
+      <div class="row2">
+        <div class="fg"><label>Empresa</label><select id="euEmpresa"><option value="">—</option>${empOpts}</select></div>
+        <div class="fg"><label>Rol</label><select id="euRol" onchange="toggleEUPermisos()"><option value="admin" ${u.rol==='admin'?'selected':''}>Admin</option><option value="supervisor" ${u.rol==='supervisor'?'selected':''}>Supervisor</option><option value="empleado" ${u.rol==='empleado'?'selected':''}>Empleado</option><option value="viewer" ${u.rol==='viewer'?'selected':''}>Viewer</option></select></div>
+      </div>
+      <div id="euPermisosUI" style="${u.rol==='empleado'?'':'display:none'}">
+        <div class="sec-hdr">Módulos</div>
+        <div class="perm-grid">${MODULOS.map(m=>`<label class="perm-item ${u.permisos?.[m.id]?'on':''}"><input type="checkbox" id="eu_${m.id}" ${u.permisos?.[m.id]?'checked':''}> ${m.ic} ${m.label}</label>`).join('')}</div>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+        <button class="btn btn-secondary" onclick="document.getElementById('editUModal').remove()">Cancelar</button>
+        <button class="btn" style="background:#1a0a2a;color:#c084fc;border:1px solid #3a1a5a" onclick="guardarUsuarioSA('${uid}')">✓ Guardar</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend',html);
 }
+
+function toggleEUPermisos(){
+  const rol=document.getElementById('euRol')?.value;
+  const ui=document.getElementById('euPermisosUI');
+  if(ui)ui.style.display=rol==='empleado'?'block':'none';
+}
+
+async function guardarUsuarioSA(uid){
+  const datos={
+    nombre:document.getElementById('euNombre')?.value.trim()||'',
+    empresa:document.getElementById('euEmpresa')?.value||'',
+    rol:document.getElementById('euRol')?.value||'viewer'
+  };
+  if(datos.rol==='empleado'){
+    const permisos={};
+    MODULOS.forEach(m=>{const ck=document.getElementById('eu_'+m.id);if(ck&&ck.checked)permisos[m.id]=true;});
+    datos.permisos=permisos;
+  }
+  const res=await window.FB.actualizarUsuario(uid,datos);
+  if(res.ok){
+    await window.FB.logSA('EDITAR_USUARIO',`uid: ${uid}, nuevo rol: ${datos.rol}`);
+    toast('✓ Usuario actualizado');
+    document.getElementById('editUModal')?.remove();
+    renderSAUsuarios();
+  } else toast('Error: '+res.err,true);
+}
+
+async function toggleUsuarioSA(uid,activo){
+  if(!confirm(`¿${activo?'Desactivar':'Activar'} este usuario?`))return;
+  const res=await window.FB.actualizarUsuario(uid,{activo:!activo});
+  if(res.ok){
+    await window.FB.logSA(activo?'DESACTIVAR_USUARIO':'ACTIVAR_USUARIO',`uid: ${uid}`);
+    toast('✓ Estado actualizado');renderSAUsuarios();
+  } else toast('Error: '+res.err,true);
+}
+
+async function renderSAPlanes(){
+  const savedPlanes=await window.FB.getPlanes()||{};
+  document.getElementById('saContent').innerHTML=`
+  <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:6px">Configuración de Planes</div>
+  <div class="info-box">Los precios aquí configurados se usan como referencia en el registro de empresas.</div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px">
+    ${PLANES_DEF.map(p=>{
+      const saved=savedPlanes[p.id]||{};
+      return`<div class="card" style="border-color:${p.color}40">
+        <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:${p.color};margin-bottom:12px">${p.label}</div>
+        <div class="fg"><label>Precio mensual ($)</label><input type="number" id="pr_${p.id}_mes" value="${saved.precio||p.precio}" min="0"></div>
+        <div class="fg"><label>Precio anual ($)</label><input type="number" id="pr_${p.id}_anual" value="${saved.precioAnual||p.precioAnual}" min="0"></div>
+        <div class="fg"><label>Máx. usuarios</label><input type="number" id="pr_${p.id}_u" value="${saved.maxUsuarios||p.maxUsuarios}" min="1"></div>
+        <div class="fg"><label>Moneda</label><select id="pr_${p.id}_mon"><option value="USD" ${(saved.moneda||'USD')==='USD'?'selected':''}>USD</option><option value="EUR" ${saved.moneda==='EUR'?'selected':''}>EUR</option></select></div>
+        <div class="sec-hdr" style="margin-top:8px">Módulos incluidos</div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          ${MODULOS.map(m=>`<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" id="prm_${p.id}_${m.id}" ${(saved.modulos||p.modulos).includes(m.id)?'checked':''}> ${m.ic} ${m.label}</label>`).join('')}
+        </div>
+      </div>`;
+    }).join('')}
+  </div>
+  <button class="btn btn-primary" onclick="guardarPlanes()">✓ Guardar configuración de planes</button>`;
+}
+
+async function guardarPlanes(){
+  const data={};
+  PLANES_DEF.forEach(p=>{
+    const mods=MODULOS.map(m=>m.id).filter(mid=>document.getElementById('prm_'+p.id+'_'+mid)?.checked);
+    data[p.id]={
+      precio:parseFloat(document.getElementById('pr_'+p.id+'_mes')?.value)||0,
+      precioAnual:parseFloat(document.getElementById('pr_'+p.id+'_anual')?.value)||0,
+      maxUsuarios:parseInt(document.getElementById('pr_'+p.id+'_u')?.value)||0,
+      moneda:document.getElementById('pr_'+p.id+'_mon')?.value||'USD',
+      modulos:mods
+    };
+  });
+  const r=await window.FB.savePlanes(data);
+  if(r.ok){await window.FB.logSA('EDITAR_PLANES','Actualización de precios y módulos');toast('✓ Planes guardados');}
+  else toast('Error: '+r.err,true);
+}
+
+async function renderSAFacturacion(){
+  const empresas=await window.FB.getAllEmpresas();
+  const empOpts=empresas.map(e=>`<option value="${e.id}">${esc(e.id)} — ${esc(e.nombre||e.id)}</option>`).join('');
+  document.getElementById('saContent').innerHTML=`
+  <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:16px">Facturación</div>
+  <div class="card" style="margin-bottom:20px">
+    <div class="sec-hdr">Registrar pago</div>
+    <div class="row3">
+      <div class="fg"><label>Empresa *</label><select id="fEmp" onchange="cargarFacturas()"><option value="">— Seleccionar —</option>${empOpts}</select></div>
+      <div class="fg"><label>Monto ($) *</label><input type="number" id="fMonto" min="0" placeholder="0.00"></div>
+      <div class="fg"><label>Fecha *</label><input type="date" id="fFecha" value="${new Date().toISOString().slice(0,10)}"></div>
+    </div>
+    <div class="row3">
+      <div class="fg"><label>Plan facturado</label><select id="fPlan"><option value="">—</option>${PLANES_DEF.map(p=>`<option value="${p.id}">${p.label}</option>`).join('')}</select></div>
+      <div class="fg"><label>Estado</label><select id="fEstado"><option value="pagado">Pagado</option><option value="pendiente">Pendiente</option><option value="vencido">Vencido</option></select></div>
+      <div class="fg"><label>Método</label><select id="fMetodo"><option value="">—</option>${['Transferencia','Tarjeta','Efectivo','Cheque'].map(m=>`<option>${m}</option>`).join('')}</select></div>
+    </div>
+    <div class="fg"><label>Notas</label><input id="fNotas" placeholder="Referencia, concepto..."></div>
+    <button class="btn btn-primary btn-sm" onclick="regFactura()">+ Registrar pago</button>
+  </div>
+  <div class="sec-hdr">Selecciona una empresa para ver su historial</div>
+  <div id="factHistorial" class="tbl-wrap"><div class="empty">Selecciona una empresa arriba</div></div>`;
+}
+
+async function cargarFacturas(){
+  const empId=document.getElementById('fEmp')?.value;if(!empId)return;
+  const lista=await window.FB.getFacturas(empId);
+  const colores={pagado:'b-ok',pendiente:'b-warn',vencido:'b-err'};
+  let rows=lista.length===0?`<tr><td colspan="6" class="empty">Sin pagos registrados</td></tr>`:'';
+  lista.forEach(f=>{
+    rows+=`<tr>
+      <td>${f.fecha||'—'}</td>
+      <td><strong>$${parseFloat(f.monto||0).toFixed(2)}</strong></td>
+      <td>${f.plan?`<span class="badge b-neu">${f.plan}</span>`:'—'}</td>
+      <td><span class="badge ${colores[f.estado]||'b-neu'}">${f.estado||'—'}</span></td>
+      <td>${esc(f.metodo||'—')}</td>
+      <td style="font-size:11px;color:var(--muted)">${esc(f.notas||'—')}</td>
+    </tr>`;
+  });
+  const total=lista.filter(f=>f.estado==='pagado').reduce((s,f)=>s+(parseFloat(f.monto)||0),0);
+  document.getElementById('factHistorial').innerHTML=`
+  <div style="margin-bottom:8px;font-size:13px;color:var(--muted)">Total cobrado: <strong style="color:var(--green)">$${total.toFixed(2)}</strong> · ${lista.length} registro(s)</div>
+  <table><thead><tr><th>Fecha</th><th>Monto</th><th>Plan</th><th>Estado</th><th>Método</th><th>Notas</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+async function regFactura(){
+  const empId=document.getElementById('fEmp')?.value;
+  const monto=parseFloat(document.getElementById('fMonto')?.value)||0;
+  const fecha=document.getElementById('fFecha')?.value;
+  if(!empId||monto<=0||!fecha){toast('Completa empresa, monto y fecha',true);return}
+  const data={monto,fecha,plan:document.getElementById('fPlan')?.value||'',estado:document.getElementById('fEstado')?.value||'pagado',metodo:document.getElementById('fMetodo')?.value||'',notas:document.getElementById('fNotas')?.value||''};
+  const r=await window.FB.saveFactura(empId,data);
+  if(r.ok){
+    await window.FB.logSA('REGISTRAR_PAGO',`${empId}: $${monto} — ${data.estado}`);
+    toast('✓ Pago registrado');
+    document.getElementById('fMonto').value='';
+    document.getElementById('fNotas').value='';
+    cargarFacturas();
+  } else toast('Error: '+r.err,true);
+}
+
+async function renderSASeguridad(){
+  document.getElementById('saContent').innerHTML=`
+  <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:16px">Seguridad</div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="sec-hdr">Cambiar PIN de SuperAdmin</div>
+    <div class="warn-box">⚠ El nuevo PIN se guardará en el código fuente. Para mayor seguridad, cámbialo directamente en el archivo HTML.</div>
+    <div class="row3">
+      <div class="fg"><label>PIN actual</label><input type="password" id="pinActual" placeholder="PIN actual"></div>
+      <div class="fg"><label>Nuevo PIN</label><input type="password" id="pinNuevo" placeholder="Nuevo PIN (min 6 chars)"></div>
+      <div class="fg"><label>Confirmar</label><input type="password" id="pinConfirm" placeholder="Repetir nuevo PIN"></div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="cambiarPIN()">✓ Cambiar PIN</button>
+    <div id="pinMsg" style="margin-top:8px;font-size:12px;min-height:16px"></div>
+  </div>
+  <div class="card">
+    <div class="sec-hdr">Credenciales actuales</div>
+    <div style="font-size:13px;color:var(--muted);line-height:2">
+      Email SA: <strong style="color:var(--text)">superadmin@pf.local</strong><br>
+      PIN: <strong style="color:var(--text)">••••••</strong> (guardado en código)<br>
+      Sesión: <strong style="color:var(--green)">Activa</strong>
+    </div>
+  </div>`;
+}
+
+function cambiarPIN(){
+  const actual=document.getElementById('pinActual')?.value;
+  const nuevo=document.getElementById('pinNuevo')?.value;
+  const confirm=document.getElementById('pinConfirm')?.value;
+  const msg=document.getElementById('pinMsg');
+  if(actual!==SUPERADMIN.pin){msg.style.color='var(--red)';msg.textContent='PIN actual incorrecto';return}
+  if(nuevo.length<6){msg.style.color='var(--red)';msg.textContent='El PIN debe tener al menos 6 caracteres';return}
+  if(nuevo!==confirm){msg.style.color='var(--red)';msg.textContent='Los PINs no coinciden';return}
+  SUPERADMIN.pin=nuevo;
+  window.FB.logSA('CAMBIAR_PIN','PIN de SuperAdmin actualizado');
+  msg.style.color='var(--green)';
+  msg.textContent='✓ PIN cambiado (vigente hasta recargar la página — actualiza el código fuente para que sea permanente)';
+}
+
+async function renderSALog(){
+  const logs=await window.FB.getLogSA();
+  const iconos={CREAR_EMPRESA:'🏢',EDITAR_EMPRESA:'✏',SUSPENDER_EMPRESA:'⊘',ACTIVAR_EMPRESA:'✓',CREAR_USUARIO:'👤',EDITAR_USUARIO:'✏',DESACTIVAR_USUARIO:'⊘',ACTIVAR_USUARIO:'✓',EDITAR_PLANES:'💳',REGISTRAR_PAGO:'💰',CAMBIAR_PIN:'🔐',default:'📋'};
+  let rows=logs.length===0?`<tr><td colspan="3" class="empty">Sin actividad registrada</td></tr>`:'';
+  logs.forEach(l=>{
+    const ic=iconos[l.accion]||iconos.default;
+    rows+=`<tr><td style="font-size:11px;color:var(--muted);white-space:nowrap">${l.ts?new Date(l.ts).toLocaleString('es-SV'):''}</td><td><span class="badge b-purple" style="margin-right:6px">${ic} ${l.accion||'—'}</span></td><td style="font-size:12px">${esc(l.detalle||'—')}</td></tr>`;
+  });
+  document.getElementById('saContent').innerHTML=`
+  <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:16px">Actividad SuperAdmin — últimas 100 acciones</div>
+  <div class="tbl-wrap"><table><thead><tr><th>Fecha/Hora</th><th>Acción</th><th>Detalle</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
 
 // ═══════════════════════════════════════════════════════
 //  GASTOS
