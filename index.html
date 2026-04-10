@@ -469,7 +469,7 @@ function migrateData(){
     // Asegurar unidad en subpartidas
     p.cronograma.partidas.forEach(m=>m.sub.forEach(s=>{if(!s.unidad)s.unidad='';}));
   });
-  S.gastos.forEach(g=>{if(!('proyectoId' in g))g.proyectoId=null;if(!('centroId' in g))g.centroId=null;});
+  S.gastos.forEach(g=>{if(!('proyectoId' in g))g.proyectoId=null;if(!('centroId' in g))g.centroId=null;if(!('sumarAlProy' in g))g.sumarAlProy=true;});
   S.centros.forEach(c=>{if(!('auto' in c))c.auto=false;});
 }
 async function loadData(){
@@ -1447,83 +1447,206 @@ function tplGastosProy(p){
   return`<div class="kpi" style="margin-bottom:16px"><div class="kpi-lbl">Total gastos</div><div class="kpi-val" style="color:var(--red)">${fmt(total)}</div><div class="kpi-sub">${lista.length} registros</div></div>
   <div class="tbl-wrap"><table><thead><tr><th>Factura</th><th>Descripción</th><th>Proveedor</th><th>Valor</th><th>Fecha</th></tr></thead><tbody>${rows}</tbody></table></div>`}
 
+function calcAvanceReal(p){
+  const total=p.cronograma.partidas.reduce((s,m)=>s+m.sub.length,0);
+  const done=p.cronograma.partidas.reduce((s,m)=>s+m.sub.filter(x=>x.done).length,0);
+  return total>0?Math.round((done/total)*100):0;
+}
+
+function syncAvance(pid){
+  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
+  if(p.cronograma.aceptado){
+    p.avanceFisico=calcAvanceReal(p);
+    saveData();
+  }
+}
+
 function tplCron(p){
-  const cr=p.cronograma,isAc=cr.aceptado;
+  const cr=p.cronograma;
+  const isAc=cr.aceptado;
+  const isCerrado=cr.cerrado; // oferta aceptada = bloqueado
   const totalDias=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+(parseInt(x.dias)||0),0),0);
   const fechaFin=addDias(cr.fechaInicio,totalDias);
+  const grand=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0),0);
+  const totalSubs=cr.partidas.reduce((s,m)=>s+m.sub.length,0);
+  const doneSubs=cr.partidas.reduce((s,m)=>s+m.sub.filter(x=>x.done).length,0);
+  const pctReal=totalSubs>0?Math.round((doneSubs/totalSubs)*100):0;
   const unidSel=(sub)=>UNIDADES.map(u=>`<option${sub.unidad===u?' selected':''}>${u}</option>`).join('');
-  let html=`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
-    ${isAc
-      ?`<span class="badge b-ok" style="font-size:12px;padding:6px 14px">✓ Cronograma ACEPTADO</span>
-        <button class="btn btn-danger btn-sm" onclick="toggleCronAcept('${p.id}',false)">Desbloquear</button>`
-      :`<button class="btn btn-success" onclick="toggleCronAcept('${p.id}',true)">✓ Aceptar oferta y cronograma</button>
-        <span style="font-size:12px;color:var(--muted)">Acepta para habilitar seguimiento</span>`}
+
+  let html=`
+  <!-- Barra de estado -->
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px;padding:14px 16px;background:var(--surface2);border-radius:12px;border:1px solid var(--border)">
+    ${isCerrado
+      ?`<div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap">
+          <span class="badge b-ok" style="font-size:13px;padding:7px 16px">🔒 OFERTA ACEPTADA</span>
+          <div style="flex:1;min-width:180px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Avance real: <strong style="color:var(--green)">${pctReal}%</strong> · ${doneSubs}/${totalSubs} actividades</div>
+            <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden">
+              <div style="height:100%;width:${pctReal}%;background:var(--green);border-radius:4px;transition:width .5s"></div>
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-danger btn-sm" onclick="reabrirOferta('${p.id}')">🔓 Reabrir oferta</button>`
+      :`<div style="flex:1">
+          ${isAc
+            ?`<span class="badge b-warn" style="font-size:12px;padding:6px 14px">✓ Cronograma aceptado — pendiente de cierre</span>`
+            :`<span style="font-size:13px;color:var(--muted)">Cronograma en edición libre</span>`}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${isAc
+            ?`<button class="btn btn-success" onclick="cerrarOferta('${p.id}')">🔒 Cerrar y aceptar oferta</button>
+              <button class="btn btn-secondary btn-sm" onclick="toggleCronAcept('${p.id}',false)">Desbloquear edición</button>`
+            :`<button class="btn btn-primary" onclick="toggleCronAcept('${p.id}',true)">✓ Pre-aceptar cronograma</button>`}
+        </div>`}
+    <button class="btn btn-secondary btn-sm" onclick="imprimirCronograma('${p.id}')">🖨 Imprimir oferta</button>
   </div>
-  <div class="row3" style="margin-bottom:16px">
+
+  <!-- Resumen superior -->
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+    <div class="kpi"><div class="kpi-lbl">Partidas</div><div class="kpi-val">${cr.partidas.length}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Días totales</div><div class="kpi-val" style="color:var(--accent)">${totalDias}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Total presupuesto</div><div class="kpi-val" style="font-size:16px;color:var(--accent)">${fmt(grand)}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Fecha fin est.</div><div class="kpi-val" style="font-size:15px;color:var(--green)">${fechaFin?fmtDate(fechaFin):'—'}</div></div>
+  </div>
+
+  <!-- Fecha de inicio -->
+  <div class="row2" style="margin-bottom:14px">
     <div class="fg"><label>Fecha de inicio</label>
-      <input type="date" value="${cr.fechaInicio||''}" ${isAc?'':'disabled'} onchange="updCron('${p.id}','fechaInicio',this.value)">
+      <input type="date" value="${cr.fechaInicio||''}" onchange="updCron('${p.id}','fechaInicio',this.value)">
     </div>
-    <div class="fg"><label>Días totales</label><input value="${totalDias}" disabled style="color:var(--accent)"></div>
-    <div class="fg"><label>Fecha estimada de fin</label><input value="${fechaFin?fmtDate(fechaFin):'—'}" disabled style="color:var(--green)"></div>
+    <div class="fg"><label>Fecha estimada de fin (calculada)</label>
+      <input value="${fechaFin?fmtDate(fechaFin):'—'}" disabled style="color:var(--green)">
+    </div>
   </div>
-  <div class="tbl-wrap"><table>
+
+  <!-- Tabla partidas -->
+  <div class="tbl-wrap" style="margin-bottom:16px"><table>
     <thead><tr>
-      <th>Partida / Subpartida</th><th>Unidad</th><th>Cant.</th><th>Precio unit.</th><th>Días</th>
-      ${isAc?'<th>✓</th>':''}
-      <th style="text-align:right">Total</th><th></th>
+      <th>Partida / Subpartida</th>
+      <th>Unidad</th>
+      <th style="text-align:right">Cant.</th>
+      <th style="text-align:right">P.Unit.</th>
+      <th style="text-align:center">Días</th>
+      ${isCerrado?'<th style="text-align:center">✓ Hecho</th>':''}
+      <th style="text-align:right">Total</th>
+      ${!isCerrado?'<th></th>':''}
     </tr></thead>
     <tbody>`;
-  let grand=0;
+
   cr.partidas.forEach((m,mi)=>{
     const dp=m.sub.reduce((s,x)=>s+(parseInt(x.dias)||0),0);
     const tp=m.sub.reduce((s,x)=>s+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0);
-    grand+=tp;
-    const done=m.sub.filter(x=>x.done).length;
+    const doneM=m.sub.filter(x=>x.done).length;
+    const pctM=m.sub.length>0?Math.round((doneM/m.sub.length)*100):0;
+
     html+=`<tr style="background:#0e0c0a">
-      <td colspan="2"><input value="${esc(m.nombre)}" style="font-weight:600;background:transparent;border:none;color:var(--text);width:100%" onchange="updPartida('${p.id}',${mi},'nombre',this.value)"></td>
+      <td colspan="2">
+        ${!isCerrado
+          ?`<input value="${esc(m.nombre)}" style="font-weight:700;background:transparent;border:none;color:var(--text);width:100%;font-size:13px" onchange="updPartida('${p.id}',${mi},'nombre',this.value)">`
+          :`<span style="font-weight:700;font-size:13px;padding:0 4px">${esc(m.nombre)}</span>`}
+      </td>
       <td colspan="2" style="color:var(--muted);font-size:11px">${m.sub.length} subpartida(s)</td>
-      <td><strong style="color:var(--accent)">${dp}</strong></td>
-      ${isAc?`<td style="font-size:11px;color:var(--muted)">${done}/${m.sub.length}</td>`:''}
+      <td style="text-align:center"><strong style="color:var(--accent)">${dp}</strong></td>
+      ${isCerrado?`<td style="text-align:center;font-size:11px">
+        <span style="color:${pctM===100?'var(--green)':'var(--muted)'}">${doneM}/${m.sub.length}</span>
+        <div style="height:4px;background:var(--border);border-radius:2px;margin-top:3px;overflow:hidden">
+          <div style="height:100%;width:${pctM}%;background:var(--green)"></div>
+        </div>
+      </td>`:''}
       <td style="text-align:right"><strong>${fmt(tp)}</strong></td>
-      <td class="td-act">
+      ${!isCerrado?`<td class="td-act">
         <button class="btn btn-secondary btn-xs" onclick="addSub('${p.id}',${mi})">+Sub</button>
         <button class="btn btn-danger btn-xs" onclick="delPartida('${p.id}',${mi})">✕</button>
-      </td>
+      </td>`:''}
     </tr>`;
+
     m.sub.forEach((sub,si)=>{
       const t=(parseFloat(sub.cantidad)||0)*(parseFloat(sub.precio)||0);
-      html+=`<tr style="background:#111009">
-        <td style="padding-left:24px">
-          ${isAc?`<input type="checkbox" ${sub.done?'checked':''} onchange="updSub('${p.id}',${mi},${si},'done',this.checked)" style="margin-right:6px">`:'' }
-          <input value="${esc(sub.desc||'')}" placeholder="Descripción" style="width:calc(100% - 28px)" onchange="updSub('${p.id}',${mi},${si},'desc',this.value)">
+      html+=`<tr style="background:${sub.done?'#0a1a0a':'#111009'};${sub.done?'opacity:.85':''}">
+        <td style="padding-left:20px">
+          <div style="display:flex;align-items:center;gap:8px">
+            ${isCerrado?`<input type="checkbox" ${sub.done?'checked':''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--green)"
+              onchange="marcarSubhecha('${p.id}',${mi},${si},this.checked)">`:'<span style="display:inline-block;width:20px"></span>'}
+            ${!isCerrado
+              ?`<input value="${esc(sub.desc||'')}" placeholder="Descripción de la actividad" style="flex:1;${sub.done?'text-decoration:line-through;color:var(--muted)':''}" onchange="updSub('${p.id}',${mi},${si},'desc',this.value)">`
+              :`<span style="${sub.done?'text-decoration:line-through;color:var(--muted)':'color:var(--text)'};font-size:13px">${esc(sub.desc||'—')}</span>`}
+          </div>
         </td>
         <td>
-          <select style="width:80px;font-size:12px" onchange="updSub('${p.id}',${mi},${si},'unidad',this.value)">
-            <option value="">—</option>${unidSel(sub)}
-          </select>
+          ${!isCerrado
+            ?`<select style="width:82px;font-size:12px" onchange="updSub('${p.id}',${mi},${si},'unidad',this.value)">
+                <option value="">—</option>${unidSel(sub)}
+              </select>`
+            :`<span style="font-size:12px;color:var(--muted)">${sub.unidad||'—'}</span>`}
         </td>
-        <td><input type="number" min="0" step="0.01" value="${sub.cantidad||0}" style="width:70px" onchange="updSubCalc('${p.id}',${mi},${si},'cantidad',parseFloat(this.value)||0)"></td>
-        <td><input type="number" min="0" step="0.01" value="${sub.precio||0}" style="width:80px" placeholder="0.00" onchange="updSubCalc('${p.id}',${mi},${si},'precio',parseFloat(this.value)||0)"></td>
-        <td><input type="number" min="1" value="${sub.dias||1}" style="width:55px" ${isAc?'':'disabled'} onchange="updSubCalc('${p.id}',${mi},${si},'dias',parseInt(this.value)||1)"></td>
-        ${isAc?'<td></td>':''}
+        <td style="text-align:right">
+          ${!isCerrado
+            ?`<input type="number" min="0" step="0.01" value="${sub.cantidad||0}" style="width:70px;text-align:right" onchange="updSubCalc('${p.id}',${mi},${si},'cantidad',parseFloat(this.value)||0)">`
+            :`<span>${sub.cantidad||0}</span>`}
+        </td>
+        <td style="text-align:right">
+          ${!isCerrado
+            ?`<input type="number" min="0" step="0.01" value="${sub.precio||0}" style="width:80px;text-align:right" onchange="updSubCalc('${p.id}',${mi},${si},'precio',parseFloat(this.value)||0)">`
+            :`<span>$${parseFloat(sub.precio||0).toFixed(2)}</span>`}
+        </td>
+        <td style="text-align:center">
+          <input type="number" min="1" value="${sub.dias||1}" style="width:55px;text-align:center" onchange="updSubCalc('${p.id}',${mi},${si},'dias',parseInt(this.value)||1)">
+        </td>
+        ${isCerrado?'<td></td>':''}
         <td style="text-align:right;font-weight:600;color:${t>0?'var(--accent)':'var(--muted)'}">${fmt(t)}</td>
-        <td><button class="btn btn-danger btn-xs" onclick="delSub('${p.id}',${mi},${si})">✕</button></td>
+        ${!isCerrado?`<td><button class="btn btn-danger btn-xs" onclick="delSub('${p.id}',${mi},${si})">✕</button></td>`:''}
       </tr>`;
     });
   });
-  html+=`<tr style="background:#0a0908;border-top:2px solid var(--border)">
-    <td colspan="${isAc?5:4}" style="text-align:right;color:var(--muted);font-size:11px;padding-right:12px">TOTAL PRESUPUESTO:</td>
-    <td colspan="2" style="text-align:right"><strong style="color:var(--accent);font-size:16px">${fmt(grand)}</strong></td>
-    <td></td>
-  </tr>`;
-  html+=`</tbody></table></div>
-  <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-    <button class="btn btn-primary" onclick="addPartida('${p.id}')">+ Agregar Partida</button>
-    <button class="btn btn-secondary" onclick="imprimirCronograma('${p.id}')">🖨 Imprimir oferta</button>
-  </div>`;
+
+  html+=`<tr style="background:#0a0908;border-top:2px solid var(--accent)">
+    <td colspan="${isCerrado?4:3}" style="text-align:right;color:var(--muted);font-size:11px">TOTAL PRESUPUESTO:</td>
+    <td></td><td></td>
+    ${isCerrado?'<td></td>':''}
+    <td style="text-align:right"><strong style="color:var(--accent);font-size:17px">${fmt(grand)}</strong></td>
+    ${!isCerrado?'<td></td>':''}
+  </tr></tbody></table></div>`;
+
+  // Botones inferiores
+  if(!isCerrado){
+    html+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px">
+      <button class="btn btn-primary" onclick="addPartida('${p.id}')">+ Agregar Partida</button>
+    </div>`;
+  }
+
+  // GANTT
+  html+=ganttHTML(p);
   return html;
 }
+function cerrarOferta(pid){
+  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
+  if(!confirm('¿Confirmas que la oferta ha sido aceptada por el cliente?\n\nEsto bloqueará la edición de partidas y subpartidas.\nSolo podrás modificar días y marcar actividades como realizadas.'))return;
+  p.cronograma.cerrado=true;
+  p.cronograma.aceptado=true;
+  p.cronograma.fechaCierre=new Date().toISOString();
+  saveData();reloadTab('cron',pid);
+  toast('🔒 Oferta cerrada — seguimiento activo');
+  logAction('EDITAR','proyectos','Oferta aceptada y cronograma cerrado');
+}
 
+function reabrirOferta(pid){
+  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
+  if(!confirm('¿Reabrir la oferta?\n\nEsto permitirá editar partidas y subpartidas nuevamente.\nSe perderá el estado de cierre.'))return;
+  p.cronograma.cerrado=false;
+  saveData();reloadTab('cron',pid);toast('🔓 Oferta reabierta');
+}
+
+function marcarSubhecha(pid,mi,si,val){
+  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
+  p.cronograma.partidas[mi].sub[si].done=val;
+  // Recalcular avance real
+  const total=p.cronograma.partidas.reduce((s,m)=>s+m.sub.length,0);
+  const done=p.cronograma.partidas.reduce((s,m)=>s+m.sub.filter(x=>x.done).length,0);
+  p.avanceFisico=total>0?Math.round((done/total)*100):0;
+  saveData();reloadTab('cron',pid);
+  // Si el dashboard está visible, refrescarlo
+  if(S.activeTab==='dashboard')render();
+}
 
 function updCron(pid,c,v){const p=S.proyectos.find(x=>x.id===pid);if(p){p.cronograma[c]=v;saveData();reloadTab('cron',pid)}}
 function toggleCronAcept(pid,v){const p=S.proyectos.find(x=>x.id===pid);if(p){p.cronograma.aceptado=v;saveData();reloadTab('cron',pid)}}
@@ -1567,7 +1690,16 @@ function renderGastos(){
       <td>${esc(g.proveedor)}</td>
       <td><strong>${fmt(g.valor)}</strong></td>
       <td>${fmtDate(g.fecha)}</td>
-      <td>${g.proyectoId?`<span class="badge b-blue">${esc(pname)}</span>`:'<span class="badge b-neu">General</span>'}</td>
+      <td>${g.proyectoId
+        ?`<span class="badge b-blue">${esc(pname)}</span>`
+        :g.sumarAlProy===false&&g.centroId
+          ?`<span class="badge b-neu" title="Solo CC — no suma al proyecto">CC</span>`
+          :'<span class="badge b-neu">General</span>'
+      }</td>
+      <td style="text-align:center">${g.proyectoId||g.sumarAlProy===false
+        ?`<span title="${g.sumarAlProy===false?'No suma al proyecto':'Suma al proyecto'}" style="font-size:16px">${g.sumarAlProy===false?'⬜':'✅'}</span>`
+        :'<span style="color:#333;font-size:12px">—</span>'
+      }</td>
       <td>${isImg?`<img src="${g.comprobante}" style="height:28px;border-radius:4px;cursor:pointer" onclick="verImagen('${g.comprobante}','${esc(g.factura)}')">`
           :isPDF?`<a href="${g.comprobante}" download="factura_${g.factura}.pdf" style="font-size:11px">📄PDF</a>`
           :'<span style="color:#444;font-size:11px">—</span>'}</td>
@@ -1617,6 +1749,19 @@ function renderGastos(){
         <select id="gCC"><option value="">— Ninguno —</option>${ccOpts}</select>
       </div>
       <input type="hidden" id="gCCHidden">
+      <!-- Checkbox sumar al proyecto -->
+      <div id="gSumarWrap" style="display:none;margin-top:10px;padding:10px 12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="gSumarProy" checked style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer">
+          <div>
+            <div style="font-size:13px;font-weight:600">Sumar al presupuesto del proyecto</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">
+              ✅ Activado — se suma al total del proyecto<br>
+              ☐ Desactivado — se registra en el CC pero <strong>no</strong> afecta el presupuesto del proyecto
+            </div>
+          </div>
+        </label>
+      </div>
     </div>
     <div class="fg">
       <label>Foto / Comprobante de factura (opcional)</label>
@@ -1626,7 +1771,7 @@ function renderGastos(){
         <span id="gCompNombre" style="font-size:12px;color:var(--muted)">Sin archivo</span>
       </div>
       <input type="file" id="gCompFI" accept="image/*,.pdf" style="display:none" onchange="selGastoComp(this)">
-      <input type="file" id="gCompCam" accept="image/*" capture="environment" style="display:none" onchange="selGastoComp(this)">
+      <input type="file" id="gCompCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none" onchange="selGastoComp(this)">
       <div id="gCompPreview" style="margin-top:6px"></div>
       <input type="hidden" id="gCompData">
     </div>
@@ -1634,7 +1779,7 @@ function renderGastos(){
   </div>
 
   <div class="tbl-wrap"><table>
-    <thead><tr><th>Factura</th><th>Descripción</th><th>Proveedor</th><th>Valor</th><th>Fecha</th><th>Proyecto</th><th>Comp.</th><th></th></tr></thead>
+    <thead><tr><th>Factura</th><th>Descripción</th><th>Proveedor</th><th>Valor</th><th>Fecha</th><th>Proyecto/CC</th><th style="text-align:center">Suma</th><th>Comp.</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;
 }
@@ -1645,8 +1790,8 @@ function onGastoProyChange(){
   const ccLabel=document.getElementById('gCCLabel');
   const ccManualWrap=document.getElementById('gCCManualWrap');
   const ccHidden=document.getElementById('gCCHidden');
+  const sumarWrap=document.getElementById('gSumarWrap');
   if(pid){
-    // Proyecto seleccionado — buscar CC automático
     const cc=S.centros.find(c=>c.proyectoId===pid&&c.auto);
     if(cc){
       if(ccLabel)ccLabel.textContent='Centro de Costo: '+cc.nombre+' (asignado automáticamente)';
@@ -1656,12 +1801,15 @@ function onGastoProyChange(){
       if(ccHidden)ccHidden.value='';
     }
     if(ccManualWrap)ccManualWrap.style.display='none';
+    // Mostrar el checkbox de sumar al proyecto
+    if(sumarWrap)sumarWrap.style.display='block';
   } else {
-    // Gasto general
     if(ccLabel)ccLabel.textContent='El Centro de Costo se asigna automáticamente al seleccionar un proyecto.';
     if(ccHidden)ccHidden.value='';
     const ccManual=S.centros.filter(c=>!c.auto);
     if(ccManualWrap)ccManualWrap.style.display=ccManual.length>0?'block':'none';
+    // Ocultar checkbox — gasto general no tiene proyecto
+    if(sumarWrap)sumarWrap.style.display='none';
   }
 }
 
@@ -1694,6 +1842,9 @@ function regGasto(){
   const pid=document.getElementById('gProy').value||null;
   const ccId=pid?document.getElementById('gCCHidden')?.value||null:document.getElementById('gCC')?.value||null;
   const compData=document.getElementById('gCompData')?.value||null;
+  // Checkbox: solo aplica cuando hay proyecto seleccionado
+  const sumarCheck=document.getElementById('gSumarProy');
+  const sumarAlProy=pid?(sumarCheck?sumarCheck.checked:true):false;
 
   if(!factura){toast('Ingrese número de factura',true);return}
   if(!provId){toast('Seleccione proveedor',true);return}
@@ -1707,12 +1858,16 @@ function regGasto(){
     proveedor:prov?prov.nombre:'',
     valor,
     fecha:document.getElementById('gFecha').value,
-    proyectoId:pid,
+    // Si sumarAlProy=true → proyectoId queda asignado (afecta presupuesto)
+    // Si sumarAlProy=false → proyectoId=null pero centroId queda (solo CC)
+    proyectoId:sumarAlProy?pid:null,
     centroId:ccId||null,
+    sumarAlProy, // guardar el flag
     comprobante:compData
   });
   logAction('CREAR','gastos',`Factura: ${factura}`);
-  saveData();render();toast('✓ Gasto registrado');
+  saveData();render();
+  toast(sumarAlProy&&pid?'✓ Gasto registrado y sumado al proyecto':'✓ Gasto registrado en CC (sin sumar al proyecto)');
 }
 
 
@@ -1747,7 +1902,7 @@ function tplPlan(p){
       ${isMobile?`<div style="margin-top:12px"><button class="btn btn-primary btn-sm" onclick="event.stopPropagation();document.getElementById('planCam').click()">📷 Usar cámara</button></div>`:''}
     </div>
     <input type="file" id="planFI" multiple accept=".dwg,.pdf,.jpg,.jpeg,.png,.gif,.webp,.dxf" style="display:none" onchange="subirArchPlan('${p.id}',this)">
-    ${isMobile?`<input type="file" id="planCam" accept="image/*" capture="environment" style="display:none" onchange="subirArchPlan('${p.id}',this)">`:''}
+    ${isMobile?`<input type="file" id="planCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none" onchange="subirArchPlan('${p.id}',this)">`:''}
   </div>
   <div id="archList_${p.id}">${archHtml}</div>`;
 }
@@ -1857,7 +2012,7 @@ function tplPagosYGastos(p){
                 ${isMobile?`<button class="btn btn-secondary btn-xs" onclick="document.getElementById('compCam_${i}').click()">📷</button>`:''}
               </div>
               <input type="file" id="compFI_${i}" accept="image/*,.pdf" style="display:none" onchange="subirComprobante('${p.id}',${i},this)">
-              ${isMobile?`<input type="file" id="compCam_${i}" accept="image/*" capture="environment" style="display:none" onchange="subirComprobante('${p.id}',${i},this)">`:''}
+              ${isMobile?`<input type="file" id="compCam_${i}" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none" onchange="subirComprobante('${p.id}',${i},this)">`:''}
             `}
         </td>
       </tr>`;
@@ -2348,22 +2503,338 @@ function addMarca(){const n=document.getElementById('nmarca')?.value.trim();if(!
 // ═══════════════════════════════════════════════════════
 //  DASHBOARD
 // ═══════════════════════════════════════════════════════
+// ═══ GANTT INTERACTIVO ══════════════════════════════════
+function ganttHTML(p){
+  const cr=p.cronograma;
+  if(!cr.partidas||cr.partidas.length===0)return`<div class="empty" style="padding:20px">Agrega partidas para ver el Gantt</div>`;
+  if(!cr.fechaInicio)return`<div class="warn-box">Define la fecha de inicio para ver el Gantt</div>`;
+
+  const totalDias=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+(parseInt(x.dias)||0),0),0);
+  if(totalDias===0)return`<div class="warn-box">Agrega días a las subpartidas para ver el Gantt</div>`;
+
+  const startDate=new Date(cr.fechaInicio+'T00:00:00');
+  const ROW_H=34, HEAD_H=48, LABEL_W=220, DAY_W=28;
+  const today=new Date();today.setHours(0,0,0,0);
+  const diffToday=Math.floor((today-startDate)/86400000);
+
+  // Calcular posición acumulada de cada subpartida
+  let rows=[];
+  let cursor=0;
+  cr.partidas.forEach((m,mi)=>{
+    // Fila de partida
+    const pDays=m.sub.reduce((s,x)=>s+(parseInt(x.dias)||0),0);
+    const doneM=m.sub.filter(x=>x.done).length;
+    rows.push({type:'partida',label:m.nombre,start:cursor,days:pDays,mi,done:doneM,total:m.sub.length});
+    m.sub.forEach((sub,si)=>{
+      const d=parseInt(sub.dias)||1;
+      rows.push({type:'sub',label:sub.desc||'—',start:cursor,days:d,mi,si,done:sub.done,unidad:sub.unidad||''});
+      cursor+=d;
+    });
+  });
+
+  const W=Math.max(totalDias*DAY_W,400);
+  const H=HEAD_H+rows.length*ROW_H+40;
+
+  // Generar marcas de días/semanas
+  let dayMarks='',dayBgs='';
+  for(let d=0;d<totalDias;d++){
+    const x=LABEL_W+d*DAY_W;
+    const dt=new Date(startDate);dt.setDate(dt.getDate()+d);
+    const dow=dt.getDay();
+    const isWeekend=dow===0||dow===6;
+    const isToday=d===diffToday;
+    if(isWeekend)dayBgs+=`<rect x="${x}" y="${HEAD_H}" width="${DAY_W}" height="${H-HEAD_H-40}" fill="${isToday?'rgba(232,160,32,.15)':'rgba(255,255,255,.025)'}"/>`;
+    if(isToday)dayBgs+=`<rect x="${x}" y="0" width="${DAY_W}" height="${H}" fill="rgba(232,160,32,.08)"/>`;
+    // Etiquetas: cada 7 días o todos si totalDias<=30
+    if(totalDias<=30||(d%7===0)||(d===totalDias-1)){
+      const label=`${dt.getDate()}/${dt.getMonth()+1}`;
+      dayMarks+=`<text x="${x+DAY_W/2}" y="${HEAD_H-6}" text-anchor="middle" font-size="10" fill="${isToday?'#e8a020':'#666'}" font-weight="${isToday?'700':'400'}">${label}</text>`;
+    }
+    dayMarks+=`<line x1="${x}" y1="${HEAD_H}" x2="${x}" y2="${H-40}" stroke="#222" stroke-width="0.5"/>`;
+  }
+
+  // Filas
+  let rowsSVG='',labelsSVG='';
+  rows.forEach((r,i)=>{
+    const y=HEAD_H+i*ROW_H;
+    const isPartida=r.type==='partida';
+    const barX=LABEL_W+r.start*DAY_W;
+    const barW=Math.max(r.days*DAY_W-2,4);
+    const barY=y+6;
+    const barH=ROW_H-12;
+
+    // Fondo alterno
+    rowsSVG+=`<rect x="0" y="${y}" width="${LABEL_W+W}" height="${ROW_H}" fill="${isPartida?'rgba(14,12,10,.8)':i%2===0?'rgba(17,16,9,.4)':'rgba(12,10,8,.4)'}"/>`;
+
+    if(isPartida){
+      // Barra de partida (contenedora)
+      const pctDone=r.total>0?r.done/r.total:0;
+      rowsSVG+=`<rect x="${barX}" y="${barY+barH*0.3}" width="${barW}" height="${barH*0.4}" fill="#2a2010" rx="3"/>`;
+      if(pctDone>0)rowsSVG+=`<rect x="${barX}" y="${barY+barH*0.3}" width="${Math.max(barW*pctDone,3)}" height="${barH*0.4}" fill="#4a6a20" rx="3"/>`;
+      rowsSVG+=`<text x="${barX+6}" y="${barY+barH*0.3+10}" font-size="9" fill="#888">${r.done}/${r.total} ✓</text>`;
+      labelsSVG+=`<text x="8" y="${y+ROW_H/2+5}" font-size="12" font-weight="700" fill="#e8a020" clip-path="url(#labelClip)">${esc(r.label.substring(0,28))}</text>`;
+    } else {
+      // Barra de subpartida
+      const color=r.done?'#1a5a2a':'#1a3a5a';
+      const borderColor=r.done?'#2db87a':'#4ea8de';
+      rowsSVG+=`<rect x="${barX+1}" y="${barY+4}" width="${barW-2}" height="${barH-8}" fill="${color}" rx="4" stroke="${borderColor}" stroke-width="1.5"/>`;
+      // Progress si está en curso (today dentro del rango)
+      const endDay=r.start+r.days;
+      if(!r.done&&diffToday>r.start&&diffToday<endDay){
+        const prog=(diffToday-r.start)/r.days;
+        rowsSVG+=`<rect x="${barX+1}" y="${barY+4}" width="${Math.max((barW-2)*prog,3)}" height="${barH-8}" fill="rgba(78,168,222,.3)" rx="4"/>`;
+        rowsSVG+=`<line x1="${barX+1+(barW-2)*prog}" y1="${barY+4}" x2="${barX+1+(barW-2)*prog}" y2="${barY+barH-4}" stroke="#4ea8de" stroke-width="2" stroke-dasharray="3,2"/>`;
+      }
+      if(r.done)rowsSVG+=`<text x="${barX+barW/2}" y="${barY+barH/2+4}" text-anchor="middle" font-size="11" fill="#2db87a">✓</text>`;
+      // Tooltip
+      rowsSVG+=`<title>${esc(r.label)} (${r.days} días${r.unidad?' | '+r.unidad:''})</title>`;
+      labelsSVG+=`<text x="20" y="${y+ROW_H/2+5}" font-size="11" fill="${r.done?'#555':'#aaa'}" clip-path="url(#labelClip)" style="${r.done?'text-decoration:line-through':''}">${esc(r.label.substring(0,26))}${r.unidad?` <tspan fill="#555">(${r.unidad})</tspan>`:''}</text>`;
+    }
+    rowsSVG+=`<line x1="0" y1="${y+ROW_H}" x2="${LABEL_W+W}" y2="${y+ROW_H}" stroke="#1a1815" stroke-width="1"/>`;
+  });
+
+  // Línea de hoy
+  let todayLine='';
+  if(diffToday>=0&&diffToday<=totalDias){
+    const tx=LABEL_W+diffToday*DAY_W+DAY_W/2;
+    todayLine=`<line x1="${tx}" y1="${HEAD_H}" x2="${tx}" y2="${H-40}" stroke="#e8a020" stroke-width="2" stroke-dasharray="6,3" opacity=".8"/>
+    <text x="${tx}" y="${HEAD_H-16}" text-anchor="middle" font-size="10" fill="#e8a020" font-weight="700">HOY</text>`;
+  }
+
+  return`
+  <div style="margin-top:24px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700">📊 Diagrama de Gantt</div>
+      <div style="display:flex;gap:12px;font-size:11px;color:var(--muted)">
+        <span style="display:flex;align-items:center;gap:5px"><span style="width:14px;height:10px;background:#1a3a5a;border:1.5px solid #4ea8de;border-radius:3px;display:inline-block"></span>Pendiente</span>
+        <span style="display:flex;align-items:center;gap:5px"><span style="width:14px;height:10px;background:#1a5a2a;border:1.5px solid #2db87a;border-radius:3px;display:inline-block"></span>Completado</span>
+        <span style="display:flex;align-items:center;gap:5px"><span style="width:2px;height:14px;background:#e8a020;display:inline-block"></span>Hoy</span>
+      </div>
+    </div>
+    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:12px;background:#0a0908">
+      <svg width="${LABEL_W+W}" height="${H}" style="display:block;min-width:${LABEL_W+W}px;font-family:Karla,sans-serif">
+        <defs>
+          <clipPath id="labelClip"><rect x="0" y="0" width="${LABEL_W-8}" height="${H}"/></clipPath>
+        </defs>
+        <!-- Fondo -->
+        <rect width="${LABEL_W+W}" height="${H}" fill="#0a0908"/>
+        <!-- Header -->
+        <rect x="0" y="0" width="${LABEL_W+W}" height="${HEAD_H}" fill="#0e0c0a"/>
+        <line x1="${LABEL_W}" y1="0" x2="${LABEL_W}" y2="${H}" stroke="#2a2824" stroke-width="1"/>
+        <text x="8" y="${HEAD_H/2+6}" font-size="12" font-weight="700" fill="#777">ACTIVIDAD</text>
+        <!-- Fondos de fin de semana y hoy -->
+        ${dayBgs}
+        <!-- Marcas de días -->
+        ${dayMarks}
+        <!-- Línea de hoy -->
+        ${todayLine}
+        <!-- Filas -->
+        ${rowsSVG}
+        <!-- Labels (sobre todo) -->
+        ${labelsSVG}
+        <!-- Separador label/gantt -->
+        <line x1="${LABEL_W}" y1="0" x2="${LABEL_W}" y2="${H}" stroke="#333" stroke-width="1.5"/>
+      </svg>
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:var(--muted);text-align:right">
+      Scroll horizontal para ver el diagrama completo · Total: ${totalDias} días · Inicio: ${fmtDate(cr.fechaInicio)}
+    </div>
+  </div>`;
+}
+
 function renderDashboard(){
-  const np=S.proyectos.length,inv=S.proyectos.reduce((s,p)=>s+(parseFloat(p.montoObraCivil)||0),0);
-  const enEj=S.proyectos.filter(p=>p.estado==='En ejecución').length,fin=S.proyectos.filter(p=>p.estado==='Finalizado').length;
+  const np=S.proyectos.length;
+  const inv=S.proyectos.reduce((s,p)=>s+(parseFloat(p.montoObraCivil)||0),0);
+  const enEj=S.proyectos.filter(p=>p.estado==='En ejecución').length;
+  const fin=S.proyectos.filter(p=>p.estado==='Finalizado').length;
+  const ret=S.proyectos.filter(p=>p.estado==='Retrasado').length;
+  const sin=S.proyectos.filter(p=>p.estado==='Sin iniciar').length;
   const gtotal=S.gastos.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
-  let rows=np===0?`<tr><td colspan="6" class="empty">Sin proyectos — crea el primero</td></tr>`:'';
-  S.proyectos.forEach(p=>{const gp=totalGastosProyecto(p.id);rows+=`<tr style="cursor:pointer" onclick="verProy('${p.id}')"><td><div style="font-weight:600">${esc(p.nombre)}</div><div style="font-size:11px;color:var(--muted)">${esc(p.ubicacion||'Sin ubicación')}</div></td><td>${esc(p.marca)}</td><td>${badgeEst(p.estado)}</td><td><div class="prog"><div class="prog-fill" style="width:${p.avanceFisico}%"></div></div><span style="font-size:11px;color:var(--muted)">${p.avanceFisico}%</span></td><td style="color:var(--red)">${fmt(gp)}</td></tr>`;});
+  const avProm=np>0?Math.round(S.proyectos.reduce((s,p)=>s+(p.avanceFisico||0),0)/np):0;
+
+  // Gráfico dona — estados
+  const estados=[
+    {label:'Sin iniciar',val:sin,color:'#555'},
+    {label:'En ejecución',val:enEj,color:'#e8a020'},
+    {label:'Retrasado',val:ret,color:'#e84040'},
+    {label:'Finalizado',val:fin,color:'#2db87a'}
+  ].filter(e=>e.val>0);
+
+  function donaChart(){
+    if(np===0)return`<div class="empty" style="height:160px;display:flex;align-items:center">Sin proyectos</div>`;
+    const r=70,cx=90,cy=90,stroke=22;
+    const circ=2*Math.PI*r;
+    let offset=0,arcs='',legend='';
+    estados.forEach(e=>{
+      const pct=e.val/np;
+      const dash=pct*circ;
+      arcs+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${e.color}" stroke-width="${stroke}" stroke-dasharray="${dash} ${circ-dash}" stroke-dashoffset="${-offset}" style="transition:stroke-dasharray .5s"><title>${e.label}: ${e.val}</title></circle>`;
+      offset+=dash;
+      legend+=`<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        <span style="width:10px;height:10px;border-radius:50%;background:${e.color};flex-shrink:0"></span>
+        <span style="font-size:11px;color:var(--muted)">${e.label}</span>
+        <strong style="font-size:12px;color:var(--text);margin-left:auto">${e.val}</strong>
+      </div>`;
+    });
+    return`<div style="display:flex;align-items:center;gap:16px">
+      <div style="position:relative;flex-shrink:0">
+        <svg width="180" height="180" style="transform:rotate(-90deg)">
+          <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#1a1815" stroke-width="${stroke}"/>
+          ${arcs}
+        </svg>
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+          <div style="font-family:'Syne',sans-serif;font-size:26px;font-weight:800">${np}</div>
+          <div style="font-size:10px;color:var(--muted)">proyectos</div>
+        </div>
+      </div>
+      <div style="flex:1">${legend}</div>
+    </div>`;
+  }
+
+  // Gráfico barras — inversión por proyecto
+  function barChart(){
+    if(np===0)return`<div class="empty" style="height:160px;display:flex;align-items:center">Sin proyectos</div>`;
+    const data=S.proyectos.map(p=>({
+      label:p.nombre.length>14?p.nombre.substring(0,12)+'…':p.nombre,
+      oc:parseFloat(p.montoObraCivil)||0,
+      gastos:totalGastosProyecto(p.id),
+      avance:p.avanceFisico||0
+    }));
+    const maxVal=Math.max(...data.map(d=>d.oc+d.gastos),1);
+    const BAR_W=Math.max(36,Math.min(60,280/np));
+    const GAP=8,PH=130,PW=np*(BAR_W+GAP);
+    let bars='',xlabels='',ylabels='';
+    // Y axis marks
+    for(let i=0;i<=4;i++){
+      const v=(maxVal/4)*i;
+      const y=PH-(PH*(v/maxVal));
+      ylabels+=`<text x="-4" y="${y+4}" text-anchor="end" font-size="9" fill="#555">$${v>=1000?(v/1000).toFixed(0)+'k':v.toFixed(0)}</text>
+      <line x1="0" y1="${y}" x2="${PW}" y2="${y}" stroke="#1a1815" stroke-width="1"/>`;
+    }
+    data.forEach((d,i)=>{
+      const x=i*(BAR_W+GAP);
+      const hOC=PH*(d.oc/maxVal);
+      const hG=PH*(d.gastos/maxVal);
+      bars+=`
+      <rect x="${x}" y="${PH-hOC}" width="${BAR_W}" height="${hOC}" fill="#2a3a5a" rx="4"><title>OC: $${d.oc.toFixed(0)}</title></rect>
+      <rect x="${x}" y="${PH-hOC-hG}" width="${BAR_W}" height="${hG}" fill="#3a1a1a" rx="4"><title>Gastos: $${d.gastos.toFixed(0)}</title></rect>
+      <rect x="${x}" y="${PH-hOC}" width="${BAR_W*(d.avance/100)}" height="4" fill="#e8a020" rx="2"><title>Avance: ${d.avance}%</title></rect>`;
+      xlabels+=`<text x="${x+BAR_W/2}" y="16" text-anchor="middle" font-size="10" fill="#888">${d.label}</text>`;
+    });
+    return`<div style="overflow-x:auto">
+      <svg width="${PW+40}" height="${PH+36}" style="display:block;overflow:visible;margin-left:36px">
+        <g transform="translate(0,4)">${ylabels}${bars}</g>
+        <g transform="translate(0,${PH+16})">${xlabels}</g>
+      </svg>
+      <div style="display:flex;gap:16px;margin-top:6px;margin-left:36px">
+        <span style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted)"><span style="width:12px;height:8px;background:#2a3a5a;border-radius:2px;display:inline-block"></span>Obra Civil</span>
+        <span style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted)"><span style="width:12px;height:8px;background:#3a1a1a;border-radius:2px;display:inline-block"></span>Gastos</span>
+        <span style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted)"><span style="width:12px;height:4px;background:#e8a020;border-radius:2px;display:inline-block"></span>Avance</span>
+      </div>
+    </div>`;
+  }
+
+  // Tabla de proyectos mejorada
+  let rows=np===0?`<tr><td colspan="5" class="empty" style="padding:30px">Sin proyectos — crea el primero →</td></tr>`:'';
+  S.proyectos.forEach(p=>{
+    const gp=totalGastosProyecto(p.id);
+    const total=parseFloat(p.montoObraCivil||0)+gp;
+    const estadoColors={'Sin iniciar':'#555','En ejecución':'#e8a020','Retrasado':'#e84040','Finalizado':'#2db87a'};
+    const ec=estadoColors[p.estado]||'#555';
+    rows+=`<tr style="cursor:pointer" onclick="verProy('${p.id}')">
+      <td>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:4px;height:36px;border-radius:2px;background:${ec};flex-shrink:0"></div>
+          <div>
+            <div style="font-weight:700;font-size:13px">${esc(p.nombre)}</div>
+            <div style="font-size:11px;color:var(--muted)">${esc(p.marca)} · ${esc(p.ubicacion||'Sin ubicación')}</div>
+          </div>
+        </div>
+      </td>
+      <td><span class="badge" style="background:${ec}22;color:${ec};border:1px solid ${ec}44">${p.estado}</span></td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden;min-width:60px">
+            <div style="height:100%;width:${p.avanceFisico}%;background:${ec};border-radius:3px;transition:width .4s"></div>
+          </div>
+          <span style="font-size:12px;font-weight:600;color:${ec};min-width:32px">${p.avanceFisico}%</span>
+        </div>
+      </td>
+      <td style="text-align:right">
+        <div style="font-size:13px;font-weight:600">${fmt(total)}</div>
+        <div style="font-size:10px;color:var(--muted)">OC: ${fmt(p.montoObraCivil||0)}</div>
+      </td>
+      <td style="text-align:right;font-size:11px;color:var(--red)">${gp>0?fmt(gp):'—'}</td>
+    </tr>`;
+  });
+
   document.getElementById('content').innerHTML=`
-  <div class="kpi-grid">
-    <div class="kpi"><div class="kpi-lbl">Proyectos</div><div class="kpi-val">${np}</div></div>
-    <div class="kpi"><div class="kpi-lbl">En Ejecución</div><div class="kpi-val" style="color:var(--accent)">${enEj}</div></div>
-    <div class="kpi"><div class="kpi-lbl">Finalizados</div><div class="kpi-val" style="color:var(--green)">${fin}</div></div>
-    <div class="kpi"><div class="kpi-lbl">Inv. Obra Civil</div><div class="kpi-val" style="font-size:18px">${fmt(inv)}</div></div>
-    <div class="kpi"><div class="kpi-lbl">Total Gastos</div><div class="kpi-val" style="font-size:18px;color:var(--red)">${fmt(gtotal)}</div></div>
+  <!-- KPIs row -->
+  <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:18px">
+    <div class="kpi" style="border-color:#c084fc22">
+      <div class="kpi-lbl">Total proyectos</div>
+      <div class="kpi-val" style="color:#c084fc">${np}</div>
+    </div>
+    <div class="kpi" style="border-color:#e8a02222">
+      <div class="kpi-lbl">En ejecución</div>
+      <div class="kpi-val" style="color:var(--accent)">${enEj}</div>
+    </div>
+    <div class="kpi" style="border-color:#e8404022">
+      <div class="kpi-lbl">Retrasados</div>
+      <div class="kpi-val" style="color:var(--red)">${ret}</div>
+    </div>
+    <div class="kpi" style="border-color:#2db87a22">
+      <div class="kpi-lbl">Finalizados</div>
+      <div class="kpi-val" style="color:var(--green)">${fin}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-lbl">Inv. Obra Civil</div>
+      <div class="kpi-val" style="font-size:15px">${fmt(inv)}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-lbl">Total gastos</div>
+      <div class="kpi-val" style="font-size:15px;color:var(--red)">${fmt(gtotal)}</div>
+    </div>
   </div>
-  <div style="font-size:12px;color:var(--muted);margin-bottom:8px">💡 Haz clic en cualquier proyecto para ver el detalle</div>
-  <div class="tbl-wrap"><table><thead><tr><th>Proyecto</th><th>Marca</th><th>Estado</th><th>Avance</th><th>Gastos</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+
+  <!-- Avance promedio banner -->
+  ${np>0?`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;gap:16px">
+    <div style="flex:1">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.6px">Avance promedio de todos los proyectos</div>
+      <div style="height:10px;background:var(--border);border-radius:5px;overflow:hidden">
+        <div style="height:100%;width:${avProm}%;background:linear-gradient(90deg,#1a5a8a,#e8a020);border-radius:5px;transition:width .6s"></div>
+      </div>
+    </div>
+    <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--accent)">${avProm}%</div>
+  </div>`:''}
+
+  <!-- Gráficos -->
+  <div style="display:grid;grid-template-columns:1fr 1.8fr;gap:14px;margin-bottom:18px">
+    <div class="card">
+      <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;margin-bottom:12px;color:var(--muted)">ESTADOS</div>
+      ${donaChart()}
+    </div>
+    <div class="card">
+      <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;margin-bottom:12px;color:var(--muted)">INVERSIÓN POR PROYECTO</div>
+      ${barChart()}
+    </div>
+  </div>
+
+  <!-- Tabla proyectos -->
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:var(--muted)">PROYECTOS <span style="color:var(--text)">(${np})</span></div>
+      <div style="font-size:11px;color:var(--muted)">Clic en fila para ver detalle</div>
+    </div>
+    <table style="border-radius:0">
+      <thead><tr>
+        <th>Proyecto</th><th>Estado</th><th>Avance</th>
+        <th style="text-align:right">Total (OC+Gastos)</th>
+        <th style="text-align:right">Gastos adl.</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
 }
 
 function renderProyectos(){
