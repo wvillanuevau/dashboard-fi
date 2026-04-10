@@ -2049,7 +2049,8 @@ function renderGastos(){
   const total=S.gastos.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
   let rows=S.gastos.length===0?`<tr><td colspan="7" class="empty">Sin gastos registrados</td></tr>`:'';
   [...S.gastos].reverse().forEach(g=>{
-    const pname=g.proyectoId?S.proyectos.find(x=>x.id===g.proyectoId)?.nombre||'—':'General';
+    const pname=g.proyectoId?S.proyectos.find(x=>x.id===g.proyectoId)?.nombre||'—':'—';
+    const ccname=g.centroId?S.centros.find(x=>x.id===g.centroId)?.nombre||'—':'—';
     const isImg=g.comprobante&&g.comprobante.startsWith('data:image');
     const isPDF=g.comprobante&&g.comprobante.startsWith('data:application/pdf');
     rows+=`<tr>
@@ -2063,13 +2064,14 @@ function renderGastos(){
       <td><strong style="color:var(--accent)">${fmt(g.valor)}</strong></td>
       <td class="hide-sm">${fmtDate(g.fecha)}</td>
       <td>${g.proyectoId
-        ?`<span class="badge b-blue" style="font-size:10px;max-width:90px;overflow:hidden;text-overflow:ellipsis;display:inline-block">${esc(pname.length>10?pname.substring(0,10)+'…':pname)}</span>`
-        :g.sumarAlProy===false&&g.centroId
-          ?`<span class="badge b-neu" style="font-size:10px">CC</span>`
-          :'<span style="color:#555;font-size:11px">—</span>'
+        ?`<div><span class="badge b-blue" style="font-size:10px">${esc(pname.length>12?pname.substring(0,11)+'…':pname)}</span>
+           ${g.sumarAlProy===false?'<div style="font-size:10px;color:#555;margin-top:2px">sin presupuesto</div>':''}</div>`
+        :g.centroId
+          ?`<span class="badge b-neu" style="font-size:10px" title="${esc(ccname)}">${esc(ccname.length>14?ccname.substring(0,13)+'…':ccname)}</span>`
+          :'<span style="color:#555;font-size:11px">General</span>'
       }</td>
-      <td style="text-align:center">${g.proyectoId||g.sumarAlProy===false
-        ?`<span style="font-size:15px">${g.sumarAlProy===false?'⬜':'✅'}</span>`
+      <td style="text-align:center">${(g.proyectoId||g.centroId)
+        ?`<span style="font-size:15px" title="${g.sumarAlProy===false?'No suma al proyecto':'Suma al proyecto'}">${g.sumarAlProy===false?'⬜':'✅'}</span>`
         :'<span style="color:#333">—</span>'
       }</td>
       <td style="text-align:center">${g.comprobante
@@ -2164,8 +2166,8 @@ function renderGastos(){
       <th class="hide-sm">Proveedor</th>
       <th style="min-width:70px">Valor</th>
       <th class="hide-sm">Fecha</th>
-      <th>Proyecto</th>
-      <th style="text-align:center">✓</th>
+      <th>Proyecto / Centro de Costo</th>
+      <th style="text-align:center" title="Suma al presupuesto del proyecto">Suma</th>
       <th style="text-align:center">📎</th>
       <th></th>
     </tr></thead>
