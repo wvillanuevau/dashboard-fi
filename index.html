@@ -84,6 +84,16 @@ window.FB={
   async delComprobante(empresaId,refId){
     try{await _fbDb.collection('comprobantes').doc(`${empresaId}_${refId}`).delete();}catch(e){}
   },
+  async deleteUserDoc(uid){
+    try{await _fbDb.collection('usuariosApp').doc(uid).delete();return{ok:true};}catch(e){return{ok:false,err:e.message};}
+  },
+  async deleteEmpresaDoc(id){
+    try{
+      await _fbDb.collection('_empresas').doc(id).delete();
+      await _fbDb.collection('empresas').doc(id).delete();
+      return{ok:true};
+    }catch(e){return{ok:false,err:e.message};}
+  },
 
   // SA: obtener todos los usuarios
   async getAllUsuarios(){
@@ -169,6 +179,12 @@ body{font-family:'Karla',sans-serif;background:var(--bg);color:var(--text);font-
 .sb-logo-text{font-family:'Syne',sans-serif;font-size:15px;font-weight:800;color:var(--accent);line-height:1.2}
 .sb-logo-sub{font-size:11px;color:var(--muted);margin-top:2px}
 .sb-sec{padding:14px 16px 4px;font-size:10px;text-transform:uppercase;letter-spacing:1.2px;color:#555;font-weight:700}
+.sb-grupo-hdr{display:flex;align-items:center;gap:10px;padding:10px 14px;margin:4px 6px 2px;cursor:pointer;border-radius:10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#666;transition:all .15s;user-select:none}
+.sb-grupo-hdr:hover{background:var(--surface2);color:#999}
+.sb-grupo-ic{font-size:15px;flex-shrink:0}
+.sb-grupo-arrow{margin-left:auto;font-size:10px;transition:transform .2s;color:#444}
+.sb-grupo-arrow.open{transform:rotate(90deg);color:#888}
+.sb-grupo-items{overflow:hidden;transition:max-height .25s ease}
 /* Nav items con iconos grandes y vistosos */
 .nav-item{display:flex;align-items:center;gap:12px;padding:11px 14px;margin:2px 8px;cursor:pointer;border-radius:10px;font-size:var(--fs-sm);color:#a8a39c;transition:all .15s;font-weight:500}
 .nav-item:hover{background:var(--surface2);color:var(--text);transform:translateX(2px)}
@@ -612,8 +628,8 @@ input[type=date]{color-scheme:dark}
 //  DEFINICIÓN DE ROLES Y PERMISOS
 // ═══════════════════════════════════════════════════════
 const ROLES={
-  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','usuarios','config','log']},
-  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','log']},
+  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','cotizaciones','inventario','bodegas','usuarios','config','log']},
+  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','cotizaciones','inventario','bodegas','log']},
   empleado:{label:'Empleado',color:'b-ok',modulos:[]}, // permisos individuales
   viewer:{label:'Viewer',color:'b-neu',modulos:['dashboard','proyectos']},
   cliente:{label:'Cliente',color:'b-purple',modulos:['proyectos']}, // solo general, planificacion, cronograma
@@ -630,10 +646,24 @@ const MODULOS=[
   {id:'proveedores',label:'Proveedores',ic:'🤝'},
   {id:'centros',label:'Centros de Costo',ic:'📁'},
   {id:'reportes',label:'Reportes',ic:'📈'},
+  {id:'cotizaciones',label:'Comparar Cotizaciones',ic:'📑'},
+  {id:'inventario',label:'Inventario',ic:'📦'},
+  {id:'bodegas',label:'Bodegas',ic:'🏭'},
   {id:'log',label:'Actividad',ic:'🕐'},
   {id:'usuarios',label:'Usuarios',ic:'👥'},
   {id:'config',label:'Configuración',ic:'⚙'},
 ];
+
+// Grupos del sidebar colapsibles
+const SB_GRUPOS=[
+  {id:'proyectos_grp',label:'Proyectos',ic:'🏗',items:['dashboard','proyectos']},
+  {id:'empresa_grp',label:'Gestión de Empresa',ic:'🏢',items:['gastos','inventario','cotizaciones','proveedores','centros','bodegas','reportes']},
+  {id:'config_grp',label:'Configuración General',ic:'⚙',items:['log','usuarios','config']},
+];
+// Estado de grupos colapsados (persistir en sessionStorage)
+function getSBCollapsed(){try{return JSON.parse(sessionStorage.getItem('sb_collapsed')||'{}');}catch(e){return{};}}
+function setSBCollapsed(id,v){const c=getSBCollapsed();c[id]=v;sessionStorage.setItem('sb_collapsed',JSON.stringify(c));}
+function toggleSBGrupo(id){const c=getSBCollapsed();setSBCollapsed(id,!c[id]);render();}
 
 function puedeVer(modulo){
   if(!S.currentUser)return false;
@@ -678,16 +708,18 @@ function toggleSB(){const s=document.getElementById('sidebar'),o=document.getEle
 function closeSB(){document.getElementById('sidebar').classList.remove('open');document.getElementById('overlay').classList.remove('on');const b=document.getElementById('hmbBtn');if(b)b.textContent='☰'}
 function badgeEst(e){const m={'Sin iniciar':'b-neu','En ejecución':'b-warn','Retrasado':'b-err','Finalizado':'b-ok'};return`<span class="badge ${m[e]||'b-neu'}">${e}</span>`}
 function setSyncUI(state,txt){const dot=document.getElementById('syncDot'),stxt=document.getElementById('syncTxt');if(dot)dot.className='sync-dot '+state;if(stxt)stxt.textContent=txt}
-function logAction(accion,modulo,detalle){if(S.currentUser&&S.empresa){window.FB.log(S.empresa,S.currentUser.email,accion,modulo,detalle)}}
+// logAction definida en módulo Log
 
 // ═══════════════════════════════════════════════════════
 //  SYNC
 // ═══════════════════════════════════════════════════════
-function serializeState(){return{_v:3,_ts:Date.now(),proyectos:S.proyectos,gastos:S.gastos,proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios,config:S.config}}
+function serializeState(){return{_v:3,_ts:Date.now(),proyectos:S.proyectos,gastos:S.gastos,proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios,config:S.config,inventario:S.inventario||{bodegas:[],productos:[],movimientos:[]},cotizaciones:S.cotizaciones||{comparaciones:[]}}}
 function applyData(d,fromRemote=false){
   S.proyectos=d.proyectos||[];S.gastos=d.gastos||[];S.proveedores=d.proveedores||[];S.centros=d.centros||[];
   S.marcas=d.marcas||['Papa Johns','Jimmy Johns'];S.usuarios=d.usuarios||[];
   S.config=d.config||{appName:'Proyectos Pro',logoUrl:'',accentColor:'#e8a020'};
+  S.inventario=d.inventario||{bodegas:[],productos:[],movimientos:[]};
+  S.cotizaciones=d.cotizaciones||{comparaciones:[]};
   migrateData();applyBranding();
 }
 function migrateData(){
@@ -711,6 +743,8 @@ function migrateData(){
   });
   S.gastos.forEach(g=>{if(!('proyectoId' in g))g.proyectoId=null;if(!('centroId' in g))g.centroId=null;if(!('sumarAlProy' in g))g.sumarAlProy=true;});
   S.centros.forEach(c=>{if(!('auto' in c))c.auto=false;});
+  if(!S.inventario)S.inventario={bodegas:[],productos:[],movimientos:[]};
+  if(!S.cotizaciones)S.cotizaciones={comparaciones:[]};
 }
 async function loadData(){
   setSyncUI('saving','Cargando...');
@@ -1028,6 +1062,7 @@ async function renderSAEmpresas(){
       <td class="td-act">
         <button class="btn btn-secondary btn-xs" onclick="abrirModalEmpresa('${e.id}')">✏ Editar</button>
         <button class="btn ${e.activa!==false?'btn-danger':'btn-success'} btn-xs" onclick="toggleEmpresa('${e.id}',${e.activa!==false})">${e.activa!==false?'Suspender':'Activar'}</button>
+        <button class="btn btn-danger btn-xs" onclick="eliminarEmpresaSA('${e.id}')" title="Eliminar permanente">🗑</button>
       </td>
     </tr>`;
   });
@@ -1242,6 +1277,7 @@ async function renderSAUsuarios(){
         <td class="td-act">
           <button class="btn btn-secondary btn-xs" onclick="editarUsuarioSA('${u.id}')">✏</button>
           <button class="btn ${u.activo!==false?'btn-danger':'btn-success'} btn-xs" onclick="toggleUsuarioSA('${u.id}',${u.activo!==false})">${u.activo!==false?'⊘':'✓'}</button>
+          <button class="btn btn-danger btn-xs" onclick="eliminarUsuarioSA('${u.id}','${esc(u.email)}')" title="Eliminar permanente">🗑</button>
         </td>
       </tr>`;
     }).join('');
@@ -1384,6 +1420,30 @@ async function guardarUsuarioSA(uid){
     document.getElementById('editUModal')?.remove();
     renderSAUsuarios();
   } else toast('Error: '+res.err,true);
+}
+
+async function eliminarUsuarioSA(uid,email){
+  if(!confirm(`¿ELIMINAR PERMANENTEMENTE el usuario:\n${email}\n\nEsta acción NO se puede deshacer.\nSe eliminará el acceso y el perfil del usuario.`))return;
+  const r=await window.FB.deleteUserDoc(uid);
+  if(r.ok){
+    toast('✓ Usuario eliminado: '+email);
+    await window.FB.logSA('ELIMINAR_USUARIO',`${email} eliminado permanentemente`);
+    renderSAUsuarios();
+  } else {
+    // El doc de Firestore puede fallar si ya fue borrado — intentar continuar
+    toast('⚠ Perfil eliminado. Para revocar acceso de Firebase Auth, elimínalo desde la consola de Firebase.',true);
+    renderSAUsuarios();
+  }
+}
+
+async function eliminarEmpresaSA(id){
+  if(!confirm(`¿ELIMINAR PERMANENTEMENTE la empresa:\n${id}\n\n⚠ ADVERTENCIA: Se eliminarán los registros de _empresas y empresas.\nLos usuarios de esta empresa quedarán sin acceso.\nEsta acción NO se puede deshacer.`))return;
+  const r=await window.FB.deleteEmpresaDoc(id);
+  if(r.ok){
+    toast('✓ Empresa eliminada: '+id);
+    await window.FB.logSA('ELIMINAR_EMPRESA',`Empresa ${id} eliminada permanentemente`);
+    renderSAEmpresas();
+  } else toast('Error: '+r.err,true);
 }
 
 async function toggleUsuarioSA(uid,activo){
@@ -1834,7 +1894,9 @@ function tplCron(p){
               </div>
             </div>
           </div>
-          <button class="btn btn-danger btn-sm" onclick="reabrirOferta('${p.id}')">🔓 Reabrir oferta</button>
+          ${S.currentUser?.rol==='admin'
+            ?`<button class="btn btn-danger btn-sm" onclick="reabrirOferta('${p.id}')">🔓 Reabrir oferta</button>`
+            :`<span style="font-size:11px;color:#555;padding:4px 8px;background:var(--surface);border-radius:6px;border:1px solid var(--border)">🔒 Solo admin puede reabrir</span>`}
           <button class="btn btn-secondary btn-sm" onclick="imprimirCronograma('${p.id}')">🖨 Imprimir contrato</button>`
         :`<div style="flex:1">
             ${isAc
@@ -1970,8 +2032,8 @@ function tplCron(p){
             :`<span style="color:${textColor}">${sub.cantidad||0}</span>`}
         </td>
         <td>
-          ${(!isCerrado||esContratista)
-            ?`<input type="number" min="0" step="0.01" value="${sub.precio||0}" style="text-align:right;${esContratista?'border-color:var(--blue)':''}" onchange="updSubCalc('${p.id}',${mi},${si},'precio',parseFloat(this.value)||0)">`
+          ${(!isCerrado||esContratista||S.currentUser?.rol==='admin')
+            ?`<input type="number" min="0" step="0.01" value="${sub.precio||0}" style="text-align:right;${esContratista?'border-color:var(--blue)':isCerrado&&S.currentUser?.rol==='admin'?'border-color:var(--red)':''}" onchange="updSubCalcAdmin('${p.id}',${mi},${si},'precio',parseFloat(this.value)||0)">`
             :`<span style="color:${textColor}">$${parseFloat(sub.precio||0).toFixed(2)}</span>`}
         </td>
         <td>
@@ -2010,20 +2072,31 @@ function tplCron(p){
 
 function cerrarOferta(pid){
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
-  if(!confirm('¿Confirmas que la oferta ha sido aceptada por el cliente?\n\nEsto bloqueará la edición de partidas y subpartidas.\nSolo podrás modificar días y marcar actividades como realizadas.'))return;
+  // Calcular total del cronograma
+  const totalCron=p.cronograma.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0),0);
+  if(!confirm(`¿Confirmas que la oferta ha sido aceptada por el cliente?\n\nPresupuesto total: $${totalCron.toLocaleString('en-US',{minimumFractionDigits:2})}\n\nEsto bloqueará la edición del cronograma y actualizará automáticamente el Monto de Obra Civil.\nSolo el administrador podrá reabrir la oferta.`))return;
   p.cronograma.cerrado=true;
   p.cronograma.aceptado=true;
   p.cronograma.fechaCierre=new Date().toISOString();
+  // Sincronizar monto OC con el total del cronograma
+  p.montoObraCivil=totalCron;
+  p.cronograma.totalAlCierre=totalCron; // guardar referencia
   saveData();reloadTab('cron',pid);
-  toast('🔒 Oferta cerrada — seguimiento activo');
-  logAction('EDITAR','proyectos','Oferta aceptada y cronograma cerrado');
+  toast('🔒 Oferta cerrada — OC actualizado a '+fmt(totalCron));
+  logAction('EDITAR','proyectos',`Oferta aceptada. OC: $${totalCron.toFixed(2)}`);
 }
 
 function reabrirOferta(pid){
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
-  if(!confirm('¿Reabrir la oferta?\n\nEsto permitirá editar partidas y subpartidas nuevamente.\nSe perderá el estado de cierre.'))return;
+  // Solo Admin puede reabrir
+  if(S.currentUser?.rol!=='admin'){
+    toast('Solo el administrador puede reabrir una oferta cerrada',true);return;
+  }
+  if(!confirm('¿Reabrir la oferta?\n\nEsto permitirá editar el cronograma nuevamente.\nEl Monto de Obra Civil se recalculará al cerrar nuevamente.\n⚠ Esta acción queda registrada.'))return;
   p.cronograma.cerrado=false;
-  saveData();reloadTab('cron',pid);toast('🔓 Oferta reabierta');
+  saveData();reloadTab('cron',pid);
+  toast('🔓 Oferta reabierta — en edición');
+  logAction('EDITAR','proyectos',`Oferta reabierta por administrador`);
 }
 
 function marcarSubhecha(pid,mi,si,val){
@@ -2132,7 +2205,22 @@ function updSubCalc(pid,mi,si,campo,val){
   if(!p?.cronograma.partidas[mi]?.sub[si])return;
   p.cronograma.partidas[mi].sub[si][campo]=val;
   saveData();
-  reloadTab('cron',pid); // refrescar para ver totales actualizados
+  reloadTab('cron',pid);
+}
+
+// Versión admin: al modificar precio con oferta cerrada, recalcula montoObraCivil
+function updSubCalcAdmin(pid,mi,si,campo,val){
+  const p=S.proyectos.find(x=>x.id===pid);
+  if(!p?.cronograma.partidas[mi]?.sub[si])return;
+  p.cronograma.partidas[mi].sub[si][campo]=val;
+  // Recalcular OC solo si la oferta está cerrada y el campo es precio
+  if(p.cronograma.cerrado&&campo==='precio'){
+    const nuevoTotal=p.cronograma.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0),0);
+    p.montoObraCivil=nuevoTotal;
+    logAction('EDITAR','proyectos',`Precio modificado post-cierre. Nuevo OC: $${nuevoTotal.toFixed(2)}`);
+  }
+  saveData();
+  reloadTab('cron',pid);
 }
 
 function delPartida(pid,mi){const p=S.proyectos.find(x=>x.id===pid);if(!p)return;if(!confirm('¿Eliminar partida?'))return;p.cronograma.partidas.splice(mi,1);saveData();reloadTab('cron',pid)}
@@ -3531,20 +3619,27 @@ function tplPagosYGastos(p){
     <div class="kpi" style="border-color:var(--accent)"><div class="kpi-lbl">Total proyecto</div><div class="kpi-val" style="font-size:18px;color:var(--accent)">${fmt(oc+imp+gp)}</div></div>
   </div>
 
-  <!-- MONTO OC PRIMERO con botón confirmar -->
-  <div class="card" style="margin-bottom:16px;border-color:#2a3a1a">
+  <!-- MONTO OC — automático si cronograma cerrado, manual si no -->
+  <div class="card" style="margin-bottom:16px;border-color:${p.cronograma&&p.cronograma.cerrado?'#1a3a1a':'#2a3a1a'}">
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:10px">💰 Monto de Obra Civil</div>
-    <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
-      <div style="flex:1;min-width:150px">
-        <input type="number" min="0" id="ocInput_${p.id}" value="${oc}" placeholder="0.00"
-          style="font-size:18px;font-weight:700;color:var(--accent)"
-          onkeydown="if(event.key==='Enter')confirmarOC('${p.id}')">
-      </div>
-      <button class="btn btn-primary" onclick="confirmarOC('${p.id}')">✓ Confirmar monto</button>
-    </div>
-    <div style="font-size:12px;color:var(--muted);margin-top:8px">${oc>0
-      ?`Los tramos se calculan sobre: <strong style="color:var(--accent)">${fmt(oc)}</strong>`
-      :'⚠ Ingresa el monto y presiona Confirmar para calcular los tramos.'}</div>
+    ${p.cronograma&&p.cronograma.cerrado
+      ?`<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+          <div style="font-family:'Syne',sans-serif;font-size:32px;font-weight:800;color:var(--accent)">${fmt(oc)}</div>
+          <div>
+            <div style="font-size:12px;color:var(--green);font-weight:600">✓ Calculado del cronograma aceptado</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:3px">Se actualiza automáticamente al cerrar el cronograma.</div>
+            <div style="font-size:11px;color:#555;margin-top:2px">Para modificar: el administrador debe reabrir el cronograma.</div>
+          </div>
+        </div>`
+      :`<div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:150px">
+            <input type="number" min="0" id="ocInput_${p.id}" value="${oc}" placeholder="0.00"
+              style="font-size:18px;font-weight:700;color:var(--accent)"
+              onkeydown="if(event.key==='Enter')confirmarOC('${p.id}')">
+          </div>
+          <button class="btn btn-primary" onclick="confirmarOC('${p.id}')">✓ Confirmar monto</button>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:8px">💡 Al cerrar la oferta en <strong>Cronograma y Presupuesto</strong>, el monto se actualizará automáticamente.</div>`}
   </div>
 
   <!-- TRAMOS + IMPREVISTOS unificados -->
@@ -3911,8 +4006,11 @@ function renderReportes(){
           <option value="gastos_proveedor">Gastos por proveedor</option>
           <option value="gastos_proyecto">Gastos por proyecto</option>
           <option value="avance_proyectos">Avance de proyectos</option>
+          <option value="avance_partidas">Avance por partida (detalle)</option>
           <option value="resumen_financiero">Resumen financiero</option>
           <option value="cronograma_vs_real">Cronograma vs Real</option>
+          <option value="inventario_stock">Inventario — Stock actual</option>
+          <option value="inventario_movimientos">Inventario — Movimientos</option>
         </select>
       </div>
       <div class="fg"><label>Desde</label><input type="date" id="rpDesde" onchange="renderReporteOutput()"></div>
@@ -4029,6 +4127,135 @@ function renderReporteOutput(){
     html=`<div class="sec-hdr">Cronograma vs Avance real</div><div class="tbl-wrap"><table><thead><tr><th>Proyecto</th><th>Aceptado</th><th>Duración</th><th>Inicio</th><th>Avance físico</th><th>Subpartidas completadas</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
+  else if(tipo==='avance_partidas'){
+    // Detalle de avance por partida y subpartida
+    const filtrados=proyId?S.proyectos.filter(p=>p.id===proyId):S.proyectos;
+    let bloque='';
+    filtrados.forEach(p=>{
+      if(!p.cronograma?.partidas?.length)return;
+      const grand=p.cronograma.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0),0);
+      const subTot=p.cronograma.partidas.reduce((s,m)=>s+m.sub.length,0);
+      const subHech=p.cronograma.partidas.reduce((s,m)=>s+m.sub.filter(x=>x.done).length,0);
+      const pctProy=subTot>0?Math.round((subHech/subTot)*100):0;
+      bloque+=`<div style="margin-bottom:24px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;padding:10px 14px;background:var(--surface2);border-radius:10px">
+          <div style="flex:1"><div style="font-family:'Syne',sans-serif;font-weight:700;font-size:15px">${esc(p.nombre)}</div>
+            <div style="font-size:11px;color:var(--muted)">${esc(p.marca)} · ${esc(p.ubicacion||'')}</div></div>
+          <div style="text-align:right">
+            <div style="font-size:13px;font-weight:700;color:var(--accent)">${fmt(grand)}</div>
+            <div style="font-size:11px;color:var(--muted)">${pctProy}% completado</div>
+          </div>
+          <div style="width:80px;height:8px;background:var(--border);border-radius:4px;overflow:hidden">
+            <div style="height:100%;width:${pctProy}%;background:var(--green)"></div>
+          </div>
+        </div>
+        <div class="tbl-wrap"><table style="table-layout:auto">
+          <thead><tr>
+            <th>Partida / Subpartida</th><th>Unidad</th>
+            <th style="text-align:right">Cant.</th><th style="text-align:right">P.Unit.</th>
+            <th style="text-align:right">Total</th><th style="text-align:center">Estado</th><th>Fecha inicio</th>
+          </tr></thead><tbody>`;
+      p.cronograma.partidas.forEach((m,mi)=>{
+        const tp=m.sub.reduce((s,x)=>s+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0);
+        const dp=m.sub.reduce((s,x)=>s+(parseInt(x.dias)||0),0);
+        const doneM=m.sub.filter(x=>x.done).length;
+        const pctM=m.sub.length>0?Math.round((doneM/m.sub.length)*100):0;
+        bloque+=`<tr style="background:#0d0b09">
+          <td colspan="4" style="font-weight:700;padding:8px 12px">${mi+1}. ${esc(m.nombre)}
+            <span style="font-size:11px;color:var(--muted);font-weight:400;margin-left:8px">${dp} días</span>
+          </td>
+          <td style="text-align:right;font-weight:700">${fmt(tp)}</td>
+          <td style="text-align:center">
+            <div style="font-size:11px">${doneM}/${m.sub.length}</div>
+            <div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:2px;min-width:50px">
+              <div style="height:100%;width:${pctM}%;background:var(--green)"></div>
+            </div>
+          </td>
+          <td style="font-size:11px;color:var(--muted)">${m.fechaInicio?fmtDate(m.fechaInicio):'—'}</td>
+        </tr>`;
+        m.sub.forEach((sub,si)=>{
+          const t=(parseFloat(sub.cantidad)||0)*(parseFloat(sub.precio)||0);
+          bloque+=`<tr style="background:${sub.done?'#0a140a':'#111009'}">
+            <td style="padding-left:24px;font-size:13px">
+              ${sub.done?'<span style="color:var(--green)">✅</span>':'<span style="color:#333">⬜</span>'}
+              <span style="color:${sub.done?'#558855':'var(--text)'};margin-left:6px">${esc(sub.desc||'—')}</span>
+            </td>
+            <td style="font-size:12px;color:var(--muted)">${esc(sub.unidad||'—')}</td>
+            <td style="text-align:right;font-size:12px">${sub.cantidad||0}</td>
+            <td style="text-align:right;font-size:12px">$${parseFloat(sub.precio||0).toFixed(2)}</td>
+            <td style="text-align:right;font-weight:600;color:${t>0?'var(--accent)':'var(--muted)'}">${fmt(t)}</td>
+            <td style="text-align:center"><span class="badge ${sub.done?'b-ok':'b-neu'}" style="font-size:10px">${sub.done?'Hecho':'Pendiente'}</span></td>
+            <td style="font-size:11px;color:var(--muted)">${sub.fechaInicio?fmtDate(sub.fechaInicio):'—'}</td>
+          </tr>`;
+        });
+      });
+      bloque+=`</tbody></table></div></div>`;
+    });
+    html=`<div class="sec-hdr">Avance detallado por partida</div>${bloque||'<div class="empty">Sin proyectos con cronograma</div>'}`;
+  }
+
+  else if(tipo==='inventario_stock'){
+    const prods=S.inventario?.productos||[];
+    const bodegas=S.inventario?.bodegas||[];
+    const filtProd=proyId?prods.filter(p=>p.bodegaId===proyId):prods; // aquí proyId = bodega
+    const rows=filtProd.map(p=>{
+      const bod=bodegas.find(b=>b.id===p.bodegaId);
+      const bajo=p.minimo&&parseFloat(p.cantidad)<parseFloat(p.minimo);
+      return`<tr>
+        <td><strong>${esc(p.nombre)}</strong>${p.numActivo?`<div style="font-size:10px;color:var(--muted)">Activo: ${esc(p.numActivo)}</div>`:''}</td>
+        <td>${esc(p.categoria||'—')}</td>
+        <td>${esc(bod?.nombre||'Sin bodega')}</td>
+        <td style="text-align:right;color:${bajo?'var(--red)':p.cantidad<=0?'#555':'var(--text)'}">
+          <strong>${p.cantidad||0}</strong> ${esc(p.unidad||'')}
+          ${bajo?'<div style="font-size:10px;color:var(--red)">⚠ bajo mínimo</div>':''}
+        </td>
+        <td><span class="badge ${p.estado==='Disponible'?'b-ok':p.estado==='Bajo stock'?'b-warn':'b-err'}">${p.estado||'—'}</span></td>
+      </tr>`;
+    }).join('')||`<tr><td colspan="5" class="empty">Sin productos</td></tr>`;
+    const low=filtProd.filter(p=>p.minimo&&parseFloat(p.cantidad)<parseFloat(p.minimo)).length;
+    html=`<div class="kpi-grid" style="margin-bottom:14px">
+      <div class="kpi"><div class="kpi-lbl">Productos</div><div class="kpi-val">${filtProd.length}</div></div>
+      <div class="kpi"><div class="kpi-lbl">Bajo mínimo</div><div class="kpi-val" style="color:${low?'var(--red)':'var(--green)'}">${low}</div></div>
+    </div>
+    <div class="sec-hdr">Stock actual por producto</div>
+    <div class="tbl-wrap"><table style="table-layout:auto"><thead><tr><th>Producto</th><th>Categoría</th><th>Bodega</th><th style="text-align:right">Stock</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  else if(tipo==='inventario_movimientos'){
+    const movs=[...(S.inventario?.movimientos||[])].reverse();
+    const prods=S.inventario?.productos||[];
+    const bodegas=S.inventario?.bodegas||[];
+    const movFilt=movs.filter(m=>{
+      if(desde&&m.fecha<desde)return false;
+      if(hasta&&m.fecha>hasta)return false;
+      return true;
+    });
+    const entradas=movFilt.filter(m=>m.tipo==='entrada').reduce((s,m)=>s+m.cantidad,0);
+    const salidas=movFilt.filter(m=>m.tipo==='salida').reduce((s,m)=>s+m.cantidad,0);
+    const rows=movFilt.map(m=>{
+      const prod=prods.find(p=>p.id===m.prodId);
+      const bod=bodegas.find(b=>b.id===m.bodegaId);
+      const prov=m.proveedorId?S.proveedores.find(p=>p.id===m.proveedorId):null;
+      const cc=m.centroId?S.centros.find(c=>c.id===m.centroId):null;
+      return`<tr>
+        <td>${fmtDate(m.fecha)}</td>
+        <td><span class="badge ${m.tipo==='entrada'?'b-ok':'b-err'}">${m.tipo==='entrada'?'↑ Entrada':'↓ Salida'}</span></td>
+        <td><strong>${esc(prod?.nombre||'—')}</strong>${prod?.numActivo?`<div style="font-size:10px;color:var(--muted)">Activo: ${esc(prod.numActivo)}</div>`:''}</td>
+        <td>${esc(bod?.nombre||'—')}</td>
+        <td style="text-align:right;font-weight:600">${m.cantidad} ${esc(prod?.unidad||'')}</td>
+        <td>${prov?`<span class="badge b-blue" style="font-size:10px">🤝 ${esc(prov.nombre)}</span>`:cc?`<span class="badge b-neu" style="font-size:10px">📁 ${esc(cc.nombre)}</span>`:'—'}</td>
+        <td style="font-size:11px;color:var(--muted)">${esc(m.nota||'—')}</td>
+      </tr>`;
+    }).join('')||`<tr><td colspan="7" class="empty">Sin movimientos en el período</td></tr>`;
+    html=`<div class="kpi-grid" style="margin-bottom:14px">
+      <div class="kpi"><div class="kpi-lbl">Movimientos</div><div class="kpi-val">${movFilt.length}</div></div>
+      <div class="kpi"><div class="kpi-lbl">Entradas</div><div class="kpi-val" style="color:var(--green)">${entradas}</div></div>
+      <div class="kpi"><div class="kpi-lbl">Salidas</div><div class="kpi-val" style="color:var(--red)">${salidas}</div></div>
+    </div>
+    <div class="sec-hdr">Movimientos de inventario</div>
+    <div class="tbl-wrap"><table style="table-layout:auto"><thead><tr><th>Fecha</th><th>Tipo</th><th>Producto</th><th>Bodega</th><th style="text-align:right">Cantidad</th><th>Origen/Destino</th><th>Nota</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
   out.innerHTML=html||`<div class="empty">Sin datos para mostrar con los filtros seleccionados</div>`;
 }
 
@@ -4050,48 +4277,63 @@ function exportarReportePDF(){
 }
 
 // ═══════════════════════════════════════════════════════
-//  MÓDULO LOG DE ACTIVIDAD
+//  MÓDULO LOG DE ACTIVIDAD (local en memoria)
 // ═══════════════════════════════════════════════════════
-async function renderLog(){
-  document.getElementById('content').innerHTML=`<div class="empty">Cargando actividad...</div>`;
-  const logs=await window.FB.getLogs(S.empresa,100);
+// Log local — evita dependencia de índice Firestore
+if(!window._localLog)window._localLog=[];
+const _MAX_LOG=200;
+function logAction(accion,modulo,detalle){
+  if(!S.currentUser)return;
+  window._localLog.unshift({accion,modulo,detalle:detalle||'',usuario:S.currentUser.email,ts:Date.now()});
+  if(window._localLog.length>_MAX_LOG)window._localLog.length=_MAX_LOG;
+  // Intentar también en Firestore pero sin bloquear
+  if(S.empresa)window.FB.log(S.empresa,S.currentUser.email,accion,modulo,detalle).catch(()=>{});
+}
+
+function renderLog(){
+  const logs=window._localLog||[];
   const iconos={LOGIN:'🔑',LOGOUT:'🚪',CREAR:'➕',EDITAR:'✏',ELIMINAR:'🗑',default:'📋'};
   const colores={LOGIN:'b-ok',LOGOUT:'b-neu',CREAR:'b-blue',EDITAR:'b-warn',ELIMINAR:'b-err',default:'b-neu'};
+  const usuarios=[...new Set(logs.map(l=>l.usuario))];
+  const mods=[...new Set(logs.map(l=>l.modulo))];
 
-  let html=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-    <div style="font-size:13px;color:var(--muted)">${logs.length} registros — últimos 100</div>
-    <div style="display:flex;gap:8px">
-      <select id="logFiltroMod" onchange="filtrarLog()" style="width:160px"><option value="">Todos los módulos</option>${MODULOS.map(m=>`<option value="${m.id}">${m.label}</option>`).join('')}</select>
-      <select id="logFiltroUser" onchange="filtrarLog()" style="width:200px"><option value="">Todos los usuarios</option>${[...new Set(logs.map(l=>l.usuario))].map(u=>`<option value="${u}">${esc(u)}</option>`).join('')}</select>
+  let logHtml=logs.length===0?`<div class="empty">Sin actividad en esta sesión</div>`:'';
+  logs.forEach(l=>{
+    const ic=iconos[l.accion]||iconos.default;
+    const col=colores[l.accion]||colores.default;
+    logHtml+=`<div class="log-entry" data-mod="${l.modulo}" data-user="${l.usuario}">
+      <div class="log-icon" style="background:var(--surface2)">${ic}</div>
+      <div class="log-body">
+        <div class="log-action"><span class="badge ${col}" style="margin-right:6px">${l.accion}</span><strong>${esc(l.modulo)}</strong>${l.detalle?' — '+esc(l.detalle):''}</div>
+        <div class="log-meta">👤 ${esc(l.usuario)} · 🕐 ${fmtTs(l.ts)}</div>
+      </div>
+    </div>`;
+  });
+
+  document.getElementById('content').innerHTML=`
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+    <div style="font-size:13px;color:var(--muted)">${logs.length} registros en esta sesión</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <select id="logFiltroMod" onchange="filtrarLog()" style="min-width:150px">
+        <option value="">Todos los módulos</option>
+        ${mods.map(m=>`<option value="${m}">${esc(m)}</option>`).join('')}
+      </select>
+      <select id="logFiltroUser" onchange="filtrarLog()" style="min-width:180px">
+        <option value="">Todos los usuarios</option>
+        ${usuarios.map(u=>`<option value="${u}">${esc(u)}</option>`).join('')}
+      </select>
     </div>
   </div>
-  <div id="logList">`;
-
-  if(logs.length===0){html+=`<div class="empty">Sin actividad registrada</div>`}
-  else{
-    logs.forEach(l=>{
-      const ic=iconos[l.accion]||iconos.default;
-      const col=colores[l.accion]||colores.default;
-      html+=`<div class="log-entry" data-mod="${l.modulo}" data-user="${l.usuario}">
-        <div class="log-icon" style="background:var(--surface2)">${ic}</div>
-        <div class="log-body">
-          <div class="log-action"><span class="badge ${col}" style="margin-right:6px">${l.accion||'ACCIÓN'}</span>${esc(l.modulo||'')} ${l.detalle?'— '+esc(l.detalle):''}</div>
-          <div class="log-meta">👤 ${esc(l.usuario)} · 🕐 ${fmtTs(l.ts)}</div>
-        </div>
-      </div>`;
-    });
-  }
-  html+=`</div>`;
-  document.getElementById('content').innerHTML=html;
+  <div id="logList">${logHtml}</div>`;
 }
 
 function filtrarLog(){
   const mod=document.getElementById('logFiltroMod')?.value;
   const user=document.getElementById('logFiltroUser')?.value;
   document.querySelectorAll('.log-entry').forEach(el=>{
-    const matchMod=!mod||el.dataset.mod===mod;
-    const matchUser=!user||el.dataset.user===user;
-    el.style.display=matchMod&&matchUser?'flex':'none';
+    const mm=!mod||el.dataset.mod===mod;
+    const mu=!user||el.dataset.user===user;
+    el.style.display=mm&&mu?'flex':'none';
   });
 }
 
@@ -4240,6 +4482,613 @@ function renderConfig(){
 function handleLogoUpload(input){const file=input.files[0];if(!file)return;if(file.size>500000){toast('Logo muy grande — máx 500KB',true);return}const reader=new FileReader();reader.onload=e=>{S.config.logoUrl=e.target.result;saveData();applyBranding();render();toast('✓ Logo actualizado')};reader.readAsDataURL(file)}
 function addMarca(){const n=document.getElementById('nmarca')?.value.trim();if(!n||S.marcas.includes(n))return;S.marcas.push(n);saveData();render();toast('✓ Marca agregada')}
 
+
+// ═══════════════════════════════════════════════════════
+//  INVENTARIO
+// ═══════════════════════════════════════════════════════
+function renderInventario(){
+  const inv=S.inventario||{bodegas:[],productos:[],movimientos:[]};
+  const bodegas=inv.bodegas||[];
+  const prods=inv.productos||[];
+  const movs=inv.movimientos||[];
+  const selBodega=S._invBodega||'todas';
+  const selTab=S._invTab||'productos';
+
+  const totalProds=prods.length;
+  const totalItems=prods.reduce((s,p)=>s+(parseFloat(p.cantidad)||0),0);
+  const bajo=prods.filter(p=>p.minimo&&parseFloat(p.cantidad)<parseFloat(p.minimo)).length;
+  const prodsFilt=selBodega==='todas'?prods:prods.filter(p=>p.bodegaId===selBodega);
+  const bodOpts=bodegas.map(b=>`<option value="${b.id}" ${selBodega===b.id?'selected':''}>${esc(b.nombre)}</option>`).join('');
+
+  let prodRows=prodsFilt.length===0?`<tr><td colspan="8" class="empty">Sin productos${selBodega!=='todas'?' en esta bodega':''}</td></tr>`:'';
+  prodsFilt.forEach(p=>{
+    const bodNombre=bodegas.find(b=>b.id===p.bodegaId)?.nombre||'Sin bodega';
+    const esBajo=p.minimo&&parseFloat(p.cantidad)<parseFloat(p.minimo);
+    prodRows+=`<tr>
+      <td>
+        <div style="display:flex;align-items:center;gap:10px">
+          ${p.foto?`<img src="${p.foto}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;flex-shrink:0;cursor:pointer" onclick="verImagen('${p.foto}','${esc(p.nombre)}')">`:'<div style="width:36px;height:36px;background:var(--surface2);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📦</div>'}
+          <div>
+            <div style="font-weight:600">${esc(p.nombre)}</div>
+            <div style="font-size:11px;color:var(--muted)">${esc(p.categoria||'—')}${p.numActivo?` · Activo: <strong>${esc(p.numActivo)}</strong>`:''}</div>
+          </div>
+        </div>
+      </td>
+      <td class="hide-sm">${esc(bodNombre)}</td>
+      <td style="text-align:right">
+        <strong style="color:${esBajo?'var(--red)':p.cantidad<=0?'#555':'var(--text)'}">${p.cantidad||0}</strong>
+        <span style="font-size:11px;color:var(--muted)"> ${esc(p.unidad||'')}</span>
+        ${esBajo?`<div style="font-size:10px;color:var(--red)">⚠ mín: ${p.minimo}</div>`:''}
+      </td>
+      <td class="hide-sm">${esc(p.descripcion||'—')}</td>
+      <td><span class="badge ${p.estado==='Disponible'?'b-ok':p.estado==='Bajo stock'?'b-warn':'b-err'}">${p.estado||'Disponible'}</span></td>
+      <td class="td-act">
+        <button class="btn btn-secondary btn-xs" onclick="movInventario('${p.id}','entrada')">↑ Entrada</button>
+        <button class="btn btn-secondary btn-xs" onclick="movInventario('${p.id}','salida')">↓ Salida</button>
+        <button class="btn btn-danger btn-xs" onclick="delProducto('${p.id}')">✕</button>
+      </td>
+    </tr>`;
+  });
+
+  // Movimientos con proveedor/CC
+  let movRows=[...movs].reverse().slice(0,30).map(m=>{
+    const prod=prods.find(p=>p.id===m.prodId);
+    const bod=bodegas.find(b=>b.id===m.bodegaId);
+    const prov=m.proveedorId?S.proveedores.find(p=>p.id===m.proveedorId):null;
+    const cc=m.centroId?S.centros.find(c=>c.id===m.centroId):null;
+    const origen=m.tipo==='entrada'
+      ?(prov?`<span class="badge b-blue" style="font-size:10px">🤝 ${esc(prov.nombre)}</span>`:cc?`<span class="badge b-neu" style="font-size:10px">📁 ${esc(cc.nombre)}</span>`:'—')
+      :(cc?`<span class="badge b-neu" style="font-size:10px">📁 ${esc(cc.nombre)}</span>`:'—');
+    return`<tr>
+      <td>${fmtDate(m.fecha)}</td>
+      <td><span class="badge ${m.tipo==='entrada'?'b-ok':'b-err'}">${m.tipo==='entrada'?'↑ Entrada':'↓ Salida'}</span></td>
+      <td><div style="font-weight:600">${esc(prod?.nombre||'—')}</div><div style="font-size:10px;color:var(--muted)">${esc(prod?.numActivo?'Activo: '+prod.numActivo:'')}</div></td>
+      <td class="hide-sm">${esc(bod?.nombre||'—')}</td>
+      <td style="text-align:right;font-weight:600">${m.cantidad} ${esc(prod?.unidad||'')}</td>
+      <td>${origen}</td>
+      <td class="hide-sm" style="font-size:11px;color:var(--muted)">${esc(m.nota||'—')}</td>
+    </tr>`;
+  }).join('')||`<tr><td colspan="7" class="empty">Sin movimientos</td></tr>`;
+
+  document.getElementById('content').innerHTML=`
+  <div class="kpi-grid" style="margin-bottom:14px">
+    <div class="kpi"><div class="kpi-lbl">Productos</div><div class="kpi-val">${totalProds}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Total en stock</div><div class="kpi-val" style="color:var(--green)">${totalItems}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Bajo mínimo</div><div class="kpi-val" style="color:${bajo>0?'var(--red)':'var(--muted)'}">${bajo}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Bodegas</div><div class="kpi-val" style="color:var(--accent)">${bodegas.length}</div></div>
+  </div>
+
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+    <button class="btn btn-primary" onclick="modalNuevoProducto()">+ Nuevo producto</button>
+    <select style="min-width:160px" onchange="S._invBodega=this.value;renderInventario()">
+      <option value="todas" ${selBodega==='todas'?'selected':''}>Todas las bodegas</option>
+      ${bodOpts}
+    </select>
+    <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-left:auto">
+      <button class="btn btn-${selTab==='productos'?'primary':'secondary'}" style="border-radius:0;border:none" onclick="S._invTab='productos';renderInventario()">📦 Productos</button>
+      <button class="btn btn-${selTab==='movimientos'?'primary':'secondary'}" style="border-radius:0;border:none" onclick="S._invTab='movimientos';renderInventario()">📋 Movimientos</button>
+    </div>
+  </div>
+
+  ${selTab==='productos'?`
+  <div class="card" style="padding:0;overflow:hidden">
+    <div class="tbl-wrap"><table style="table-layout:auto">
+      <thead><tr><th>Producto</th><th class="hide-sm">Bodega</th><th style="text-align:right">Stock</th><th class="hide-sm">Descripción</th><th>Estado</th><th></th></tr></thead>
+      <tbody>${prodRows}</tbody>
+    </table></div>
+  </div>`:`
+  <div class="card" style="padding:0;overflow:hidden">
+    <div class="tbl-wrap"><table style="table-layout:auto">
+      <thead><tr><th>Fecha</th><th>Tipo</th><th>Producto</th><th class="hide-sm">Bodega</th><th style="text-align:right">Cantidad</th><th>Origen / Destino</th><th class="hide-sm">Nota</th></tr></thead>
+      <tbody>${movRows}</tbody>
+    </table></div>
+  </div>`}`;
+}
+
+function modalNuevoProducto(){
+  const bodegas=S.inventario?.bodegas||[];
+  if(bodegas.length===0){
+    if(confirm('No hay bodegas creadas. ¿Ir a crear una bodega?')){goTab('bodegas');}
+    return;
+  }
+  const CATEGORIAS=['Materiales de construcción','Mobiliario','Equipos A/C','Herramientas','Eléctrico','Plomería','Acabados','Seguridad','Limpieza','Otros'];
+  const UNIDADES_INV=['unidad','kg','lb','m','m²','m³','lt','galón','rollo','caja','bolsa','varilla','tubo','lamina','juego','par'];
+  const isMobile=/Android|iPhone|iPad/i.test(navigator.userAgent);
+  const div=document.createElement('div');
+  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow-y:auto';
+  div.id='modalNuevoProd';
+  div.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:560px;margin:auto">
+    <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:16px">Nuevo Producto / Activo</div>
+    <div class="row2">
+      <div class="fg"><label>Nombre *</label><input id="npNom" placeholder="Ej: Taladro DeWalt 1/2"></div>
+      <div class="fg"><label>N° de activo / código</label><input id="npActivo" placeholder="Ej: ACT-0042 (opcional)"></div>
+    </div>
+    <div class="row2">
+      <div class="fg"><label>Categoría</label><select id="npCat">${CATEGORIAS.map(c=>`<option>${c}</option>`).join('')}</select></div>
+      <div class="fg"><label>Bodega *</label><select id="npBod">${bodegas.map(b=>`<option value="${b.id}">${esc(b.nombre)}</option>`).join('')}</select></div>
+    </div>
+    <div class="row3">
+      <div class="fg"><label>Cantidad inicial</label><input type="number" id="npCant" min="0" value="0"></div>
+      <div class="fg"><label>Unidad</label><select id="npUnid">${UNIDADES_INV.map(u=>`<option>${u}</option>`).join('')}</select></div>
+      <div class="fg"><label>Stock mínimo</label><input type="number" id="npMin" min="0" value="0"></div>
+    </div>
+    <div class="fg"><label>Descripción / Especificaciones</label><input id="npDesc" placeholder="Marca, modelo, especificaciones técnicas"></div>
+    <!-- Foto del producto -->
+    <div class="fg">
+      <label>Foto del producto (opcional)</label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('npFotoFI').click()">📎 Seleccionar foto</button>
+        ${isMobile?`<button type="button" class="btn btn-secondary btn-sm" onclick="abrirFotoProducto()">📷 Cámara</button>`:''}
+        <span id="npFotoNombre" style="font-size:12px;color:var(--muted)">Sin foto</span>
+      </div>
+      <input type="file" id="npFotoFI" accept="image/jpeg,image/png,image/webp" style="display:none" onchange="prevFotoProducto(this)">
+      <input type="file" id="npFotoCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">
+      <div id="npFotoPreview" style="margin-top:8px"></div>
+      <input type="hidden" id="npFotoData">
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
+      <button class="btn btn-secondary" onclick="document.getElementById('modalNuevoProd').remove()">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarProducto(this)">✓ Guardar producto</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  // Cámara con abrirArchivoConCallback
+  document.getElementById('npFotoFI').addEventListener('change',function(){prevFotoProducto(this);});
+}
+
+function abrirFotoProducto(){
+  const el=document.getElementById('npFotoCam');
+  abrirArchivoConCallback(el,(input)=>prevFotoProducto(input));
+}
+
+function prevFotoProducto(input){
+  const file=input.files[0];if(!file)return;
+  leerArchivoBase64(file,(b64,f)=>{
+    const lbl=document.getElementById('npFotoNombre');
+    const prev=document.getElementById('npFotoPreview');
+    const data=document.getElementById('npFotoData');
+    if(lbl)lbl.textContent=f.name;
+    if(data)data.value=b64;
+    if(prev)prev.innerHTML=`<img src="${b64}" style="max-height:100px;border-radius:8px;margin-top:4px">`;
+  });
+}
+
+function guardarProducto(btn){
+  const nombre=document.getElementById('npNom').value.trim();
+  const bodegaId=document.getElementById('npBod').value;
+  if(!nombre){toast('Ingresa un nombre',true);return;}
+  if(!S.inventario)S.inventario={bodegas:[],productos:[],movimientos:[]};
+  const cant=parseFloat(document.getElementById('npCant').value)||0;
+  const foto=document.getElementById('npFotoData')?.value||null;
+  const prod={
+    id:genId(),nombre,
+    numActivo:document.getElementById('npActivo').value.trim()||null,
+    categoria:document.getElementById('npCat').value,
+    cantidad:cant,
+    unidad:document.getElementById('npUnid').value,
+    minimo:parseFloat(document.getElementById('npMin').value)||0,
+    bodegaId,
+    estado:cant>0?'Disponible':'Agotado',
+    descripcion:document.getElementById('npDesc').value.trim(),
+    foto,
+    creadoEn:Date.now()
+  };
+  S.inventario.productos.push(prod);
+  if(cant>0){
+    S.inventario.movimientos.push({id:genId(),tipo:'entrada',prodId:prod.id,bodegaId,cantidad:cant,
+      fecha:new Date().toISOString().slice(0,10),nota:'Stock inicial',ts:Date.now()});
+  }
+  saveData();
+  document.getElementById('modalNuevoProd')?.remove();
+  renderInventario();toast('✓ Producto creado');
+}
+
+function movInventario(prodId,tipo){
+  const prod=(S.inventario?.productos||[]).find(p=>p.id===prodId);if(!prod)return;
+  const bodegas=S.inventario?.bodegas||[];
+  const provOpts=S.proveedores.map(p=>`<option value="${p.id}">${esc(p.nombre)}</option>`).join('');
+  const ccOpts=S.centros.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
+  const isMobile=/Android|iPhone|iPad/i.test(navigator.userAgent);
+
+  const div=document.createElement('div');
+  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px';
+  div.id='modalMov';
+  div.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:460px">
+    <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:4px">
+      ${tipo==='entrada'?'↑ Entrada de stock':'↓ Salida de stock'}
+    </div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:16px">
+      ${esc(prod.nombre)}${prod.numActivo?` · Activo: <strong>${esc(prod.numActivo)}</strong>`:''}
+      · Stock actual: <strong>${prod.cantidad} ${esc(prod.unidad)}</strong>
+    </div>
+    <div class="row2">
+      <div class="fg"><label>Cantidad *</label><input type="number" id="mvCant" min="0.01" step="0.01" value="1"></div>
+      <div class="fg"><label>Bodega</label>
+        <select id="mvBod">${bodegas.map(b=>`<option value="${b.id}" ${b.id===prod.bodegaId?'selected':''}>${esc(b.nombre)}</option>`).join('')}</select>
+      </div>
+    </div>
+    <div class="fg"><label>Fecha</label><input type="date" id="mvFecha" value="${new Date().toISOString().slice(0,10)}"></div>
+
+    ${tipo==='entrada'?`
+    <!-- ENTRADA: Proveedor O Centro de Costo -->
+    <div class="fg">
+      <label>Origen de la entrada</label>
+      <select id="mvOrigenTipo" onchange="toggleMovOrigen(this.value)">
+        <option value="proveedor">Proveedor</option>
+        <option value="cc">Centro de Costo</option>
+      </select>
+    </div>
+    <div class="fg" id="mvProvWrap">
+      <label>Proveedor</label>
+      <select id="mvProv"><option value="">— Seleccionar —</option>${provOpts}</select>
+    </div>
+    <div class="fg" id="mvCCEntWrap" style="display:none">
+      <label>Centro de Costo</label>
+      <select id="mvCCEnt"><option value="">— Seleccionar —</option>${ccOpts}</select>
+    </div>`:`
+    <!-- SALIDA: Centro de Costo obligatorio -->
+    <div class="fg">
+      <label>Centro de Costo destino *</label>
+      <select id="mvCCSal"><option value="">— Seleccionar —</option>${ccOpts}</select>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Las salidas deben asignarse a un centro de costo</div>
+    </div>`}
+
+    <!-- Foto opcional del movimiento -->
+    <div class="fg">
+      <label>Foto / Comprobante (opcional)</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button type="button" class="btn btn-secondary btn-xs" onclick="document.getElementById('mvFotoFI').click()">📎</button>
+        ${isMobile?`<button type="button" class="btn btn-secondary btn-xs" onclick="abrirFotoMov()">📷</button>`:''}
+        <span id="mvFotoNombre" style="font-size:11px;color:var(--muted)">Sin foto</span>
+      </div>
+      <input type="file" id="mvFotoFI" accept="image/jpeg,image/png,image/webp" style="display:none" onchange="prevFotoMov(this)">
+      <input type="file" id="mvFotoCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">
+      <div id="mvFotoPreview" style="margin-top:4px"></div>
+      <input type="hidden" id="mvFotoData">
+    </div>
+
+    <div class="fg"><label>Nota</label><input id="mvNota" placeholder="Motivo del movimiento"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
+      <button class="btn btn-secondary" onclick="document.getElementById('modalMov').remove()">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarMov('${prodId}','${tipo}',this)">✓ Confirmar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+}
+
+function toggleMovOrigen(val){
+  document.getElementById('mvProvWrap').style.display=val==='proveedor'?'block':'none';
+  document.getElementById('mvCCEntWrap').style.display=val==='cc'?'block':'none';
+}
+
+function abrirFotoMov(){
+  const el=document.getElementById('mvFotoCam');
+  abrirArchivoConCallback(el,(input)=>prevFotoMov(input));
+}
+
+function prevFotoMov(input){
+  const file=input.files[0];if(!file)return;
+  leerArchivoBase64(file,(b64,f)=>{
+    const lbl=document.getElementById('mvFotoNombre');
+    const prev=document.getElementById('mvFotoPreview');
+    const data=document.getElementById('mvFotoData');
+    if(lbl)lbl.textContent=f.name;
+    if(data)data.value=b64;
+    if(prev)prev.innerHTML=`<img src="${b64}" style="max-height:70px;border-radius:6px">`;
+  });
+}
+
+function confirmarMov(prodId,tipo,btn){
+  const cant=parseFloat(document.getElementById('mvCant').value)||0;
+  const bod=document.getElementById('mvBod').value;
+  const fecha=document.getElementById('mvFecha').value;
+  const nota=document.getElementById('mvNota').value.trim();
+  const foto=document.getElementById('mvFotoData')?.value||null;
+  if(cant<=0){toast('Ingresa una cantidad válida',true);return;}
+
+  const prod=(S.inventario?.productos||[]).find(p=>p.id===prodId);if(!prod)return;
+  if(tipo==='salida'&&cant>prod.cantidad){toast('Stock insuficiente',true);return;}
+
+  // Origen/destino
+  let proveedorId=null,centroId=null;
+  if(tipo==='entrada'){
+    const origenTipo=document.getElementById('mvOrigenTipo')?.value;
+    if(origenTipo==='proveedor') proveedorId=document.getElementById('mvProv')?.value||null;
+    else centroId=document.getElementById('mvCCEnt')?.value||null;
+  } else {
+    centroId=document.getElementById('mvCCSal')?.value||null;
+    if(!centroId){toast('Selecciona un Centro de Costo para la salida',true);return;}
+  }
+
+  prod.cantidad=parseFloat((prod.cantidad+(tipo==='entrada'?cant:-cant)).toFixed(4));
+  prod.estado=prod.minimo&&prod.cantidad<prod.minimo?'Bajo stock':prod.cantidad<=0?'Agotado':'Disponible';
+  S.inventario.movimientos.push({id:genId(),tipo,prodId,bodegaId:bod,cantidad:cant,
+    fecha,nota,proveedorId,centroId,foto,ts:Date.now()});
+  saveData();
+  document.getElementById('modalMov')?.remove();
+  renderInventario();
+  toast(`✓ ${tipo==='entrada'?'Entrada':'Salida'} registrada`);
+}
+
+function delProducto(prodId){
+  if(!confirm('¿Eliminar este producto del inventario?'))return;
+  S.inventario.productos=S.inventario.productos.filter(p=>p.id!==prodId);
+  saveData();renderInventario();toast('✓ Producto eliminado');
+}
+
+// ═══════════════════════════════════════════════════════
+//  BODEGAS (módulo separado)
+// ═══════════════════════════════════════════════════════
+function renderBodegas(){
+  const bodegas=(S.inventario?.bodegas)||[];
+  let rows=bodegas.length===0?`<tr><td colspan="5" class="empty">Sin bodegas creadas</td></tr>`:'';
+  bodegas.forEach((b,i)=>{
+    const prods=(S.inventario?.productos||[]).filter(p=>p.bodegaId===b.id).length;
+    const movs=(S.inventario?.movimientos||[]).filter(m=>m.bodegaId===b.id).length;
+    rows+=`<tr>
+      <td>
+        <div style="font-weight:600">${esc(b.nombre)}</div>
+        <div style="font-size:11px;color:var(--muted)">${esc(b.ubicacion||'Sin ubicación')}</div>
+      </td>
+      <td style="text-align:center">${prods}</td>
+      <td style="text-align:center">${movs}</td>
+      <td style="font-size:11px;color:var(--muted)">${b.creadoEn?new Date(b.creadoEn).toLocaleDateString('es-SV'):'—'}</td>
+      <td class="td-act">
+        <button class="btn btn-secondary btn-xs" onclick="editarBodega('${b.id}')">✏ Editar</button>
+        <button class="btn btn-danger btn-xs" onclick="delBodega('${b.id}')">✕</button>
+      </td>
+    </tr>`;
+  });
+
+  document.getElementById('content').innerHTML=`
+  <div class="kpi-grid" style="margin-bottom:14px">
+    <div class="kpi"><div class="kpi-lbl">Bodegas</div><div class="kpi-val" style="color:var(--accent)">${bodegas.length}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Total productos</div><div class="kpi-val">${(S.inventario?.productos||[]).length}</div></div>
+  </div>
+  <div style="margin-bottom:14px">
+    <button class="btn btn-primary" onclick="modalNuevaBodega()">+ Nueva bodega</button>
+  </div>
+  <div class="card" style="padding:0;overflow:hidden">
+    <div class="tbl-wrap"><table style="table-layout:auto">
+      <thead><tr><th>Bodega</th><th style="text-align:center">Productos</th><th style="text-align:center">Movimientos</th><th>Creada</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function editarBodega(id){
+  const b=(S.inventario?.bodegas||[]).find(x=>x.id===id);if(!b)return;
+  const div=document.createElement('div');
+  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px';
+  div.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:400px">
+    <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:16px">Editar Bodega</div>
+    <div class="fg"><label>Nombre</label><input id="ebNombre" value="${esc(b.nombre)}"></div>
+    <div class="fg"><label>Ubicación</label><input id="ebUbic" value="${esc(b.ubicacion||'')}"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
+      <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarEditBodega('${id}',this)">✓ Guardar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+}
+
+function guardarEditBodega(id,btn){
+  const b=(S.inventario?.bodegas||[]).find(x=>x.id===id);if(!b)return;
+  b.nombre=document.getElementById('ebNombre').value.trim()||b.nombre;
+  b.ubicacion=document.getElementById('ebUbic').value.trim();
+  saveData();btn.closest('[style*=fixed]').remove();renderBodegas();toast('✓ Bodega actualizada');
+}
+
+function delBodega(id){
+  const prods=(S.inventario?.productos||[]).filter(p=>p.bodegaId===id).length;
+  if(prods>0){toast(`No se puede eliminar — tiene ${prods} producto(s) asignados`,true);return;}
+  if(!confirm('¿Eliminar esta bodega?'))return;
+  S.inventario.bodegas=S.inventario.bodegas.filter(b=>b.id!==id);
+  saveData();renderBodegas();toast('✓ Bodega eliminada');
+}
+
+function modalNuevaBodega(){
+  const div=document.createElement('div');
+  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px';
+  div.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:400px">
+    <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:16px">Nueva Bodega</div>
+    <div class="fg"><label>Nombre *</label><input id="nbNombre" placeholder="Ej: Bodega Principal"></div>
+    <div class="fg"><label>Ubicación</label><input id="nbUbic" placeholder="Ej: Planta baja, Almacén 1"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
+      <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarBodega(this)">✓ Guardar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+}
+
+function guardarBodega(btn){
+  const nombre=document.getElementById('nbNombre').value.trim();
+  const ubic=document.getElementById('nbUbic').value.trim();
+  if(!nombre){toast('Ingresa un nombre',true);return;}
+  if(!S.inventario)S.inventario={bodegas:[],productos:[],movimientos:[]};
+  S.inventario.bodegas.push({id:genId(),nombre,ubicacion:ubic,creadoEn:Date.now()});
+  saveData();btn.closest('[style*=fixed]').remove();
+  // Refrescar según tab activo
+  if(S.activeTab==='bodegas')renderBodegas();
+  else renderInventario();
+  toast('✓ Bodega creada');
+}
+
+// ═══════════════════════════════════════════════════════
+//  COMPARADOR DE COTIZACIONES
+// ═══════════════════════════════════════════════════════
+function renderCotizaciones(){
+  const comp=S.cotizaciones?.comparaciones||[];
+  document.getElementById('content').innerHTML=`
+  <div class="info-box" style="margin-bottom:16px">
+    📑 Sube hasta 3 cotizaciones en PDF. La IA las analiza y genera una tabla comparativa de precios, totales y condiciones aunque tengan formatos diferentes.
+  </div>
+  <div class="card" style="margin-bottom:16px">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:12px">Nueva comparación</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:14px" id="cotSlots">
+      ${[0,1,2].map(i=>`
+      <div style="border:2px dashed var(--border);border-radius:12px;padding:16px;text-align:center;cursor:pointer" onclick="document.getElementById('cotFI${i}').click()" id="cotSlot${i}">
+        <div style="font-size:28px;margin-bottom:6px">📄</div>
+        <div style="font-size:13px;font-weight:600;color:var(--muted)">Cotización ${i+1}</div>
+        <div style="font-size:11px;color:#555;margin-top:4px">Clic para subir PDF</div>
+        <input type="file" id="cotFI${i}" accept="application/pdf" style="display:none" onchange="cargarCotPDF(${i},this)">
+      </div>`).join('')}
+    </div>
+    <div id="cotNombreWrap" class="fg" style="display:none">
+      <label>Nombre de la comparación</label>
+      <input id="cotNombre" placeholder="Ej: Cotizaciones materiales Proyecto Armenia">
+    </div>
+    <div id="cotBtnWrap" style="display:none;gap:10px;align-items:center">
+      <button class="btn btn-primary" onclick="compararCotizaciones()">🤖 Comparar con IA</button>
+      <div id="cotStatus" style="font-size:12px;color:var(--muted)"></div>
+    </div>
+  </div>
+  ${comp.length>0?`
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:12px 18px;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted)">Comparaciones guardadas (${comp.length})</div>
+    <div style="padding:0">
+      ${comp.map((c,i)=>`
+      <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;cursor:pointer" onclick="verComparacion(${i})">
+        <div style="font-size:24px">📊</div>
+        <div style="flex:1">
+          <div style="font-weight:600">${esc(c.nombre||'Comparación '+(i+1))}</div>
+          <div style="font-size:11px;color:var(--muted)">${c.archivos?.length||0} cotizaciones · ${fmtDate(c.fecha)}</div>
+        </div>
+        <button class="btn btn-danger btn-xs" onclick="event.stopPropagation();delComparacion(${i})">✕</button>
+      </div>`).join('')}
+    </div>
+  </div>`:''}`;
+
+  window._cotPDFs={}; // reset
+}
+
+window._cotPDFs={};
+
+function cargarCotPDF(idx,input){
+  const file=input.files[0];if(!file)return;
+  if(file.size>5*1024*1024){toast('PDF supera 5MB',true);return;}
+  const reader=new FileReader();
+  reader.onload=e=>{
+    window._cotPDFs=window._cotPDFs||{};
+    window._cotPDFs[idx]={nombre:file.name,data:e.target.result.split(',')[1]};
+    const slot=document.getElementById('cotSlot'+idx);
+    if(slot)slot.innerHTML=`<div style="font-size:24px;margin-bottom:6px">✅</div><div style="font-size:12px;font-weight:600;color:var(--green)">${esc(file.name.substring(0,25))}</div>
+      <button class="btn btn-danger btn-xs" style="margin-top:6px" onclick="event.stopPropagation();quitarCotPDF(${idx})">✕ Quitar</button>
+      <input type="file" id="cotFI${idx}" accept="application/pdf" style="display:none" onchange="cargarCotPDF(${idx},this)">`;
+    const count=Object.keys(window._cotPDFs).length;
+    const nbWrap=document.getElementById('cotNombreWrap');
+    const btnWrap=document.getElementById('cotBtnWrap');
+    if(nbWrap)nbWrap.style.display=count>=2?'block':'none';
+    if(btnWrap)btnWrap.style.display=count>=2?'flex':'none';
+  };
+  reader.readAsDataURL(file);
+  input.value='';
+}
+
+function quitarCotPDF(idx){
+  delete window._cotPDFs[idx];
+  renderCotizaciones();
+}
+
+async function compararCotizaciones(){
+  const pdfs=window._cotPDFs||{};
+  const keys=Object.keys(pdfs);
+  if(keys.length<2){toast('Sube al menos 2 cotizaciones',true);return;}
+  const nombre=document.getElementById('cotNombre')?.value.trim()||'Comparación '+new Date().toLocaleDateString('es-SV');
+  const statusEl=document.getElementById('cotStatus');
+  const btn=document.querySelector('#cotBtnWrap .btn-primary');
+  if(btn){btn.disabled=true;btn.textContent='⏳ Analizando...';}
+  if(statusEl)statusEl.textContent='Enviando PDFs a la IA...';
+
+  try{
+    // Construir mensajes con PDFs
+    const msgContent=[];
+    keys.forEach((k,i)=>{
+      const p=pdfs[k];
+      msgContent.push({type:'document',source:{type:'base64',media_type:'application/pdf',data:p.data}});
+      msgContent.push({type:'text',text:`Cotización ${parseInt(k)+1}: ${p.nombre}`});
+    });
+    msgContent.push({type:'text',text:`Analiza estas ${keys.length} cotizaciones de proveedores. Crea una tabla comparativa en HTML con las siguientes columnas: Ítem/Descripción, Unidad, ${keys.map((k,i)=>'Cotización '+(i+1)+' ('+pdfs[k].nombre+')').join(', ')}, Diferencia %. 
+Luego agrega un resumen ejecutivo con: cuál es más económica en total, diferencias clave en precios, condiciones de pago o plazos si los mencionan, y tu recomendación.
+Responde SOLO con el HTML de la tabla y el resumen, sin texto adicional, usando estilos inline para que se vea bien (fondo oscuro #1a1815, texto claro, bordes #2a2824, highlight en verde la opción más barata por fila).`});
+
+    if(statusEl)statusEl.textContent='Procesando con IA (puede tomar 30-60 segundos)...';
+
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:4000,
+        messages:[{role:'user',content:msgContent}]
+      })
+    });
+    const data=await resp.json();
+    const html=data.content?.find(b=>b.type==='text')?.text||'Sin respuesta';
+
+    // Guardar comparación
+    if(!S.cotizaciones)S.cotizaciones={comparaciones:[]};
+    S.cotizaciones.comparaciones.unshift({
+      id:genId(),nombre,
+      archivos:keys.map(k=>({nombre:pdfs[k].nombre})),
+      resultado:html,
+      fecha:new Date().toISOString().slice(0,10),
+      ts:Date.now()
+    });
+    saveData();
+    window._cotPDFs={};
+    renderCotizaciones();
+    verComparacion(0);
+    toast('✓ Comparación completada');
+  }catch(e){
+    toast('Error al comparar: '+e.message,true);
+    if(btn){btn.disabled=false;btn.textContent='🤖 Comparar con IA';}
+    if(statusEl)statusEl.textContent='Error — intenta de nuevo';
+  }
+}
+
+function verComparacion(idx){
+  const comp=(S.cotizaciones?.comparaciones||[])[idx];if(!comp)return;
+  const div=document.createElement('div');
+  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:300;overflow-y:auto;padding:20px';
+  div.innerHTML=`<div style="max-width:1000px;margin:0 auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:700">${esc(comp.nombre)}</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary btn-sm" onclick="imprimirComparacion(${idx})">🖨 Imprimir</button>
+        <button class="btn btn-secondary btn-sm" onclick="this.closest('[style*=fixed]').remove()">✕ Cerrar</button>
+      </div>
+    </div>
+    <div style="background:#0a0908;border:1px solid var(--border);border-radius:12px;padding:20px;overflow-x:auto">
+      ${comp.resultado}
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+}
+
+function imprimirComparacion(idx){
+  const comp=(S.cotizaciones?.comparaciones||[])[idx];if(!comp)return;
+  const win=window.open('','_blank','width=900,height=700');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc(comp.nombre)}</title>
+  <style>body{font-family:Arial,sans-serif;padding:20px;background:#fff;color:#222}h1{font-size:18px;margin-bottom:4px}p{color:#888;font-size:12px;margin-bottom:16px}@media print{button{display:none}}</style>
+  </head><body>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <div><h1>${esc(comp.nombre)}</h1><p>${fmtDate(comp.fecha)} · ${comp.archivos?.length||0} cotizaciones comparadas</p></div>
+    <button onclick="window.print()" style="background:#e8a020;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:700">🖨 Imprimir</button>
+  </div>
+  ${comp.resultado}
+  </body></html>`);
+  win.document.close();
+}
+
+function delComparacion(idx){
+  if(!confirm('¿Eliminar esta comparación?'))return;
+  S.cotizaciones.comparaciones.splice(idx,1);
+  saveData();renderCotizaciones();toast('✓ Comparación eliminada');
+}
+
+
 // ═══════════════════════════════════════════════════════
 //  DASHBOARD
 // ═══════════════════════════════════════════════════════
@@ -4314,22 +5163,30 @@ function ganttHTML(p){
     const barY=y+6;
     const barH=ROW_H-12;
 
+    // Calcular fechas reales de inicio y fin para el tooltip
+    const fechaIni=new Date(startDate);fechaIni.setDate(fechaIni.getDate()+r.start);
+    const fechaFin=new Date(startDate);fechaFin.setDate(fechaFin.getDate()+r.start+r.days-1);
+    const fmtD=d=>`${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()}`;
+    const tooltipTxt=isPartida
+      ?`${r.label} | Inicio: ${fmtD(fechaIni)} → Fin: ${fmtD(fechaFin)} | ${r.days} días | ${r.done}/${r.total} completadas`
+      :`${r.label}${r.unidad?' ('+r.unidad+')':''} | Inicio: ${fmtD(fechaIni)} → Fin: ${fmtD(fechaFin)} | ${r.days} días${r.done?' ✓ Completada':''}`;
+
     // Fondo alterno
     rowsSVG+=`<rect x="0" y="${y}" width="${LABEL_W+W}" height="${ROW_H}" fill="${isPartida?'rgba(14,12,10,.8)':i%2===0?'rgba(17,16,9,.4)':'rgba(12,10,8,.4)'}"/>`;
 
     if(isPartida){
-      // Barra de partida (contenedora)
       const pctDone=r.total>0?r.done/r.total:0;
-      rowsSVG+=`<rect x="${barX}" y="${barY+barH*0.3}" width="${barW}" height="${barH*0.4}" fill="#2a2010" rx="3"/>`;
+      // Rect con title DENTRO (SVG correcto: <rect><title>...</title></rect>)
+      rowsSVG+=`<rect x="${barX}" y="${barY+barH*0.3}" width="${barW}" height="${barH*0.4}" fill="#2a2010" rx="3"><title>${esc(tooltipTxt)}</title></rect>`;
       if(pctDone>0)rowsSVG+=`<rect x="${barX}" y="${barY+barH*0.3}" width="${Math.max(barW*pctDone,3)}" height="${barH*0.4}" fill="#4a6a20" rx="3"/>`;
       rowsSVG+=`<text x="${barX+6}" y="${barY+barH*0.3+10}" font-size="9" fill="#888">${r.done}/${r.total} ✓</text>`;
-      labelsSVG+=`<text x="8" y="${y+ROW_H/2+5}" font-size="12" font-weight="700" fill="#e8a020" clip-path="url(#labelClip)">${esc(r.label.substring(0,28))}</text>`;
+      labelsSVG+=`<text x="8" y="${y+ROW_H/2+5}" font-size="12" font-weight="700" fill="#e8a020" clip-path="url(#labelClip)"><title>${esc(tooltipTxt)}</title>${esc(r.label.substring(0,28))}</text>`;
     } else {
-      // Barra de subpartida
       const color=r.done?'#1a5a2a':'#1a3a5a';
       const borderColor=r.done?'#2db87a':'#4ea8de';
-      rowsSVG+=`<rect x="${barX+1}" y="${barY+4}" width="${barW-2}" height="${barH-8}" fill="${color}" rx="4" stroke="${borderColor}" stroke-width="1.5"/>`;
-      // Progress si está en curso (today dentro del rango)
+      // Rect con title DENTRO
+      rowsSVG+=`<rect x="${barX+1}" y="${barY+4}" width="${barW-2}" height="${barH-8}" fill="${color}" rx="4" stroke="${borderColor}" stroke-width="1.5"><title>${esc(tooltipTxt)}</title></rect>`;
+      // Progress si está en curso
       const endDay=r.start+r.days;
       if(!r.done&&diffToday>r.start&&diffToday<endDay){
         const prog=(diffToday-r.start)/r.days;
@@ -4337,9 +5194,7 @@ function ganttHTML(p){
         rowsSVG+=`<line x1="${barX+1+(barW-2)*prog}" y1="${barY+4}" x2="${barX+1+(barW-2)*prog}" y2="${barY+barH-4}" stroke="#4ea8de" stroke-width="2" stroke-dasharray="3,2"/>`;
       }
       if(r.done)rowsSVG+=`<text x="${barX+barW/2}" y="${barY+barH/2+4}" text-anchor="middle" font-size="11" fill="#2db87a">✓</text>`;
-      // Tooltip
-      rowsSVG+=`<title>${esc(r.label)} (${r.days} días${r.unidad?' | '+r.unidad:''})</title>`;
-      labelsSVG+=`<text x="20" y="${y+ROW_H/2+5}" font-size="11" fill="${r.done?'#555':'#aaa'}" clip-path="url(#labelClip)" style="${r.done?'text-decoration:line-through':''}">${esc(r.label.substring(0,26))}${r.unidad?` <tspan fill="#555">(${r.unidad})</tspan>`:''}</text>`;
+      labelsSVG+=`<text x="20" y="${y+ROW_H/2+5}" font-size="11" fill="${r.done?'#555':'#aaa'}" clip-path="url(#labelClip)" style="${r.done?'text-decoration:line-through':''}"><title>${esc(tooltipTxt)}</title>${esc(r.label.substring(0,26))}${r.unidad?` <tspan fill="#555">(${r.unidad})</tspan>`:''}</text>`;
     }
     rowsSVG+=`<line x1="0" y1="${y+ROW_H}" x2="${LABEL_W+W}" y2="${y+ROW_H}" stroke="#1a1815" stroke-width="1"/>`;
   });
@@ -4651,18 +5506,34 @@ function initTheme(){
 function render(){
   if(window.innerWidth<=800)closeSB();
   // Sidebar — solo módulos permitidos
-  const navIcColors={dashboard:'#e8a020',proyectos:'#4ea8de',gastos:'#e84040',proveedores:'#2db87a',centros:'#c084fc',reportes:'#f0a040',log:'#888',usuarios:'#4ea8de',config:'#777'};
-  document.getElementById('nav').innerHTML=MODULOS.filter(m=>puedeVer(m.id)).map(n=>{
-    const isActive=S.activeTab===n.id;
-    const icColor=isActive?'rgba(0,0,0,.2)':navIcColors[n.id]||'#666';
-    return`<div class="nav-item ${isActive?'active':''}" onclick="goTab('${n.id}')">
-      <div class="nav-ic" style="${isActive?'':`background:${icColor}22;`}">
-        <span style="font-size:18px">${n.ic}</span>
-      </div>
-      <span>${n.label}</span>
-    </div>`;
-  }).join('');
-  const titles={dashboard:'Dashboard',proyectos:'Proyectos',gastos:'Gastos',proveedores:'Proveedores',centros:'Centros de Costo',reportes:'Reportes',log:'Registro de Actividad',usuarios:'Usuarios',config:'Configuración'};
+  const navIcColors={dashboard:'#e8a020',proyectos:'#4ea8de',gastos:'#e84040',proveedores:'#2db87a',centros:'#c084fc',reportes:'#f0a040',cotizaciones:'#60c8f0',inventario:'#a0e060',bodegas:'#f0a060',log:'#888',usuarios:'#c084fc',config:'#777'};
+  const collapsed=getSBCollapsed();
+  let navHtml='';
+  SB_GRUPOS.forEach(grp=>{
+    const items=grp.items.filter(id=>puedeVer(id));
+    if(items.length===0)return;
+    const isOpen=!collapsed[grp.id]; // abierto por defecto
+    navHtml+=`<div class="sb-grupo-hdr" onclick="toggleSBGrupo('${grp.id}')">
+      <span class="sb-grupo-ic">${grp.ic}</span>
+      <span style="flex:1">${grp.label}</span>
+      <span class="sb-grupo-arrow ${isOpen?'open':''}">▶</span>
+    </div>
+    <div class="sb-grupo-items" style="max-height:${isOpen?items.length*54+'px':'0px'}">`;
+    items.forEach(id=>{
+      const n=MODULOS.find(m=>m.id===id);if(!n)return;
+      const isActive=S.activeTab===id;
+      const icColor=isActive?'rgba(0,0,0,.2)':navIcColors[id]||'#666';
+      navHtml+=`<div class="nav-item ${isActive?'active':''}" onclick="goTab('${id}')">
+        <div class="nav-ic" style="${isActive?'':`background:${icColor}22;`}">
+          <span style="font-size:18px">${n.ic}</span>
+        </div>
+        <span>${n.label}</span>
+      </div>`;
+    });
+    navHtml+='</div>';
+  });
+  document.getElementById('nav').innerHTML=navHtml;
+  const titles={dashboard:'Dashboard',proyectos:'Proyectos',gastos:'Gastos',proveedores:'Proveedores',centros:'Centros de Costo',reportes:'Reportes',cotizaciones:'Comparar Cotizaciones',inventario:'Inventario',bodegas:'Gestión de Bodegas',log:'Registro de Actividad',usuarios:'Usuarios',config:'Configuración'};
   document.getElementById('pageTitle').textContent=titles[S.activeTab]||S.activeTab;
   const ha=document.getElementById('headerActions');
   ha.innerHTML=(S.activeTab==='proyectos'||S.activeTab==='dashboard')&&puedeVer('proyectos')?`<button class="btn btn-primary" onclick="openModal('modalNP');refreshMarcaSel()">+ Nuevo Proyecto</button>`:'';
@@ -4672,6 +5543,9 @@ function render(){
   else if(S.activeTab==='proveedores')renderProveedores();
   else if(S.activeTab==='centros')renderCentros();
   else if(S.activeTab==='reportes')renderReportes();
+  else if(S.activeTab==='cotizaciones')renderCotizaciones();
+  else if(S.activeTab==='inventario')renderInventario();
+  else if(S.activeTab==='bodegas')renderBodegas();
   else if(S.activeTab==='log')renderLog();
   else if(S.activeTab==='usuarios')renderUsuarios();
   else if(S.activeTab==='config')renderConfig();
