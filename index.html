@@ -2685,10 +2685,10 @@ function tplPlan(p){
     </div>
     <!-- Enlace Google Drive -->
     <div style="background:var(--surface2);border:1px solid #1a3a6a;border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:8px">
-      <div style="font-size:13px;font-weight:600;color:#60a0e0">📂 Enlace Google Drive</div>
-      <div style="font-size:11px;color:var(--muted)">Para archivos grandes: DWG, planos, carpetas compartidas</div>
+      <div style="font-size:13px;font-weight:600;color:#60a0e0">📂 Enlace externo (Drive, OneDrive...)</div>
+      <div style="font-size:11px;color:var(--muted)">OneDrive, Google Drive, Dropbox — cualquier enlace web</div>
       <input id="gdNombre_${p.id}" placeholder="Nombre del archivo/carpeta" style="font-size:12px">
-      <input id="gdUrl_${p.id}" placeholder="Pega el enlace de Drive aquí" style="font-size:12px">
+      <input id="gdUrl_${p.id}" placeholder="Pega el enlace de OneDrive, Drive, Dropbox..." style="font-size:12px">
       <button class="btn btn-secondary btn-sm" style="background:#1a3a6a;color:#60a0e0;border-color:#1a5a9a" onclick="agregarDrive('${p.id}')">+ Agregar enlace</button>
     </div>
   </div>
@@ -2703,8 +2703,8 @@ function agregarDrive(pid){
   const nombre=document.getElementById('gdNombre_'+pid)?.value.trim();
   const url=document.getElementById('gdUrl_'+pid)?.value.trim();
   if(!nombre){toast('Escribe un nombre para el enlace',true);return;}
-  if(!url||(!url.includes('drive.google.com')&&!url.includes('docs.google.com'))){
-    toast('Pega un enlace válido de Google Drive',true);return;
+  if(!url||!url.startsWith('http')){
+    toast('Pega un enlace web válido (OneDrive, Google Drive, Dropbox, etc.)',true);return;
   }
   if(!p.planificacion)p.planificacion={archivos:[]};
   p.planificacion.archivos.push({
@@ -3215,10 +3215,10 @@ function tplPlan(p){
     </div>
     <!-- Enlace Google Drive -->
     <div style="background:var(--surface2);border:1px solid #1a3a6a;border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:8px">
-      <div style="font-size:13px;font-weight:600;color:#60a0e0">📂 Enlace Google Drive</div>
-      <div style="font-size:11px;color:var(--muted)">Para archivos grandes: DWG, planos, carpetas compartidas</div>
+      <div style="font-size:13px;font-weight:600;color:#60a0e0">📂 Enlace externo (Drive, OneDrive...)</div>
+      <div style="font-size:11px;color:var(--muted)">OneDrive, Google Drive, Dropbox — cualquier enlace web</div>
       <input id="gdNombre_${p.id}" placeholder="Nombre del archivo/carpeta" style="font-size:12px">
-      <input id="gdUrl_${p.id}" placeholder="Pega el enlace de Drive aquí" style="font-size:12px">
+      <input id="gdUrl_${p.id}" placeholder="Pega el enlace de OneDrive, Drive, Dropbox..." style="font-size:12px">
       <button class="btn btn-secondary btn-sm" style="background:#1a3a6a;color:#60a0e0;border-color:#1a5a9a" onclick="agregarDrive('${p.id}')">+ Agregar enlace</button>
     </div>
   </div>
@@ -3233,8 +3233,8 @@ function agregarDrive(pid){
   const nombre=document.getElementById('gdNombre_'+pid)?.value.trim();
   const url=document.getElementById('gdUrl_'+pid)?.value.trim();
   if(!nombre){toast('Escribe un nombre para el enlace',true);return;}
-  if(!url||(!url.includes('drive.google.com')&&!url.includes('docs.google.com'))){
-    toast('Pega un enlace válido de Google Drive',true);return;
+  if(!url||!url.startsWith('http')){
+    toast('Pega un enlace web válido (OneDrive, Google Drive, Dropbox, etc.)',true);return;
   }
   if(!p.planificacion)p.planificacion={archivos:[]};
   p.planificacion.archivos.push({
@@ -3747,10 +3747,10 @@ function tplPlan(p){
     </div>
     <!-- Enlace Google Drive -->
     <div style="background:var(--surface2);border:1px solid #1a3a6a;border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:8px">
-      <div style="font-size:13px;font-weight:600;color:#60a0e0">📂 Enlace Google Drive</div>
-      <div style="font-size:11px;color:var(--muted)">Para archivos grandes: DWG, planos, carpetas compartidas</div>
+      <div style="font-size:13px;font-weight:600;color:#60a0e0">📂 Enlace externo (Drive, OneDrive...)</div>
+      <div style="font-size:11px;color:var(--muted)">OneDrive, Google Drive, Dropbox — cualquier enlace web</div>
       <input id="gdNombre_${p.id}" placeholder="Nombre del archivo/carpeta" style="font-size:12px">
-      <input id="gdUrl_${p.id}" placeholder="Pega el enlace de Drive aquí" style="font-size:12px">
+      <input id="gdUrl_${p.id}" placeholder="Pega el enlace de OneDrive, Drive, Dropbox..." style="font-size:12px">
       <button class="btn btn-secondary btn-sm" style="background:#1a3a6a;color:#60a0e0;border-color:#1a5a9a" onclick="agregarDrive('${p.id}')">+ Agregar enlace</button>
     </div>
   </div>
@@ -3765,8 +3765,8 @@ function agregarDrive(pid){
   const nombre=document.getElementById('gdNombre_'+pid)?.value.trim();
   const url=document.getElementById('gdUrl_'+pid)?.value.trim();
   if(!nombre){toast('Escribe un nombre para el enlace',true);return;}
-  if(!url||(!url.includes('drive.google.com')&&!url.includes('docs.google.com'))){
-    toast('Pega un enlace válido de Google Drive',true);return;
+  if(!url||!url.startsWith('http')){
+    toast('Pega un enlace web válido (OneDrive, Google Drive, Dropbox, etc.)',true);return;
   }
   if(!p.planificacion)p.planificacion={archivos:[]};
   p.planificacion.archivos.push({
