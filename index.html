@@ -11,6 +11,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 <script>
 const _fbApp=firebase.initializeApp({
   apiKey:"AIzaSyC0R7573cB76FzC6qPZhLmvKhVT46PN3RM",
@@ -22,6 +23,7 @@ const _fbApp=firebase.initializeApp({
 });
 const _fbAuth=firebase.auth();
 const _fbDb=firebase.firestore();
+const _fbStorage=firebase.storage();
 _fbDb.settings({ignoreUndefinedProperties:true,experimentalForceLongPolling:true});
 _fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(console.error);
 
@@ -33,7 +35,27 @@ const _errMap={'auth/user-not-found':'Usuario no encontrado','auth/wrong-passwor
 
 window.FB={
   ready(){return!!_fbAuth&&!!_fbDb},
-  _db(){return _fbDb}, // exponer para acceso directo por UID
+  _db(){return _fbDb},
+
+  // ── FIREBASE STORAGE ─────────────────────────────────
+  // Sube base64 a Storage y devuelve la URL de descarga
+  async uploadFile(path, base64Data){
+    try{
+      // Convertir base64 a blob
+      const resp=await fetch(base64Data);
+      const blob=await resp.blob();
+      const ref=_fbStorage.ref(path);
+      await ref.put(blob);
+      const url=await ref.getDownloadURL();
+      return{ok:true,url};
+    }catch(e){console.error('[Storage] upload:',e.message);return{ok:false,err:e.message};}
+  },
+  async deleteFile(path){
+    try{await _fbStorage.ref(path).delete();}catch(e){}
+  },
+  async getFileURL(path){
+    try{return await _fbStorage.ref(path).getDownloadURL();}catch(e){return null;}
+  }, // exponer para acceso directo por UID
   async login(email,pw){try{const r=await _fbAuth.signInWithEmailAndPassword(email,pw);return{ok:true,uid:r.user.uid,email:r.user.email}}catch(e){return{ok:false,err:_errMap[e.code]||e.message}}},
   async logout(){try{if(_unsub){_unsub();_unsub=null}await _fbAuth.signOut()}catch(e){console.error(e)}},
   async crearUsuario(email,pw,nombre,rol,empresa,permisos){
@@ -73,16 +95,38 @@ window.FB={
 
   // Comprobantes en colección separada para no superar 1MB por documento Firestore
   async saveComprobante(empresaId,refId,data){
+    // Usar Storage en lugar de Firestore — sin límite de 1MB
+    const path=`comprobantes/${empresaId}/${refId}`;
+    const r=await this.uploadFile(path,data);
+    if(r.ok){
+      // Guardar solo la URL en Firestore (texto pequeño, no base64)
+      try{await _fbDb.collection('comprobantes').doc(`${empresaId}_${refId}`).set({empresaId,refId,url:r.url,_ts:Date.now()});}catch(e){}
+      return{ok:true,url:r.url};
+    }
+    // Fallback: si Storage falla, intentar Firestore (solo si es pequeño)
     try{
-      await _fbDb.collection('comprobantes').doc(`${empresaId}_${refId}`).set({empresaId,refId,data,_ts:Date.now()});
-      return{ok:true};
-    }catch(e){console.error('[FB] saveComp:',e.code);return{ok:false};}
+      if(data.length<900000){
+        await _fbDb.collection('comprobantes').doc(`${empresaId}_${refId}`).set({empresaId,refId,data,_ts:Date.now()});
+        return{ok:true};
+      }
+    }catch(e){}
+    return{ok:false,err:'Archivo demasiado grande'};
   },
   async getComprobante(empresaId,refId){
-    try{const s=await _fbDb.collection('comprobantes').doc(`${empresaId}_${refId}`).get();return s.exists?s.data().data:null;}catch(e){return null;}
+    try{
+      const s=await _fbDb.collection('comprobantes').doc(`${empresaId}_${refId}`).get();
+      if(!s.exists)return null;
+      const d=s.data();
+      // Si tiene URL (Storage), devolver la URL directamente
+      if(d.url)return d.url;
+      // Si tiene data inline (Firestore legacy), devolverla
+      if(d.data)return d.data;
+      return null;
+    }catch(e){return null;}
   },
   async delComprobante(empresaId,refId){
     try{await _fbDb.collection('comprobantes').doc(`${empresaId}_${refId}`).delete();}catch(e){}
+    try{await this.deleteFile(`comprobantes/${empresaId}/${refId}`);}catch(e){}
   },
   async deleteUserDoc(uid){
     try{await _fbDb.collection('usuariosApp').doc(uid).delete();return{ok:true};}catch(e){return{ok:false,err:e.message};}
@@ -714,6 +758,47 @@ function setSyncUI(state,txt){const dot=document.getElementById('syncDot'),stxt=
 //  SYNC
 // ═══════════════════════════════════════════════════════
 function serializeState(){return{_v:3,_ts:Date.now(),proyectos:S.proyectos,gastos:S.gastos,proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios,config:S.config,inventario:S.inventario||{bodegas:[],productos:[],movimientos:[]},cotizaciones:S.cotizaciones||{comparaciones:[]}}}
+
+// Versión limpia para Firestore — elimina base64 pesados que van en colección separada
+function serializeForFirestore(){
+  const state=serializeState();
+
+  // Limpiar fotos de planificación — solo guardar metadata, no base64
+  const proyectos=state.proyectos.map(p=>{
+    const archivos=(p.planificacion?.archivos||[]).map(a=>({
+      nombre:a.nombre, tipo:a.tipo, tamaño:a.tamaño, ts:a.ts,
+      data:a.tipo&&a.tipo.startsWith('image/')?'ref:plan_'+p.id+'_'+(a.ts||0):a.data
+    }));
+    return{...p,planificacion:{...p.planificacion,archivos}};
+  });
+
+  // Limpiar comprobantes inline de gastos (solo conservar refs que ya están en colección separada)
+  const gastos=state.gastos.map(g=>({
+    ...g,
+    comprobante:g.comprobante&&g.comprobante.startsWith('data:')?'ref:'+g.id:g.comprobante
+  }));
+
+  // Inventario: fotos ya están como refs (guardarProducto/confirmarMov las guardan separadas)
+  // Solo limpiar cualquier base64 que haya quedado por migración
+  const inv=state.inventario||{bodegas:[],productos:[],movimientos:[]};
+  const productos=(inv.productos||[]).map(p=>({
+    ...p, foto:p.foto&&p.foto.startsWith('data:')?'ref:prod_'+p.id:p.foto
+  }));
+  const movimientos=(inv.movimientos||[]).map(m=>({
+    ...m, foto:m.foto&&m.foto.startsWith('data:')?'ref:mov_'+m.id:m.foto
+  }));
+
+  // Limpiar resultados de cotizaciones (pueden ser muy largos)
+  const comparaciones=(state.cotizaciones?.comparaciones||[]).map(c=>({
+    id:c.id, nombre:c.nombre, archivos:c.archivos, fecha:c.fecha, ts:c.ts,
+    resultado:c.resultado||'' // mantener resultado — la IA ya lo generó
+  }));
+
+  return{...state, proyectos, gastos,
+    inventario:{...inv,productos,movimientos},
+    cotizaciones:{comparaciones}
+  };
+}
 function applyData(d,fromRemote=false){
   S.proyectos=d.proyectos||[];S.gastos=d.gastos||[];S.proveedores=d.proveedores||[];S.centros=d.centros||[];
   S.marcas=d.marcas||['Papa Johns','Jimmy Johns'];S.usuarios=d.usuarios||[];
@@ -786,7 +871,7 @@ async function saveData(){
     if(window.FB&&user&&S.empresa){
       S._saving=true;
       S._lastSaveTs=Date.now();
-      const dataToSave={...serializeState(),_ts:S._lastSaveTs};
+      const dataToSave={...serializeForFirestore(),_ts:S._lastSaveTs};
       const ok=await window.FB.save(S.empresa,dataToSave);
       S._saving=false;
       S._dirty=false;
@@ -2557,14 +2642,16 @@ function tplPlan(p){
   arch.forEach((a,i)=>{
     const isImg=a.tipo&&a.tipo.startsWith('image/');
     const isPDF=a.tipo==='application/pdf';
+    const src=a.url||a.data||'';
     archHtml+=`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
       <div style="font-size:24px">${isImg?'🖼':isPDF?'📄':'📎'}</div>
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.nombre)}</div>
         <div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div>
       </div>
-      ${isImg?`<img src="${a.data}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${a.data}','${esc(a.nombre)}')">`:''}
-      ${isPDF?`<a href="${a.data}" download="${esc(a.nombre)}" class="btn btn-secondary btn-xs">⬇ PDF</a>`:''}
+      ${isImg&&src?`<img src="${src}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${src}','${esc(a.nombre)}')">`:''}
+      ${isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ PDF</a>`:''}
+      ${!isImg&&!isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ Abrir</a>`:''}
       <button class="btn btn-danger btn-xs" onclick="delArchPlan('${p.id}',${i})">✕</button>
     </div>`;
   });
@@ -2589,18 +2676,20 @@ function tplPlan(p){
 
 async function verComprobanteTramo(pid,idx,titulo){
   const refId=`tramo_${pid}_${idx}`;
-  const data=await window.FB.getComprobante(S.empresa,refId);
-  if(!data){toast('Comprobante no encontrado',true);return;}
-  verImagen(data,'Comprobante '+titulo);
+  const src=await window.FB.getComprobante(S.empresa,refId);
+  if(!src){toast('Comprobante no encontrado',true);return;}
+  if(src.startsWith('http')){window.open(src,'_blank');}
+  else{verImagen(src,'Comprobante '+titulo);}
 }
 
 async function verComprobanteGasto(gastoId,titulo){
-  const btn=event.target;
-  btn.textContent='⏳';
-  const data=await window.FB.getComprobante(S.empresa,'gasto_'+gastoId);
+  const btn=event.target;btn.textContent='⏳';
+  const src=await window.FB.getComprobante(S.empresa,'gasto_'+gastoId);
   btn.textContent='📎 Ver';
-  if(!data){toast('Comprobante no encontrado',true);return;}
-  verImagen(data,titulo);
+  if(!src){toast('Comprobante no encontrado',true);return;}
+  // Si es URL de Storage, abrir en nueva pestaña; si es base64, mostrar en modal
+  if(src.startsWith('http')){window.open(src,'_blank');}
+  else{verImagen(src,titulo);}
 }
 
 function verImagen(data,nombre){
@@ -2615,14 +2704,30 @@ function subirArchPlan(pid,input){
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   if(!p.planificacion)p.planificacion={archivos:[]};
   const files=Array.from(input.files);
+  if(files.length===0)return;
+  toast('⏳ Subiendo archivo(s)...');
   let pendientes=files.length;
   files.forEach(file=>{
-    leerArchivoBase64(file,(b64,f)=>{
-      const kb=Math.round(b64.length*0.75/1024);
-      p.planificacion.archivos.push({nombre:f.name,tipo:f.type,tamaño:kb+'KB',data:b64,ts:Date.now()});
+    leerArchivoBase64(file,async(b64,f)=>{
+      const ts=Date.now();
+      const refId=`plan_${pid}_${ts}`;
+      const kb=Math.round(f.size/1024);
+      // Subir a Firebase Storage
+      const r=await window.FB.uploadFile(`archivos/${S.empresa}/${refId}`,b64);
+      if(r.ok){
+        // Guardar solo URL y metadata en el proyecto (no el base64)
+        p.planificacion.archivos.push({nombre:f.name,tipo:f.type,tamaño:kb+'KB',url:r.url,refId,ts});
+      } else {
+        // Fallback: guardar base64 si Storage falla y el archivo es pequeño
+        if(b64.length<500000){
+          p.planificacion.archivos.push({nombre:f.name,tipo:f.type,tamaño:kb+'KB',data:b64,ts});
+        } else {
+          toast(`"${f.name}" demasiado grande para guardar`,true);
+        }
+      }
       pendientes--;
       if(!pendientes){saveData();renderPlanArchivos(pid);logAction('CREAR','proyectos',`Archivo subido: ${f.name}`);}
-    },50); // 50MB max para archivos de planificación
+    },50);
   });
   input.value='';
 }
@@ -2636,11 +2741,14 @@ function renderPlanArchivos(pid){
   arch.forEach((a,i)=>{
     const isImg=a.tipo&&a.tipo.startsWith('image/');
     const isPDF=a.tipo==='application/pdf';
+    // src puede ser URL de Storage o base64 legacy
+    const src=a.url||a.data||'';
     html+=`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
       <div style="font-size:24px">${isImg?'🖼':isPDF?'📄':'📎'}</div>
       <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">${esc(a.nombre)}</div><div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div></div>
-      ${isImg?`<img src="${a.data}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${a.data}','${esc(a.nombre)}')">`:''}
-      ${isPDF?`<a href="${a.data}" download="${esc(a.nombre)}" class="btn btn-secondary btn-xs">⬇</a>`:''}
+      ${isImg&&src?`<img src="${src}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${src}','${esc(a.nombre)}')">`:''}
+      ${isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ Ver</a>`:''}
+      ${!isImg&&!isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ Abrir</a>`:''}
       ${S.currentUser?.rol!=='contratista'?`<button class="btn btn-danger btn-xs" onclick="delArchPlan('${pid}',${i})">✕</button>`:''}
     </div>`;
   });
@@ -3034,14 +3142,16 @@ function tplPlan(p){
   arch.forEach((a,i)=>{
     const isImg=a.tipo&&a.tipo.startsWith('image/');
     const isPDF=a.tipo==='application/pdf';
+    const src=a.url||a.data||'';
     archHtml+=`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
       <div style="font-size:24px">${isImg?'🖼':isPDF?'📄':'📎'}</div>
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.nombre)}</div>
         <div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div>
       </div>
-      ${isImg?`<img src="${a.data}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${a.data}','${esc(a.nombre)}')">`:''}
-      ${isPDF?`<a href="${a.data}" download="${esc(a.nombre)}" class="btn btn-secondary btn-xs">⬇ PDF</a>`:''}
+      ${isImg&&src?`<img src="${src}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${src}','${esc(a.nombre)}')">`:''}
+      ${isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ PDF</a>`:''}
+      ${!isImg&&!isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ Abrir</a>`:''}
       <button class="btn btn-danger btn-xs" onclick="delArchPlan('${p.id}',${i})">✕</button>
     </div>`;
   });
@@ -3076,14 +3186,30 @@ function subirArchPlan(pid,input){
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   if(!p.planificacion)p.planificacion={archivos:[]};
   const files=Array.from(input.files);
+  if(files.length===0)return;
+  toast('⏳ Subiendo archivo(s)...');
   let pendientes=files.length;
   files.forEach(file=>{
-    leerArchivoBase64(file,(b64,f)=>{
-      const kb=Math.round(b64.length*0.75/1024);
-      p.planificacion.archivos.push({nombre:f.name,tipo:f.type,tamaño:kb+'KB',data:b64,ts:Date.now()});
+    leerArchivoBase64(file,async(b64,f)=>{
+      const ts=Date.now();
+      const refId=`plan_${pid}_${ts}`;
+      const kb=Math.round(f.size/1024);
+      // Subir a Firebase Storage
+      const r=await window.FB.uploadFile(`archivos/${S.empresa}/${refId}`,b64);
+      if(r.ok){
+        // Guardar solo URL y metadata en el proyecto (no el base64)
+        p.planificacion.archivos.push({nombre:f.name,tipo:f.type,tamaño:kb+'KB',url:r.url,refId,ts});
+      } else {
+        // Fallback: guardar base64 si Storage falla y el archivo es pequeño
+        if(b64.length<500000){
+          p.planificacion.archivos.push({nombre:f.name,tipo:f.type,tamaño:kb+'KB',data:b64,ts});
+        } else {
+          toast(`"${f.name}" demasiado grande para guardar`,true);
+        }
+      }
       pendientes--;
       if(!pendientes){saveData();renderPlanArchivos(pid);logAction('CREAR','proyectos',`Archivo subido: ${f.name}`);}
-    },50); // 50MB max para archivos de planificación
+    },50);
   });
   input.value='';
 }
@@ -3097,11 +3223,14 @@ function renderPlanArchivos(pid){
   arch.forEach((a,i)=>{
     const isImg=a.tipo&&a.tipo.startsWith('image/');
     const isPDF=a.tipo==='application/pdf';
+    // src puede ser URL de Storage o base64 legacy
+    const src=a.url||a.data||'';
     html+=`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
       <div style="font-size:24px">${isImg?'🖼':isPDF?'📄':'📎'}</div>
       <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">${esc(a.nombre)}</div><div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div></div>
-      ${isImg?`<img src="${a.data}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${a.data}','${esc(a.nombre)}')">`:''}
-      ${isPDF?`<a href="${a.data}" download="${esc(a.nombre)}" class="btn btn-secondary btn-xs">⬇</a>`:''}
+      ${isImg&&src?`<img src="${src}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${src}','${esc(a.nombre)}')">`:''}
+      ${isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ Ver</a>`:''}
+      ${!isImg&&!isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ Abrir</a>`:''}
       ${S.currentUser?.rol!=='contratista'?`<button class="btn btn-danger btn-xs" onclick="delArchPlan('${pid}',${i})">✕</button>`:''}
     </div>`;
   });
@@ -3515,14 +3644,16 @@ function tplPlan(p){
   arch.forEach((a,i)=>{
     const isImg=a.tipo&&a.tipo.startsWith('image/');
     const isPDF=a.tipo==='application/pdf';
+    const src=a.url||a.data||'';
     archHtml+=`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
       <div style="font-size:24px">${isImg?'🖼':isPDF?'📄':'📎'}</div>
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.nombre)}</div>
         <div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div>
       </div>
-      ${isImg?`<img src="${a.data}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${a.data}','${esc(a.nombre)}')">`:''}
-      ${isPDF?`<a href="${a.data}" download="${esc(a.nombre)}" class="btn btn-secondary btn-xs">⬇ PDF</a>`:''}
+      ${isImg&&src?`<img src="${src}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${src}','${esc(a.nombre)}')">`:''}
+      ${isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ PDF</a>`:''}
+      ${!isImg&&!isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ Abrir</a>`:''}
       <button class="btn btn-danger btn-xs" onclick="delArchPlan('${p.id}',${i})">✕</button>
     </div>`;
   });
@@ -3557,14 +3688,30 @@ function subirArchPlan(pid,input){
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   if(!p.planificacion)p.planificacion={archivos:[]};
   const files=Array.from(input.files);
+  if(files.length===0)return;
+  toast('⏳ Subiendo archivo(s)...');
   let pendientes=files.length;
   files.forEach(file=>{
-    leerArchivoBase64(file,(b64,f)=>{
-      const kb=Math.round(b64.length*0.75/1024);
-      p.planificacion.archivos.push({nombre:f.name,tipo:f.type,tamaño:kb+'KB',data:b64,ts:Date.now()});
+    leerArchivoBase64(file,async(b64,f)=>{
+      const ts=Date.now();
+      const refId=`plan_${pid}_${ts}`;
+      const kb=Math.round(f.size/1024);
+      // Subir a Firebase Storage
+      const r=await window.FB.uploadFile(`archivos/${S.empresa}/${refId}`,b64);
+      if(r.ok){
+        // Guardar solo URL y metadata en el proyecto (no el base64)
+        p.planificacion.archivos.push({nombre:f.name,tipo:f.type,tamaño:kb+'KB',url:r.url,refId,ts});
+      } else {
+        // Fallback: guardar base64 si Storage falla y el archivo es pequeño
+        if(b64.length<500000){
+          p.planificacion.archivos.push({nombre:f.name,tipo:f.type,tamaño:kb+'KB',data:b64,ts});
+        } else {
+          toast(`"${f.name}" demasiado grande para guardar`,true);
+        }
+      }
       pendientes--;
       if(!pendientes){saveData();renderPlanArchivos(pid);logAction('CREAR','proyectos',`Archivo subido: ${f.name}`);}
-    },50); // 50MB max para archivos de planificación
+    },50);
   });
   input.value='';
 }
@@ -3578,11 +3725,14 @@ function renderPlanArchivos(pid){
   arch.forEach((a,i)=>{
     const isImg=a.tipo&&a.tipo.startsWith('image/');
     const isPDF=a.tipo==='application/pdf';
+    // src puede ser URL de Storage o base64 legacy
+    const src=a.url||a.data||'';
     html+=`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
       <div style="font-size:24px">${isImg?'🖼':isPDF?'📄':'📎'}</div>
       <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">${esc(a.nombre)}</div><div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div></div>
-      ${isImg?`<img src="${a.data}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${a.data}','${esc(a.nombre)}')">`:''}
-      ${isPDF?`<a href="${a.data}" download="${esc(a.nombre)}" class="btn btn-secondary btn-xs">⬇</a>`:''}
+      ${isImg&&src?`<img src="${src}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${src}','${esc(a.nombre)}')">`:''}
+      ${isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ Ver</a>`:''}
+      ${!isImg&&!isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ Abrir</a>`:''}
       ${S.currentUser?.rol!=='contratista'?`<button class="btn btn-danger btn-xs" onclick="delArchPlan('${pid}',${i})">✕</button>`:''}
     </div>`;
   });
@@ -4675,9 +4825,10 @@ function guardarProducto(btn){
   if(!nombre){toast('Ingresa un nombre',true);return;}
   if(!S.inventario)S.inventario={bodegas:[],productos:[],movimientos:[]};
   const cant=parseFloat(document.getElementById('npCant').value)||0;
-  const foto=document.getElementById('npFotoData')?.value||null;
+  const fotoData=document.getElementById('npFotoData')?.value||null;
+  const prodId=genId();
   const prod={
-    id:genId(),nombre,
+    id:prodId,nombre,
     numActivo:document.getElementById('npActivo').value.trim()||null,
     categoria:document.getElementById('npCat').value,
     cantidad:cant,
@@ -4686,10 +4837,12 @@ function guardarProducto(btn){
     bodegaId,
     estado:cant>0?'Disponible':'Agotado',
     descripcion:document.getElementById('npDesc').value.trim(),
-    foto,
+    foto:fotoData?'ref:prod_'+prodId:null, // referencia, no base64
     creadoEn:Date.now()
   };
   S.inventario.productos.push(prod);
+  // Guardar foto en colección separada
+  if(fotoData){window.FB.saveComprobante(S.empresa,'prod_'+prodId,fotoData).catch(console.error);}
   if(cant>0){
     S.inventario.movimientos.push({id:genId(),tipo:'entrada',prodId:prod.id,bodegaId,cantidad:cant,
       fecha:new Date().toISOString().slice(0,10),nota:'Stock inicial',ts:Date.now()});
@@ -4799,13 +4952,12 @@ function confirmarMov(prodId,tipo,btn){
   const bod=document.getElementById('mvBod').value;
   const fecha=document.getElementById('mvFecha').value;
   const nota=document.getElementById('mvNota').value.trim();
-  const foto=document.getElementById('mvFotoData')?.value||null;
+  const fotoData=document.getElementById('mvFotoData')?.value||null;
   if(cant<=0){toast('Ingresa una cantidad válida',true);return;}
 
   const prod=(S.inventario?.productos||[]).find(p=>p.id===prodId);if(!prod)return;
   if(tipo==='salida'&&cant>prod.cantidad){toast('Stock insuficiente',true);return;}
 
-  // Origen/destino
   let proveedorId=null,centroId=null;
   if(tipo==='entrada'){
     const origenTipo=document.getElementById('mvOrigenTipo')?.value;
@@ -4816,10 +4968,15 @@ function confirmarMov(prodId,tipo,btn){
     if(!centroId){toast('Selecciona un Centro de Costo para la salida',true);return;}
   }
 
+  const movId=genId();
   prod.cantidad=parseFloat((prod.cantidad+(tipo==='entrada'?cant:-cant)).toFixed(4));
   prod.estado=prod.minimo&&prod.cantidad<prod.minimo?'Bajo stock':prod.cantidad<=0?'Agotado':'Disponible';
-  S.inventario.movimientos.push({id:genId(),tipo,prodId,bodegaId:bod,cantidad:cant,
-    fecha,nota,proveedorId,centroId,foto,ts:Date.now()});
+  S.inventario.movimientos.push({id:movId,tipo,prodId,bodegaId:bod,cantidad:cant,
+    fecha,nota,proveedorId,centroId,
+    foto:fotoData?'ref:mov_'+movId:null, // referencia, no base64
+    ts:Date.now()});
+  // Guardar foto en colección separada
+  if(fotoData){window.FB.saveComprobante(S.empresa,'mov_'+movId,fotoData).catch(console.error);}
   saveData();
   document.getElementById('modalMov')?.remove();
   renderInventario();
