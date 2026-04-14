@@ -50,7 +50,7 @@ window.FB={
   async getAllEmpresas(){try{const s=await _fbDb.collection('_empresas').get();return s.docs.map(d=>({id:d.id,...d.data()}))}catch(e){return[]}},
   async saveEmpresa(id,data){try{await _fbDb.collection('_empresas').doc(id).set({...data,_ts:Date.now()},{ merge:true});return{ok:true}}catch(e){return{ok:false,err:e.message}}},
   async load(empresa){try{const s=await _fbDb.collection('empresas').doc(empresa).get();return s.exists?s.data():null}catch(e){console.error('[FB] load:',e.code);return null}},
-  async save(empresa,data){try{await _fbDb.collection('empresas').doc(empresa).set({...data,_ts:Date.now()});return true}catch(e){console.error('[FB] save:',e.code);return false}},
+  async save(empresa,data){try{await _fbDb.collection('empresas').doc(empresa).set({...data,_ts:data._ts||Date.now()});return true}catch(e){console.error('[FB] save:',e.code);return false}},
   listen(empresa,cb){if(_unsub){_unsub();_unsub=null}_unsub=_fbDb.collection('empresas').doc(empresa).onSnapshot(s=>{if(s.exists)cb(s.data())},e=>console.error('[FB] snap:',e.code))},
   stopListen(){if(_unsub){_unsub();_unsub=null}},
   // LOG DE ACTIVIDAD
@@ -764,20 +764,36 @@ function startListening(){
   const user=window.FB.currentUser();if(!user)return;
   S._listening=true;
   window.FB.listen(S.empresa,(remoteData)=>{
-    if(!S._dirty&&remoteData._ts>=(S._lastSaveTs||0)){applyData(remoteData,true);if(S.currentUser)render();setSyncUI('ok','Actualizado');}
+    // Ignorar si el snapshot es más viejo que lo que acabamos de guardar
+    if(S._lastSaveTs&&remoteData._ts<S._lastSaveTs)return;
+    // Ignorar si el timestamp es el mismo (nuestro propio save)
+    if(remoteData._ts===S._lastSaveTs)return;
+    // Aplicar datos remotos siempre que no estemos en medio de un guardado activo
+    if(!S._saving){
+      applyData(remoteData,true);
+      if(S.currentUser)render();
+      setSyncUI('ok','Actualizado');
+    }
   });
 }
+
 async function saveData(){
-  S._dirty=true;clearTimeout(S._syncTimer);setSyncUI('saving','Guardando...');
+  clearTimeout(S._syncTimer);
+  setSyncUI('saving','Guardando...');
   try{localStorage.setItem('pp3_'+S.empresa,JSON.stringify(serializeState()));}catch(e){}
   S._syncTimer=setTimeout(async()=>{
     const user=window.FB?.currentUser();
     if(window.FB&&user&&S.empresa){
-      const ok=await window.FB.save(S.empresa,serializeState());
-      S._lastSaveTs=Date.now();S._dirty=false;
+      S._saving=true;
+      S._lastSaveTs=Date.now();
+      const dataToSave={...serializeState(),_ts:S._lastSaveTs};
+      const ok=await window.FB.save(S.empresa,dataToSave);
+      S._saving=false;
+      S._dirty=false;
       setSyncUI(ok?'ok':'err',ok?'Sincronizado':'Error al guardar');
-    }else{S._dirty=false;setSyncUI('err','Sin sesión');}
-  },800);
+    }else{S._dirty=false;S._saving=false;setSyncUI('err','Sin sesión');}
+  },400);
+  S._dirty=true;
 }
 function applyBranding(){
   const cfg=S.config||{};const name=cfg.appName||'Proyectos Pro';
