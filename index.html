@@ -763,23 +763,26 @@ function serializeState(){return{_v:3,_ts:Date.now(),proyectos:S.proyectos,gasto
 function serializeForFirestore(){
   const state=serializeState();
 
-  // Limpiar fotos de planificación — solo guardar metadata, no base64
+  // Archivos de planificación: guardar URL de Storage, no base64
   const proyectos=state.proyectos.map(p=>{
     const archivos=(p.planificacion?.archivos||[]).map(a=>({
       nombre:a.nombre, tipo:a.tipo, tamaño:a.tamaño, ts:a.ts,
-      data:a.tipo&&a.tipo.startsWith('image/')?'ref:plan_'+p.id+'_'+(a.ts||0):a.data
+      url:a.url||null,       // URL de Firebase Storage — SIEMPRE preservar
+      refId:a.refId||null,   // referencia del archivo en Storage
+      gdrive:a.gdrive||null, // enlace de Google Drive si aplica
+      // data: solo conservar si es pequeño (< 200KB) y no tiene URL
+      data:(!a.url&&a.data&&a.data.length<200000)?a.data:null
     }));
     return{...p,planificacion:{...p.planificacion,archivos}};
   });
 
-  // Limpiar comprobantes inline de gastos (solo conservar refs que ya están en colección separada)
+  // Comprobantes inline → solo refs
   const gastos=state.gastos.map(g=>({
     ...g,
     comprobante:g.comprobante&&g.comprobante.startsWith('data:')?'ref:'+g.id:g.comprobante
   }));
 
-  // Inventario: fotos ya están como refs (guardarProducto/confirmarMov las guardan separadas)
-  // Solo limpiar cualquier base64 que haya quedado por migración
+  // Inventario
   const inv=state.inventario||{bodegas:[],productos:[],movimientos:[]};
   const productos=(inv.productos||[]).map(p=>({
     ...p, foto:p.foto&&p.foto.startsWith('data:')?'ref:prod_'+p.id:p.foto
@@ -788,10 +791,10 @@ function serializeForFirestore(){
     ...m, foto:m.foto&&m.foto.startsWith('data:')?'ref:mov_'+m.id:m.foto
   }));
 
-  // Limpiar resultados de cotizaciones (pueden ser muy largos)
+  // Cotizaciones
   const comparaciones=(state.cotizaciones?.comparaciones||[]).map(c=>({
     id:c.id, nombre:c.nombre, archivos:c.archivos, fecha:c.fecha, ts:c.ts,
-    resultado:c.resultado||'' // mantener resultado — la IA ya lo generó
+    resultado:c.resultado||''
   }));
 
   return{...state, proyectos, gastos,
@@ -2633,45 +2636,86 @@ function regGasto(){
 
 
 // ═══ TAB: PLANIFICACIÓN INICIAL ═══
+function archHtmlItem(a,i,pid,soloLectura){
+  const isImg=a.tipo&&a.tipo.startsWith('image/');
+  const isPDF=a.tipo==='application/pdf';
+  const src=a.url||a.data||''; // URL de Storage o base64
+  const gdrive=a.gdrive||'';
+  const icono=a.gdrive?'📂':isImg?'🖼':isPDF?'📄':'📎';
+  const badge=a.gdrive
+    ?`<span style="font-size:10px;background:#1a3a6a;color:#60a0e0;padding:2px 6px;border-radius:4px;margin-left:6px">Drive</span>`
+    :src?'':`<span style="font-size:10px;color:var(--red);margin-left:6px">sin enlace</span>`;
+  return`<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
+    <div style="font-size:22px;flex-shrink:0">${icono}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        ${esc(a.nombre)}${badge}
+      </div>
+      <div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div>
+    </div>
+    ${isImg&&src?`<img src="${src}" style="width:50px;height:38px;object-fit:cover;border-radius:5px;cursor:pointer;flex-shrink:0" onclick="verImagen('${src}','${esc(a.nombre)}')">`:''}
+    ${(src&&!isImg)?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs" style="flex-shrink:0">⬇ Abrir</a>`:''}
+    ${gdrive?`<a href="${gdrive}" target="_blank" class="btn btn-secondary btn-xs" style="flex-shrink:0;background:#1a3a6a;color:#60a0e0">📂 Drive</a>`:''}
+    ${!soloLectura?`<button class="btn btn-danger btn-xs" style="flex-shrink:0" onclick="delArchPlan('${pid}',${i})">✕</button>`:''}
+  </div>`;
+}
+
 function tplPlan(p){
   if(!p.planificacion)p.planificacion={archivos:[]};
   const arch=p.planificacion.archivos||[];
   const isMobile=/Android|iPhone|iPad/i.test(navigator.userAgent);
+  const esContratistaP=S.currentUser&&S.currentUser.rol==='contratista';
 
-  let archHtml=arch.length===0?'<div class="empty" style="padding:20px">Sin archivos — sube planos, renders u otros documentos</div>':'';
-  arch.forEach((a,i)=>{
-    const isImg=a.tipo&&a.tipo.startsWith('image/');
-    const isPDF=a.tipo==='application/pdf';
-    const src=a.url||a.data||'';
-    archHtml+=`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
-      <div style="font-size:24px">${isImg?'🖼':isPDF?'📄':'📎'}</div>
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.nombre)}</div>
-        <div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div>
-      </div>
-      ${isImg&&src?`<img src="${src}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${src}','${esc(a.nombre)}')">`:''}
-      ${isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ PDF</a>`:''}
-      ${!isImg&&!isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ Abrir</a>`:''}
-      <button class="btn btn-danger btn-xs" onclick="delArchPlan('${p.id}',${i})">✕</button>
-    </div>`;
-  });
+  let archHtml=arch.length===0
+    ?'<div class="empty" style="padding:20px">Sin archivos — sube planos, renders u otros documentos</div>'
+    :arch.map((a,i)=>archHtmlItem(a,i,p.id,esContratistaP)).join('');
 
-  const esContratistaP=S.currentUser?.rol==='contratista';
   return`
   ${esContratistaP
     ?'<div class="info-box">📁 Documentos del proyecto — solo lectura.</div>'
-    :'<div class="info-box">📁 Sube planos (DWG guardado como referencia), fotos de render, imágenes de referencia y documentos del proyecto.</div>'}
-  ${!esContratistaP?`<div style="margin-bottom:16px">
-    <div class="logo-upload-area" onclick="document.getElementById('planFI').click()" style="padding:30px">
-      <div style="font-size:32px;margin-bottom:8px">📤</div>
-      <div style="font-size:14px;font-weight:600">Subir archivo</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">DWG, PDF, JPG, PNG — máx 2MB por archivo</div>
-      ${isMobile?`<div style="margin-top:12px"><button class="btn btn-primary btn-sm" onclick="event.stopPropagation();abrirCamaraPlan('${p.id}','planCam')">📷 Usar cámara</button></div>`:''}
+    :'<div class="info-box">📁 Sube planos, renders, fotos e imágenes. Para archivos grandes (DWG, planos completos) usa el enlace de Google Drive.</div>'}
+  ${!esContratistaP?`
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+    <!-- Subir archivo directo -->
+    <div class="logo-upload-area" onclick="document.getElementById('planFI').click()" style="padding:20px;cursor:pointer">
+      <div style="font-size:28px;margin-bottom:6px">📤</div>
+      <div style="font-size:13px;font-weight:600">Subir archivo</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:3px">JPG, PNG, PDF — hasta 10MB</div>
+      ${isMobile?`<div style="margin-top:8px"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();abrirCamaraPlan('${p.id}','planCam')">📷 Cámara</button></div>`:''}
     </div>
-    <input type="file" id="planFI" multiple accept=".dwg,.pdf,.jpg,.jpeg,.png,.gif,.webp,.dxf" style="display:none" onchange="subirArchPlan('${p.id}',this)">
-    ${isMobile?`<input type="file" id="planCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
-  </div>`:''}
+    <!-- Enlace Google Drive -->
+    <div style="background:var(--surface2);border:1px solid #1a3a6a;border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:13px;font-weight:600;color:#60a0e0">📂 Enlace Google Drive</div>
+      <div style="font-size:11px;color:var(--muted)">Para archivos grandes: DWG, planos, carpetas compartidas</div>
+      <input id="gdNombre_${p.id}" placeholder="Nombre del archivo/carpeta" style="font-size:12px">
+      <input id="gdUrl_${p.id}" placeholder="Pega el enlace de Drive aquí" style="font-size:12px">
+      <button class="btn btn-secondary btn-sm" style="background:#1a3a6a;color:#60a0e0;border-color:#1a5a9a" onclick="agregarDrive('${p.id}')">+ Agregar enlace</button>
+    </div>
+  </div>
+  <input type="file" id="planFI" multiple accept=".dwg,.pdf,.jpg,.jpeg,.png,.gif,.webp,.dxf,.zip" style="display:none" onchange="subirArchPlan('${p.id}',this)">
+  ${isMobile?`<input type="file" id="planCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
+  `:''}
   <div id="archList_${p.id}">${archHtml}</div>`;
+}
+
+function agregarDrive(pid){
+  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
+  const nombre=document.getElementById('gdNombre_'+pid)?.value.trim();
+  const url=document.getElementById('gdUrl_'+pid)?.value.trim();
+  if(!nombre){toast('Escribe un nombre para el enlace',true);return;}
+  if(!url||(!url.includes('drive.google.com')&&!url.includes('docs.google.com'))){
+    toast('Pega un enlace válido de Google Drive',true);return;
+  }
+  if(!p.planificacion)p.planificacion={archivos:[]};
+  p.planificacion.archivos.push({
+    nombre,tipo:'application/gdrive',tamaño:'Drive',
+    gdrive:url,url:null,data:null,ts:Date.now()
+  });
+  saveData();
+  renderPlanArchivos(pid);
+  document.getElementById('gdNombre_'+pid).value='';
+  document.getElementById('gdUrl_'+pid).value='';
+  toast('✓ Enlace de Drive agregado');
 }
 
 async function verComprobanteTramo(pid,idx,titulo){
@@ -2737,21 +2781,10 @@ function renderPlanArchivos(pid){
   const contenedor=document.getElementById('archList_'+pid);
   if(!contenedor){reloadTab('plan',pid);return;}
   const arch=p.planificacion?.archivos||[];
-  let html=arch.length===0?'<div class="empty" style="padding:20px">Sin archivos</div>':'';
-  arch.forEach((a,i)=>{
-    const isImg=a.tipo&&a.tipo.startsWith('image/');
-    const isPDF=a.tipo==='application/pdf';
-    // src puede ser URL de Storage o base64 legacy
-    const src=a.url||a.data||'';
-    html+=`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
-      <div style="font-size:24px">${isImg?'🖼':isPDF?'📄':'📎'}</div>
-      <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">${esc(a.nombre)}</div><div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div></div>
-      ${isImg&&src?`<img src="${src}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${src}','${esc(a.nombre)}')">`:''}
-      ${isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ Ver</a>`:''}
-      ${!isImg&&!isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ Abrir</a>`:''}
-      ${S.currentUser?.rol!=='contratista'?`<button class="btn btn-danger btn-xs" onclick="delArchPlan('${pid}',${i})">✕</button>`:''}
-    </div>`;
-  });
+  const esC=S.currentUser&&S.currentUser.rol==='contratista';
+  const html=arch.length===0
+    ?'<div class="empty" style="padding:20px">Sin archivos</div>'
+    :arch.map((a,i)=>archHtmlItem(a,i,pid,esC)).join('');
   contenedor.innerHTML=html;
 }
 
@@ -3133,45 +3166,86 @@ function imprimirCronograma(pid){
 
 
 // ═══ TAB: PLANIFICACIÓN INICIAL ═══
+function archHtmlItem(a,i,pid,soloLectura){
+  const isImg=a.tipo&&a.tipo.startsWith('image/');
+  const isPDF=a.tipo==='application/pdf';
+  const src=a.url||a.data||''; // URL de Storage o base64
+  const gdrive=a.gdrive||'';
+  const icono=a.gdrive?'📂':isImg?'🖼':isPDF?'📄':'📎';
+  const badge=a.gdrive
+    ?`<span style="font-size:10px;background:#1a3a6a;color:#60a0e0;padding:2px 6px;border-radius:4px;margin-left:6px">Drive</span>`
+    :src?'':`<span style="font-size:10px;color:var(--red);margin-left:6px">sin enlace</span>`;
+  return`<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
+    <div style="font-size:22px;flex-shrink:0">${icono}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        ${esc(a.nombre)}${badge}
+      </div>
+      <div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div>
+    </div>
+    ${isImg&&src?`<img src="${src}" style="width:50px;height:38px;object-fit:cover;border-radius:5px;cursor:pointer;flex-shrink:0" onclick="verImagen('${src}','${esc(a.nombre)}')">`:''}
+    ${(src&&!isImg)?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs" style="flex-shrink:0">⬇ Abrir</a>`:''}
+    ${gdrive?`<a href="${gdrive}" target="_blank" class="btn btn-secondary btn-xs" style="flex-shrink:0;background:#1a3a6a;color:#60a0e0">📂 Drive</a>`:''}
+    ${!soloLectura?`<button class="btn btn-danger btn-xs" style="flex-shrink:0" onclick="delArchPlan('${pid}',${i})">✕</button>`:''}
+  </div>`;
+}
+
 function tplPlan(p){
   if(!p.planificacion)p.planificacion={archivos:[]};
   const arch=p.planificacion.archivos||[];
   const isMobile=/Android|iPhone|iPad/i.test(navigator.userAgent);
+  const esContratistaP=S.currentUser&&S.currentUser.rol==='contratista';
 
-  let archHtml=arch.length===0?'<div class="empty" style="padding:20px">Sin archivos — sube planos, renders u otros documentos</div>':'';
-  arch.forEach((a,i)=>{
-    const isImg=a.tipo&&a.tipo.startsWith('image/');
-    const isPDF=a.tipo==='application/pdf';
-    const src=a.url||a.data||'';
-    archHtml+=`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
-      <div style="font-size:24px">${isImg?'🖼':isPDF?'📄':'📎'}</div>
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.nombre)}</div>
-        <div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div>
-      </div>
-      ${isImg&&src?`<img src="${src}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${src}','${esc(a.nombre)}')">`:''}
-      ${isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ PDF</a>`:''}
-      ${!isImg&&!isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ Abrir</a>`:''}
-      <button class="btn btn-danger btn-xs" onclick="delArchPlan('${p.id}',${i})">✕</button>
-    </div>`;
-  });
+  let archHtml=arch.length===0
+    ?'<div class="empty" style="padding:20px">Sin archivos — sube planos, renders u otros documentos</div>'
+    :arch.map((a,i)=>archHtmlItem(a,i,p.id,esContratistaP)).join('');
 
-  const esContratistaP=S.currentUser?.rol==='contratista';
   return`
   ${esContratistaP
     ?'<div class="info-box">📁 Documentos del proyecto — solo lectura.</div>'
-    :'<div class="info-box">📁 Sube planos (DWG guardado como referencia), fotos de render, imágenes de referencia y documentos del proyecto.</div>'}
-  ${!esContratistaP?`<div style="margin-bottom:16px">
-    <div class="logo-upload-area" onclick="document.getElementById('planFI').click()" style="padding:30px">
-      <div style="font-size:32px;margin-bottom:8px">📤</div>
-      <div style="font-size:14px;font-weight:600">Subir archivo</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">DWG, PDF, JPG, PNG — máx 2MB por archivo</div>
-      ${isMobile?`<div style="margin-top:12px"><button class="btn btn-primary btn-sm" onclick="event.stopPropagation();abrirCamaraPlan('${p.id}','planCam')">📷 Usar cámara</button></div>`:''}
+    :'<div class="info-box">📁 Sube planos, renders, fotos e imágenes. Para archivos grandes (DWG, planos completos) usa el enlace de Google Drive.</div>'}
+  ${!esContratistaP?`
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+    <!-- Subir archivo directo -->
+    <div class="logo-upload-area" onclick="document.getElementById('planFI').click()" style="padding:20px;cursor:pointer">
+      <div style="font-size:28px;margin-bottom:6px">📤</div>
+      <div style="font-size:13px;font-weight:600">Subir archivo</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:3px">JPG, PNG, PDF — hasta 10MB</div>
+      ${isMobile?`<div style="margin-top:8px"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();abrirCamaraPlan('${p.id}','planCam')">📷 Cámara</button></div>`:''}
     </div>
-    <input type="file" id="planFI" multiple accept=".dwg,.pdf,.jpg,.jpeg,.png,.gif,.webp,.dxf" style="display:none" onchange="subirArchPlan('${p.id}',this)">
-    ${isMobile?`<input type="file" id="planCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
-  </div>`:''}
+    <!-- Enlace Google Drive -->
+    <div style="background:var(--surface2);border:1px solid #1a3a6a;border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:13px;font-weight:600;color:#60a0e0">📂 Enlace Google Drive</div>
+      <div style="font-size:11px;color:var(--muted)">Para archivos grandes: DWG, planos, carpetas compartidas</div>
+      <input id="gdNombre_${p.id}" placeholder="Nombre del archivo/carpeta" style="font-size:12px">
+      <input id="gdUrl_${p.id}" placeholder="Pega el enlace de Drive aquí" style="font-size:12px">
+      <button class="btn btn-secondary btn-sm" style="background:#1a3a6a;color:#60a0e0;border-color:#1a5a9a" onclick="agregarDrive('${p.id}')">+ Agregar enlace</button>
+    </div>
+  </div>
+  <input type="file" id="planFI" multiple accept=".dwg,.pdf,.jpg,.jpeg,.png,.gif,.webp,.dxf,.zip" style="display:none" onchange="subirArchPlan('${p.id}',this)">
+  ${isMobile?`<input type="file" id="planCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
+  `:''}
   <div id="archList_${p.id}">${archHtml}</div>`;
+}
+
+function agregarDrive(pid){
+  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
+  const nombre=document.getElementById('gdNombre_'+pid)?.value.trim();
+  const url=document.getElementById('gdUrl_'+pid)?.value.trim();
+  if(!nombre){toast('Escribe un nombre para el enlace',true);return;}
+  if(!url||(!url.includes('drive.google.com')&&!url.includes('docs.google.com'))){
+    toast('Pega un enlace válido de Google Drive',true);return;
+  }
+  if(!p.planificacion)p.planificacion={archivos:[]};
+  p.planificacion.archivos.push({
+    nombre,tipo:'application/gdrive',tamaño:'Drive',
+    gdrive:url,url:null,data:null,ts:Date.now()
+  });
+  saveData();
+  renderPlanArchivos(pid);
+  document.getElementById('gdNombre_'+pid).value='';
+  document.getElementById('gdUrl_'+pid).value='';
+  toast('✓ Enlace de Drive agregado');
 }
 
 function verImagen(data,nombre){
@@ -3219,21 +3293,10 @@ function renderPlanArchivos(pid){
   const contenedor=document.getElementById('archList_'+pid);
   if(!contenedor){reloadTab('plan',pid);return;}
   const arch=p.planificacion?.archivos||[];
-  let html=arch.length===0?'<div class="empty" style="padding:20px">Sin archivos</div>':'';
-  arch.forEach((a,i)=>{
-    const isImg=a.tipo&&a.tipo.startsWith('image/');
-    const isPDF=a.tipo==='application/pdf';
-    // src puede ser URL de Storage o base64 legacy
-    const src=a.url||a.data||'';
-    html+=`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
-      <div style="font-size:24px">${isImg?'🖼':isPDF?'📄':'📎'}</div>
-      <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">${esc(a.nombre)}</div><div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div></div>
-      ${isImg&&src?`<img src="${src}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${src}','${esc(a.nombre)}')">`:''}
-      ${isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ Ver</a>`:''}
-      ${!isImg&&!isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ Abrir</a>`:''}
-      ${S.currentUser?.rol!=='contratista'?`<button class="btn btn-danger btn-xs" onclick="delArchPlan('${pid}',${i})">✕</button>`:''}
-    </div>`;
-  });
+  const esC=S.currentUser&&S.currentUser.rol==='contratista';
+  const html=arch.length===0
+    ?'<div class="empty" style="padding:20px">Sin archivos</div>'
+    :arch.map((a,i)=>archHtmlItem(a,i,pid,esC)).join('');
   contenedor.innerHTML=html;
 }
 
@@ -3635,45 +3698,86 @@ function imprimirCronograma(pid){
 
 
 // ═══ TAB: PLANIFICACIÓN INICIAL ═══
+function archHtmlItem(a,i,pid,soloLectura){
+  const isImg=a.tipo&&a.tipo.startsWith('image/');
+  const isPDF=a.tipo==='application/pdf';
+  const src=a.url||a.data||''; // URL de Storage o base64
+  const gdrive=a.gdrive||'';
+  const icono=a.gdrive?'📂':isImg?'🖼':isPDF?'📄':'📎';
+  const badge=a.gdrive
+    ?`<span style="font-size:10px;background:#1a3a6a;color:#60a0e0;padding:2px 6px;border-radius:4px;margin-left:6px">Drive</span>`
+    :src?'':`<span style="font-size:10px;color:var(--red);margin-left:6px">sin enlace</span>`;
+  return`<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
+    <div style="font-size:22px;flex-shrink:0">${icono}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        ${esc(a.nombre)}${badge}
+      </div>
+      <div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div>
+    </div>
+    ${isImg&&src?`<img src="${src}" style="width:50px;height:38px;object-fit:cover;border-radius:5px;cursor:pointer;flex-shrink:0" onclick="verImagen('${src}','${esc(a.nombre)}')">`:''}
+    ${(src&&!isImg)?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs" style="flex-shrink:0">⬇ Abrir</a>`:''}
+    ${gdrive?`<a href="${gdrive}" target="_blank" class="btn btn-secondary btn-xs" style="flex-shrink:0;background:#1a3a6a;color:#60a0e0">📂 Drive</a>`:''}
+    ${!soloLectura?`<button class="btn btn-danger btn-xs" style="flex-shrink:0" onclick="delArchPlan('${pid}',${i})">✕</button>`:''}
+  </div>`;
+}
+
 function tplPlan(p){
   if(!p.planificacion)p.planificacion={archivos:[]};
   const arch=p.planificacion.archivos||[];
   const isMobile=/Android|iPhone|iPad/i.test(navigator.userAgent);
+  const esContratistaP=S.currentUser&&S.currentUser.rol==='contratista';
 
-  let archHtml=arch.length===0?'<div class="empty" style="padding:20px">Sin archivos — sube planos, renders u otros documentos</div>':'';
-  arch.forEach((a,i)=>{
-    const isImg=a.tipo&&a.tipo.startsWith('image/');
-    const isPDF=a.tipo==='application/pdf';
-    const src=a.url||a.data||'';
-    archHtml+=`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
-      <div style="font-size:24px">${isImg?'🖼':isPDF?'📄':'📎'}</div>
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.nombre)}</div>
-        <div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div>
-      </div>
-      ${isImg&&src?`<img src="${src}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${src}','${esc(a.nombre)}')">`:''}
-      ${isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ PDF</a>`:''}
-      ${!isImg&&!isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ Abrir</a>`:''}
-      <button class="btn btn-danger btn-xs" onclick="delArchPlan('${p.id}',${i})">✕</button>
-    </div>`;
-  });
+  let archHtml=arch.length===0
+    ?'<div class="empty" style="padding:20px">Sin archivos — sube planos, renders u otros documentos</div>'
+    :arch.map((a,i)=>archHtmlItem(a,i,p.id,esContratistaP)).join('');
 
-  const esContratistaP=S.currentUser?.rol==='contratista';
   return`
   ${esContratistaP
     ?'<div class="info-box">📁 Documentos del proyecto — solo lectura.</div>'
-    :'<div class="info-box">📁 Sube planos (DWG guardado como referencia), fotos de render, imágenes de referencia y documentos del proyecto.</div>'}
-  ${!esContratistaP?`<div style="margin-bottom:16px">
-    <div class="logo-upload-area" onclick="document.getElementById('planFI').click()" style="padding:30px">
-      <div style="font-size:32px;margin-bottom:8px">📤</div>
-      <div style="font-size:14px;font-weight:600">Subir archivo</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">DWG, PDF, JPG, PNG — máx 2MB por archivo</div>
-      ${isMobile?`<div style="margin-top:12px"><button class="btn btn-primary btn-sm" onclick="event.stopPropagation();abrirCamaraPlan('${p.id}','planCam')">📷 Usar cámara</button></div>`:''}
+    :'<div class="info-box">📁 Sube planos, renders, fotos e imágenes. Para archivos grandes (DWG, planos completos) usa el enlace de Google Drive.</div>'}
+  ${!esContratistaP?`
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+    <!-- Subir archivo directo -->
+    <div class="logo-upload-area" onclick="document.getElementById('planFI').click()" style="padding:20px;cursor:pointer">
+      <div style="font-size:28px;margin-bottom:6px">📤</div>
+      <div style="font-size:13px;font-weight:600">Subir archivo</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:3px">JPG, PNG, PDF — hasta 10MB</div>
+      ${isMobile?`<div style="margin-top:8px"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();abrirCamaraPlan('${p.id}','planCam')">📷 Cámara</button></div>`:''}
     </div>
-    <input type="file" id="planFI" multiple accept=".dwg,.pdf,.jpg,.jpeg,.png,.gif,.webp,.dxf" style="display:none" onchange="subirArchPlan('${p.id}',this)">
-    ${isMobile?`<input type="file" id="planCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
-  </div>`:''}
+    <!-- Enlace Google Drive -->
+    <div style="background:var(--surface2);border:1px solid #1a3a6a;border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:13px;font-weight:600;color:#60a0e0">📂 Enlace Google Drive</div>
+      <div style="font-size:11px;color:var(--muted)">Para archivos grandes: DWG, planos, carpetas compartidas</div>
+      <input id="gdNombre_${p.id}" placeholder="Nombre del archivo/carpeta" style="font-size:12px">
+      <input id="gdUrl_${p.id}" placeholder="Pega el enlace de Drive aquí" style="font-size:12px">
+      <button class="btn btn-secondary btn-sm" style="background:#1a3a6a;color:#60a0e0;border-color:#1a5a9a" onclick="agregarDrive('${p.id}')">+ Agregar enlace</button>
+    </div>
+  </div>
+  <input type="file" id="planFI" multiple accept=".dwg,.pdf,.jpg,.jpeg,.png,.gif,.webp,.dxf,.zip" style="display:none" onchange="subirArchPlan('${p.id}',this)">
+  ${isMobile?`<input type="file" id="planCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
+  `:''}
   <div id="archList_${p.id}">${archHtml}</div>`;
+}
+
+function agregarDrive(pid){
+  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
+  const nombre=document.getElementById('gdNombre_'+pid)?.value.trim();
+  const url=document.getElementById('gdUrl_'+pid)?.value.trim();
+  if(!nombre){toast('Escribe un nombre para el enlace',true);return;}
+  if(!url||(!url.includes('drive.google.com')&&!url.includes('docs.google.com'))){
+    toast('Pega un enlace válido de Google Drive',true);return;
+  }
+  if(!p.planificacion)p.planificacion={archivos:[]};
+  p.planificacion.archivos.push({
+    nombre,tipo:'application/gdrive',tamaño:'Drive',
+    gdrive:url,url:null,data:null,ts:Date.now()
+  });
+  saveData();
+  renderPlanArchivos(pid);
+  document.getElementById('gdNombre_'+pid).value='';
+  document.getElementById('gdUrl_'+pid).value='';
+  toast('✓ Enlace de Drive agregado');
 }
 
 function verImagen(data,nombre){
@@ -3721,21 +3825,10 @@ function renderPlanArchivos(pid){
   const contenedor=document.getElementById('archList_'+pid);
   if(!contenedor){reloadTab('plan',pid);return;}
   const arch=p.planificacion?.archivos||[];
-  let html=arch.length===0?'<div class="empty" style="padding:20px">Sin archivos</div>':'';
-  arch.forEach((a,i)=>{
-    const isImg=a.tipo&&a.tipo.startsWith('image/');
-    const isPDF=a.tipo==='application/pdf';
-    // src puede ser URL de Storage o base64 legacy
-    const src=a.url||a.data||'';
-    html+=`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
-      <div style="font-size:24px">${isImg?'🖼':isPDF?'📄':'📎'}</div>
-      <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">${esc(a.nombre)}</div><div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div></div>
-      ${isImg&&src?`<img src="${src}" style="width:60px;height:45px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="verImagen('${src}','${esc(a.nombre)}')">`:''}
-      ${isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ Ver</a>`:''}
-      ${!isImg&&!isPDF&&src?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs">⬇ Abrir</a>`:''}
-      ${S.currentUser?.rol!=='contratista'?`<button class="btn btn-danger btn-xs" onclick="delArchPlan('${pid}',${i})">✕</button>`:''}
-    </div>`;
-  });
+  const esC=S.currentUser&&S.currentUser.rol==='contratista';
+  const html=arch.length===0
+    ?'<div class="empty" style="padding:20px">Sin archivos</div>'
+    :arch.map((a,i)=>archHtmlItem(a,i,pid,esC)).join('');
   contenedor.innerHTML=html;
 }
 
