@@ -6145,7 +6145,6 @@ function goTab(t){if(!puedeVer(t)){toast('Sin acceso a este módulo',true);retur
 // ═══════════════════════════════════════════════════════
 //  CAJA CHICA
 // ═══════════════════════════════════════════════════════
-function fmtDate(d){if(!d)return'';try{const dt=new Date(d);if(isNaN(dt))return d;return dt.toLocaleDateString('es-SV',{day:'2-digit',month:'2-digit',year:'numeric'});}catch(e){return d||''}}
 function fmtCur(v){const n=parseFloat(v)||0;return'$'+n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')}
 
 function calcItemTotal(item){
