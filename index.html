@@ -2384,7 +2384,7 @@ function renderGastos(){
               :'<span style="color:#444;font-size:12px">—</span>'))
         :'<span style="color:#444;font-size:12px">—</span>'
       }</td>
-      <td><button class="btn btn-danger btn-xs" onclick="delGasto('${g.id}')">✕</button></td>
+      <td><div class="td-act"><button class="btn btn-secondary btn-xs" onclick="editarGasto('${g.id}')">✏</button><button class="btn btn-danger btn-xs" onclick="delGasto('${g.id}')">✕</button></div></td>
     </tr>`;
   });
 
@@ -2641,14 +2641,15 @@ function regGasto(){
     cajaChica,
     comprobante:compData?'ref:'+gastoId:null
   };
-  S.gastos.push(gasto);
-  logAction('CREAR','gastos',`Factura: ${factura}`);
-  // Guardar comprobante por separado si existe
-  if(compData){
-    window.FB.saveComprobante(S.empresa,'gasto_'+gastoId,compData).catch(console.error);
+  if(_editGastoId){
+    const idx=S.gastos.findIndex(x=>x.id===_editGastoId);
+    if(idx>=0){gasto.id=_editGastoId;gasto.comprobante=compData?'ref:'+_editGastoId:S.gastos[idx].comprobante;if(compData)window.FB.saveComprobante(S.empresa,'gasto_'+_editGastoId,compData).catch(console.error);S.gastos[idx]=gasto;logAction('EDITAR','gastos',`Factura: ${factura}`);}
+    _editGastoId=null;saveData();render();toast('✓ Gasto actualizado');
+  } else {
+    S.gastos.push(gasto);logAction('CREAR','gastos',`Factura: ${factura}`);
+    if(compData){window.FB.saveComprobante(S.empresa,'gasto_'+gastoId,compData).catch(console.error);}
+    saveData();render();toast(sumarAlProy&&pid?'✓ Gasto registrado y sumado al proyecto':'✓ Gasto registrado en CC');
   }
-  saveData();render();
-  toast(sumarAlProy&&pid?'✓ Gasto registrado y sumado al proyecto':'✓ Gasto registrado en CC');
   setTimeout(()=>_focusFirst('#content .card'),40);
 }
 
@@ -4235,6 +4236,27 @@ function imprimirCronograma(pid){
 // ═══ TAB: PLANIFICACIÓN INICIAL ═══
 function delGasto(id){if(!confirm('¿Eliminar gasto?'))return;const g=S.gastos.find(x=>x.id===id);S.gastos=S.gastos.filter(x=>x.id!==id);if(g)logAction('ELIMINAR','gastos',`Factura: ${g.factura}`);saveData();render()}
 
+let _editGastoId=null;
+function editarGasto(id){
+  const g=S.gastos.find(x=>x.id===id);if(!g)return;
+  _editGastoId=id;
+  if(S.activeTab!=='gastos'){S.activeTab='gastos';render();}
+  setTimeout(()=>{
+    const set=(el,v)=>{const e=document.getElementById(el);if(e&&v!=null)e.value=v;};
+    set('gFact',g.factura);set('gValor',g.valor);set('gFecha',g.fecha);set('gDesc',g.descripcion||'');
+    const pEl=document.getElementById('gProv');
+    if(pEl)[...pEl.options].forEach(o=>{if(o.text===g.proveedor)pEl.value=o.value;});
+    if(g.proyectoId){const pEl2=document.getElementById('gProy');if(pEl2){pEl2.value=g.proyectoId;onGastoProyChange();}}
+    const ccEl=document.getElementById('gCC');if(ccEl&&g.centroId)ccEl.value=g.centroId;
+    const sp=document.getElementById('gSumarProy');if(sp)sp.checked=g.sumarAlProy!==false;
+    const ccc=document.getElementById('gCajaChica');if(ccc)ccc.checked=!!g.cajaChica;
+    const btn=document.querySelector('#content .card button.btn-primary');
+    if(btn){btn.textContent='✓ Actualizar Gasto';btn.style.background='#1a4a2a';btn.style.color='#80e080';}
+    document.querySelector('#content .card')?.scrollIntoView({behavior:'smooth',block:'start'});
+    setTimeout(()=>{const f=document.getElementById('gFact');if(f){f.focus();f.select();}},80);
+  },60);
+}
+
 // ═══════════════════════════════════════════════════════
 //  PROVEEDORES
 // ═══════════════════════════════════════════════════════
@@ -5149,6 +5171,17 @@ function renderConfig(){
   const mH=S.marcas.map((m,i)=>`<div style="display:flex;gap:8px;margin-bottom:8px"><input value="${esc(m)}" onchange="S.marcas[${i}]=this.value;saveData();refreshMarcaSel()"><button class="btn btn-danger btn-sm" onclick="S.marcas.splice(${i},1);saveData();render()">✕</button></div>`).join('');
   document.getElementById('content').innerHTML=`
   <div class="card" style="margin-bottom:16px">
+    <div class="sec-hdr">🤖 Integraciones IA</div>
+    <div class="fg">
+      <label>API Key de Anthropic (para comparar cotizaciones)</label>
+      <div style="display:flex;gap:8px">
+        <input type="password" id="cfgApiKey" value="${esc(cfg.anthropicApiKey||'')}" placeholder="sk-ant-..." style="flex:1" onchange="S.config.anthropicApiKey=this.value;saveData();toast('✓ API Key guardada')">
+        <button class="btn btn-secondary btn-sm" onclick="const el=document.getElementById('cfgApiKey');el.type=el.type==='password'?'text':'password'">👁</button>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Obtén tu clave en <a href="https://console.anthropic.com" target="_blank" style="color:var(--accent)">console.anthropic.com</a> — se guarda cifrada en tu cuenta</div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:16px">
     <div class="sec-hdr">🎨 Branding</div>
     <div class="row3">
       <div class="fg"><label>Nombre de la App</label><input id="cfgName" value="${esc(cfg.appName||'Proyectos Pro')}" onchange="S.config.appName=this.value;saveData();applyBranding()"></div>
@@ -5220,6 +5253,7 @@ function renderInventario(){
       <td class="hide-sm">${esc(p.descripcion||'—')}</td>
       <td><span class="badge ${p.estado==='Disponible'?'b-ok':p.estado==='Bajo stock'?'b-warn':'b-err'}">${p.estado||'Disponible'}</span></td>
       <td class="td-act">
+        <button class="btn btn-secondary btn-xs" onclick="modalNuevoProducto('${p.id}')">✏</button>
         <button class="btn btn-secondary btn-xs" onclick="movInventario('${p.id}','entrada')">↑ Entrada</button>
         <button class="btn btn-secondary btn-xs" onclick="movInventario('${p.id}','salida')">↓ Salida</button>
         <button class="btn btn-danger btn-xs" onclick="delProducto('${p.id}')">✕</button>
@@ -5282,7 +5316,7 @@ function renderInventario(){
   </div>`}`;
 }
 
-function modalNuevoProducto(){
+function modalNuevoProducto(editId){
   const bodegas=S.inventario?.bodegas||[];
   if(bodegas.length===0){
     if(confirm('No hay bodegas creadas. ¿Ir a crear una bodega?')){goTab('bodegas');}
@@ -5291,26 +5325,32 @@ function modalNuevoProducto(){
   const CATEGORIAS=['Materiales de construcción','Mobiliario','Equipos A/C','Herramientas','Eléctrico','Plomería','Acabados','Seguridad','Limpieza','Otros'];
   const UNIDADES_INV=['unidad','kg','lb','m','m²','m³','lt','galón','rollo','caja','bolsa','varilla','tubo','lamina','juego','par'];
   const isMobile=/Android|iPhone|iPad/i.test(navigator.userAgent);
+  const ep=editId?(S.inventario?.productos||[]).find(x=>x.id===editId):null;
+  const catOpts=CATEGORIAS.map(c=>`<option ${ep?.categoria===c?'selected':''}>${c}</option>`).join('');
+  const bodOpts=bodegas.map(b=>`<option value="${b.id}" ${ep?.bodegaId===b.id?'selected':''}>${esc(b.nombre)}</option>`).join('');
+  const unidOpts=UNIDADES_INV.map(u=>`<option ${ep?.unidad===u?'selected':''}>${u}</option>`).join('');
   const div=document.createElement('div');
-  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow-y:auto';
+  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:12px;overflow-y:auto';
   div.id='modalNuevoProd';
-  div.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:560px;margin:auto">
-    <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:16px">Nuevo Producto / Activo</div>
-    <div class="row2">
-      <div class="fg"><label>Nombre *</label><input id="npNom" placeholder="Ej: Taladro DeWalt 1/2"></div>
-      <div class="fg"><label>N° de activo / código</label><input id="npActivo" placeholder="Ej: ACT-0042 (opcional)"></div>
+  div.innerHTML=`<div class="modal-box md" style="margin-top:auto;margin-bottom:auto">
+    <div class="modal-hdr">
+      <div class="modal-ttl">${editId?'✏ Editar Producto':'+ Nuevo Producto / Activo'}</div>
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('modalNuevoProd').remove()">✕</button>
     </div>
     <div class="row2">
-      <div class="fg"><label>Categoría</label><select id="npCat">${CATEGORIAS.map(c=>`<option>${c}</option>`).join('')}</select></div>
-      <div class="fg"><label>Bodega *</label><select id="npBod">${bodegas.map(b=>`<option value="${b.id}">${esc(b.nombre)}</option>`).join('')}</select></div>
+      <div class="fg"><label>Nombre *</label><input id="npNom" value="${esc(ep?.nombre||'')}" placeholder="Ej: Taladro DeWalt"></div>
+      <div class="fg"><label>N° activo / código</label><input id="npActivo" value="${esc(ep?.numActivo||'')}" placeholder="ACT-0042 (opcional)"></div>
+    </div>
+    <div class="row2">
+      <div class="fg"><label>Categoría</label><select id="npCat">${catOpts}</select></div>
+      <div class="fg"><label>Bodega *</label><select id="npBod">${bodOpts}</select></div>
     </div>
     <div class="row3">
-      <div class="fg"><label>Cantidad inicial</label><input type="number" id="npCant" min="0" value="0"></div>
-      <div class="fg"><label>Unidad</label><select id="npUnid">${UNIDADES_INV.map(u=>`<option>${u}</option>`).join('')}</select></div>
-      <div class="fg"><label>Stock mínimo</label><input type="number" id="npMin" min="0" value="0"></div>
+      <div class="fg"><label>${editId?'Cantidad actual':'Cantidad inicial'}</label><input type="number" id="npCant" min="0" value="${ep?.cantidad??0}"></div>
+      <div class="fg"><label>Unidad</label><select id="npUnid">${unidOpts}</select></div>
+      <div class="fg"><label>Stock mínimo</label><input type="number" id="npMin" min="0" value="${ep?.minimo??0}"></div>
     </div>
-    <div class="fg"><label>Descripción / Especificaciones</label><input id="npDesc" placeholder="Marca, modelo, especificaciones técnicas"></div>
-    <!-- Foto del producto -->
+    <div class="fg"><label>Descripción</label><input id="npDesc" value="${esc(ep?.descripcion||'')}" placeholder="Marca, modelo, especificaciones"></div>
     <div class="fg">
       <label>Foto del producto (opcional)</label>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -5318,19 +5358,20 @@ function modalNuevoProducto(){
         ${isMobile?`<button type="button" class="btn btn-secondary btn-sm" onclick="abrirFotoProducto()">📷 Cámara</button>`:''}
         <span id="npFotoNombre" style="font-size:12px;color:var(--muted)">Sin foto</span>
       </div>
-      <input type="file" id="npFotoFI" accept="image/jpeg,image/png,image/webp" style="display:none" onchange="prevFotoProducto(this)">
+      <input type="file" id="npFotoFI" accept="image/jpeg,image/png,image/webp" style="display:none">
       <input type="file" id="npFotoCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">
-      <div id="npFotoPreview" style="margin-top:8px"></div>
+      <div id="npFotoPreview" style="margin-top:6px"></div>
       <input type="hidden" id="npFotoData">
+      <input type="hidden" id="npEditId" value="${editId||''}">
     </div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
       <button class="btn btn-secondary" onclick="document.getElementById('modalNuevoProd').remove()">Cancelar</button>
-      <button class="btn btn-primary" onclick="guardarProducto(this)">✓ Guardar producto</button>
+      <button class="btn btn-primary" onclick="guardarProducto(this)">${editId?'✓ Actualizar':'✓ Guardar producto'}</button>
     </div>
   </div>`;
   document.body.appendChild(div);
-  // Cámara con abrirArchivoConCallback
   document.getElementById('npFotoFI').addEventListener('change',function(){prevFotoProducto(this);});
+  setTimeout(()=>_focusFirst(div),80);
 }
 
 function abrirFotoProducto(){
@@ -5353,10 +5394,36 @@ function prevFotoProducto(input){
 function guardarProducto(btn){
   const nombre=document.getElementById('npNom').value.trim();
   const bodegaId=document.getElementById('npBod').value;
-  if(!nombre){toast('Ingresa un nombre',true);return;}
+  if(!nombre){toast('Ingresa un nombre',true);document.getElementById('npNom').focus();return;}
   if(!S.inventario)S.inventario={bodegas:[],productos:[],movimientos:[]};
   const cant=parseFloat(document.getElementById('npCant').value)||0;
   const fotoData=document.getElementById('npFotoData')?.value||null;
+  const editId=document.getElementById('npEditId')?.value||null;
+
+  if(editId){
+    // MODO EDICIÓN
+    const idx=S.inventario.productos.findIndex(x=>x.id===editId);
+    if(idx>=0){
+      const orig=S.inventario.productos[idx];
+      S.inventario.productos[idx]={
+        ...orig,nombre,
+        numActivo:document.getElementById('npActivo').value.trim()||null,
+        categoria:document.getElementById('npCat').value,
+        cantidad:cant,
+        unidad:document.getElementById('npUnid').value,
+        minimo:parseFloat(document.getElementById('npMin').value)||0,
+        bodegaId,
+        estado:cant>0?'Disponible':'Agotado',
+        descripcion:document.getElementById('npDesc').value.trim(),
+        foto:fotoData?'ref:prod_'+editId:orig.foto
+      };
+      if(fotoData)window.FB.saveComprobante(S.empresa,'prod_'+editId,fotoData).catch(console.error);
+      saveData();document.getElementById('modalNuevoProd')?.remove();renderInventario();toast('✓ Producto actualizado');
+    }
+    return;
+  }
+
+  // MODO NUEVO
   const prodId=genId();
   const prod={
     id:prodId,nombre,
@@ -5368,19 +5435,16 @@ function guardarProducto(btn){
     bodegaId,
     estado:cant>0?'Disponible':'Agotado',
     descripcion:document.getElementById('npDesc').value.trim(),
-    foto:fotoData?'ref:prod_'+prodId:null, // referencia, no base64
+    foto:fotoData?'ref:prod_'+prodId:null,
     creadoEn:Date.now()
   };
   S.inventario.productos.push(prod);
-  // Guardar foto en colección separada
   if(fotoData){window.FB.saveComprobante(S.empresa,'prod_'+prodId,fotoData).catch(console.error);}
   if(cant>0){
     S.inventario.movimientos.push({id:genId(),tipo:'entrada',prodId:prod.id,bodegaId,cantidad:cant,
       fecha:new Date().toISOString().slice(0,10),nota:'Stock inicial',ts:Date.now()});
   }
-  saveData();
-  document.getElementById('modalNuevoProd')?.remove();
-  renderInventario();toast('✓ Producto creado');
+  saveData();document.getElementById('modalNuevoProd')?.remove();renderInventario();toast('✓ Producto creado');
 }
 
 function movInventario(prodId,tipo){
@@ -5719,11 +5783,13 @@ Responde SOLO con el HTML de la tabla y el resumen, sin texto adicional, usando 
 
     if(statusEl)statusEl.textContent='Procesando con IA (puede tomar 30-60 segundos)...';
 
+    const apiKey=S.config?.anthropicApiKey||'';
+    if(!apiKey){toast('Configura tu API Key de Anthropic en ⚙ Configuración',true);if(btn){btn.disabled=false;btn.textContent='🤖 Comparar con IA';}if(statusEl)statusEl.textContent='Falta API Key';return;}
     const resp=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
-      headers:{'Content-Type':'application/json'},
+      headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
       body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
+        model:'claude-sonnet-4-6',
         max_tokens:4000,
         messages:[{role:'user',content:msgContent}]
       })
@@ -6271,31 +6337,19 @@ document.addEventListener('keydown',function _enterNav(e){
   if(e.key!=='Enter')return;
   const tag=e.target.tagName;
   if(tag==='TEXTAREA'||tag==='BUTTON'||tag==='A')return;
-  if(e.target.type==='checkbox'||e.target.type==='file'||e.target.type==='range')return;
-
+  if(e.target.type==='file'||e.target.type==='range')return;
   const ctx=e.target.closest('.card,.modal-box,.report-builder');
   if(!ctx)return;
-
-  // Todos los campos visibles y habilitados dentro del contexto
-  const all=[...ctx.querySelectorAll(
-    'input:not([type=file]):not([type=checkbox]):not([type=range]):not([disabled]),select:not([disabled])'
-  )].filter(el=>el.offsetParent!==null&&getComputedStyle(el).display!=='none');
-
-  const idx=all.indexOf(e.target);
-  if(idx===-1)return;
-
-  if(idx<all.length-1){
-    // Avanzar al siguiente campo
-    e.preventDefault();
-    const next=all[idx+1];
-    next.focus();
-    try{next.select();}catch(er){}
-  } else {
-    // Último campo → disparar botón primario del contexto
-    e.preventDefault();
-    const btn=ctx.querySelector('button.btn-primary:not([disabled])');
-    if(btn)btn.click();
+  const all=[...ctx.querySelectorAll('input:not([type=file]):not([type=range]):not([disabled]),select:not([disabled])')].filter(el=>el.offsetParent!==null&&getComputedStyle(el).display!=='none');
+  const idx=all.indexOf(e.target);if(idx===-1)return;
+  if(e.target.type==='checkbox'){
+    e.preventDefault();e.target.checked=!e.target.checked;e.target.dispatchEvent(new Event('change'));
+    const nxt=all[idx+1];if(nxt){nxt.focus();try{nxt.select();}catch(er){}}
+    else{const b=ctx.querySelector('button.btn-primary:not([disabled])');if(b)b.click();}
+    return;
   }
+  if(idx<all.length-1){e.preventDefault();const nxt=all[idx+1];nxt.focus();try{nxt.select();}catch(er){}}
+  else{e.preventDefault();const b=ctx.querySelector('button.btn-primary:not([disabled])');if(b)b.click();}
 });
 
 
