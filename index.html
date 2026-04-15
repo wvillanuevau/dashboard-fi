@@ -259,7 +259,7 @@ body{font-family:'Karla',sans-serif;background:var(--bg);color:var(--text);font-
 .btn-danger{background:#200a0a;color:var(--red);border:1px solid #3a1212}.btn-danger:hover{background:#2a0f0f}
 .btn-sm{padding:6px 13px;font-size:12px}.btn-xs{padding:4px 9px;font-size:11px}.btn:disabled{opacity:.38;cursor:not-allowed;transform:none}
 /* ── CARDS Y KPIs ─────────────────────────────── */
-.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px}
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px}
 .kpi{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
 .kpi-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:6px;font-weight:700}
@@ -273,16 +273,16 @@ td{padding:11px 12px;border-bottom:1px solid #181614;vertical-align:middle;overf
 tr:last-child td{border-bottom:none}tbody tr:hover td{background:#181410}
 .td-act{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
 /* ── FORMULARIOS ──────────────────────────────── */
-.fg{margin-bottom:14px}
-.fg label{display:block;margin-bottom:5px;font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.6px}
-input,select,textarea{width:100%;padding:10px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:9px;color:var(--text);font-family:'Karla',sans-serif;font-size:var(--fs);transition:border-color .12s}
+.fg{margin-bottom:10px}
+.fg label{display:block;margin-bottom:4px;font-size:10.5px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.6px}
+input,select,textarea{width:100%;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'Karla',sans-serif;font-size:13px;transition:border-color .12s}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 input[type=range]{padding:4px 0;background:none;border:none;accent-color:var(--accent)}
 input[type=checkbox]{width:auto;accent-color:var(--accent);cursor:pointer}
 input[type=date]{color-scheme:dark}
-.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
-.row4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.row4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px}
 /* ── PROGRESO Y BADGES ────────────────────────── */
 .prog{height:6px;background:var(--border);border-radius:3px;overflow:hidden}
 .prog-fill{height:100%;background:var(--green);border-radius:3px;transition:width .4s}
@@ -293,9 +293,9 @@ input[type=date]{color-scheme:dark}
 /* ── MODALES ──────────────────────────────────── */
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.88);display:none;align-items:flex-start;justify-content:center;z-index:200;padding:12px;overflow-y:auto}
 .modal.open{display:flex}
-.modal-box{background:var(--surface);border:1px solid var(--border);border-radius:18px;width:100%;padding:24px;margin:auto;overflow-x:hidden}
+.modal-box{background:var(--surface);border:1px solid var(--border);border-radius:18px;width:100%;padding:18px;margin:auto;overflow-x:hidden}
 .modal-box.sm{max-width:480px}.modal-box.md{max-width:680px}.modal-box.lg{max-width:calc(100vw - 24px)}
-.modal-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:8px}
+.modal-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px}
 .modal-ttl{font-family:'Syne',sans-serif;font-size:17px;font-weight:700}
 .tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:20px;overflow-x:auto;scrollbar-width:none}
 .tabs::-webkit-scrollbar{display:none}
@@ -747,7 +747,7 @@ function fmtDate(d){if(!d)return'—';const[y,m,dd]=d.split('-');return`${dd}/${
 function fmtTs(ts){if(!ts)return'—';const d=new Date(ts);return d.toLocaleDateString('es-SV')+' '+d.toLocaleTimeString('es-SV',{hour:'2-digit',minute:'2-digit'})}
 function addDias(ds,dias){if(!ds||!dias)return'';const d=new Date(ds+'T12:00:00');d.setDate(d.getDate()+parseInt(dias));return d.toISOString().slice(0,10)}
 function toast(msg,err=false){const t=document.getElementById('toast');t.textContent=msg;t.style.borderLeftColor=err?'var(--red)':'var(--green)';t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',3200)}
-function openModal(id){document.getElementById(id).classList.add('open')}
+function openModal(id){const m=document.getElementById(id);if(!m)return;m.classList.add('open');setTimeout(()=>_focusFirst(m),80);}
 function closeModal(id){document.getElementById(id).classList.remove('open')}
 function toggleSB(){const s=document.getElementById('sidebar'),o=document.getElementById('overlay'),b=document.getElementById('hmbBtn');const op=s.classList.contains('open');s.classList.toggle('open');o.classList.toggle('on');b.textContent=op?'☰':'✕'}
 function closeSB(){document.getElementById('sidebar').classList.remove('open');document.getElementById('overlay').classList.remove('on');const b=document.getElementById('hmbBtn');if(b)b.textContent='☰'}
@@ -2649,6 +2649,7 @@ function regGasto(){
   }
   saveData();render();
   toast(sumarAlProy&&pid?'✓ Gasto registrado y sumado al proyecto':'✓ Gasto registrado en CC');
+  setTimeout(()=>_focusFirst('#content .card'),40);
 }
 
 
@@ -4246,7 +4247,7 @@ function renderProveedores(){
     <button class="btn btn-primary" onclick="addProv()">+ Registrar</button></div>
   <div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Tipo</th><th>Teléfono</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
-function addProv(){const n=document.getElementById('pvN').value.trim();if(!n){toast('Nombre requerido',true);return}S.proveedores.push({id:genId(),nombre:n,tipo:document.getElementById('pvT').value.trim(),tel:document.getElementById('pvTel').value.trim()});saveData();render();toast('✓ Proveedor registrado')}
+function addProv(){const n=document.getElementById('pvN').value.trim();if(!n){toast('Nombre requerido',true);document.getElementById('pvN').focus();return}S.proveedores.push({id:genId(),nombre:n,tipo:document.getElementById('pvT').value.trim(),tel:document.getElementById('pvTel').value.trim()});saveData();render();toast('✓ Proveedor registrado');setTimeout(()=>_focusFirst('#content .card'),40);}
 function delProv(id){if(!confirm('¿Eliminar proveedor?'))return;S.proveedores=S.proveedores.filter(x=>x.id!==id);saveData();render()}
 
 // ═══════════════════════════════════════════════════════
@@ -4265,7 +4266,7 @@ function renderCentros(){
     <button class="btn btn-primary" onclick="addCentro()">+ Agregar</button></div>
   <div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Descripción</th><th>Proyecto</th><th>Origen</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
-function addCentro(){const n=document.getElementById('ccN').value.trim();if(!n){toast('Nombre requerido',true);return}S.centros.push({id:genId(),nombre:n,descripcion:document.getElementById('ccD').value.trim(),proyectoId:document.getElementById('ccP').value||null,auto:false});saveData();render();toast('✓ Centro registrado')}
+function addCentro(){const n=document.getElementById('ccN').value.trim();if(!n){toast('Nombre requerido',true);document.getElementById('ccN').focus();return}S.centros.push({id:genId(),nombre:n,descripcion:document.getElementById('ccD').value.trim(),proyectoId:document.getElementById('ccP').value||null,auto:false});saveData();render();toast('✓ Centro registrado');setTimeout(()=>_focusFirst('#content .card'),40);}
 function delCentro(id){if(S.centros.find(x=>x.id===id)?.auto){toast('Centro automático — elimina el proyecto para borrarlo',true);return}if(!confirm('¿Eliminar?'))return;S.centros=S.centros.filter(x=>x.id!==id);saveData();render()}
 
 // ═══════════════════════════════════════════════════════
@@ -6257,8 +6258,47 @@ function render(){
 function goTab(t){if(!puedeVer(t)){toast('Sin acceso a este módulo',true);return}S.activeTab=t;render()}
 
 // ═══════════════════════════════════════════════════════
-//  CAJA CHICA
+//  NAVEGACIÓN DE FORMULARIOS — Enter avanza al siguiente campo
 // ═══════════════════════════════════════════════════════
+function _focusFirst(ctxSel){
+  const ctx=typeof ctxSel==='string'?document.querySelector(ctxSel):ctxSel;
+  if(!ctx)return;
+  const el=ctx.querySelector('input:not([type=file]):not([type=checkbox]):not([type=range]),select');
+  if(el){el.focus();try{el.select();}catch(e){}}
+}
+
+document.addEventListener('keydown',function _enterNav(e){
+  if(e.key!=='Enter')return;
+  const tag=e.target.tagName;
+  if(tag==='TEXTAREA'||tag==='BUTTON'||tag==='A')return;
+  if(e.target.type==='checkbox'||e.target.type==='file'||e.target.type==='range')return;
+
+  const ctx=e.target.closest('.card,.modal-box,.report-builder');
+  if(!ctx)return;
+
+  // Todos los campos visibles y habilitados dentro del contexto
+  const all=[...ctx.querySelectorAll(
+    'input:not([type=file]):not([type=checkbox]):not([type=range]):not([disabled]),select:not([disabled])'
+  )].filter(el=>el.offsetParent!==null&&getComputedStyle(el).display!=='none');
+
+  const idx=all.indexOf(e.target);
+  if(idx===-1)return;
+
+  if(idx<all.length-1){
+    // Avanzar al siguiente campo
+    e.preventDefault();
+    const next=all[idx+1];
+    next.focus();
+    try{next.select();}catch(er){}
+  } else {
+    // Último campo → disparar botón primario del contexto
+    e.preventDefault();
+    const btn=ctx.querySelector('button.btn-primary:not([disabled])');
+    if(btn)btn.click();
+  }
+});
+
+
 function fmtCur(v){const n=parseFloat(v)||0;return'$'+n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')}
 
 function calcItemTotal(item){
