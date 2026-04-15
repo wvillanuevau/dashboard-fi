@@ -672,8 +672,8 @@ input[type=date]{color-scheme:dark}
 //  DEFINICIÓN DE ROLES Y PERMISOS
 // ═══════════════════════════════════════════════════════
 const ROLES={
-  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','cotizaciones','inventario','bodegas','cajachica','usuarios','config','log']},
-  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','cotizaciones','inventario','bodegas','cajachica','log']},
+  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','cotizaciones','inventario','bodegas','usuarios','config','log']},
+  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','cotizaciones','inventario','bodegas','log']},
   empleado:{label:'Empleado',color:'b-ok',modulos:[]}, // permisos individuales
   viewer:{label:'Viewer',color:'b-neu',modulos:['dashboard','proyectos']},
   cliente:{label:'Cliente',color:'b-purple',modulos:['proyectos']}, // solo general, planificacion, cronograma
@@ -693,7 +693,6 @@ const MODULOS=[
   {id:'cotizaciones',label:'Comparar Cotizaciones',ic:'📑'},
   {id:'inventario',label:'Inventario',ic:'📦'},
   {id:'bodegas',label:'Bodegas',ic:'🏭'},
-  {id:'cajachica',label:'Caja Chica',ic:'💵'},
   {id:'log',label:'Actividad',ic:'🕐'},
   {id:'usuarios',label:'Usuarios',ic:'👥'},
   {id:'config',label:'Configuración',ic:'⚙'},
@@ -702,7 +701,7 @@ const MODULOS=[
 // Grupos del sidebar colapsibles
 const SB_GRUPOS=[
   {id:'proyectos_grp',label:'Proyectos',ic:'🏗',items:['dashboard','proyectos']},
-  {id:'empresa_grp',label:'Gestión de Empresa',ic:'🏢',items:['gastos','cajachica','inventario','cotizaciones','proveedores','centros','bodegas','reportes']},
+  {id:'empresa_grp',label:'Gestión de Empresa',ic:'🏢',items:['gastos','inventario','cotizaciones','proveedores','centros','bodegas','reportes']},
   {id:'config_grp',label:'Configuración General',ic:'⚙',items:['log','usuarios','config']},
 ];
 // Estado de grupos colapsados (persistir en sessionStorage)
@@ -832,7 +831,7 @@ function migrateData(){
     });
     if(!('condiciones' in p.cronograma))p.cronograma.condiciones='';
   });
-  S.gastos.forEach(g=>{if(!('proyectoId' in g))g.proyectoId=null;if(!('centroId' in g))g.centroId=null;if(!('sumarAlProy' in g))g.sumarAlProy=true;});
+  S.gastos.forEach(g=>{if(!('proyectoId' in g))g.proyectoId=null;if(!('centroId' in g))g.centroId=null;if(!('sumarAlProy' in g))g.sumarAlProy=true;if(!('cajaChica' in g))g.cajaChica=false;});
   S.centros.forEach(c=>{if(!('auto' in c))c.auto=false;});
   if(!S.inventario)S.inventario={bodegas:[],productos:[],movimientos:[]};
   if(!S.cotizaciones)S.cotizaciones={comparaciones:[]};
@@ -2356,6 +2355,7 @@ function renderGastos(){
     rows+=`<tr>
       <td>
         <div style="font-weight:600">${esc(g.factura)}</div>
+        ${g.cajaChica?'<span class="badge" style="font-size:9px;background:#1a3a1a;color:#60d060;border:1px solid #2a5a2a">💵 Caja Chica</span>':''}
         <div class="show-sm" style="font-size:11px;color:var(--muted)">${esc(g.proveedor)}</div>
         <div class="show-sm" style="font-size:11px;color:var(--muted)">${esc(g.descripcion||'')}</div>
       </td>
@@ -2439,6 +2439,18 @@ function renderGastos(){
             <div style="font-size:11px;color:var(--muted);margin-top:2px">
               ✅ Activado — se suma al total del proyecto<br>
               ☐ Desactivado — se registra en el CC pero <strong>no</strong> afecta el presupuesto del proyecto
+            </div>
+          </div>
+        </label>
+      </div>
+      <!-- Checkbox Caja Chica -->
+      <div style="margin-top:10px;padding:10px 12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="gCajaChica" style="width:18px;height:18px;accent-color:#2db87a;cursor:pointer">
+          <div>
+            <div style="font-size:13px;font-weight:600">💵 Pertenece a Caja Chica</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">
+              Marca este gasto para incluirlo en los reintegros de Caja Chica desde Reportes
             </div>
           </div>
         </label>
@@ -2607,6 +2619,7 @@ function regGasto(){
   // Checkbox: solo aplica cuando hay proyecto seleccionado
   const sumarCheck=document.getElementById('gSumarProy');
   const sumarAlProy=pid?(sumarCheck?sumarCheck.checked:true):false;
+  const cajaChica=document.getElementById('gCajaChica')?.checked||false;
 
   if(!factura){toast('Ingrese número de factura',true);return}
   if(!provId){toast('Seleccione proveedor',true);return}
@@ -2624,7 +2637,8 @@ function regGasto(){
     // proyectoId siempre guardado — el flag sumarAlProy controla si afecta presupuesto
     proyectoId:pid||null,
     centroId:ccId||null,
-    sumarAlProy, // true = suma al presupuesto del proyecto, false = solo CC
+    sumarAlProy,
+    cajaChica,
     comprobante:compData?'ref:'+gastoId:null
   };
   S.gastos.push(gasto);
@@ -4273,6 +4287,7 @@ function renderReportes(){
           <option value="cronograma_vs_real">Cronograma vs Real</option>
           <option value="inventario_stock">Inventario — Stock actual</option>
           <option value="inventario_movimientos">Inventario — Movimientos</option>
+          <option value="reintegro_caja_chica">💵 Reintegro de Caja Chica</option>
         </select>
       </div>
       <div class="fg"><label>Desde</label><input type="date" id="rpDesde" onchange="renderReporteOutput()"></div>
@@ -4518,7 +4533,313 @@ function renderReporteOutput(){
     <div class="tbl-wrap"><table style="table-layout:auto"><thead><tr><th>Fecha</th><th>Tipo</th><th>Producto</th><th>Bodega</th><th style="text-align:right">Cantidad</th><th>Origen/Destino</th><th>Nota</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
+  else if(tipo==='reintegro_caja_chica'){
+    // Gastos de caja chica en el rango de fechas
+    let gastoCC=S.gastos.filter(g=>g.cajaChica===true);
+    if(desde)gastoCC=gastoCC.filter(g=>g.fecha>=desde);
+    if(hasta)gastoCC=gastoCC.filter(g=>g.fecha<=hasta);
+    if(proyId)gastoCC=gastoCC.filter(g=>g.proyectoId===proyId);
+
+    // Leer valores de los campos extra si existen
+    const resp=document.getElementById('ccRptResp')?.value||'';
+    const fondo=parseFloat(document.getElementById('ccRptFondo')?.value)||2000;
+    const empresa=document.getElementById('ccRptEmpresa')?.value||(S.config?.ccEmpresa||'FRANQUICIAS INTERNACIONALES, S.A. DE C.V.');
+    const dpto=document.getElementById('ccRptDpto')?.value||(S.config?.ccDpto||'MANTENIMIENTO');
+
+    const totNeto=gastoCC.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
+    // Para caja chica, el valor del gasto se trata como Monto Total (neto+iva-ret incluidos)
+    const fondoDisp=fondo-totNeto;
+
+    let rows=gastoCC.length===0
+      ?`<tr><td colspan="7" class="empty" style="text-align:center;padding:20px">Sin gastos de caja chica en el período seleccionado</td></tr>`
+      :'';
+    gastoCC.forEach((g,i)=>{
+      const pname=g.proyectoId?S.proyectos.find(x=>x.id===g.proyectoId)?.nombre||'—':'—';
+      const cc=g.centroId?S.centros.find(x=>x.id===g.centroId)?.nombre||'—':'—';
+      rows+=`<tr>
+        <td style="font-size:12px">${cc!=='—'?cc:pname}</td>
+        <td style="text-align:center;font-size:12px">${i+1}</td>
+        <td style="font-size:12px">${fmtDate(g.fecha)}</td>
+        <td style="font-size:12px">${esc(g.proveedor||'—')}</td>
+        <td style="font-size:12px">${esc(g.factura||'—')}</td>
+        <td style="font-size:12px">${esc(g.descripcion||'—')}</td>
+        <td style="text-align:right;font-size:12px;font-weight:700">${fmtCur(g.valor)}</td>
+      </tr>`;
+    });
+
+    const logoUrl=S.config?.logoUrl||'';
+
+    html=`
+    <div style="border-radius:12px;border:1px solid var(--border);overflow:hidden;background:var(--surface)">
+      <!-- Encabezado -->
+      <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:16px">
+          ${logoUrl?`<img src="${logoUrl}" style="height:52px;width:auto;object-fit:contain;border-radius:6px;background:#fff;padding:4px">`:
+            `<div style="width:52px;height:52px;border-radius:8px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:24px;border:1px solid var(--border)">💵</div>`}
+          <div>
+            <div style="font-weight:700;font-size:15px">${esc(empresa)}</div>
+            <div style="color:var(--muted);font-size:13px;margin-top:2px">${esc(dpto)}</div>
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:14px;font-weight:700;text-decoration:underline;text-transform:uppercase">Reintegro de Fondo de Caja Chica</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:6px">Período: <strong>${desde?fmtDate(desde):'—'}</strong> al <strong>${hasta?fmtDate(hasta):'—'}</strong></div>
+          <div style="font-size:12px;color:var(--muted)">Responsable: <strong>${esc(resp)||'—'}</strong></div>
+          <div style="font-size:12px;color:var(--muted)">Fondo Autorizado: <strong>${fmtCur(fondo)}</strong></div>
+        </div>
+      </div>
+      <!-- Tabla de gastos -->
+      <div style="padding:16px 22px;border-bottom:1px solid var(--border);overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr style="background:var(--surface2)">
+              <th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid var(--border)">C.Costo</th>
+              <th style="padding:8px 10px;text-align:center;font-size:11px;border:1px solid var(--border)">No.</th>
+              <th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid var(--border)">Fecha</th>
+              <th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid var(--border)">Proveedor</th>
+              <th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid var(--border)">No. Documento</th>
+              <th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid var(--border)">Concepto</th>
+              <th style="padding:8px 10px;text-align:right;font-size:11px;border:1px solid var(--border)">Monto Total</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+          <tfoot>
+            <tr style="background:var(--surface2);font-weight:700">
+              <td colspan="6" style="padding:8px 10px;text-align:right;font-size:12px;border:1px solid var(--border)">TOTAL LIQUIDACIÓN</td>
+              <td style="padding:8px 10px;text-align:right;font-size:12px;border:1px solid var(--border);color:var(--red)">${fmtCur(totNeto)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <!-- Resumen de fondo -->
+      <div style="padding:16px 22px;border-bottom:1px solid var(--border);display:flex;gap:32px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Fondo de Caja Chica</div>
+          <div style="font-size:20px;font-weight:700">${fmtCur(fondo)}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Liquidación Actual</div>
+          <div style="font-size:20px;font-weight:700;color:var(--red)">${fmtCur(totNeto)}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Fondo Disponible</div>
+          <div style="font-size:20px;font-weight:700;color:${fondoDisp>=0?'var(--green)':'var(--red)'}">${fmtCur(fondoDisp)}</div>
+        </div>
+        <div style="margin-left:auto;align-self:center">
+          <span style="font-size:12px;color:var(--muted)">${gastoCC.length} gasto${gastoCC.length!==1?'s':''} de caja chica en el período</span>
+        </div>
+      </div>
+      <!-- Bloque de firmas -->
+      <div style="padding:22px 22px;display:flex;gap:0;justify-content:space-around">
+        ${['Responsable de Caja Chica','Revisado','Autorizado'].map((cargo,i)=>{
+          const nombres=[resp,document.getElementById('ccRptRev')?.value||'',document.getElementById('ccRptAut')?.value||''];
+          return`<div style="text-align:center;flex:1;padding:0 12px">
+            <div style="border-top:1px solid var(--text);padding-top:10px;margin-bottom:6px"></div>
+            <div style="font-weight:700;font-size:12px">${esc(nombres[i])||'_____________________'}</div>
+            <div style="font-size:11px;color:var(--muted)">${cargo}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }
+  }
+
   out.innerHTML=html||`<div class="empty">Sin datos para mostrar con los filtros seleccionados</div>`;
+
+  // Si el tipo es reintegro, agregar campos extra y botón imprimir
+  if(tipo==='reintegro_caja_chica'){
+    // Inyectar controles extra si no existen ya
+    if(!document.getElementById('ccRptResp')){
+      const builder=document.querySelector('.report-builder');
+      if(builder){
+        const extra=document.createElement('div');
+        extra.id='ccRptExtra';
+        extra.innerHTML=`
+          <div class="sec-hdr" style="margin-top:14px;font-size:12px">Datos del Reintegro</div>
+          <div class="row3" style="margin-top:8px">
+            <div class="fg"><label>Responsable de Caja Chica</label><input type="text" id="ccRptResp" placeholder="Nombre completo" oninput="renderReporteOutput()"></div>
+            <div class="fg"><label>Fondo Autorizado ($)</label><input type="number" id="ccRptFondo" value="2000" step="0.01" oninput="renderReporteOutput()"></div>
+            <div class="fg"><label>Empresa</label><input type="text" id="ccRptEmpresa" placeholder="Nombre de la empresa" oninput="renderReporteOutput()"></div>
+          </div>
+          <div class="row3" style="margin-top:8px">
+            <div class="fg"><label>Departamento</label><input type="text" id="ccRptDpto" placeholder="Departamento" oninput="renderReporteOutput()"></div>
+            <div class="fg"><label>Revisado por</label><input type="text" id="ccRptRev" placeholder="Nombre" oninput="renderReporteOutput()"></div>
+            <div class="fg"><label>Autorizado por</label><input type="text" id="ccRptAut" placeholder="Nombre" oninput="renderReporteOutput()"></div>
+          </div>`;
+        builder.appendChild(extra);
+        // Prefill desde config
+        const cfg=S.config||{};
+        if(cfg.ccEmpresa)document.getElementById('ccRptEmpresa').value=cfg.ccEmpresa;
+        if(cfg.ccDpto)document.getElementById('ccRptDpto').value=cfg.ccDpto;
+        if(cfg.ccRevisado)document.getElementById('ccRptRev').value=cfg.ccRevisado;
+        if(cfg.ccAutorizado)document.getElementById('ccRptAut').value=cfg.ccAutorizado;
+        if(cfg.ccFondo)document.getElementById('ccRptFondo').value=cfg.ccFondo;
+        if(cfg.ccResponsable)document.getElementById('ccRptResp').value=cfg.ccResponsable;
+      }
+    }
+    // Añadir botón imprimir al output
+    const outEl=document.getElementById('reportOutput');
+    if(outEl){
+      const btn=document.createElement('div');
+      btn.style.cssText='margin-top:16px;display:flex;gap:10px';
+      btn.innerHTML=`<button class="btn btn-primary" onclick="ccRptImprimir()">🖨 Imprimir / Guardar PDF</button>`;
+      outEl.appendChild(btn);
+    }
+  } else {
+    // Limpiar controles extra si cambian de tipo
+    const ex=document.getElementById('ccRptExtra');
+    if(ex)ex.remove();
+  }
+}
+
+function ccRptImprimir(){
+  const desde=document.getElementById('rpDesde')?.value||'';
+  const hasta=document.getElementById('rpHasta')?.value||new Date().toISOString().slice(0,10);
+  const proyId=document.getElementById('rpProyecto')?.value||'';
+  const resp=document.getElementById('ccRptResp')?.value||'';
+  const fondo=parseFloat(document.getElementById('ccRptFondo')?.value)||2000;
+  const empresa=document.getElementById('ccRptEmpresa')?.value||(S.config?.ccEmpresa||'FRANQUICIAS INTERNACIONALES, S.A. DE C.V.');
+  const dpto=document.getElementById('ccRptDpto')?.value||(S.config?.ccDpto||'MANTENIMIENTO');
+  const revisado=document.getElementById('ccRptRev')?.value||'';
+  const autorizado=document.getElementById('ccRptAut')?.value||'';
+  const logoUrl=S.config?.logoUrl||'';
+
+  let gastoCC=S.gastos.filter(g=>g.cajaChica===true);
+  if(desde)gastoCC=gastoCC.filter(g=>g.fecha>=desde);
+  if(hasta)gastoCC=gastoCC.filter(g=>g.fecha<=hasta);
+  if(proyId)gastoCC=gastoCC.filter(g=>g.proyectoId===proyId);
+
+  const totTotal=gastoCC.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
+  const disp=fondo-totTotal;
+
+  let itemRows='';
+  gastoCC.forEach((g,i)=>{
+    const cc=g.centroId?S.centros.find(x=>x.id===g.centroId)?.nombre||'':
+              g.proyectoId?S.proyectos.find(x=>x.id===g.proyectoId)?.nombre||'':'';
+    itemRows+=`<tr>
+      <td>${esc(cc)}</td>
+      <td style="text-align:center">${i+1}</td>
+      <td>${fmtDate(g.fecha)}</td>
+      <td>${esc(g.proveedor||'')}</td>
+      <td>${esc(g.factura||'')}</td>
+      <td>${esc(g.descripcion||'')}</td>
+      <td style="text-align:right">-</td>
+      <td style="text-align:right">-</td>
+      <td style="text-align:right">-</td>
+      <td style="text-align:right;font-weight:700">${(parseFloat(g.valor)||0).toFixed(2)}</td>
+    </tr>`;
+  });
+
+  const logoHtml=logoUrl
+    ?`<img src="${logoUrl}" style="height:60px;width:auto;object-fit:contain;margin-bottom:6px">`
+    :'';
+
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>Reintegro Caja Chica${desde?' – '+fmtDate(desde):''}</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:Arial,sans-serif;font-size:10pt;color:#000;background:#fff;padding:20px 28px}
+    .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px}
+    .empresa-logo{display:flex;flex-direction:column;align-items:flex-start}
+    .empresa{font-weight:700;font-size:13pt;margin-top:4px}
+    .dpto{font-size:10pt;color:#333;margin-top:2px}
+    .titulo{text-align:center;font-size:12pt;font-weight:700;text-decoration:underline;text-transform:uppercase;margin:10px 0 14px}
+    .meta{display:flex;justify-content:space-between;margin-bottom:12px;font-size:9.5pt;border:1px solid #ccc;padding:8px 12px;border-radius:4px;background:#f9f9f9}
+    .meta-col{display:flex;flex-direction:column;gap:5px}
+    .meta-row{display:flex;gap:8px}
+    .meta-lbl{font-weight:700}
+    table{width:100%;border-collapse:collapse;font-size:8.5pt;margin-bottom:14px}
+    th{background:#1a1a1a;color:#fff;padding:5px 7px;text-align:left;border:1px solid #444;font-size:8pt}
+    td{padding:4px 7px;border:1px solid #ccc;vertical-align:top}
+    tr:nth-child(even){background:#f5f5f5}
+    .tfoot-row td{background:#e8e8e8;font-weight:700}
+    .resumen{margin-bottom:18px;padding:12px 16px;border:2px solid #333;border-radius:4px}
+    .res-grid{display:flex;gap:48px}
+    .res-item{text-align:center}
+    .res-lbl{font-size:8.5pt;font-weight:700;text-transform:uppercase;color:#444;margin-bottom:4px}
+    .res-val{font-size:14pt;font-weight:700}
+    .firmas{display:flex;justify-content:space-around;margin-top:48px;padding-top:0}
+    .firma-col{text-align:center;flex:1;padding:0 16px}
+    .firma-linea{border-top:1px solid #000;margin-bottom:8px;padding-top:8px}
+    .firma-nombre{font-weight:700;font-size:9.5pt}
+    .firma-cargo{font-size:9pt;color:#444;margin-top:2px}
+    .fecha-imp{font-size:9pt;color:#666;text-align:right}
+    @media print{body{padding:8px 12px}@page{size:landscape;margin:8mm}}
+  </style>
+  </head><body>
+  <div class="hdr">
+    <div class="empresa-logo">
+      ${logoHtml}
+      <div class="empresa">${esc(empresa)}</div>
+      <div class="dpto">${esc(dpto)}</div>
+    </div>
+    <div class="fecha-imp">Impreso: ${new Date().toLocaleDateString('es-SV')}</div>
+  </div>
+  <div class="titulo">Reintegro de Fondo de Caja Chica</div>
+  <div class="meta">
+    <div class="meta-col">
+      <div class="meta-row"><span class="meta-lbl">Fecha de Corte:</span><span>${hasta?fmtDate(hasta):'—'}</span></div>
+      <div class="meta-row"><span class="meta-lbl">Período:</span><span>${desde?fmtDate(desde):'—'} al ${hasta?fmtDate(hasta):'—'}</span></div>
+    </div>
+    <div class="meta-col">
+      <div class="meta-row"><span class="meta-lbl">CAJA CHICA — Responsable:</span><span>${esc(resp)||'—'}</span></div>
+      <div class="meta-row"><span class="meta-lbl">Fondo Autorizado:</span><span>$${fondo.toFixed(2)}</span></div>
+    </div>
+  </div>
+  <table>
+    <thead><tr>
+      <th style="width:65px">C.Costo</th>
+      <th style="width:30px;text-align:center">No.</th>
+      <th style="width:72px">Fecha</th>
+      <th style="width:110px">Proveedor</th>
+      <th style="width:90px">No. Documento</th>
+      <th>Concepto</th>
+      <th style="width:72px;text-align:right">Monto Neto sin IVA</th>
+      <th style="width:55px;text-align:right">IVA</th>
+      <th style="width:60px;text-align:right">Retención</th>
+      <th style="width:72px;text-align:right">Monto Total</th>
+    </tr></thead>
+    <tbody>${itemRows}</tbody>
+    <tfoot>
+      <tr class="tfoot-row">
+        <td colspan="6" style="text-align:right">TOTAL</td>
+        <td style="text-align:right">-</td>
+        <td style="text-align:right">-</td>
+        <td style="text-align:right">-</td>
+        <td style="text-align:right">$${totTotal.toFixed(2)}</td>
+      </tr>
+    </tfoot>
+  </table>
+  <div class="resumen">
+    <div class="res-grid">
+      <div class="res-item"><div class="res-lbl">Fondo de Caja Chica</div><div class="res-val">$${fondo.toFixed(2)}</div></div>
+      <div class="res-item"><div class="res-lbl">Liquidación Actual</div><div class="res-val">$${totTotal.toFixed(2)}</div></div>
+      <div class="res-item"><div class="res-lbl">Fondo Disponible</div><div class="res-val" style="color:${disp>=0?'#007700':'#cc0000'}">$${disp.toFixed(2)}</div></div>
+    </div>
+  </div>
+  <div class="firmas">
+    <div class="firma-col">
+      <div class="firma-linea"></div>
+      <div class="firma-nombre">${esc(resp)||'_____________________________'}</div>
+      <div class="firma-cargo">Responsable de Caja Chica</div>
+    </div>
+    <div class="firma-col">
+      <div class="firma-linea"></div>
+      <div class="firma-nombre">${esc(revisado)||'_____________________________'}</div>
+      <div class="firma-cargo">Revisado</div>
+    </div>
+    <div class="firma-col">
+      <div class="firma-linea"></div>
+      <div class="firma-nombre">${esc(autorizado)||'_____________________________'}</div>
+      <div class="firma-cargo">Autorizado</div>
+    </div>
+  </div>
+  <script>window.onload=function(){window.print()}<\/script>
+  </body></html>`;
+
+  const win=window.open('','_blank');
+  if(win){win.document.write(html);win.document.close();}
+  else{toast('Habilita ventanas emergentes para imprimir',true);}
 }
 
 function exportarReporteCSV(){
