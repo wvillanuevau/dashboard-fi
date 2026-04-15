@@ -4557,8 +4557,8 @@ function renderReporteOutput(){
   }
 
   else if(tipo==='reintegro_caja_chica'){
-    // Gastos de caja chica en el rango de fechas
-    let gastoCC=S.gastos.filter(g=>g.cajaChica===true);
+    // Gastos de caja chica en el rango de fechas (solo los no reintegrados aún)
+    let gastoCC=S.gastos.filter(g=>g.cajaChica===true&&!g.reintegradoEn);
     if(desde)gastoCC=gastoCC.filter(g=>g.fecha>=desde);
     if(hasta)gastoCC=gastoCC.filter(g=>g.fecha<=hasta);
     if(proyId)gastoCC=gastoCC.filter(g=>g.proyectoId===proyId);
@@ -4768,7 +4768,7 @@ function _ccGetFormData(){
   const dpto=document.getElementById('ccRptDpto')?.value||'MANTENIMIENTO';
   const revisado=document.getElementById('ccRptRev')?.value||'';
   const autorizado=document.getElementById('ccRptAut')?.value||'';
-  let gastoCC=S.gastos.filter(g=>g.cajaChica===true);
+  let gastoCC=S.gastos.filter(g=>g.cajaChica===true&&!g.reintegradoEn);
   if(desde)gastoCC=gastoCC.filter(g=>g.fecha>=desde);
   if(hasta)gastoCC=gastoCC.filter(g=>g.fecha<=hasta);
   if(proyId)gastoCC=gastoCC.filter(g=>g.proyectoId===proyId);
@@ -4916,9 +4916,10 @@ function ccRptImprimir(histId){
 function ccGuardarReintegro(){
   const data=_ccGetFormData();
   if(!data.resp){toast('Ingresa el nombre del responsable antes de guardar',true);return;}
-  if(!data.gastoCC.length){toast('Sin gastos de caja chica en el período',true);return;}
+  if(!data.gastoCC.length){toast('Sin gastos de caja chica pendientes en el período',true);return;}
   if(!confirm(`¿Guardar reintegro del período ${data.desde?fmtDate(data.desde):'—'} al ${fmtDate(data.hasta)} con ${data.gastoCC.length} gastos?`))return;
   if(!S.cajachica)S.cajachica={reintegros:[]};
+  const reintegroId=genId();
   // Snapshot de los gastos al momento de guardar
   const snapshot=data.gastoCC.map(g=>{
     const cc=g.centroId?S.centros.find(x=>x.id===g.centroId)?.nombre||'':
@@ -4927,7 +4928,7 @@ function ccGuardarReintegro(){
             descripcion:g.descripcion,valor:g.valor,proyectoId:g.proyectoId,centroId:g.centroId};
   });
   const reintegro={
-    id:genId(),
+    id:reintegroId,
     desde:data.desde,hasta:data.hasta,
     responsable:data.resp,fondoAutorizado:data.fondo,
     empresa:data.empresa,departamento:data.dpto,
@@ -4935,19 +4936,25 @@ function ccGuardarReintegro(){
     gastosSnapshot:snapshot,
     creadoEn:Date.now()
   };
+  // Marcar cada gasto como ya reintegrado
+  data.gastoCC.forEach(g=>{
+    const idx=S.gastos.findIndex(x=>x.id===g.id);
+    if(idx>=0)S.gastos[idx].reintegradoEn=reintegroId;
+  });
   S.cajachica.reintegros.push(reintegro);
   saveData();
-  toast('✓ Reintegro guardado en el historial');
+  toast('✓ Reintegro guardado — gastos marcados como liquidados');
   logAction('GUARDAR','cajachica',`Período: ${data.desde} – ${data.hasta}, Resp: ${data.resp}`);
-  // Refrescar para mostrar historial actualizado
   renderReporteOutput();
 }
 
 function ccEliminarHistorial(id){
-  if(!confirm('¿Eliminar este reintegro del historial?'))return;
+  if(!confirm('¿Eliminar este reintegro? Los gastos volverán a estar disponibles para el próximo reintegro.'))return;
+  // Desmarcar gastos que pertenecían a este reintegro
+  S.gastos.forEach(g=>{if(g.reintegradoEn===id)delete g.reintegradoEn;});
   S.cajachica.reintegros=S.cajachica.reintegros.filter(r=>r.id!==id);
   saveData();
-  toast('Reintegro eliminado');
+  toast('Reintegro eliminado — gastos disponibles nuevamente');
   renderReporteOutput();
 }
 
