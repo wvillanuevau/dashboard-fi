@@ -672,8 +672,8 @@ input[type=date]{color-scheme:dark}
 //  DEFINICIÓN DE ROLES Y PERMISOS
 // ═══════════════════════════════════════════════════════
 const ROLES={
-  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','cotizaciones','inventario','bodegas','usuarios','config','log']},
-  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','cotizaciones','inventario','bodegas','log']},
+  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','cotizaciones','inventario','bodegas','usuarios','config','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard']},
+  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','cotizaciones','inventario','bodegas','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard']},
   empleado:{label:'Empleado',color:'b-ok',modulos:[]}, // permisos individuales
   viewer:{label:'Viewer',color:'b-neu',modulos:['dashboard','proyectos']},
   cliente:{label:'Cliente',color:'b-purple',modulos:['proyectos']}, // solo general, planificacion, cronograma
@@ -696,12 +696,27 @@ const MODULOS=[
   {id:'log',label:'Actividad',ic:'🕐'},
   {id:'usuarios',label:'Usuarios',ic:'👥'},
   {id:'config',label:'Configuración',ic:'⚙'},
+  {id:'mant_panel',label:'Panel OTs',ic:'🔧'},
+  {id:'mant_equipos',label:'Equipos',ic:'⚙️'},
+  {id:'mant_checklists',label:'Checklists',ic:'✅'},
+  {id:'mant_tecnicos',label:'Técnicos',ic:'👷'},
+  {id:'mant_reportes',label:'Reportes Mant.',ic:'📋'},
+  {id:'ei_dashboard',label:'EI Dashboard',ic:'⚡'},
+  {id:'ei_modelo',label:'Modelo Consumo',ic:'📐'},
+  {id:'ei_alertas',label:'Alertas',ic:'🔔'},
+  {id:'ei_ranking',label:'Ranking Tiendas',ic:'🏆'},
+  {id:'ei_prediccion',label:'Predicción',ic:'🔮'},
+  {id:'ei_checklist',label:'Checklist Diario',ic:'📋'},
+  {id:'gz_gerentes',label:'Gerentes de Zona',ic:'👔'},
+  {id:'gz_dashboard',label:'Dashboard GZ',ic:'🗺'},
 ];
 
 // Grupos del sidebar colapsibles
 const SB_GRUPOS=[
   {id:'proyectos_grp',label:'Proyectos',ic:'🏗',items:['dashboard','proyectos']},
-  {id:'empresa_grp',label:'Gestión de Empresa',ic:'🏢',items:['gastos','inventario','cotizaciones','proveedores','centros','bodegas','reportes']},
+  {id:'empresa_grp',label:'Gestión de Empresa',ic:'🏢',items:['gastos','inventario','cotizaciones','proveedores','centros','bodegas','reportes','gz_gerentes','gz_dashboard']},
+  {id:'mant_grp',label:'Mantenimiento',ic:'🔧',items:['mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes']},
+  {id:'energy_grp',label:'Energy Intelligence',ic:'⚡',items:['ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist']},
   {id:'config_grp',label:'Configuración General',ic:'⚙',items:['log','usuarios','config']},
 ];
 // Estado de grupos colapsados (persistir en sessionStorage)
@@ -733,6 +748,9 @@ const S={
   usuarios:[],
   config:{appName:'Proyectos Pro',logoUrl:'',accentColor:'#e8a020'},
   cajachica:{reintegros:[]},
+  mantenimiento:{tecnicos:[],checklists:[],equipos:[],ots:[]},
+  energy:{logs:[],alertas:[],checklists:[],tarifa:0.12},
+  gerentesZona:[],
   activeTab:'dashboard',currentUser:null,
   _syncTimer:null,_dirty:false,_listening:false,_lastSaveTs:0
 };
@@ -758,7 +776,7 @@ function setSyncUI(state,txt){const dot=document.getElementById('syncDot'),stxt=
 // ═══════════════════════════════════════════════════════
 //  SYNC
 // ═══════════════════════════════════════════════════════
-function serializeState(){return{_v:3,_ts:Date.now(),proyectos:S.proyectos,gastos:S.gastos,proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios,config:S.config,inventario:S.inventario||{bodegas:[],productos:[],movimientos:[]},cotizaciones:S.cotizaciones||{comparaciones:[]},cajachica:S.cajachica||{reintegros:[]}}}
+function serializeState(){return{_v:3,_ts:Date.now(),proyectos:S.proyectos,gastos:S.gastos,proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios,config:S.config,inventario:S.inventario||{bodegas:[],productos:[],movimientos:[]},cotizaciones:S.cotizaciones||{comparaciones:[]},cajachica:S.cajachica||{reintegros:[]},mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[]},energy:S.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12},gerentesZona:S.gerentesZona||[]}}
 
 // Versión limpia para Firestore — elimina base64 pesados que van en colección separada
 function serializeForFirestore(){
@@ -800,7 +818,10 @@ function serializeForFirestore(){
 
   return{...state, proyectos, gastos,
     inventario:{...inv,productos,movimientos},
-    cotizaciones:{comparaciones}
+    cotizaciones:{comparaciones},
+    mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[]},
+    energy:S.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12},
+    gerentesZona:S.gerentesZona||[]
   };
 }
 function applyData(d,fromRemote=false){
@@ -810,6 +831,9 @@ function applyData(d,fromRemote=false){
   S.inventario=d.inventario||{bodegas:[],productos:[],movimientos:[]};
   S.cotizaciones=d.cotizaciones||{comparaciones:[]};
   S.cajachica=d.cajachica||{reintegros:[]};
+  S.mantenimiento=d.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[]};
+  S.energy=d.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12};
+  S.gerentesZona=d.gerentesZona||[];
   migrateData();applyBranding();
 }
 function migrateData(){
@@ -4276,20 +4300,61 @@ function delProv(id){if(!confirm('¿Eliminar proveedor?'))return;S.proveedores=S
 //  CENTROS DE COSTO
 // ═══════════════════════════════════════════════════════
 function renderCentros(){
-  let rows=S.centros.length===0?`<tr><td colspan="5" class="empty">Sin centros de costo</td></tr>`:'';
-  S.centros.forEach(c=>{
-    const pname=c.proyectoId?S.proyectos.find(x=>x.id===c.proyectoId)?.nombre||'(eliminado)':'—';
-    rows+=`<tr><td><strong>${esc(c.nombre)}</strong></td><td style="font-size:12px;color:var(--muted)">${esc(c.descripcion||'—')}</td><td>${c.proyectoId?`<span class="badge b-blue">🏗 ${esc(pname)}</span>`:'<span class="badge b-neu">Independiente</span>'}</td><td>${c.auto?'<span class="badge b-ok" style="font-size:10px">Auto</span>':'<span class="badge b-neu" style="font-size:10px">Manual</span>'}</td><td>${c.auto?'<span style="font-size:11px;color:var(--muted)">—</span>':`<button class="btn btn-danger btn-xs" onclick="delCentro('${c.id}')">✕</button>`}</td></tr>`;
+  var rows=S.centros.length===0?'<tr><td colspan="7" class="empty">Sin centros de costo</td></tr>':'';
+  S.centros.forEach(function(c){
+    var pobj=c.proyectoId?S.proyectos.find(function(x){return x.id===c.proyectoId;}):null;
+    var pname=pobj?pobj.nombre:'(eliminado)';
+    var codBadge=c.codigoMant?('<span class="badge b-neu" style="font-size:10px;font-family:monospace">'+esc(c.codigoMant)+'</span>'):'<span style="font-size:11px;color:var(--muted)">—</span>';
+    var pBadge=c.proyectoId?('<span class="badge b-blue">🏗 '+esc(pname)+'</span>'):'<span class="badge b-neu">Independiente</span>';
+    var origBadge=c.auto?'<span class="badge b-ok" style="font-size:10px">Auto</span>':'<span class="badge b-neu" style="font-size:10px">Manual</span>';
+    var gobj=c.gerenteId?(S.gerentesZona||[]).find(function(g){return g.id===c.gerenteId;}):null;
+    var gBadge=gobj?('<span class="badge b-blue" style="font-size:10px">👔 '+esc(gobj.nombre)+'</span>'):'<span style="font-size:11px;color:var(--muted)">—</span>';
+    var acciones=c.auto?'<span style="font-size:11px;color:var(--muted)">—</span>':'<div class="td-act"><button class="btn btn-secondary btn-xs" onclick="modalEditarCentro(\"'+c.id+'\")">✏</button><button class="btn btn-danger btn-xs" onclick="delCentro(\"'+c.id+'\")">✕</button></div>';
+    rows+='<tr><td><strong>'+esc(c.nombre)+'</strong></td><td style="font-size:12px;color:var(--muted)">'+esc(c.descripcion||'—')+'</td><td>'+pBadge+'</td><td>'+origBadge+'</td><td>'+codBadge+'</td><td>'+gBadge+'</td><td>'+acciones+'</td></tr>';
   });
-  document.getElementById('content').innerHTML=`
-  <div class="info-box">ℹ️ Al crear un proyecto se genera su Centro de Costo automáticamente.</div>
-  <div class="card" style="margin-bottom:18px"><div class="sec-hdr">Nuevo Centro (independiente)</div>
-    <div class="row3"><div class="fg"><label>Nombre *</label><input id="ccN"></div><div class="fg"><label>Descripción</label><input id="ccD"></div><div class="fg"><label>Vincular a Proyecto</label><select id="ccP"><option value="">— Sin proyecto —</option>${S.proyectos.map(p=>`<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</select></div></div>
-    <button class="btn btn-primary" onclick="addCentro()">+ Agregar</button></div>
-  <div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Descripción</th><th>Proyecto</th><th>Origen</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  var proyOpts=S.proyectos.map(function(p){return'<option value="'+p.id+'">'+esc(p.nombre)+'</option>';}).join('');
+  document.getElementById('content').innerHTML=
+    '<div class="info-box">ℹ️ Al crear un proyecto se genera su Centro de Costo automáticamente. El código de mantenimiento (4 dígitos) lo usan los encargados para confirmar OTs.</div>'
+    +'<div class="card" style="margin-bottom:18px"><div class="sec-hdr">Nuevo Centro (independiente)</div>'
+    +'<div class="row3"><div class="fg"><label>Nombre *</label><input id="ccN"></div><div class="fg"><label>Descripción</label><input id="ccD"></div><div class="fg"><label>Vincular a Proyecto</label><select id="ccP"><option value="">— Sin proyecto —</option>'+proyOpts+'</select></div></div>'
+    +'<button class="btn btn-primary" onclick="addCentro()">+ Agregar</button></div>'
+    +'<div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Descripción</th><th>Proyecto</th><th>Origen</th><th>Cód. Mant.</th><th>Gerente de Zona</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    +'<div id="modalEditCentro" class="modal"><div class="modal-box sm"><div class="modal-hdr"><div class="modal-ttl">✏ Editar Centro</div><button class="btn btn-secondary btn-sm" onclick="closeModal(\"modalEditCentro\")">✕</button></div><div id="modalEditCentroBody"></div></div></div>';
 }
-function addCentro(){const n=document.getElementById('ccN').value.trim();if(!n){toast('Nombre requerido',true);document.getElementById('ccN').focus();return}S.centros.push({id:genId(),nombre:n,descripcion:document.getElementById('ccD').value.trim(),proyectoId:document.getElementById('ccP').value||null,auto:false});saveData();render();toast('✓ Centro registrado');setTimeout(()=>_focusFirst('#content .card'),40);}
-function delCentro(id){if(S.centros.find(x=>x.id===id)?.auto){toast('Centro automático — elimina el proyecto para borrarlo',true);return}if(!confirm('¿Eliminar?'))return;S.centros=S.centros.filter(x=>x.id!==id);saveData();render()}
+function addCentro(){var n=document.getElementById('ccN').value.trim();if(!n){toast('Nombre requerido',true);document.getElementById('ccN').focus();return;}S.centros.push({id:genId(),nombre:n,descripcion:document.getElementById('ccD').value.trim(),proyectoId:document.getElementById('ccP').value||null,auto:false});saveData();render();toast('✓ Centro registrado');setTimeout(function(){_focusFirst('#content .card');},40);}
+function delCentro(id){var c=S.centros.find(function(x){return x.id===id;});if(c&&c.auto){toast('Centro automático — elimina el proyecto para borrarlo',true);return;}if(!confirm('¿Eliminar?'))return;S.centros=S.centros.filter(function(x){return x.id!==id;});saveData();render();}
+function modalEditarCentro(id){
+  var c=S.centros.find(function(x){return x.id===id;});
+  if(!c)return;
+  if(!document.getElementById('modalEditCentro'))render();
+  var body=document.getElementById('modalEditCentroBody');
+  if(!body)return;
+  var gOpts='<option value="">— Sin gerente —</option>'+(S.gerentesZona||[]).map(function(g){
+    return'<option value="'+g.id+'"'+(c.gerenteId===g.id?' selected':'')+'>'+esc(g.nombre)+'</option>';
+  }).join('');
+  var btnCancel='<button class="btn btn-secondary" onclick="closeModal(\"modalEditCentro\")">Cancelar</button>';
+  var btnSave='<button class="btn btn-primary" onclick="guardarEditCentro(\"'+id+'\")">Guardar</button>';
+  body.innerHTML='<div class="fg"><label>Nombre *</label><input id="ecN" value="'+esc(c.nombre)+'"></div>'
+    +'<div class="fg"><label>Descripción</label><input id="ecD" value="'+esc(c.descripcion||'')+'"></div>'
+    +'<div class="fg"><label>Código Mantenimiento (4 dígitos numéricos)</label><input id="ecCod" type="text" maxlength="4" value="'+esc(c.codigoMant||'')+'" placeholder="Ej: 1234"></div>'
+    +'<div class="fg"><label>Gerente de Zona</label><select id="ecGerente">'+gOpts+'</select></div>'
+    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px">'+btnCancel+btnSave+'</div>';
+  openModal('modalEditCentro');
+}
+function guardarEditCentro(id){
+  var c=S.centros.find(function(x){return x.id===id;});
+  if(!c)return;
+  var n=document.getElementById('ecN').value.trim();
+  if(!n){toast('Nombre requerido',true);return;}
+  var cod=(document.getElementById('ecCod').value||'').trim();
+  if(cod&&!/^[0-9]{4}$/.test(cod)){toast('El código debe ser 4 dígitos numéricos',true);return;}
+  c.nombre=n;
+  c.descripcion=(document.getElementById('ecD').value||'').trim();
+  if(cod)c.codigoMant=cod; else delete c.codigoMant;
+  var gId=(document.getElementById('ecGerente')&&document.getElementById('ecGerente').value)||'';
+  if(gId)c.gerenteId=gId; else delete c.gerenteId;
+  saveData();closeModal('modalEditCentro');render();toast('✓ Centro actualizado');
+}
 
 // ═══════════════════════════════════════════════════════
 //  MÓDULO REPORTES
@@ -6283,7 +6348,7 @@ function initTheme(){
 function render(){
   if(window.innerWidth<=800)closeSB();
   // Sidebar — solo módulos permitidos
-  const navIcColors={dashboard:'#e8a020',proyectos:'#4ea8de',gastos:'#e84040',proveedores:'#2db87a',centros:'#c084fc',reportes:'#f0a040',cotizaciones:'#60c8f0',inventario:'#a0e060',bodegas:'#f0a060',log:'#888',usuarios:'#c084fc',config:'#777'};
+  const navIcColors={dashboard:'#e8a020',proyectos:'#4ea8de',gastos:'#e84040',proveedores:'#2db87a',centros:'#c084fc',reportes:'#f0a040',cotizaciones:'#60c8f0',inventario:'#a0e060',bodegas:'#f0a060',log:'#888',usuarios:'#c084fc',config:'#777',mant_panel:'#f0a040',mant_equipos:'#60c8f0',mant_checklists:'#2db87a',mant_tecnicos:'#c084fc',mant_reportes:'#e8a020',ei_dashboard:'#facc15',ei_modelo:'#38bdf8',ei_alertas:'#f87171',ei_ranking:'#a78bfa',ei_prediccion:'#34d399',ei_checklist:'#fb923c',gz_gerentes:'#818cf8',gz_dashboard:'#38bdf8'};
   const collapsed=getSBCollapsed();
   let navHtml='';
   SB_GRUPOS.forEach(grp=>{
@@ -6310,7 +6375,7 @@ function render(){
     navHtml+='</div>';
   });
   document.getElementById('nav').innerHTML=navHtml;
-  const titles={dashboard:'Dashboard',proyectos:'Proyectos',gastos:'Gastos',proveedores:'Proveedores',centros:'Centros de Costo',reportes:'Reportes',cotizaciones:'Comparar Cotizaciones',inventario:'Inventario',bodegas:'Gestión de Bodegas',cajachica:'Caja Chica',log:'Registro de Actividad',usuarios:'Usuarios',config:'Configuración'};
+  const titles={dashboard:'Dashboard',proyectos:'Proyectos',gastos:'Gastos',proveedores:'Proveedores',centros:'Centros de Costo',reportes:'Reportes',cotizaciones:'Comparar Cotizaciones',inventario:'Inventario',bodegas:'Gestión de Bodegas',cajachica:'Caja Chica',log:'Registro de Actividad',usuarios:'Usuarios',config:'Configuración',mant_panel:'Panel de OTs',mant_equipos:'Equipos',mant_checklists:'Checklists',mant_tecnicos:'Técnicos',mant_reportes:'Reportes Mantenimiento',ei_dashboard:'⚡ Energy Intelligence',ei_modelo:'Modelo de Consumo',ei_alertas:'Alertas Energéticas',ei_ranking:'Ranking de Tiendas',ei_prediccion:'Predicción de Factura',ei_checklist:'Checklist Operativo',gz_gerentes:'Gerentes de Zona',gz_dashboard:'Dashboard Gerentes de Zona'};
   document.getElementById('pageTitle').textContent=titles[S.activeTab]||S.activeTab;
   const ha=document.getElementById('headerActions');
   ha.innerHTML=(S.activeTab==='proyectos'||S.activeTab==='dashboard')&&puedeVer('proyectos')?`<button class="btn btn-primary" onclick="openModal('modalNP');refreshMarcaSel()">+ Nuevo Proyecto</button>`:'';
@@ -6327,6 +6392,19 @@ function render(){
   else if(S.activeTab==='log')renderLog();
   else if(S.activeTab==='usuarios')renderUsuarios();
   else if(S.activeTab==='config')renderConfig();
+  else if(S.activeTab==='mant_panel')renderMantPanel();
+  else if(S.activeTab==='mant_equipos')renderMantEquipos();
+  else if(S.activeTab==='mant_checklists')renderMantChecklists();
+  else if(S.activeTab==='mant_tecnicos')renderMantTecnicos();
+  else if(S.activeTab==='mant_reportes')renderMantReportes();
+  else if(S.activeTab==='ei_dashboard')renderEIDashboard();
+  else if(S.activeTab==='ei_modelo')renderEIModelo();
+  else if(S.activeTab==='ei_alertas')renderEIAlertas();
+  else if(S.activeTab==='ei_ranking')renderEIRanking();
+  else if(S.activeTab==='ei_prediccion')renderEIPrediccion();
+  else if(S.activeTab==='ei_checklist')renderEIChecklist();
+  else if(S.activeTab==='gz_gerentes')renderGZGerentes();
+  else if(S.activeTab==='gz_dashboard')renderGZDashboard();
 }
 function goTab(t){if(!puedeVer(t)){toast('Sin acceso a este módulo',true);return}S.activeTab=t;render()}
 
@@ -6400,7 +6478,7 @@ function renderCajaChica(){
     });
   }
   const totalGeneral=((cc.reintegros||[]).reduce((s,r)=>s+ccTotalItems(r.items),0));
-  document.getElementById('pageContent').innerHTML=`
+  document.getElementById('content').innerHTML=`
     <div class="kpi-grid">
       <div class="kpi"><div class="kpi-lbl">Reintegros</div><div class="kpi-val">${(cc.reintegros||[]).length}</div></div>
       <div class="kpi"><div class="kpi-lbl">Total Liquidado</div><div class="kpi-val" style="color:var(--red)">${fmtCur(totalGeneral)}</div></div>
@@ -6850,6 +6928,1657 @@ function ccImprimirReintegro(id){
   const win=window.open('','_blank');
   if(win){win.document.write(html);win.document.close();}
   else{toast('Habilita ventanas emergentes para imprimir',true);}
+}
+
+
+// ═══════════════════════════════════════════════════════
+//  MANTENIMIENTO PREVENTIVO
+// ═══════════════════════════════════════════════════════
+
+var frecDias={mensual:30,bimestral:60,trimestral:90,semestral:180,anual:365};
+var MANT_CATS=['ac','cocina','fontaneria','civil','general'];
+var MANT_CAT_LABELS={ac:'A/C',cocina:'Cocina',fontaneria:'Fontanería',civil:'Civil',general:'General'};
+var MANT_FREQS=['mensual','bimestral','trimestral','semestral','anual'];
+
+function mantData(){
+  if(!S.mantenimiento)S.mantenimiento={tecnicos:[],checklists:[],equipos:[],ots:[]};
+  if(!S.mantenimiento.tecnicos)S.mantenimiento.tecnicos=[];
+  if(!S.mantenimiento.checklists)S.mantenimiento.checklists=[];
+  if(!S.mantenimiento.equipos)S.mantenimiento.equipos=[];
+  if(!S.mantenimiento.ots)S.mantenimiento.ots=[];
+  // Crear checklists vacíos por defecto si no existen
+  var defCats=['ac','cocina','fontaneria','civil'];
+  var defNames={ac:'A/C',cocina:'Cocina',fontaneria:'Fontanería',civil:'Civil'};
+  defCats.forEach(function(cat){
+    var exists=S.mantenimiento.checklists.find(function(cl){return cl.categoria===cat;});
+    if(!exists){
+      S.mantenimiento.checklists.push({id:genId(),categoria:cat,nombre:'Checklist '+defNames[cat],puntos:[]});
+    }
+  });
+  return S.mantenimiento;
+}
+
+function mantFechaPróximo(equipo){
+  if(!equipo.ultimoMant)return'—';
+  var dias=frecDias[equipo.frecuencia]||30;
+  return addDias(equipo.ultimoMant,dias);
+}
+
+function mantBadgeEstado(estado){
+  if(estado==='completada')return'<span class="badge b-ok">Completada</span>';
+  if(estado==='vencida')return'<span class="badge b-err">Vencida</span>';
+  return'<span class="badge b-warn">Pendiente</span>';
+}
+
+function mantBadgePrioridad(p){
+  return p==='urgente'?'<span class="badge b-err">Urgente</span>':'<span class="badge b-neu">Normal</span>';
+}
+
+function mantHoy(){return new Date().toISOString().slice(0,10);}
+
+function mantEnSemana(fecha){
+  if(!fecha)return false;
+  var hoy=new Date();
+  var f=new Date(fecha+'T12:00:00');
+  var diff=(f-hoy)/(1000*60*60*24);
+  return diff>=0&&diff<=7;
+}
+
+// ── mant_panel ──────────────────────────────────────────
+function renderMantPanel(){
+  var m=mantData();
+  var hoy=mantHoy();
+  var ots=m.ots||[];
+  // Actualizar estados vencidos
+  ots.forEach(function(ot){
+    if(ot.estado==='pendiente'&&ot.fechaProgramada&&ot.fechaProgramada<hoy)ot.estado='vencida';
+  });
+
+  var vencidas=ots.filter(function(ot){return ot.estado==='vencida';});
+  var semana=ots.filter(function(ot){return ot.estado==='pendiente'&&mantEnSemana(ot.fechaProgramada);});
+  var proximas=ots.filter(function(ot){return ot.estado==='pendiente'&&!mantEnSemana(ot.fechaProgramada);});
+
+  function otRow(ot){
+    var equipo=m.equipos.find(function(e){return e.id===ot.equipoId;})||{nombre:'—'};
+    var centro=S.centros.find(function(c){return c.id===ot.centroId;})||{nombre:'—'};
+    var tec=m.tecnicos.find(function(t){return t.id===ot.tecnicoId;})||{nombre:'Sin asignar'};
+    return'<div class="card" style="margin-bottom:8px;padding:12px 14px">'
+      +'<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px">'
+      +'<div><div style="font-weight:700;font-size:13px">'+esc(centro.nombre)+' — '+esc(equipo.nombre)+'</div>'
+      +'<div style="font-size:12px;color:var(--muted);margin-top:3px">'+esc(tec.nombre)+' · '+fmtDate(ot.fechaProgramada)+' · '+mantBadgePrioridad(ot.prioridad)+'</div></div>'
+      +'<button class="btn btn-secondary btn-sm" onclick="modalVerOT(\''+ot.id+'\')">Ver OT</button>'
+      +'</div></div>';
+  }
+
+  // Resumen por técnico
+  var resumenTecs='';
+  m.tecnicos.filter(function(t){return t.activo;}).forEach(function(t){
+    var mes=new Date().toISOString().slice(0,7);
+    var otsTec=ots.filter(function(ot){return ot.tecnicoId===t.id&&(ot.fechaProgramada||'').slice(0,7)===mes;});
+    var comp=otsTec.filter(function(ot){return ot.estado==='completada';}).length;
+    var pend=otsTec.filter(function(ot){return ot.estado!=='completada';}).length;
+    resumenTecs+='<tr><td>'+esc(t.nombre)+'</td><td style="text-align:center">'+otsTec.length+'</td><td style="text-align:center;color:var(--green)">'+comp+'</td><td style="text-align:center;color:var(--red)">'+pend+'</td></tr>';
+  });
+  if(!resumenTecs)resumenTecs='<tr><td colspan="4" class="empty">Sin técnicos activos</td></tr>';
+
+  var genBtn=puedeVer('mant_equipos')?'<button class="btn btn-primary" onclick="mantGenerarOTs()">⚙ Generar OTs del mes</button>':'';
+
+  var el=document.getElementById('content');
+  el.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">'
+    +'<div class="kpi-grid" style="margin-bottom:0;flex:1">'
+    +'<div class="kpi"><div class="kpi-lbl">Vencidas</div><div class="kpi-val" style="color:var(--red)">'+vencidas.length+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Esta semana</div><div class="kpi-val" style="color:var(--accent)">'+semana.length+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Próximas</div><div class="kpi-val">'+proximas.length+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Total</div><div class="kpi-val">'+ots.length+'</div></div>'
+    +'</div>'+genBtn+'</div>'
+    +(vencidas.length?'<div style="margin-bottom:16px"><div style="font-weight:700;color:var(--red);margin-bottom:8px">🔴 Vencidas ('+vencidas.length+')</div>'+vencidas.map(otRow).join('')+'</div>':'')
+    +(semana.length?'<div style="margin-bottom:16px"><div style="font-weight:700;color:var(--accent);margin-bottom:8px">🟡 Esta semana ('+semana.length+')</div>'+semana.map(otRow).join('')+'</div>':'')
+    +(proximas.length?'<div style="margin-bottom:16px"><div style="font-weight:700;color:var(--green);margin-bottom:8px">🟢 Próximas ('+proximas.length+')</div>'+proximas.map(otRow).join('')+'</div>':'')
+    +(!ots.length?'<div class="empty" style="padding:40px;text-align:center">Sin órdenes de trabajo — Genera las OTs del mes con el botón de arriba</div>':'')
+    +'<div class="card" style="margin-top:20px"><div class="sec-hdr">Resumen por Técnico — Mes actual</div>'
+    +'<div class="tbl-wrap"><table><thead><tr><th>Técnico</th><th style="text-align:center">Total OTs</th><th style="text-align:center">Completadas</th><th style="text-align:center">Pendientes</th></tr></thead><tbody>'+resumenTecs+'</tbody></table></div></div>';
+}
+
+function mantGenerarOTs(){
+  var m=mantData();
+  var hoy=mantHoy();
+  var mesActual=hoy.slice(0,7);
+  var fechaBase=mesActual+'-01';
+  var creadas=0;
+  m.equipos.forEach(function(eq){
+    // ¿Corresponde mantenimiento este mes?
+    var dias=frecDias[eq.frecuencia]||30;
+    var ultimo=eq.ultimoMant||null;
+    var corresponde=false;
+    if(!ultimo){
+      corresponde=true;
+    } else {
+      var prox=addDias(ultimo,dias);
+      if(prox&&prox<=hoy)corresponde=true;
+    }
+    if(!corresponde)return;
+    // ¿Ya existe OT para este equipo en este mes?
+    var yaExiste=m.ots.find(function(ot){
+      return ot.equipoId===eq.id&&(ot.fechaProgramada||'').slice(0,7)===mesActual&&ot.estado!=='completada';
+    });
+    if(yaExiste)return;
+    // Buscar checklist de la categoría
+    var cl=m.checklists.find(function(c){return c.categoria===eq.categoria;});
+    m.ots.push({
+      id:genId(),
+      equipoId:eq.id,
+      centroId:eq.centroId,
+      tecnicoId:'',
+      fechaProgramada:fechaBase,
+      prioridad:'normal',
+      estado:'pendiente',
+      checklistId:cl?cl.id:'',
+      respuestas:[],
+      observaciones:'',
+      gastoId:'',
+      montoGasto:0,
+      codigoConfirmacion:'',
+      fechaCierre:'',
+      creadaEn:Date.now()
+    });
+    creadas++;
+  });
+  saveData();
+  renderMantPanel();
+  toast('✓ '+creadas+' OT(s) generadas');
+}
+
+// ── mant_equipos ─────────────────────────────────────────
+function renderMantEquipos(){
+  var m=mantData();
+  var filtro=S._mantEqFiltro||'';
+  var equipos=filtro?m.equipos.filter(function(e){return e.centroId===filtro;}):m.equipos;
+
+  var centrosOpts='<option value="">Todos los restaurantes</option>'+S.centros.map(function(c){return'<option value="'+c.id+'"'+(filtro===c.id?' selected':'')+'>'+esc(c.nombre)+'</option>';}).join('');
+
+  var rows=equipos.length===0?'<tr><td colspan="8" class="empty">Sin equipos — agrega el primero</td></tr>':'';
+  equipos.forEach(function(eq){
+    var centro=S.centros.find(function(c){return c.id===eq.centroId;})||{nombre:'—'};
+    var prox=mantFechaPróximo(eq);
+    var hoy=mantHoy();
+    var proxColor=prox&&prox<hoy?'color:var(--red)':'';
+    rows+='<tr><td>'+esc(eq.nombre)+'</td><td><span class="badge b-neu">'+esc(MANT_CAT_LABELS[eq.categoria]||eq.categoria)+'</span></td>'
+      +'<td style="text-align:center">'+esc(String(eq.unidades||1))+'</td>'
+      +'<td>'+esc(eq.frecuencia||'—')+'</td>'
+      +'<td style="text-align:right">'+esc(String(eq.kw||'—'))+'</td>'
+      +'<td>'+fmtDate(eq.ultimoMant)+'</td>'
+      +'<td style="'+proxColor+'">'+fmtDate(prox)+'</td>'
+      +'<td><div class="td-act"><button class="btn btn-secondary btn-xs" onclick="modalEquipo(\''+eq.id+'\')">✏</button><button class="btn btn-danger btn-xs" onclick="delEquipo(\''+eq.id+'\')">✕</button></div></td></tr>';
+  });
+
+  document.getElementById('content').innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">'
+    +'<select style="max-width:280px" onchange="S._mantEqFiltro=this.value;renderMantEquipos()">'+centrosOpts+'</select>'
+    +'<button class="btn btn-primary" onclick="modalEquipo(\'\')">+ Nuevo equipo</button>'
+    +'</div>'
+    +'<div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Categoría</th><th style="text-align:center">Unid.</th><th>Frecuencia</th><th style="text-align:right">kW</th><th>Último mant.</th><th>Próximo mant.</th><th>Acciones</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    +'<div id="modalEquipoWrap"></div>';
+}
+
+function modalEquipo(id){
+  var m=mantData();
+  var eq=id?m.equipos.find(function(e){return e.id===id;}):null;
+  var centrosOpts=S.centros.map(function(c){return'<option value="'+c.id+'"'+(eq&&eq.centroId===c.id?' selected':'')+'>'+esc(c.nombre)+'</option>';}).join('');
+  var catOpts=MANT_CATS.map(function(cat){return'<option value="'+cat+'"'+(eq&&eq.categoria===cat?' selected':'')+'>'+MANT_CAT_LABELS[cat]+'</option>';}).join('');
+  var freqOpts=MANT_FREQS.map(function(f){return'<option value="'+f+'"'+(eq&&eq.frecuencia===f?' selected':'')+'>'+f.charAt(0).toUpperCase()+f.slice(1)+'</option>';}).join('');
+
+  var div=document.createElement('div');
+  div.className='modal open';
+  div.id='modalEquipoDiv';
+  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:12px;overflow-y:auto';
+  div.innerHTML='<div class="modal-box md" style="margin-top:auto;margin-bottom:auto">'
+    +'<div class="modal-hdr"><div class="modal-ttl">'+(id?'✏ Editar Equipo':'+ Nuevo Equipo')+'</div>'
+    +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalEquipoDiv\').remove()">✕</button></div>'
+    +'<div class="row2"><div class="fg"><label>Restaurante *</label><select id="eqCentro"><option value="">— Seleccionar —</option>'+centrosOpts+'</select></div>'
+    +'<div class="fg"><label>Nombre *</label><input id="eqNom" value="'+(eq?esc(eq.nombre):'')+'"></div></div>'
+    +'<div class="row2"><div class="fg"><label>Categoría *</label><select id="eqCat">'+catOpts+'</select></div>'
+    +'<div class="fg"><label>Frecuencia</label><select id="eqFreq">'+freqOpts+'</select></div></div>'
+    +'<div class="row3"><div class="fg"><label>Unidades</label><input type="number" id="eqUnid" min="1" value="'+(eq?eq.unidades||1:1)+'"></div>'
+    +'<div class="fg"><label>kW</label><input type="number" id="eqKw" step="0.1" value="'+(eq?eq.kw||'':'')+'"></div>'
+    +'<div class="fg"><label>Voltaje (V)</label><input type="number" id="eqVolt" value="'+(eq?eq.voltaje||'':'')+'"></div></div>'
+    +'<div class="row2"><div class="fg"><label>Corriente (A)</label><input type="number" id="eqCurr" step="0.1" value="'+(eq?eq.corriente||'':'')+'"></div>'
+    +'<div class="fg"><label>Último mantenimiento</label><input type="date" id="eqUltimo" value="'+(eq?eq.ultimoMant||'':'')+'"></div></div>'
+    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px">'
+    +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalEquipoDiv\').remove()">Cancelar</button>'
+    +'<button class="btn btn-primary" onclick="guardarEquipo(\''+id+'\')">Guardar</button></div></div>';
+  document.body.appendChild(div);
+  setTimeout(function(){_focusFirst(div);},80);
+}
+
+function guardarEquipo(id){
+  var m=mantData();
+  var centroId=document.getElementById('eqCentro').value;
+  var nombre=(document.getElementById('eqNom').value||'').trim();
+  if(!centroId){toast('Selecciona el restaurante',true);return;}
+  if(!nombre){toast('Nombre del equipo requerido',true);return;}
+  var datos={
+    centroId:centroId,nombre:nombre,
+    categoria:document.getElementById('eqCat').value,
+    frecuencia:document.getElementById('eqFreq').value,
+    unidades:parseInt(document.getElementById('eqUnid').value)||1,
+    kw:parseFloat(document.getElementById('eqKw').value)||0,
+    voltaje:parseFloat(document.getElementById('eqVolt').value)||0,
+    corriente:parseFloat(document.getElementById('eqCurr').value)||0,
+    ultimoMant:document.getElementById('eqUltimo').value||null,
+    ultimoTecnico:''
+  };
+  if(id){
+    var eq=m.equipos.find(function(e){return e.id===id;});
+    if(eq)Object.assign(eq,datos);
+  } else {
+    datos.id=genId();
+    m.equipos.push(datos);
+  }
+  saveData();
+  var div=document.getElementById('modalEquipoDiv');
+  if(div)div.remove();
+  renderMantEquipos();
+  toast('✓ Equipo guardado');
+}
+
+function delEquipo(id){
+  if(!confirm('¿Eliminar equipo?'))return;
+  var m=mantData();
+  m.equipos=m.equipos.filter(function(e){return e.id!==id;});
+  saveData();renderMantEquipos();toast('Equipo eliminado');
+}
+
+// ── mant_checklists ──────────────────────────────────────
+function renderMantChecklists(){
+  var m=mantData();
+  var html='<div style="display:flex;justify-content:flex-end;margin-bottom:14px">'
+    +'<button class="btn btn-primary" onclick="mantNuevoChecklist()">+ Nuevo checklist</button></div>';
+
+  m.checklists.forEach(function(cl,ci){
+    var puntosHtml='';
+    (cl.puntos||[]).forEach(function(p,pi){
+      puntosHtml+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:8px 10px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">'
+        +'<input style="flex:1" value="'+esc(p.texto)+'" onchange="mantActualizarPunto('+ci+','+pi+',\'texto\',this.value)">'
+        +'<label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);white-space:nowrap;cursor:pointer">'
+        +'<input type="checkbox"'+(p.requerido?' checked':'')+'onchange="mantActualizarPunto('+ci+','+pi+',\'requerido\',this.checked)"> Requerido</label>'
+        +'<button class="btn btn-danger btn-xs" onclick="mantEliminarPunto('+ci+','+pi+')">✕</button>'
+        +'</div>';
+    });
+    var catOpts=MANT_CATS.map(function(cat){return'<option value="'+cat+'"'+(cl.categoria===cat?' selected':'')+'>'+MANT_CAT_LABELS[cat]+'</option>';}).join('');
+    html+='<div class="card" style="margin-bottom:16px">'
+      +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">'
+      +'<input style="font-weight:700;flex:1;min-width:160px" value="'+esc(cl.nombre)+'" onchange="mantActualizarCL('+ci+',\'nombre\',this.value)">'
+      +'<select onchange="mantActualizarCL('+ci+',\'categoria\',this.value)">'+catOpts+'</select>'
+      +'<button class="btn btn-danger btn-sm" onclick="mantEliminarCL('+ci+')">🗑 Eliminar</button>'
+      +'</div>'
+      +puntosHtml
+      +'<button class="btn btn-secondary btn-sm" onclick="mantAgregarPunto('+ci+')">+ Agregar punto</button>'
+      +'<button class="btn btn-primary btn-sm" style="margin-left:8px" onclick="saveData();toast(\'✓ Guardado\')">Guardar</button>'
+      +'</div>';
+  });
+
+  if(!m.checklists.length)html+='<div class="empty" style="padding:40px;text-align:center">Sin checklists</div>';
+  document.getElementById('content').innerHTML=html;
+}
+
+function mantNuevoChecklist(){
+  var m=mantData();
+  m.checklists.push({id:genId(),categoria:'general',nombre:'Nuevo checklist',puntos:[]});
+  renderMantChecklists();
+}
+function mantEliminarCL(ci){
+  if(!confirm('¿Eliminar checklist?'))return;
+  mantData().checklists.splice(ci,1);
+  saveData();renderMantChecklists();
+}
+function mantActualizarCL(ci,campo,val){
+  var cl=mantData().checklists[ci];
+  if(cl)cl[campo]=val;
+}
+function mantAgregarPunto(ci){
+  var cl=mantData().checklists[ci];
+  if(!cl)return;
+  cl.puntos.push({id:genId(),texto:'',requerido:false});
+  renderMantChecklists();
+}
+function mantEliminarPunto(ci,pi){
+  var cl=mantData().checklists[ci];
+  if(cl)cl.puntos.splice(pi,1);
+  renderMantChecklists();
+}
+function mantActualizarPunto(ci,pi,campo,val){
+  var cl=mantData().checklists[ci];
+  if(cl&&cl.puntos[pi])cl.puntos[pi][campo]=val;
+}
+
+// ── mant_tecnicos ─────────────────────────────────────────
+function renderMantTecnicos(){
+  var m=mantData();
+  var rows=m.tecnicos.length===0?'<tr><td colspan="4" class="empty">Sin técnicos registrados</td></tr>':'';
+  m.tecnicos.forEach(function(t){
+    rows+='<tr><td>'+esc(t.nombre)+'</td><td><span class="badge b-neu">'+esc(MANT_CAT_LABELS[t.especialidad]||t.especialidad)+'</span></td>'
+      +'<td style="text-align:center">'+(t.activo?'<span class="badge b-ok">Activo</span>':'<span class="badge b-err">Inactivo</span>')+'</td>'
+      +'<td><div class="td-act"><button class="btn btn-secondary btn-xs" onclick="modalTecnico(\''+t.id+'\')">✏</button><button class="btn btn-danger btn-xs" onclick="delTecnico(\''+t.id+'\')">✕</button></div></td></tr>';
+  });
+
+  document.getElementById('content').innerHTML='<div style="display:flex;justify-content:flex-end;margin-bottom:14px">'
+    +'<button class="btn btn-primary" onclick="modalTecnico(\'\')">+ Nuevo técnico</button></div>'
+    +'<div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Especialidad</th><th style="text-align:center">Estado</th><th>Acciones</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+
+function modalTecnico(id){
+  var m=mantData();
+  var t=id?m.tecnicos.find(function(x){return x.id===id;}):null;
+  var catOpts=MANT_CATS.map(function(cat){return'<option value="'+cat+'"'+(t&&t.especialidad===cat?' selected':'')+'>'+MANT_CAT_LABELS[cat]+'</option>';}).join('');
+  var div=document.createElement('div');
+  div.id='modalTecDiv';
+  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:center;justify-content:center;padding:12px';
+  div.innerHTML='<div class="modal-box sm">'
+    +'<div class="modal-hdr"><div class="modal-ttl">'+(id?'✏ Editar Técnico':'+ Nuevo Técnico')+'</div>'
+    +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalTecDiv\').remove()">✕</button></div>'
+    +'<div class="fg"><label>Nombre *</label><input id="tecNom" value="'+(t?esc(t.nombre):'')+'"></div>'
+    +'<div class="fg"><label>Especialidad</label><select id="tecEsp">'+catOpts+'</select></div>'
+    +'<div class="fg"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="tecActivo"'+(t&&t.activo===false?'':' checked')+'> Activo</label></div>'
+    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px">'
+    +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalTecDiv\').remove()">Cancelar</button>'
+    +'<button class="btn btn-primary" onclick="guardarTecnico(\''+id+'\')">Guardar</button></div></div>';
+  document.body.appendChild(div);
+  setTimeout(function(){_focusFirst(div);},80);
+}
+
+function guardarTecnico(id){
+  var m=mantData();
+  var nombre=(document.getElementById('tecNom').value||'').trim();
+  if(!nombre){toast('Nombre requerido',true);return;}
+  var datos={
+    nombre:nombre,
+    especialidad:document.getElementById('tecEsp').value,
+    activo:document.getElementById('tecActivo').checked
+  };
+  if(id){
+    var t=m.tecnicos.find(function(x){return x.id===id;});
+    if(t)Object.assign(t,datos);
+  } else {
+    datos.id=genId();
+    m.tecnicos.push(datos);
+  }
+  saveData();
+  var div=document.getElementById('modalTecDiv');
+  if(div)div.remove();
+  renderMantTecnicos();toast('✓ Técnico guardado');
+}
+
+function delTecnico(id){
+  if(!confirm('¿Eliminar técnico?'))return;
+  var m=mantData();
+  m.tecnicos=m.tecnicos.filter(function(t){return t.id!==id;});
+  saveData();renderMantTecnicos();toast('Técnico eliminado');
+}
+
+// ── modalVerOT ───────────────────────────────────────────
+function modalVerOT(otId){
+  var m=mantData();
+  var ot=m.ots.find(function(o){return o.id===otId;});
+  if(!ot){toast('OT no encontrada',true);return;}
+
+  var equipo=m.equipos.find(function(e){return e.id===ot.equipoId;})||{nombre:'—',categoria:'general'};
+  var centro=S.centros.find(function(c){return c.id===ot.centroId;})||{nombre:'—'};
+  var cl=ot.checklistId?m.checklists.find(function(c){return c.id===ot.checklistId;}):null;
+
+  var isAdminSup=S.currentUser&&(S.currentUser.rol==='admin'||S.currentUser.rol==='supervisor');
+  var puedeEditar=isAdminSup;
+  var puedeCerrar=ot.estado!=='completada';
+
+  // Técnicos select
+  var tecOpts='<option value="">Sin asignar</option>'+m.tecnicos.filter(function(t){return t.activo;}).map(function(t){return'<option value="'+t.id+'"'+(ot.tecnicoId===t.id?' selected':'')+'>'+esc(t.nombre)+'</option>';}).join('');
+
+  // Checklist items
+  var checkHtml='<div style="color:var(--muted);font-size:12px">Sin checklist asignado</div>';
+  if(cl&&cl.puntos&&cl.puntos.length){
+    checkHtml='';
+    cl.puntos.forEach(function(p){
+      var resp=ot.respuestas?ot.respuestas.find(function(r){return r.puntoId===p.id;}):null;
+      var ok=resp?resp.ok:null;
+      var obs=resp?resp.observacion||'':'';
+      var reqBadge=p.requerido?'<span style="font-size:10px;color:var(--red)">*</span>':'';
+      checkHtml+='<div style="margin-bottom:10px;padding:10px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">'
+        +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
+        +'<button class="btn btn-xs '+(ok===true?'btn-primary':'btn-secondary')+'" onclick="mantSetRespuesta(\''+otId+'\',\''+p.id+'\',true)">✅</button>'
+        +'<button class="btn btn-xs '+(ok===false?'btn-danger':'btn-secondary')+'" onclick="mantSetRespuesta(\''+otId+'\',\''+p.id+'\',false)">❌</button>'
+        +'<span style="font-size:13px">'+esc(p.texto)+'</span>'+reqBadge+'</div>'
+        +(ok===false?'<input placeholder="Observación..." value="'+esc(obs)+'" style="font-size:12px" onchange="mantSetObsRespuesta(\''+otId+'\',\''+p.id+'\',this.value)">':'')
+        +'</div>';
+    });
+  }
+
+  // Gastos del centro
+  var gastosCC=S.gastos.filter(function(g){return g.centroId===ot.centroId;});
+  var gastoOpts='<option value="">— Sin gasto vinculado —</option>'+gastosCC.map(function(g){return'<option value="'+g.id+'"'+(ot.gastoId===g.id?' selected':'')+'>'+esc(g.factura)+' — '+fmt(g.valor)+'</option>';}).join('');
+
+  var div=document.createElement('div');
+  div.id='modalOTDiv';
+  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:12px;overflow-y:auto';
+  div.innerHTML='<div class="modal-box md" style="margin-top:auto;margin-bottom:auto;max-width:640px">'
+    +'<div class="modal-hdr"><div class="modal-ttl">🔧 OT — '+esc(centro.nombre)+'</div>'
+    +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalOTDiv\').remove()">✕</button></div>'
+
+    // Header info
+    +'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;padding:12px;background:var(--surface2);border-radius:10px;border:1px solid var(--border)">'
+    +'<div style="flex:1"><div style="font-weight:700">'+esc(equipo.nombre)+'</div>'
+    +'<div style="font-size:12px;color:var(--muted);margin-top:2px">'+esc(MANT_CAT_LABELS[equipo.categoria]||equipo.categoria)+' · '+fmtDate(ot.fechaProgramada)+'</div></div>'
+    +'<div>'+mantBadgeEstado(ot.estado)+' '+mantBadgePrioridad(ot.prioridad)+'</div></div>'
+
+    // Datos editables (admin/sup)
+    +(puedeEditar?'<div class="row3" style="margin-bottom:14px">'
+      +'<div class="fg"><label>Técnico</label><select id="otTec" onchange="mantActualizarOT(\''+otId+'\',\'tecnicoId\',this.value)">'+tecOpts+'</select></div>'
+      +'<div class="fg"><label>Fecha programada</label><input type="date" id="otFecha" value="'+esc(ot.fechaProgramada||'')+'" onchange="mantActualizarOT(\''+otId+'\',\'fechaProgramada\',this.value)"></div>'
+      +'<div class="fg"><label>Prioridad</label><select id="otPrior" onchange="mantActualizarOT(\''+otId+'\',\'prioridad\',this.value)">'
+      +'<option value="normal"'+(ot.prioridad==='normal'?' selected':'')+'>Normal</option>'
+      +'<option value="urgente"'+(ot.prioridad==='urgente'?' selected':'')+'>Urgente</option>'
+      +'</select></div></div>':'')
+
+    // Checklist
+    +'<div class="sec-hdr" style="margin-bottom:10px">Checklist</div>'
+    +checkHtml
+
+    // Gasto vinculado
+    +(puedeEditar?'<div style="margin-top:14px"><div class="sec-hdr" style="margin-bottom:8px">Gasto vinculado</div>'
+      +'<div class="fg"><label>Factura del restaurante</label>'
+      +'<select onchange="mantVincularGasto(\''+otId+'\',this.value)">'+gastoOpts+'</select></div>'
+      +(ot.gastoId?'<div style="font-size:12px;color:var(--green);margin-top:4px">Monto: '+fmt(ot.montoGasto||0)+'</div>':'')+'</div>':'')
+
+    // Observaciones
+    +'<div style="margin-top:14px"><div class="sec-hdr" style="margin-bottom:8px">Observaciones</div>'
+    +'<textarea style="width:100%;min-height:60px;resize:vertical" onchange="mantActualizarOT(\''+otId+'\',\'observaciones\',this.value)">'+esc(ot.observaciones||'')+'</textarea></div>'
+
+    // Cierre
+    +(puedeCerrar?'<div style="margin-top:14px;padding:14px;background:var(--surface2);border-radius:10px;border:1px solid var(--border)">'
+      +'<div class="sec-hdr" style="margin-bottom:10px">Cerrar OT</div>'
+      +'<div class="row2"><div class="fg"><label>Código de confirmación (4 dígitos)</label>'
+      +'<input type="text" id="otCodigo" maxlength="4" placeholder="0000" style="font-size:18px;text-align:center;font-family:monospace;letter-spacing:4px"></div>'
+      +'<div class="fg" style="display:flex;align-items:flex-end"><button class="btn btn-primary" style="width:100%" onclick="mantCerrarOT(\''+otId+'\')">✓ Cerrar OT</button></div></div>'
+      +'<div style="font-size:11px;color:var(--muted);margin-top:4px">El código lo provee el encargado del restaurante</div></div>':'')
+
+    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">'
+    +(puedeEditar?'<button class="btn btn-danger btn-sm" onclick="mantEliminarOT(\''+otId+'\')">Eliminar OT</button>':'')
+    +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalOTDiv\').remove();saveData();">Cerrar</button>'
+    +'</div></div>';
+
+  document.body.appendChild(div);
+}
+
+function mantActualizarOT(otId,campo,val){
+  var ot=mantData().ots.find(function(o){return o.id===otId;});
+  if(ot)ot[campo]=val;
+}
+
+function mantSetRespuesta(otId,puntoId,ok){
+  var ot=mantData().ots.find(function(o){return o.id===otId;});
+  if(!ot)return;
+  if(!ot.respuestas)ot.respuestas=[];
+  var resp=ot.respuestas.find(function(r){return r.puntoId===puntoId;});
+  if(resp){resp.ok=ok;}
+  else{ot.respuestas.push({puntoId:puntoId,ok:ok,observacion:''});}
+  // Re-renderizar el modal
+  var div=document.getElementById('modalOTDiv');
+  if(div)div.remove();
+  modalVerOT(otId);
+}
+
+function mantSetObsRespuesta(otId,puntoId,val){
+  var ot=mantData().ots.find(function(o){return o.id===otId;});
+  if(!ot||!ot.respuestas)return;
+  var resp=ot.respuestas.find(function(r){return r.puntoId===puntoId;});
+  if(resp)resp.observacion=val;
+}
+
+function mantVincularGasto(otId,gastoId){
+  var ot=mantData().ots.find(function(o){return o.id===otId;});
+  if(!ot)return;
+  ot.gastoId=gastoId;
+  var g=gastoId?S.gastos.find(function(x){return x.id===gastoId;}):null;
+  ot.montoGasto=g?g.valor:0;
+}
+
+function mantCerrarOT(otId){
+  var m=mantData();
+  var ot=m.ots.find(function(o){return o.id===otId;});
+  if(!ot)return;
+  var codigo=(document.getElementById('otCodigo').value||'').trim();
+  if(!codigo){toast('Ingresa el código de confirmación',true);return;}
+  var centro=S.centros.find(function(c){return c.id===ot.centroId;});
+  var codigoValido=centro&&centro.codigoMant;
+  if(!codigoValido){toast('Este restaurante no tiene código de mantenimiento configurado',true);return;}
+  if(codigo!==centro.codigoMant){toast('Código incorrecto',true);return;}
+  // Cerrar OT
+  ot.estado='completada';
+  ot.fechaCierre=mantHoy();
+  ot.codigoConfirmacion=codigo;
+  // Actualizar equipo
+  var equipo=m.equipos.find(function(e){return e.id===ot.equipoId;});
+  if(equipo){
+    equipo.ultimoMant=mantHoy();
+    if(ot.tecnicoId)equipo.ultimoTecnico=ot.tecnicoId;
+  }
+  saveData();
+  var div=document.getElementById('modalOTDiv');
+  if(div)div.remove();
+  if(S.activeTab==='mant_panel')renderMantPanel();
+  toast('✓ OT cerrada correctamente');
+}
+
+function mantEliminarOT(otId){
+  if(!confirm('¿Eliminar esta OT?'))return;
+  var m=mantData();
+  m.ots=m.ots.filter(function(o){return o.id!==otId;});
+  saveData();
+  var div=document.getElementById('modalOTDiv');
+  if(div)div.remove();
+  if(S.activeTab==='mant_panel')renderMantPanel();
+  toast('OT eliminada');
+}
+
+// ── mant_reportes ─────────────────────────────────────────
+function renderMantReportes(){
+  var tipo=S._mantRptTipo||'cumplimiento';
+  var m=mantData();
+  var hoy=mantHoy();
+  var mesActual=hoy.slice(0,7);
+  var mesOpts='';
+  for(var i=0;i<12;i++){
+    var d=new Date();d.setMonth(d.getMonth()-i);
+    var val=d.toISOString().slice(0,7);
+    var lbl=d.toLocaleDateString('es-SV',{year:'numeric',month:'long'});
+    mesOpts+='<option value="'+val+'"'+(val===(S._mantRptMes||mesActual)?' selected':'')+'>'+lbl+'</option>';
+  }
+  var centrosOpts='<option value="">— Todos —</option>'+S.centros.map(function(c){return'<option value="'+c.id+'"'+(c.id===S._mantRptCentro?' selected':'')+'>'+esc(c.nombre)+'</option>';}).join('');
+
+  var tablaCumplimiento='';
+  var tablaHistorial='';
+
+  if(tipo==='cumplimiento'){
+    var mes=S._mantRptMes||mesActual;
+    var otsMes=m.ots.filter(function(ot){return(ot.fechaProgramada||'').slice(0,7)===mes;});
+    var filas='';
+    S.centros.forEach(function(c){
+      var otsCC=otsMes.filter(function(ot){return ot.centroId===c.id;});
+      if(!otsCC.length)return;
+      var comp=otsCC.filter(function(ot){return ot.estado==='completada';}).length;
+      var venc=otsCC.filter(function(ot){return ot.estado==='vencida';}).length;
+      var pct=otsCC.length?Math.round(comp/otsCC.length*100):0;
+      filas+='<tr><td>'+esc(c.nombre)+'</td><td style="text-align:center">'+otsCC.length+'</td>'
+        +'<td style="text-align:center;color:var(--green)">'+comp+'</td>'
+        +'<td style="text-align:center;color:var(--red)">'+venc+'</td>'
+        +'<td style="text-align:center"><div style="display:flex;align-items:center;gap:6px">'
+        +'<div style="flex:1;height:6px;background:var(--border);border-radius:3px"><div style="height:100%;width:'+pct+'%;background:var(--green);border-radius:3px"></div></div>'
+        +'<span style="font-size:11px;color:var(--muted);min-width:32px">'+pct+'%</span></div></td></tr>';
+    });
+    if(!filas)filas='<tr><td colspan="5" class="empty">Sin datos para el período seleccionado</td></tr>';
+    tablaCumplimiento='<div class="tbl-wrap"><table><thead><tr><th>Restaurante</th><th style="text-align:center">Programadas</th><th style="text-align:center">Completadas</th><th style="text-align:center">Vencidas</th><th style="text-align:center">% Cumplimiento</th></tr></thead><tbody>'+filas+'</tbody></table></div>';
+  }
+
+  if(tipo==='historial'){
+    var ccFilt=S._mantRptCentro||'';
+    var otsHist=ccFilt?m.ots.filter(function(ot){return ot.centroId===ccFilt;}):m.ots;
+    otsHist=otsHist.slice().sort(function(a,b){return(b.fechaProgramada||'').localeCompare(a.fechaProgramada||'');});
+    var filasH='';
+    otsHist.forEach(function(ot){
+      var eq=m.equipos.find(function(e){return e.id===ot.equipoId;})||{nombre:'—'};
+      var tec=m.tecnicos.find(function(t){return t.id===ot.tecnicoId;})||{nombre:'—'};
+      filasH+='<tr><td>'+fmtDate(ot.fechaProgramada)+'</td><td>'+esc(eq.nombre)+'</td>'
+        +'<td>'+esc(tec.nombre)+'</td><td>'+mantBadgeEstado(ot.estado)+'</td>'
+        +'<td style="text-align:right">'+(ot.montoGasto?fmt(ot.montoGasto):'—')+'</td>'
+        +'<td><button class="btn btn-secondary btn-xs" onclick="modalVerOT(\''+ot.id+'\')">Ver</button></td></tr>';
+    });
+    if(!filasH)filasH='<tr><td colspan="6" class="empty">Sin registros</td></tr>';
+    tablaHistorial='<div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Equipo</th><th>Técnico</th><th>Estado</th><th style="text-align:right">Monto</th><th></th></tr></thead><tbody>'+filasH+'</tbody></table></div>';
+  }
+
+  document.getElementById('content').innerHTML='<div class="card" style="margin-bottom:16px">'
+    +'<div class="row2">'
+    +'<div class="fg"><label>Tipo de reporte</label><select onchange="S._mantRptTipo=this.value;renderMantReportes()">'
+    +'<option value="cumplimiento"'+(tipo==='cumplimiento'?' selected':'')+'>Cumplimiento mensual</option>'
+    +'<option value="historial"'+(tipo==='historial'?' selected':'')+'>Historial por restaurante</option>'
+    +'</select></div>'
+    +(tipo==='cumplimiento'?'<div class="fg"><label>Mes</label><select onchange="S._mantRptMes=this.value;renderMantReportes()">'+mesOpts+'</select></div>':'')
+    +(tipo==='historial'?'<div class="fg"><label>Restaurante</label><select onchange="S._mantRptCentro=this.value;renderMantReportes()">'+centrosOpts+'</select></div>':'')
+    +'</div></div>'
+    +tablaCumplimiento+tablaHistorial;
+}
+
+
+// ═══════════════════════════════════════════════════════
+// <!-- FIREBASE INIT --> (uses existing window.FB)
+// <!-- DATA MODELS -->
+// <!-- ENERGY LOGIC -->
+// <!-- UI COMPONENTS -->
+// <!-- EVENT HANDLERS -->
+// ═══════════════════════════════════════════════════════
+//  ENERGY INTELLIGENCE MODULE
+// ═══════════════════════════════════════════════════════
+
+// ── DATA MODELS ─────────────────────────────────────────
+// energy_log: {id, centroId, mes(YYYY-MM), kwh, monto, ventas, tempPromedio, nocturno, creadoEn}
+// alerta: {id, centroId, mes, tipo(alto|nocturno), mensaje, estado(nuevo|visto), creadaEn}
+// ei_checklist: {id, centroId, fecha, items:[{id,texto,ok}], creadoEn}
+
+var EI_TARIFA_DEFAULT = 0.12; // $/kWh por defecto
+var EI_FACTOR_KWH = 8.5;     // kWh por cada $1000 en ventas (modelo base)
+var EI_FACTOR_TEMP = 0.3;    // kWh extra por grado sobre 25°C
+var EI_CHECKLIST_DEFAULT = [
+  {id:'c1', texto:'Apagar equipos de cocina no activos'},
+  {id:'c2', texto:'Revisar temperatura A/C (25°C o más)'},
+  {id:'c3', texto:'Apagar luces de área de bodega'},
+  {id:'c4', texto:'Verificar que refrigeradores cierran bien'},
+  {id:'c5', texto:'Apagar pantallas/displays al cierre'},
+  {id:'c6', texto:'Registrar lectura del medidor'},
+];
+
+function eiData() {
+  if (!S.energy) S.energy = {logs:[], alertas:[], checklists:[], tarifa: EI_TARIFA_DEFAULT};
+  if (!S.energy.logs) S.energy.logs = [];
+  if (!S.energy.alertas) S.energy.alertas = [];
+  if (!S.energy.checklists) S.energy.checklists = [];
+  if (!S.energy.tarifa) S.energy.tarifa = EI_TARIFA_DEFAULT;
+  return S.energy;
+}
+
+function eiMesActual() { return new Date().toISOString().slice(0,7); }
+
+function eiConsumoEsperado(ventas, tempProm) {
+  var base = (parseFloat(ventas) || 0) / 1000 * EI_FACTOR_KWH;
+  var tempExtra = Math.max(0, (parseFloat(tempProm)||25) - 25) * EI_FACTOR_TEMP * 10;
+  return Math.round(base + tempExtra);
+}
+
+function eiDesviacion(real, esperado) {
+  if (!esperado) return 0;
+  return ((real - esperado) / esperado * 100).toFixed(1);
+}
+
+function eiKwhPorVenta(kwh, ventas) {
+  if (!ventas || !kwh) return 0;
+  return (kwh / ventas * 1000).toFixed(2);
+}
+
+function eiGenerarAlertas(log) {
+  var ei = eiData();
+  var esperado = eiConsumoEsperado(log.ventas, log.tempPromedio);
+  var desv = parseFloat(eiDesviacion(log.kwh, esperado));
+  var nuevas = [];
+  if (desv > 15) {
+    var yaExiste = ei.alertas.find(function(a) {
+      return a.centroId === log.centroId && a.mes === log.mes && a.tipo === 'alto';
+    });
+    if (!yaExiste) {
+      nuevas.push({
+        id: genId(), centroId: log.centroId, mes: log.mes, tipo: 'alto',
+        mensaje: 'Consumo ' + desv + '% por encima del esperado (' + log.kwh + ' vs ' + esperado + ' kWh)',
+        estado: 'nuevo', creadaEn: Date.now()
+      });
+    }
+  }
+  if (log.nocturno && log.kwh > 0 && (log.nocturno / log.kwh) > 0.35) {
+    var yaExisteN = ei.alertas.find(function(a) {
+      return a.centroId === log.centroId && a.mes === log.mes && a.tipo === 'nocturno';
+    });
+    if (!yaExisteN) {
+      var pct = (log.nocturno / log.kwh * 100).toFixed(0);
+      nuevas.push({
+        id: genId(), centroId: log.centroId, mes: log.mes, tipo: 'nocturno',
+        mensaje: 'Consumo nocturno elevado: ' + pct + '% del total mensual',
+        estado: 'nuevo', creadaEn: Date.now()
+      });
+    }
+  }
+  nuevas.forEach(function(a) { ei.alertas.push(a); });
+  return nuevas.length;
+}
+
+// ── 1. DASHBOARD PRINCIPAL ───────────────────────────────
+function renderEIDashboard() {
+  var ei = eiData();
+  var mes = S._eiMes || eiMesActual();
+  var logsDelMes = ei.logs.filter(function(l) { return l.mes === mes; });
+  var tarifa = ei.tarifa || EI_TARIFA_DEFAULT;
+
+  var kwhTotal = logsDelMes.reduce(function(s,l) { return s + (parseFloat(l.kwh)||0); }, 0);
+  var montTotal = logsDelMes.reduce(function(s,l) { return s + (parseFloat(l.monto)||0); }, 0);
+  var ventTotal = logsDelMes.reduce(function(s,l) { return s + (parseFloat(l.ventas)||0); }, 0);
+  var nAlerts = ei.alertas.filter(function(a) { return a.estado==='nuevo'; }).length;
+
+  var ratioKwh = ventTotal > 0 ? (kwhTotal / ventTotal * 1000).toFixed(2) : '—';
+  var ratioCosto = ventTotal > 0 ? ('$' + (montTotal / ventTotal * 100).toFixed(2) + '%') : '—';
+
+  // Meses disponibles para selector
+  var mesesSet = {};
+  ei.logs.forEach(function(l) { mesesSet[l.mes] = 1; });
+  if (!mesesSet[eiMesActual()]) mesesSet[eiMesActual()] = 1;
+  var mesesArr = Object.keys(mesesSet).sort().reverse();
+  var mesOpts = mesesArr.map(function(m) {
+    return '<option value="'+m+'"'+(m===mes?' selected':'')+'>'+m+'</option>';
+  }).join('');
+
+  // Tabla por tienda
+  var centrosConData = {};
+  logsDelMes.forEach(function(l) { centrosConData[l.centroId] = l; });
+  var kwhProm = logsDelMes.length ? kwhTotal / logsDelMes.length : 0;
+
+  var rows = '';
+  S.centros.forEach(function(c) {
+    var log = centrosConData[c.id];
+    if (!log) return;
+    var esp = eiConsumoEsperado(log.ventas, log.tempPromedio);
+    var desv = eiDesviacion(log.kwh, esp);
+    var ratio = eiKwhPorVenta(log.kwh, log.ventas);
+    var efBadge = log.kwh < kwhProm
+      ? '<span class="badge b-ok" style="font-size:10px">Eficiente</span>'
+      : '<span class="badge b-warn" style="font-size:10px">Revisar</span>';
+    var desvColor = desv > 15 ? 'color:var(--red)' : desv < -5 ? 'color:var(--green)' : '';
+    rows += '<tr>'
+      + '<td><strong>' + esc(c.nombre) + '</strong></td>'
+      + '<td style="text-align:right">' + (log.kwh||0) + ' kWh</td>'
+      + '<td style="text-align:right">$' + (parseFloat(log.monto)||0).toFixed(2) + '</td>'
+      + '<td style="text-align:right">$' + (parseFloat(log.ventas)||0).toLocaleString() + '</td>'
+      + '<td style="text-align:right">' + ratio + ' kWh/$k</td>'
+      + '<td style="text-align:right;' + desvColor + '">' + desv + '%</td>'
+      + '<td>' + efBadge + '</td>'
+      + '<td><button class="btn btn-secondary btn-xs" onclick="eiModalLog(\''+c.id+'\',\''+mes+'\')">✏</button></td>'
+      + '</tr>';
+  });
+  if (!rows) rows = '<tr><td colspan="8" class="empty">Sin datos para este período — registra consumos con el botón de abajo</td></tr>';
+
+  var el = document.getElementById('content');
+  el.innerHTML = ''
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">'
+    + '<div style="display:flex;align-items:center;gap:8px"><label style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700">Período</label>'
+    + '<select onchange="S._eiMes=this.value;renderEIDashboard()">' + mesOpts + '</select></div>'
+    + '<button class="btn btn-primary" onclick="eiModalLog(\'\',\''+mes+'\')">+ Registrar consumo</button>'
+    + '</div>'
+
+    + '<div class="kpi-grid" style="margin-bottom:20px">'
+    + '<div class="kpi"><div class="kpi-lbl">kWh Total</div><div class="kpi-val" style="color:#facc15">' + kwhTotal.toLocaleString() + '</div><div class="kpi-sub">' + logsDelMes.length + ' tiendas</div></div>'
+    + '<div class="kpi"><div class="kpi-lbl">Monto Total</div><div class="kpi-val">$' + montTotal.toFixed(0) + '</div></div>'
+    + '<div class="kpi"><div class="kpi-lbl">kWh / $1k ventas</div><div class="kpi-val" style="font-size:18px">' + ratioKwh + '</div></div>'
+    + '<div class="kpi"><div class="kpi-lbl">Alertas activas</div><div class="kpi-val" style="color:var(--red)">' + nAlerts + '</div></div>'
+    + '</div>'
+
+    + '<div class="tbl-wrap">'
+    + '<table><thead><tr>'
+    + '<th>Tienda</th><th style="text-align:right">kWh</th><th style="text-align:right">Monto</th>'
+    + '<th style="text-align:right">Ventas</th><th style="text-align:right">Ratio</th>'
+    + '<th style="text-align:right">Desv.</th><th>Eficiencia</th><th></th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table>'
+    + '</div>'
+
+    // Instrucción tarifa
+    + '<div style="margin-top:14px;padding:10px 14px;background:var(--surface2);border-radius:10px;border:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+    + '<span style="font-size:12px;color:var(--muted)">Tarifa eléctrica:</span>'
+    + '<input type="number" step="0.001" style="width:90px;font-size:13px" value="'+tarifa+'" onchange="S.energy.tarifa=parseFloat(this.value)||0.12;saveData();toast(\'✓ Tarifa actualizada\')">'
+    + '<span style="font-size:12px;color:var(--muted)">$/kWh</span>'
+    + '</div>'
+    + '<div id="eiModalWrap"></div>';
+}
+
+function eiModalLog(centroId, mes) {
+  var ei = eiData();
+  var log = centroId ? ei.logs.find(function(l) { return l.centroId===centroId && l.mes===mes; }) : null;
+  var centrosOpts = S.centros.map(function(c) {
+    return '<option value="'+c.id+'"'+(log && log.centroId===c.id?' selected':'')+'>'+esc(c.nombre)+'</option>';
+  }).join('');
+
+  var div = document.createElement('div');
+  div.id = 'eiLogModal';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:center;justify-content:center;padding:12px;overflow-y:auto';
+  div.innerHTML = '<div class="modal-box md" style="max-width:520px">'
+    + '<div class="modal-hdr"><div class="modal-ttl">⚡ Registrar Consumo</div>'
+    + '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'eiLogModal\').remove()">✕</button></div>'
+    + '<div class="row2"><div class="fg"><label>Tienda *</label>'
+    + '<select id="eilCentro"><option value="">— Seleccionar —</option>' + centrosOpts + '</select></div>'
+    + '<div class="fg"><label>Período (YYYY-MM) *</label>'
+    + '<input id="eilMes" value="'+(log?log.mes:mes||eiMesActual())+'" placeholder="2025-01"></div></div>'
+    + '<div class="row3"><div class="fg"><label>kWh consumidos *</label>'
+    + '<input type="number" id="eilKwh" step="0.1" value="'+(log?log.kwh:'')+'"></div>'
+    + '<div class="fg"><label>Monto factura ($)</label>'
+    + '<input type="number" id="eilMonto" step="0.01" value="'+(log?log.monto:'')+'"></div>'
+    + '<div class="fg"><label>kWh nocturnos</label>'
+    + '<input type="number" id="eilNoct" step="0.1" value="'+(log?log.nocturno:'')+'" placeholder="opcional"></div></div>'
+    + '<div class="row2"><div class="fg"><label>Ventas del mes ($)</label>'
+    + '<input type="number" id="eilVentas" step="1" value="'+(log?log.ventas:'')+'" placeholder="para ratio"></div>'
+    + '<div class="fg"><label>Temp. promedio (°C)</label>'
+    + '<input type="number" id="eilTemp" step="0.1" value="'+(log?log.tempPromedio:28)+'" placeholder="28"></div></div>'
+    + '<div class="fg"><label>Observaciones</label>'
+    + '<input id="eilObs" value="'+(log?esc(log.observaciones||''):'')+'" placeholder="Opcional"></div>'
+    + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">'
+    + (log?'<button class="btn btn-danger btn-sm" onclick="eiEliminarLog(\''+centroId+'\',\''+mes+'\')">Eliminar</button>':'')
+    + '<button class="btn btn-secondary" onclick="document.getElementById(\'eiLogModal\').remove()">Cancelar</button>'
+    + '<button class="btn btn-primary" onclick="eiGuardarLog(\''+centroId+'\')">Guardar</button>'
+    + '</div></div>';
+  document.body.appendChild(div);
+  setTimeout(function() { _focusFirst(div); }, 80);
+}
+
+function eiGuardarLog(editCentroId) {
+  var ei = eiData();
+  var centroId = document.getElementById('eilCentro').value;
+  var mes = (document.getElementById('eilMes').value || '').trim();
+  var kwh = parseFloat(document.getElementById('eilKwh').value) || 0;
+  if (!centroId) { toast('Selecciona la tienda', true); return; }
+  if (!mes || !/^\d{4}-\d{2}$/.test(mes)) { toast('Período inválido (usa YYYY-MM)', true); return; }
+  if (!kwh) { toast('Ingresa kWh consumidos', true); return; }
+
+  var log = {
+    id: genId(),
+    centroId: centroId,
+    mes: mes,
+    kwh: kwh,
+    monto: parseFloat(document.getElementById('eilMonto').value) || 0,
+    nocturno: parseFloat(document.getElementById('eilNoct').value) || 0,
+    ventas: parseFloat(document.getElementById('eilVentas').value) || 0,
+    tempPromedio: parseFloat(document.getElementById('eilTemp').value) || 28,
+    observaciones: (document.getElementById('eilObs').value || '').trim(),
+    creadoEn: Date.now()
+  };
+
+  // Reemplazar si ya existe para mismo centro+mes
+  var idx = ei.logs.findIndex(function(l) { return l.centroId === centroId && l.mes === mes; });
+  if (idx >= 0) {
+    log.id = ei.logs[idx].id;
+    ei.logs[idx] = log;
+  } else {
+    ei.logs.push(log);
+  }
+
+  var nuevasAlertas = eiGenerarAlertas(log);
+  saveData();
+  var modal = document.getElementById('eiLogModal');
+  if (modal) modal.remove();
+  renderEIDashboard();
+  toast('✓ Consumo guardado' + (nuevasAlertas ? ' · ' + nuevasAlertas + ' alerta(s) generada(s)' : ''));
+}
+
+function eiEliminarLog(centroId, mes) {
+  if (!confirm('¿Eliminar este registro?')) return;
+  var ei = eiData();
+  ei.logs = ei.logs.filter(function(l) { return !(l.centroId===centroId && l.mes===mes); });
+  saveData();
+  var modal = document.getElementById('eiLogModal');
+  if (modal) modal.remove();
+  renderEIDashboard();
+  toast('Registro eliminado');
+}
+
+// ── 2. MODELO DE CONSUMO ─────────────────────────────────
+function renderEIModelo() {
+  var ei = eiData();
+  var mes = S._eiMes || eiMesActual();
+  var logsDelMes = ei.logs.filter(function(l) { return l.mes === mes; });
+
+  var mesesSet = {};
+  ei.logs.forEach(function(l) { mesesSet[l.mes] = 1; });
+  mesesSet[eiMesActual()] = 1;
+  var mesOpts = Object.keys(mesesSet).sort().reverse().map(function(m) {
+    return '<option value="'+m+'"'+(m===mes?' selected':'')+'>'+m+'</option>';
+  }).join('');
+
+  var rows = '';
+  S.centros.forEach(function(c) {
+    var log = logsDelMes.find(function(l) { return l.centroId===c.id; });
+    if (!log) return;
+    var esp = eiConsumoEsperado(log.ventas, log.tempPromedio);
+    var desv = parseFloat(eiDesviacion(log.kwh, esp));
+    var desvColor = desv > 15 ? 'var(--red)' : desv < -5 ? 'var(--green)' : 'var(--text)';
+    var barReal = Math.min(100, esp ? log.kwh/esp*100 : 0);
+    var barColor = desv > 15 ? 'var(--red)' : 'var(--green)';
+    rows += '<tr>'
+      + '<td><strong>' + esc(c.nombre) + '</strong></td>'
+      + '<td style="text-align:right">' + esp + ' kWh</td>'
+      + '<td style="text-align:right">' + log.kwh + ' kWh</td>'
+      + '<td style="text-align:right;color:' + desvColor + ';font-weight:700">' + (desv>0?'+':'') + desv + '%</td>'
+      + '<td style="min-width:120px">'
+      + '<div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">'
+      + '<div style="height:100%;width:'+Math.min(100,barReal)+'%;background:'+barColor+';border-radius:3px"></div>'
+      + '</div>'
+      + '<span style="font-size:10px;color:var(--muted)">' + Math.round(barReal) + '% del esperado</span>'
+      + '</td>'
+      + '<td style="font-size:12px;color:var(--muted)">' + (log.tempPromedio||28) + '°C · $' + (log.ventas||0).toLocaleString() + '</td>'
+      + '</tr>';
+  });
+  if (!rows) rows = '<tr><td colspan="6" class="empty">Sin datos para el período</td></tr>';
+
+  var el = document.getElementById('content');
+  el.innerHTML = '<div class="card" style="margin-bottom:16px">'
+    + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+    + '<div class="fg" style="margin:0"><select onchange="S._eiMes=this.value;renderEIModelo()">' + mesOpts + '</select></div>'
+    + '</div>'
+    + '<div style="margin-top:12px;padding:10px 14px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--muted)">'
+    + '📐 Fórmula: Esperado = (Ventas / $1,000) × ' + EI_FACTOR_KWH + ' kWh  +  max(0, Temp−25°C) × ' + EI_FACTOR_TEMP + ' kWh/°C × 10'
+    + '</div></div>'
+    + '<div class="tbl-wrap"><table><thead><tr>'
+    + '<th>Tienda</th><th style="text-align:right">Esperado</th><th style="text-align:right">Real</th>'
+    + '<th style="text-align:right">Desviación</th><th>Comparativa</th><th>Parámetros</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+// ── 3. ALERTAS ───────────────────────────────────────────
+function renderEIAlertas() {
+  var ei = eiData();
+  var filtro = S._eiAlertFiltro || 'todos';
+  var alertas = filtro === 'nuevo'
+    ? ei.alertas.filter(function(a) { return a.estado==='nuevo'; })
+    : ei.alertas;
+  alertas = alertas.slice().sort(function(a,b) { return b.creadaEn - a.creadaEn; });
+
+  var nNuevo = ei.alertas.filter(function(a) { return a.estado==='nuevo'; }).length;
+
+  var cards = '';
+  alertas.forEach(function(a) {
+    var c = S.centros.find(function(x) { return x.id===a.centroId; }) || {nombre:'—'};
+    var icon = a.tipo==='nocturno' ? '🌙' : '⚡';
+    var badgeA = a.estado==='nuevo'
+      ? '<span class="badge b-err" style="font-size:10px">Nuevo</span>'
+      : '<span class="badge b-neu" style="font-size:10px">Visto</span>';
+    cards += '<div class="card" style="margin-bottom:10px;padding:12px 14px;border-left:3px solid '+(a.tipo==='nocturno'?'#a78bfa':'#f87171')+'">'
+      + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">'
+      + '<div><div style="font-size:13px;font-weight:700">' + icon + ' ' + esc(c.nombre) + ' — ' + a.mes + '</div>'
+      + '<div style="font-size:12px;color:var(--muted);margin-top:4px">' + esc(a.mensaje) + '</div></div>'
+      + '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">'
+      + badgeA
+      + (a.estado==='nuevo'
+        ? '<button class="btn btn-secondary btn-xs" onclick="eiMarcarVisto(\''+a.id+'\')">Marcar visto</button>'
+        : '<button class="btn btn-secondary btn-xs" onclick="eiEliminarAlerta(\''+a.id+'\')">✕</button>')
+      + '</div></div></div>';
+  });
+  if (!cards) cards = '<div class="empty" style="padding:40px;text-align:center">Sin alertas ' + (filtro==='nuevo'?'nuevas':'registradas') + '</div>';
+
+  var el = document.getElementById('content');
+  el.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">'
+    + '<div class="kpi-grid" style="margin:0;flex:1">'
+    + '<div class="kpi" style="padding:10px 14px"><div class="kpi-lbl">Nuevas</div><div class="kpi-val" style="font-size:20px;color:var(--red)">' + nNuevo + '</div></div>'
+    + '<div class="kpi" style="padding:10px 14px"><div class="kpi-lbl">Total</div><div class="kpi-val" style="font-size:20px">' + ei.alertas.length + '</div></div>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px">'
+    + '<button class="btn '+(filtro==='nuevo'?'btn-primary':'btn-secondary')+'" onclick="S._eiAlertFiltro=\'nuevo\';renderEIAlertas()">Solo nuevas</button>'
+    + '<button class="btn '+(filtro==='todos'?'btn-primary':'btn-secondary')+'" onclick="S._eiAlertFiltro=\'todos\';renderEIAlertas()">Todas</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="eiMarcarTodasVistas()">Marcar todas vistas</button>'
+    + '</div></div>'
+    + cards;
+}
+
+function eiMarcarVisto(id) {
+  var a = eiData().alertas.find(function(x) { return x.id===id; });
+  if (a) { a.estado='visto'; saveData(); renderEIAlertas(); }
+}
+
+function eiEliminarAlerta(id) {
+  var ei = eiData();
+  ei.alertas = ei.alertas.filter(function(a) { return a.id!==id; });
+  saveData(); renderEIAlertas();
+}
+
+function eiMarcarTodasVistas() {
+  eiData().alertas.forEach(function(a) { a.estado='visto'; });
+  saveData(); renderEIAlertas(); toast('✓ Todas marcadas como vistas');
+}
+
+// ── 4. RANKING ───────────────────────────────────────────
+function renderEIRanking() {
+  var ei = eiData();
+  var mes = S._eiMes || eiMesActual();
+  var logsDelMes = ei.logs.filter(function(l) { return l.mes===mes; });
+
+  var mesesSet = {};
+  ei.logs.forEach(function(l) { mesesSet[l.mes]=1; });
+  mesesSet[eiMesActual()] = 1;
+  var mesOpts = Object.keys(mesesSet).sort().reverse().map(function(m) {
+    return '<option value="'+m+'"'+(m===mes?' selected':'')+'>'+m+'</option>';
+  }).join('');
+
+  // Build ranking: lower kWh/$k = better
+  var ranking = [];
+  logsDelMes.forEach(function(l) {
+    if (!l.ventas || !l.kwh) return;
+    var c = S.centros.find(function(x) { return x.id===l.centroId; }) || {nombre:l.centroId};
+    var ratio = parseFloat(eiKwhPorVenta(l.kwh, l.ventas));
+    var esp = eiConsumoEsperado(l.ventas, l.tempPromedio);
+    var desv = parseFloat(eiDesviacion(l.kwh, esp));
+    ranking.push({nombre:c.nombre, ratio:ratio, kwh:l.kwh, ventas:l.ventas, monto:l.monto, desv:desv});
+  });
+  ranking.sort(function(a,b) { return a.ratio - b.ratio; }); // lower = better
+
+  var rows = '';
+  var medalas = ['🥇','🥈','🥉'];
+  ranking.forEach(function(r, i) {
+    var medal = i < 3 ? medalas[i] : (i+1)+'.';
+    var rankColor = i===0?'var(--green)': i===ranking.length-1?'var(--red)':'var(--text)';
+    rows += '<tr>'
+      + '<td style="font-weight:700;color:'+rankColor+'">' + medal + ' ' + esc(r.nombre) + '</td>'
+      + '<td style="text-align:right;font-weight:700;color:'+rankColor+'">' + r.ratio + '</td>'
+      + '<td style="text-align:right">' + r.kwh + ' kWh</td>'
+      + '<td style="text-align:right">$' + r.ventas.toLocaleString() + '</td>'
+      + '<td style="text-align:right;color:'+(r.desv>15?'var(--red)':r.desv<0?'var(--green)':'var(--text)')+'">'+(r.desv>0?'+':'')+r.desv+'%</td>'
+      + '</tr>';
+  });
+  if (!rows) rows = '<tr><td colspan="5" class="empty">Sin datos — registra consumos en el Dashboard</td></tr>';
+
+  var top3 = ranking.slice(0,3);
+  var bottom3 = ranking.slice(-3).reverse();
+
+  var eficientesCard = '';
+  if (top3.length) {
+    eficientesCard = '<div class="card" style="margin-bottom:14px;border-color:var(--green)">'
+      + '<div class="sec-hdr" style="color:var(--green)">🏆 Más eficientes</div>';
+    top3.forEach(function(r,i) {
+      eficientesCard += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">'
+        + '<span>' + medalas[i] + ' ' + esc(r.nombre) + '</span>'
+        + '<span style="font-weight:700;color:var(--green)">' + r.ratio + ' kWh/$k</span></div>';
+    });
+    eficientesCard += '</div>';
+  }
+
+  var menosCard = '';
+  if (bottom3.length && ranking.length > 3) {
+    menosCard = '<div class="card" style="margin-bottom:14px;border-color:var(--red)">'
+      + '<div class="sec-hdr" style="color:var(--red)">⚠ Menos eficientes</div>';
+    bottom3.forEach(function(r) {
+      menosCard += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">'
+        + '<span>⬆ ' + esc(r.nombre) + '</span>'
+        + '<span style="font-weight:700;color:var(--red)">' + r.ratio + ' kWh/$k</span></div>';
+    });
+    menosCard += '</div>';
+  }
+
+  var el = document.getElementById('content');
+  el.innerHTML = '<div style="margin-bottom:14px;display:flex;align-items:center;gap:10px">'
+    + '<label style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700">Período</label>'
+    + '<select onchange="S._eiMes=this.value;renderEIRanking()">' + mesOpts + '</select>'
+    + '</div>'
+    + '<div class="row2" style="margin-bottom:16px">' + eficientesCard + menosCard + '</div>'
+    + '<div class="tbl-wrap"><table><thead><tr>'
+    + '<th>Tienda</th><th style="text-align:right">kWh/$1k ventas</th>'
+    + '<th style="text-align:right">kWh</th><th style="text-align:right">Ventas</th>'
+    + '<th style="text-align:right">Desv. modelo</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+// ── 5. PREDICCIÓN DE FACTURA ─────────────────────────────
+function renderEIPrediccion() {
+  var ei = eiData();
+  var mes = S._eiMes || eiMesActual();
+  var tarifa = ei.tarifa || EI_TARIFA_DEFAULT;
+
+  var mesesSet = {};
+  ei.logs.forEach(function(l) { mesesSet[l.mes]=1; });
+  mesesSet[eiMesActual()] = 1;
+  var mesOpts = Object.keys(mesesSet).sort().reverse().map(function(m) {
+    return '<option value="'+m+'"'+(m===mes?' selected':'')+'>'+m+'</option>';
+  }).join('');
+
+  var logsDelMes = ei.logs.filter(function(l) { return l.mes===mes; });
+  var kwhAcum = logsDelMes.reduce(function(s,l) { return s + (parseFloat(l.kwh)||0); }, 0);
+  var montoAcum = logsDelMes.reduce(function(s,l) { return s + (parseFloat(l.monto)||0); }, 0);
+
+  // Días del mes para proyección
+  var hoy = new Date();
+  var partes = mes.split('-');
+  var mesN = parseInt(partes[1]); var anioN = parseInt(partes[0]);
+  var diasMes = new Date(anioN, mesN, 0).getDate();
+  var diaHoy = (mes === hoy.toISOString().slice(0,7)) ? hoy.getDate() : diasMes;
+  var pctMes = diaHoy / diasMes;
+  var kwhProyectado = pctMes > 0 ? Math.round(kwhAcum / pctMes) : kwhAcum;
+  var montoProyectado = kwhProyectado * tarifa;
+  var ahorro10 = montoProyectado * 0.10;
+  var ahorro20 = montoProyectado * 0.20;
+
+  var rows = '';
+  logsDelMes.forEach(function(l) {
+    var c = S.centros.find(function(x) { return x.id===l.centroId; }) || {nombre:'—'};
+    var montoEst = l.monto || (l.kwh * tarifa);
+    var kwhProy = pctMes > 0 ? Math.round(l.kwh / pctMes) : l.kwh;
+    var montoProy = kwhProy * tarifa;
+    var ahorroRow10 = montoProy * 0.10;
+    rows += '<tr>'
+      + '<td><strong>' + esc(c.nombre) + '</strong></td>'
+      + '<td style="text-align:right">' + l.kwh + ' kWh</td>'
+      + '<td style="text-align:right;color:var(--accent)">~' + kwhProy + ' kWh</td>'
+      + '<td style="text-align:right">$' + montoEst.toFixed(2) + '</td>'
+      + '<td style="text-align:right;font-weight:700;color:var(--accent)">$' + montoProy.toFixed(2) + '</td>'
+      + '<td style="text-align:right;color:var(--green)">−$' + ahorroRow10.toFixed(2) + '</td>'
+      + '</tr>';
+  });
+  if (!rows) rows = '<tr><td colspan="6" class="empty">Sin datos para el período</td></tr>';
+
+  var el = document.getElementById('content');
+  el.innerHTML = '<div style="margin-bottom:14px;display:flex;align-items:center;gap:10px">'
+    + '<label style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700">Período</label>'
+    + '<select onchange="S._eiMes=this.value;renderEIPrediccion()">' + mesOpts + '</select>'
+    + '<span style="font-size:12px;color:var(--muted)">Día ' + diaHoy + '/' + diasMes + ' — ' + Math.round(pctMes*100) + '% del mes</span>'
+    + '</div>'
+
+    + '<div class="kpi-grid" style="margin-bottom:20px">'
+    + '<div class="kpi"><div class="kpi-lbl">kWh acumulados</div><div class="kpi-val" style="color:#facc15">' + kwhAcum.toLocaleString() + '</div></div>'
+    + '<div class="kpi"><div class="kpi-lbl">kWh proyectados</div><div class="kpi-val" style="color:var(--accent)">~' + kwhProyectado.toLocaleString() + '</div></div>'
+    + '<div class="kpi"><div class="kpi-lbl">Factura estimada</div><div class="kpi-val" style="color:var(--red)">$' + montoProyectado.toFixed(0) + '</div></div>'
+    + '<div class="kpi" style="border-color:var(--green)"><div class="kpi-lbl">Ahorro 10%</div><div class="kpi-val" style="color:var(--green)">−$' + ahorro10.toFixed(0) + '</div></div>'
+    + '<div class="kpi"><div class="kpi-lbl">Ahorro 20%</div><div class="kpi-val" style="color:var(--green)">−$' + ahorro20.toFixed(0) + '</div></div>'
+    + '</div>'
+
+    + '<div class="tbl-wrap"><table><thead><tr>'
+    + '<th>Tienda</th><th style="text-align:right">kWh actual</th><th style="text-align:right">kWh proyec.</th>'
+    + '<th style="text-align:right">Monto actual</th><th style="text-align:right">Factura estimada</th>'
+    + '<th style="text-align:right">Ahorro 10%</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+
+    + '<div style="margin-top:14px;padding:12px 14px;background:var(--surface2);border-radius:10px;border:1px solid var(--border)">'
+    + '<div style="font-size:12px;color:var(--muted);margin-bottom:6px">💡 Acciones de ahorro recomendadas:</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12px">'
+    + '<span class="badge b-ok">Ajustar A/C a 25°C → −8%</span>'
+    + '<span class="badge b-ok">Apagar equipos en horas pico → −5%</span>'
+    + '<span class="badge b-ok">Checklist cierre diario → −3%</span>'
+    + '</div></div>';
+}
+
+// ── 6. CHECKLIST OPERATIVO DIARIO ───────────────────────
+function renderEIChecklist() {
+  var ei = eiData();
+  var hoy = new Date().toISOString().slice(0,10);
+  var fecha = S._eiChkFecha || hoy;
+  var centroId = S._eiChkCentro || '';
+
+  var centrosOpts = '<option value="">— Todas —</option>'
+    + S.centros.map(function(c) {
+      return '<option value="'+c.id+'"'+(c.id===centroId?' selected':'')+'>'+esc(c.nombre)+'</option>';
+    }).join('');
+
+  // Buscar checklist del día
+  var chk = centroId
+    ? ei.checklists.find(function(c) { return c.centroId===centroId && c.fecha===fecha; })
+    : null;
+  var items = chk ? chk.items : EI_CHECKLIST_DEFAULT.map(function(i) {
+    return {id:i.id, texto:i.texto, ok:false};
+  });
+
+  var completados = items.filter(function(i) { return i.ok; }).length;
+  var pct = items.length ? Math.round(completados/items.length*100) : 0;
+
+  var itemsHtml = '';
+  items.forEach(function(item, idx) {
+    itemsHtml += '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--surface2);border-radius:8px;margin-bottom:8px;border:1px solid '+(item.ok?'var(--green)':'var(--border)')+'">'
+      + '<input type="checkbox" style="width:18px;height:18px;accent-color:var(--green);cursor:pointer;flex-shrink:0"'
+      + (item.ok?' checked':'')
+      + ' onchange="eiToggleChkItem(\''+centroId+'\',\''+fecha+'\','+idx+',this.checked)">'
+      + '<span style="font-size:13px;'+(item.ok?'text-decoration:line-through;color:var(--muted)':'')+'">'+esc(item.texto)+'</span>'
+      + '</div>';
+  });
+
+  // Evidencia (foto)
+  var evidenciaSection = centroId
+    ? '<div class="card" style="margin-top:14px"><div class="sec-hdr">📷 Evidencia fotográfica</div>'
+      + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">'
+      + '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'eiEvidFI\').click()">📎 Subir foto medidor</button>'
+      + '<input type="file" id="eiEvidFI" accept="image/*" style="display:none" onchange="eiSubirEvidencia(this,\'medidor\')">'
+      + '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'eiEvidEq\').click()">📎 Foto equipos apagados</button>'
+      + '<input type="file" id="eiEvidEq" accept="image/*" style="display:none" onchange="eiSubirEvidencia(this,\'equipos\')">'
+      + '</div>'
+      + (chk && chk.evidencias && chk.evidencias.length
+        ? '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">'
+          + chk.evidencias.map(function(e) {
+              return '<div style="text-align:center">'
+                + '<img src="'+esc(e.url)+'" style="height:64px;width:80px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">'
+                + '<div style="font-size:10px;color:var(--muted);margin-top:2px">'+esc(e.tipo)+'</div></div>';
+            }).join('')
+          + '</div>'
+        : '<div style="font-size:12px;color:var(--muted);margin-top:8px">Sin evidencias subidas aún</div>')
+      + '</div>'
+    : '';
+
+  var el = document.getElementById('content');
+  el.innerHTML = '<div class="card" style="margin-bottom:16px">'
+    + '<div class="row2"><div class="fg"><label>Tienda *</label>'
+    + '<select onchange="S._eiChkCentro=this.value;renderEIChecklist()">' + centrosOpts + '</select></div>'
+    + '<div class="fg"><label>Fecha</label>'
+    + '<input type="date" value="'+fecha+'" onchange="S._eiChkFecha=this.value;renderEIChecklist()"></div></div>'
+    + '</div>'
+
+    + (centroId ? ''
+      + '<div style="margin-bottom:12px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+      + '<span style="font-size:13px;font-weight:700">'+completados+'/'+items.length+' completados</span>'
+      + '<span style="font-size:12px;color:var(--muted)">'+pct+'%</span>'
+      + '</div>'
+      + '<div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden">'
+      + '<div style="height:100%;width:'+pct+'%;background:var(--green);border-radius:4px;transition:width .3s"></div>'
+      + '</div></div>' : '<div class="empty" style="padding:20px;text-align:center;margin-bottom:16px">Selecciona una tienda para ver su checklist</div>')
+
+    + (centroId ? itemsHtml : '')
+    + evidenciaSection
+    + (centroId ? '<div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">'
+      + '<button class="btn btn-primary" onclick="eiGuardarChecklist(\''+centroId+'\',\''+fecha+'\')">💾 Guardar checklist</button>'
+      + '</div>' : '');
+}
+
+function eiToggleChkItem(centroId, fecha, idx, val) {
+  var ei = eiData();
+  var chk = ei.checklists.find(function(c) { return c.centroId===centroId && c.fecha===fecha; });
+  if (!chk) {
+    chk = {id:genId(), centroId:centroId, fecha:fecha, creadoEn:Date.now(),
+      items: EI_CHECKLIST_DEFAULT.map(function(i) { return {id:i.id,texto:i.texto,ok:false}; }),
+      evidencias:[]};
+    ei.checklists.push(chk);
+  }
+  if (chk.items[idx]) chk.items[idx].ok = val;
+  // Update progress bar in place without full re-render
+  var completados = chk.items.filter(function(i) { return i.ok; }).length;
+  var pct = Math.round(completados/chk.items.length*100);
+  var bar = document.querySelector('#content .kpi-lbl ~ .kpi-val');
+  // Simple DOM update for progress
+  var spans = document.querySelectorAll('#content [style*="height:8px"]');
+  if (spans.length) {
+    var fill = spans[0].querySelector('[style*="background:var(--green)"]');
+    if (fill) fill.style.width = pct + '%';
+  }
+  var countSpan = document.querySelector('#content [style*="font-weight:700"]');
+  if (countSpan && countSpan.textContent.indexOf('/') >= 0) {
+    countSpan.textContent = completados + '/' + chk.items.length + ' completados';
+  }
+}
+
+function eiGuardarChecklist(centroId, fecha) {
+  var ei = eiData();
+  var chk = ei.checklists.find(function(c) { return c.centroId===centroId && c.fecha===fecha; });
+  if (!chk) {
+    chk = {id:genId(), centroId:centroId, fecha:fecha, creadoEn:Date.now(),
+      items: EI_CHECKLIST_DEFAULT.map(function(i) { return {id:i.id,texto:i.texto,ok:false}; }),
+      evidencias:[]};
+    ei.checklists.push(chk);
+  }
+  saveData();
+  toast('✓ Checklist guardado');
+}
+
+function eiSubirEvidencia(input, tipo) {
+  var file = input.files[0];
+  if (!file) return;
+  var centroId = S._eiChkCentro;
+  var fecha = S._eiChkFecha || new Date().toISOString().slice(0,10);
+  if (!centroId) { toast('Selecciona una tienda primero', true); return; }
+
+  leerArchivoBase64(file, function(b64, f) {
+    var ei = eiData();
+    var chk = ei.checklists.find(function(c) { return c.centroId===centroId && c.fecha===fecha; });
+    if (!chk) {
+      chk = {id:genId(), centroId:centroId, fecha:fecha, creadoEn:Date.now(),
+        items: EI_CHECKLIST_DEFAULT.map(function(i) { return {id:i.id,texto:i.texto,ok:false}; }),
+        evidencias:[]};
+      ei.checklists.push(chk);
+    }
+    if (!chk.evidencias) chk.evidencias = [];
+
+    // Upload to Storage
+    var path = 'energy/' + centroId + '/' + fecha + '/' + tipo + '_' + Date.now();
+    if (window.FB && window.FB.uploadFile) {
+      toast('Subiendo imagen...');
+      window.FB.uploadFile(path, b64).then(function(result) {
+        if (result.ok) {
+          chk.evidencias.push({tipo:tipo, url:result.url, ts:Date.now()});
+        } else {
+          // Fallback: store small image as base64 reference
+          chk.evidencias.push({tipo:tipo, url:b64, ts:Date.now()});
+        }
+        saveData();
+        renderEIChecklist();
+        toast('✓ Evidencia subida');
+      });
+    } else {
+      chk.evidencias.push({tipo:tipo, url:b64, ts:Date.now()});
+      saveData();
+      renderEIChecklist();
+      toast('✓ Evidencia guardada');
+    }
+  });
+}
+
+
+// ═══════════════════════════════════════════════════════
+//  GERENTES DE ZONA
+//  Modelo: {id, nombre, telefono, email, notas, creadoEn}
+//  Centro enlazado: centro.gerenteId (campo opcional, no rompe datos existentes)
+// ═══════════════════════════════════════════════════════
+
+// ── CRUD Gerentes ────────────────────────────────────────
+function renderGZGerentes(){
+  var gz = S.gerentesZona || [];
+
+  // Contar centros por gerente
+  function centrosDe(gid){
+    return S.centros.filter(function(c){return c.gerenteId===gid;});
+  }
+
+  var rows = gz.length===0
+    ? '<tr><td colspan="5" class="empty">Sin gerentes de zona — agrega el primero</td></tr>'
+    : '';
+  gz.forEach(function(g){
+    var ccs = centrosDe(g.id);
+    rows += '<tr>'
+      + '<td><strong>'+esc(g.nombre)+'</strong></td>'
+      + '<td style="font-size:12px">'+esc(g.email||'—')+'</td>'
+      + '<td style="font-size:12px">'+esc(g.telefono||'—')+'</td>'
+      + '<td style="text-align:center"><span class="badge b-blue">'+ccs.length+' tiendas</span></td>'
+      + '<td><div class="td-act">'
+      + '<button class="btn btn-secondary btn-xs" onclick="gzVerDetalle(\''+g.id+'\')">👁 Ver</button>'
+      + '<button class="btn btn-secondary btn-xs" onclick="gzModalGerente(\''+g.id+'\')">✏</button>'
+      + '<button class="btn btn-danger btn-xs" onclick="gzEliminarGerente(\''+g.id+'\')">✕</button>'
+      + '</div></td>'
+      + '</tr>';
+  });
+
+  document.getElementById('content').innerHTML =
+    '<div style="display:flex;justify-content:flex-end;margin-bottom:14px">'
+    + '<button class="btn btn-primary" onclick="gzModalGerente(\'\')">+ Nuevo Gerente de Zona</button>'
+    + '</div>'
+    + '<div class="tbl-wrap"><table><thead><tr>'
+    + '<th>Nombre</th><th>Email</th><th>Teléfono</th><th style="text-align:center">Tiendas</th><th>Acciones</th>'
+    + '</tr></thead><tbody>'+rows+'</tbody></table></div>'
+    + '<div style="margin-top:12px;padding:10px 14px;background:var(--surface2);border-radius:10px;border:1px solid var(--border);font-size:12px;color:var(--muted)">'
+    + 'ℹ️ Para asignar tiendas a un gerente ve a <strong>Centros de Costo</strong> → edita cada centro y selecciona el gerente.'
+    + '</div>';
+}
+
+function gzModalGerente(id){
+  var g = id ? (S.gerentesZona||[]).find(function(x){return x.id===id;}) : null;
+  var div = document.createElement('div');
+  div.id = 'gzModalDiv';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:center;justify-content:center;padding:12px';
+  div.innerHTML = '<div class="modal-box sm">'
+    + '<div class="modal-hdr"><div class="modal-ttl">'+(id?'✏ Editar Gerente':'👔 Nuevo Gerente de Zona')+'</div>'
+    + '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'gzModalDiv\').remove()">✕</button></div>'
+    + '<div class="fg"><label>Nombre completo *</label><input id="gzNom" value="'+(g?esc(g.nombre):'')+'"></div>'
+    + '<div class="row2">'
+    + '<div class="fg"><label>Email</label><input type="email" id="gzEmail" value="'+(g?esc(g.email||''):'')+'"></div>'
+    + '<div class="fg"><label>Teléfono</label><input id="gzTel" value="'+(g?esc(g.telefono||''):'')+'"></div>'
+    + '</div>'
+    + '<div class="fg"><label>Notas</label><input id="gzNotas" value="'+(g?esc(g.notas||''):'')+'" placeholder="Zona asignada, etc."></div>'
+    + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">'
+    + '<button class="btn btn-secondary" onclick="document.getElementById(\'gzModalDiv\').remove()">Cancelar</button>'
+    + '<button class="btn btn-primary" onclick="gzGuardarGerente(\''+id+'\')">Guardar</button>'
+    + '</div></div>';
+  document.body.appendChild(div);
+  setTimeout(function(){ _focusFirst(div); }, 80);
+}
+
+function gzGuardarGerente(id){
+  var nombre = (document.getElementById('gzNom').value||'').trim();
+  if(!nombre){ toast('Nombre requerido', true); return; }
+  var datos = {
+    nombre: nombre,
+    email: (document.getElementById('gzEmail').value||'').trim(),
+    telefono: (document.getElementById('gzTel').value||'').trim(),
+    notas: (document.getElementById('gzNotas').value||'').trim()
+  };
+  if(!S.gerentesZona) S.gerentesZona = [];
+  if(id){
+    var g = S.gerentesZona.find(function(x){return x.id===id;});
+    if(g) Object.assign(g, datos);
+  } else {
+    datos.id = genId();
+    datos.creadoEn = Date.now();
+    S.gerentesZona.push(datos);
+  }
+  saveData();
+  var div = document.getElementById('gzModalDiv');
+  if(div) div.remove();
+  renderGZGerentes();
+  toast('✓ Gerente guardado');
+}
+
+function gzEliminarGerente(id){
+  if(!confirm('¿Eliminar este gerente? Los centros de costo que tenía asignados quedarán sin gerente.')) return;
+  S.gerentesZona = (S.gerentesZona||[]).filter(function(g){return g.id!==id;});
+  // Desasociar centros (dejar campo limpio — no borra datos de gasto)
+  S.centros.forEach(function(c){ if(c.gerenteId===id) delete c.gerenteId; });
+  saveData();
+  renderGZGerentes();
+  toast('Gerente eliminado');
+}
+
+function gzVerDetalle(id){
+  var g = (S.gerentesZona||[]).find(function(x){return x.id===id;});
+  if(!g) return;
+  var ccs = S.centros.filter(function(c){return c.gerenteId===id;});
+  var listCCs = ccs.length
+    ? ccs.map(function(c){ return '<div style="padding:6px 10px;background:var(--surface2);border-radius:6px;font-size:13px;margin-bottom:6px">'+esc(c.nombre)+'</div>'; }).join('')
+    : '<div style="font-size:12px;color:var(--muted)">Sin tiendas asignadas aún</div>';
+
+  var div = document.createElement('div');
+  div.id = 'gzDetalleDiv';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:center;justify-content:center;padding:12px;overflow-y:auto';
+  div.innerHTML = '<div class="modal-box md" style="max-width:480px">'
+    + '<div class="modal-hdr"><div class="modal-ttl">👔 '+esc(g.nombre)+'</div>'
+    + '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'gzDetalleDiv\').remove()">✕</button></div>'
+    + '<div style="margin-bottom:14px;display:flex;flex-wrap:wrap;gap:8px">'
+    + (g.email?'<span class="badge b-neu">✉ '+esc(g.email)+'</span>':'')
+    + (g.telefono?'<span class="badge b-neu">📞 '+esc(g.telefono)+'</span>':'')
+    + (g.notas?'<span class="badge b-neu">📝 '+esc(g.notas)+'</span>':'')
+    + '</div>'
+    + '<div class="sec-hdr" style="margin-bottom:8px">Tiendas asignadas ('+ccs.length+')</div>'
+    + listCCs
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">'
+    + '<button class="btn btn-primary btn-sm" onclick="document.getElementById(\'gzDetalleDiv\').remove();goTab(\'gz_dashboard\');S._gzGerente=\''+id+'\'">Ver Dashboard</button>'
+    + '<button class="btn btn-secondary" onclick="document.getElementById(\'gzDetalleDiv\').remove()">Cerrar</button>'
+    + '</div></div>';
+  document.body.appendChild(div);
+}
+
+// ── DASHBOARD GERENTES DE ZONA ───────────────────────────
+function renderGZDashboard(){
+  var gz = S.gerentesZona || [];
+  var gerenteId = S._gzGerente || (gz.length ? gz[0].id : '');
+  var mesActual = new Date().toISOString().slice(0,7);
+  var mes = S._gzMes || mesActual;
+
+  // Selector gerente
+  var gOpts = gz.length===0
+    ? '<option value="">Sin gerentes registrados</option>'
+    : gz.map(function(g){
+        return '<option value="'+g.id+'"'+(g.id===gerenteId?' selected':'')+'>'+esc(g.nombre)+'</option>';
+      }).join('');
+
+  // Selector mes (últimos 6 meses)
+  var mOpts = '';
+  for(var i=0;i<6;i++){
+    var d = new Date(); d.setMonth(d.getMonth()-i);
+    var val = d.toISOString().slice(0,7);
+    var lbl = d.toLocaleDateString('es-SV',{year:'numeric',month:'long'});
+    mOpts += '<option value="'+val+'"'+(val===mes?' selected':'')+'>'+lbl+'</option>';
+  }
+
+  if(!gerenteId || gz.length===0){
+    document.getElementById('content').innerHTML =
+      '<div class="card" style="margin-bottom:16px">'
+      + '<div class="row2">'
+      + '<div class="fg"><label>Gerente de Zona</label><select onchange="S._gzGerente=this.value;renderGZDashboard()">'+gOpts+'</select></div>'
+      + '<div class="fg"><label>Período</label><select onchange="S._gzMes=this.value;renderGZDashboard()">'+mOpts+'</select></div>'
+      + '</div></div>'
+      + '<div class="empty" style="padding:40px;text-align:center">No hay gerentes de zona registrados.<br>'
+      + '<button class="btn btn-primary" style="margin-top:12px" onclick="goTab(\'gz_gerentes\')">+ Crear Gerente de Zona</button></div>';
+    return;
+  }
+
+  var g = gz.find(function(x){return x.id===gerenteId;});
+  if(!g){ S._gzGerente=''; renderGZDashboard(); return; }
+
+  // Centros de este gerente
+  var ccs = S.centros.filter(function(c){return c.gerenteId===gerenteId;});
+
+  // Gastos del mes filtrados por centros del gerente
+  var gastosDelMes = S.gastos.filter(function(g2){
+    if(!g2.fecha) return false;
+    if(g2.fecha.slice(0,7)!==mes) return false;
+    if(!g2.centroId) return false;
+    return ccs.some(function(c){return c.id===g2.centroId;});
+  });
+
+  var totalMes = gastosDelMes.reduce(function(s,g2){return s+(parseFloat(g2.valor)||0);},0);
+  var nFacturas = gastosDelMes.length;
+
+  // Gasto por centro
+  var porCentro = {};
+  ccs.forEach(function(c){ porCentro[c.id]={nombre:c.nombre,total:0,n:0,gastos:[]}; });
+  gastosDelMes.forEach(function(g2){
+    if(porCentro[g2.centroId]){
+      porCentro[g2.centroId].total += parseFloat(g2.valor)||0;
+      porCentro[g2.centroId].n++;
+      porCentro[g2.centroId].gastos.push(g2);
+    }
+  });
+
+  // Ordenar centros por gasto desc para ranking
+  var centrosOrdenados = Object.values(porCentro).sort(function(a,b){return b.total-a.total;});
+  var maxGasto = centrosOrdenados.length ? centrosOrdenados[0].total : 1;
+
+  // Mes anterior para comparativa
+  var fechaMesAnt = new Date(mes+'-01T12:00:00');
+  fechaMesAnt.setMonth(fechaMesAnt.getMonth()-1);
+  var mesAnt = fechaMesAnt.toISOString().slice(0,7);
+  var gastosAnt = S.gastos.filter(function(g2){
+    if(!g2.fecha||g2.fecha.slice(0,7)!==mesAnt||!g2.centroId) return false;
+    return ccs.some(function(c){return c.id===g2.centroId;});
+  });
+  var totalAnt = gastosAnt.reduce(function(s,g2){return s+(parseFloat(g2.valor)||0);},0);
+  var varPct = totalAnt>0 ? ((totalMes-totalAnt)/totalAnt*100).toFixed(1) : null;
+  var varColor = varPct===null?'var(--muted)':parseFloat(varPct)>0?'var(--red)':'var(--green)';
+  var varTxt = varPct===null?'—':(parseFloat(varPct)>0?'+':'')+varPct+'% vs mes anterior';
+
+  // Tabla por centro
+  var rowsCentros = '';
+  if(centrosOrdenados.length===0){
+    rowsCentros = '<tr><td colspan="5" class="empty">Sin gastos registrados para '+(g.nombre)+' en '+mes+'</td></tr>';
+  } else {
+    centrosOrdenados.forEach(function(row){
+      var pct = maxGasto>0 ? Math.round(row.total/maxGasto*100) : 0;
+      var share = totalMes>0 ? (row.total/totalMes*100).toFixed(1) : '0.0';
+      // Gasto mes anterior de este centro
+      var antCentro = gastosAnt.filter(function(g2){
+        return porCentro[g2.centroId] && porCentro[g2.centroId].nombre===row.nombre;
+      });
+      var totalAntCentro = antCentro.reduce(function(s,g2){return s+(parseFloat(g2.valor)||0);},0);
+      var varC = totalAntCentro>0 ? ((row.total-totalAntCentro)/totalAntCentro*100).toFixed(1) : null;
+      var varCTxt = varC===null?'—':(parseFloat(varC)>0?'+':'')+varC+'%';
+      var varCColor = varC===null?'var(--muted)':parseFloat(varC)>0?'var(--red)':'var(--green)';
+      rowsCentros += '<tr>'
+        + '<td><strong>'+esc(row.nombre)+'</strong></td>'
+        + '<td style="text-align:right;font-weight:700">'+fmt(row.total)+'</td>'
+        + '<td>'
+        + '<div style="display:flex;align-items:center;gap:6px">'
+        + '<div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden">'
+        + '<div style="height:100%;width:'+pct+'%;background:var(--accent);border-radius:3px"></div>'
+        + '</div>'
+        + '<span style="font-size:11px;color:var(--muted);min-width:36px">'+share+'%</span>'
+        + '</div>'
+        + '</td>'
+        + '<td style="text-align:center;font-size:12px">'+row.n+'</td>'
+        + '<td style="text-align:right;font-size:12px;color:'+varCColor+'">'+varCTxt+'</td>'
+        + '</tr>';
+    });
+  }
+
+  // Top gastos individuales
+  var topGastos = gastosDelMes.slice().sort(function(a,b){return (parseFloat(b.valor)||0)-(parseFloat(a.valor)||0);}).slice(0,8);
+  var rowsTop = topGastos.length===0
+    ? '<tr><td colspan="4" class="empty">Sin gastos</td></tr>'
+    : topGastos.map(function(g2){
+        var cc = porCentro[g2.centroId];
+        return '<tr>'
+          + '<td>'+esc(g2.factura||'—')+'</td>'
+          + '<td style="font-size:12px;color:var(--muted)">'+esc(cc?cc.nombre:'—')+'</td>'
+          + '<td style="font-size:12px">'+fmtDate(g2.fecha)+'</td>'
+          + '<td style="text-align:right;font-weight:700;color:var(--red)">'+fmt(g2.valor)+'</td>'
+          + '</tr>';
+      }).join('');
+
+  // Comparativa mes anterior por centro (mini chart)
+  var compRows = '';
+  ccs.forEach(function(c){
+    var tActual = (porCentro[c.id]||{total:0}).total;
+    var gastosAntCC = gastosAnt.filter(function(g2){return g2.centroId===c.id;});
+    var tAnt = gastosAntCC.reduce(function(s,g2){return s+(parseFloat(g2.valor)||0);},0);
+    if(!tActual && !tAnt) return;
+    var maxV = Math.max(tActual, tAnt, 1);
+    var pctA = Math.round(tActual/maxV*100);
+    var pctAnt = Math.round(tAnt/maxV*100);
+    var diff = tAnt>0 ? ((tActual-tAnt)/tAnt*100).toFixed(1) : null;
+    var diffColor = diff===null?'var(--muted)':parseFloat(diff)>0?'var(--red)':'var(--green)';
+    compRows += '<div style="margin-bottom:14px">'
+      + '<div style="display:flex;justify-content:space-between;margin-bottom:6px">'
+      + '<span style="font-size:12px;font-weight:700">'+esc(c.nombre)+'</span>'
+      + '<span style="font-size:11px;color:'+diffColor+'">'+(diff===null?'Nuevo':(parseFloat(diff)>0?'▲ +':'▼ ')+diff+'%')+'</span>'
+      + '</div>'
+      + '<div style="display:flex;flex-direction:column;gap:4px">'
+      + '<div style="display:flex;align-items:center;gap:8px">'
+      + '<span style="font-size:10px;color:var(--muted);width:50px">Actual</span>'
+      + '<div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden">'
+      + '<div style="height:100%;width:'+pctA+'%;background:var(--accent);border-radius:4px"></div>'
+      + '</div>'
+      + '<span style="font-size:11px;min-width:64px;text-align:right">'+fmt(tActual)+'</span>'
+      + '</div>'
+      + '<div style="display:flex;align-items:center;gap:8px">'
+      + '<span style="font-size:10px;color:var(--muted);width:50px">Anterior</span>'
+      + '<div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden">'
+      + '<div style="height:100%;width:'+pctAnt+'%;background:var(--border);border-radius:4px;opacity:.5"></div>'
+      + '</div>'
+      + '<span style="font-size:11px;color:var(--muted);min-width:64px;text-align:right">'+fmt(tAnt)+'</span>'
+      + '</div>'
+      + '</div></div>';
+  });
+  if(!compRows) compRows = '<div class="empty" style="padding:20px;text-align:center">Sin datos comparativos</div>';
+
+  document.getElementById('content').innerHTML =
+    // Filtros
+    '<div class="card" style="margin-bottom:16px"><div class="row2">'
+    + '<div class="fg"><label>Gerente de Zona</label>'
+    + '<select onchange="S._gzGerente=this.value;renderGZDashboard()">'+gOpts+'</select></div>'
+    + '<div class="fg"><label>Período</label>'
+    + '<select onchange="S._gzMes=this.value;renderGZDashboard()">'+mOpts+'</select></div>'
+    + '</div></div>'
+
+    // Header del gerente
+    + '<div style="padding:14px 18px;background:linear-gradient(135deg,#1a1a2e,#16213e);border-radius:14px;border:1px solid var(--border);margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'
+    + '<div>'
+    + '<div style="font-family:\'Syne\',sans-serif;font-size:17px;font-weight:700;color:#fff">👔 '+esc(g.nombre)+'</div>'
+    + '<div style="font-size:12px;color:rgba(255,255,255,.5);margin-top:3px">'+(g.email||'')+(g.telefono?' · '+g.telefono:'')+'</div>'
+    + '</div>'
+    + '<div style="text-align:right"><div style="font-size:11px;color:rgba(255,255,255,.4)">Tiendas a cargo</div>'
+    + '<div style="font-size:22px;font-weight:700;color:#818cf8">'+ccs.length+'</div></div>'
+    + '</div>'
+
+    // KPIs
+    + '<div class="kpi-grid" style="margin-bottom:20px">'
+    + '<div class="kpi"><div class="kpi-lbl">Gasto Total '+mes+'</div><div class="kpi-val" style="color:var(--red)">'+fmt(totalMes)+'</div>'+(varPct!==null?'<div class="kpi-sub" style="color:'+varColor+'">'+varTxt+'</div>':'')+'</div>'
+    + '<div class="kpi"><div class="kpi-lbl">Mes Anterior</div><div class="kpi-val" style="font-size:18px">'+fmt(totalAnt)+'</div><div class="kpi-sub">'+mesAnt+'</div></div>'
+    + '<div class="kpi"><div class="kpi-lbl">Facturas</div><div class="kpi-val">'+nFacturas+'</div></div>'
+    + '<div class="kpi"><div class="kpi-lbl">Promedio / tienda</div><div class="kpi-val" style="font-size:18px">'+fmt(ccs.length?totalMes/ccs.length:0)+'</div></div>'
+    + '</div>'
+
+    // Tabla por tienda + comparativa
+    + '<div class="row2" style="margin-bottom:20px;align-items:start">'
+
+    // Tabla
+    + '<div><div class="sec-hdr" style="margin-bottom:10px">Gasto por Tienda</div>'
+    + '<div class="tbl-wrap"><table><thead><tr>'
+    + '<th>Tienda</th><th style="text-align:right">Total</th><th>Participación</th>'
+    + '<th style="text-align:center">Facturas</th><th style="text-align:right">vs Ant.</th>'
+    + '</tr></thead><tbody>'+rowsCentros+'</tbody></table></div></div>'
+
+    // Comparativa visual
+    + '<div><div class="sec-hdr" style="margin-bottom:10px">Comparativa vs Mes Anterior</div>'
+    + '<div class="card">'+compRows+'</div></div>'
+
+    + '</div>'
+
+    // Top gastos individuales
+    + '<div class="sec-hdr" style="margin-bottom:10px">Top gastos individuales del período</div>'
+    + '<div class="tbl-wrap"><table><thead><tr>'
+    + '<th>Factura</th><th>Tienda</th><th>Fecha</th><th style="text-align:right">Monto</th>'
+    + '</tr></thead><tbody>'+rowsTop+'</tbody></table></div>';
 }
 
 </script>
