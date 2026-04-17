@@ -9236,15 +9236,16 @@ var IMP_MODULES = [
           nombre: nombre,
           codigo: r.codigo || r['sku'] || r['code'] || '',
           unidad: r.unidad || r['unit'] || r['um'] || 'unidad',
-          stock: impFmtNum(r.cantidad || r['stock'] || r['existencia'] || 0),
-          stockMin: impFmtNum(r.minimo || r['stock_min'] || r['minimum'] || 0),
+          cantidad: impFmtNum(r.cantidad || r['stock'] || r['existencia'] || r['qty'] || 0),
+          minimo: impFmtNum(r.minimo || r['stock_min'] || r['minimum'] || r['min'] || 0),
           bodegaId: bodObj ? bodObj.id : '',
           costoUnit: impFmtNum(r.costo || r['precio'] || r['cost'] || r['price'] || 0),
+          descripcion: r.descripcion || r['description'] || '',
           foto: '',
           importado: true
         });
       });
-      return { items: imported, skipped: skipped, target: 'inventario_productos' };
+      return { items: imported, skipped: skipped, target: 'inventario_productos', bodegas: inv.bodegas };
     }
   },
   {
@@ -9276,11 +9277,11 @@ var IMP_MODULES = [
         imported.push({
           id: genId(),
           fecha: fecha,
-          productoId: prod ? prod.id : '',
+          prodId: prod ? prod.id : '',
           productoNombre: prodNom,
           tipo: tipo,
           cantidad: cantidad,
-          motivo: r.motivo || r['reason'] || r['nota'] || '',
+          nota: r.motivo || r['reason'] || r['nota'] || '',
           bodegaId: bod ? bod.id : '',
           importado: true,
           ts: Date.now()
@@ -9382,7 +9383,19 @@ function impApply(result) {
     items.forEach(function(c) { S.centros.push(c); });
   } else if (target === 'inventario_productos') {
     if (!S.inventario) S.inventario = { bodegas:[], productos:[], movimientos:[] };
-    items.forEach(function(p) { S.inventario.productos.push(p); });
+    // Sync any new bodegas created during transform
+    if (result.bodegas) {
+      result.bodegas.forEach(function(b) {
+        if (!S.inventario.bodegas.find(function(x){return x.id===b.id;})) {
+          S.inventario.bodegas.push(b);
+        }
+      });
+    }
+    items.forEach(function(p) {
+      // Recalcular estado según cantidad y mínimo
+      p.estado = (p.minimo && p.cantidad < p.minimo) ? 'Bajo stock' : (p.cantidad <= 0 ? 'Agotado' : 'Disponible');
+      S.inventario.productos.push(p);
+    });
   } else if (target === 'inventario_movimientos') {
     if (!S.inventario) S.inventario = { bodegas:[], productos:[], movimientos:[] };
     items.forEach(function(m) { S.inventario.movimientos.push(m); });
