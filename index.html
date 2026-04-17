@@ -930,8 +930,8 @@ input[type=date]{color-scheme:dark}
 //  DEFINICIÓN DE ROLES Y PERMISOS
 // ═══════════════════════════════════════════════════════
 const ROLES={
-  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','cotizaciones','inventario','bodegas','usuarios','config','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','importar']},
-  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','cotizaciones','inventario','bodegas','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard']},
+  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','usuarios','config','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','importar']},
+  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard']},
   empleado:{label:'Empleado',color:'b-ok',modulos:[]}, // permisos individuales
   viewer:{label:'Viewer',color:'b-neu',modulos:['dashboard','proyectos']},
   cliente:{label:'Cliente',color:'b-purple',modulos:['proyectos']}, // solo general, planificacion, cronograma
@@ -948,7 +948,6 @@ const MODULOS=[
   {id:'proveedores',label:'Proveedores',ic:'🤝'},
   {id:'centros',label:'Centros de Costo',ic:'📁'},
   {id:'reportes',label:'Reportes',ic:'📈'},
-  {id:'cotizaciones',label:'Comparar Cotizaciones',ic:'📑'},
   {id:'inventario',label:'Inventario',ic:'📦'},
   {id:'bodegas',label:'Bodegas',ic:'🏭'},
   {id:'log',label:'Actividad',ic:'🕐'},
@@ -973,7 +972,7 @@ const MODULOS=[
 // Grupos del sidebar colapsibles
 const SB_GRUPOS=[
   {id:'proyectos_grp',label:'Proyectos',ic:'🏗',items:['dashboard','proyectos']},
-  {id:'empresa_grp',label:'Gestión de Empresa',ic:'🏢',items:['gastos','inventario','cotizaciones','proveedores','centros','bodegas','reportes','gz_gerentes','gz_dashboard']},
+  {id:'empresa_grp',label:'Gestión de Empresa',ic:'🏢',items:['gastos','inventario','proveedores','centros','bodegas','reportes','gz_gerentes','gz_dashboard']},
   {id:'mant_grp',label:'Mantenimiento',ic:'🔧',items:['mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes']},
   {id:'energy_grp',label:'Energy Intelligence',ic:'⚡',items:['ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist']},
   {id:'config_grp',label:'Configuración General',ic:'⚙',items:['log','usuarios','config','importar']},
@@ -2628,9 +2627,17 @@ function onGastoProyChange(){
 }
 
 function renderGastos(){
+  var _qGastos=(S._srchGastos||'').toLowerCase();
   const total=S.gastos.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
-  let rows=S.gastos.length===0?`<tr><td colspan="7" class="empty">Sin gastos registrados</td></tr>`:'';
-  [...S.gastos].reverse().forEach(g=>{
+  var gastosF=[...S.gastos].reverse().filter(function(g){
+    if(!_qGastos)return true;
+    return (g.factura||'').toLowerCase().includes(_qGastos)||
+           (g.descripcion||'').toLowerCase().includes(_qGastos)||
+           (g.proveedor||'').toLowerCase().includes(_qGastos)||
+           (function(){var c=S.centros.find(function(x){return x.id===g.centroId;});return c?(c.nombre||'').toLowerCase().includes(_qGastos):false;})();
+  });
+  let rows=gastosF.length===0?`<tr><td colspan="9" class="empty">${_qGastos?'Sin resultados para "'+esc(_qGastos)+'"':'Sin gastos registrados'}</td></tr>`:'';
+  gastosF.forEach(g=>{
     const pname=g.proyectoId?S.proyectos.find(x=>x.id===g.proyectoId)?.nombre||'—':'—';
     const ccname=g.centroId?S.centros.find(x=>x.id===g.centroId)?.nombre||'—':'—';
     const isImg=g.comprobante&&g.comprobante.startsWith('data:image');
@@ -2754,6 +2761,12 @@ function renderGastos(){
     <button class="btn btn-primary" onclick="regGasto()">+ Registrar Gasto</button>
   </div>
 
+  <div style="display:flex;align-items:center;gap:8px;margin-top:14px;margin-bottom:8px;flex-wrap:wrap">
+    <input id="srchGastos" placeholder="🔍 Buscar factura, proveedor, descripción, centro..." value="${S._srchGastos||''}"
+      style="flex:1;max-width:420px;padding:7px 12px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)"
+      oninput="S._srchGastos=this.value;renderGastos()">
+    <span style="font-size:12px;color:var(--muted)">${gastosF.length} de ${S.gastos.length} registros</span>
+  </div>
   <div class="tbl-wrap" style="overflow-x:auto"><table style="table-layout:auto;min-width:0">
     <thead><tr>
       <th style="min-width:80px">Factura</th>
@@ -4544,12 +4557,25 @@ function editarGasto(id){
 //  PROVEEDORES
 // ═══════════════════════════════════════════════════════
 function renderProveedores(){
-  let rows=S.proveedores.length===0?`<tr><td colspan="4" class="empty">Sin proveedores</td></tr>`:'';
-  S.proveedores.forEach(p=>{rows+=`<tr><td>${esc(p.nombre)}</td><td>${esc(p.tipo||'—')}</td><td>${esc(p.tel||'—')}</td><td><button class="btn btn-danger btn-xs" onclick="delProv('${p.id}')">✕</button></td></tr>`;});
+  var _q=(S._srchProv||'').toLowerCase();
+  var provF=S.proveedores.filter(function(p){
+    if(!_q)return true;
+    return (p.nombre||'').toLowerCase().includes(_q)||(p.tipo||'').toLowerCase().includes(_q)||(p.tel||'').toLowerCase().includes(_q);
+  });
+  var rows=provF.length===0?('<tr><td colspan="4" class="empty">'+(S.proveedores.length===0?'Sin proveedores':('Sin resultados para "'+esc(_q)+'"'))+'</td></tr>'):'';
+  provF.forEach(function(p){
+    rows+=`<tr><td>${esc(p.nombre)}</td><td>${esc(p.tipo||'—')}</td><td>${esc(p.tel||'—')}</td><td><button class="btn btn-danger btn-xs" onclick="delProv('${p.id}')">✕</button></td></tr>`;
+  });
   document.getElementById('content').innerHTML=`
   <div class="card" style="margin-bottom:18px"><div class="sec-hdr">Nuevo Proveedor</div>
-    <div class="row3"><div class="fg"><label>Nombre *</label><input id="pvN"></div><div class="fg"><label>Tipo</label><input id="pvT" placeholder="Eléctrico, Civil..."></div><div class="fg"><label>Teléfono</label><input id="pvTel" placeholder="+503 0000-0000"></div></div>
-    <button class="btn btn-primary" onclick="addProv()">+ Registrar</button></div>
+    <div class="row3"><div class="fg"><label>Nombre *</label><input id="pvN"></div><div class="fg"><label>Tipo</label><input id="pvT" placeholder="Materiales, Servicios..."></div><div class="fg"><label>Teléfono</label><input id="pvTel"></div></div>
+    <button class="btn btn-primary" onclick="addProv()">+ Agregar</button></div>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+    <input id="srchProv" value="${S._srchProv||''}" placeholder="🔍 Buscar proveedor, tipo..."
+      style="flex:1;max-width:360px;padding:7px 12px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)"
+      oninput="S._srchProv=this.value;renderProveedores()">
+    <span style="font-size:12px;color:var(--muted)">${provF.length} de ${S.proveedores.length}</span>
+  </div>
   <div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Tipo</th><th>Teléfono</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 function addProv(){const n=document.getElementById('pvN').value.trim();if(!n){toast('Nombre requerido',true);document.getElementById('pvN').focus();return}S.proveedores.push({id:genId(),nombre:n,tipo:document.getElementById('pvT').value.trim(),tel:document.getElementById('pvTel').value.trim()});saveData();render();toast('✓ Proveedor registrado');setTimeout(()=>_focusFirst('#content .card'),40);}
@@ -4559,8 +4585,14 @@ function delProv(id){if(!confirm('¿Eliminar proveedor?'))return;S.proveedores=S
 //  CENTROS DE COSTO
 // ═══════════════════════════════════════════════════════
 function renderCentros(){
-  var rows=S.centros.length===0?'<tr><td colspan="7" class="empty">Sin centros de costo</td></tr>':'';
-  S.centros.forEach(function(c){
+  var _q=(S._srchCentros||'').toLowerCase();
+  var centrosF=S.centros.filter(function(c){
+    if(!_q)return true;
+    var g=(S.gerentesZona||[]).find(function(gz){return gz.id===c.gerenteId;});
+    return (c.nombre||'').toLowerCase().includes(_q)||(c.descripcion||'').toLowerCase().includes(_q)||(g?(g.nombre||'').toLowerCase().includes(_q):false);
+  });
+  var rows=centrosF.length===0?('<tr><td colspan="7" class="empty">'+(S.centros.length===0?'Sin centros de costo':('Sin resultados para "'+esc(_q)+'"'))+'</td></tr>'):'';
+  centrosF.forEach(function(c){
     var pobj=c.proyectoId?S.proyectos.find(function(x){return x.id===c.proyectoId;}):null;
     var pname=pobj?pobj.nombre:'(eliminado)';
     var codBadge=c.codigoMant?('<span class="badge b-neu" style="font-size:10px;font-family:monospace">'+esc(c.codigoMant)+'</span>'):'<span style="font-size:11px;color:var(--muted)">—</span>';
@@ -4568,7 +4600,8 @@ function renderCentros(){
     var origBadge=c.auto?'<span class="badge b-ok" style="font-size:10px">Auto</span>':'<span class="badge b-neu" style="font-size:10px">Manual</span>';
     var gobj=c.gerenteId?(S.gerentesZona||[]).find(function(g){return g.id===c.gerenteId;}):null;
     var gBadge=gobj?('<span class="badge b-blue" style="font-size:10px">👔 '+esc(gobj.nombre)+'</span>'):'<span style="font-size:11px;color:var(--muted)">—</span>';
-    var acciones=c.auto?'<span style="font-size:11px;color:var(--muted)">—</span>':'<div class="td-act"><button class="btn btn-secondary btn-xs" onclick="modalEditarCentro(\''+c.id+'\')">✏</button><button class="btn btn-danger btn-xs" onclick="delCentro(\''+c.id+'\')">✕</button></div>';
+    var q="'";
+    var acciones=c.auto?'<span style="font-size:11px;color:var(--muted)">—</span>':'<div class="td-act"><button class="btn btn-secondary btn-xs" onclick="modalEditarCentro('+q+c.id+q+')">✏</button><button class="btn btn-danger btn-xs" onclick="delCentro('+q+c.id+q+')">✕</button></div>';
     rows+='<tr><td><strong>'+esc(c.nombre)+'</strong></td><td style="font-size:12px;color:var(--muted)">'+esc(c.descripcion||'—')+'</td><td>'+pBadge+'</td><td>'+origBadge+'</td><td>'+codBadge+'</td><td>'+gBadge+'</td><td>'+acciones+'</td></tr>';
   });
   var proyOpts=S.proyectos.map(function(p){return'<option value="'+p.id+'">'+esc(p.nombre)+'</option>';}).join('');
@@ -4577,6 +4610,11 @@ function renderCentros(){
     +'<div class="card" style="margin-bottom:18px"><div class="sec-hdr">Nuevo Centro (independiente)</div>'
     +'<div class="row3"><div class="fg"><label>Nombre *</label><input id="ccN"></div><div class="fg"><label>Descripción</label><input id="ccD"></div><div class="fg"><label>Vincular a Proyecto</label><select id="ccP"><option value="">— Sin proyecto —</option>'+proyOpts+'</select></div></div>'
     +'<button class="btn btn-primary" onclick="addCentro()">+ Agregar</button></div>'
+    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">'
+    +'<input id="srchCentros" value="'+(S._srchCentros||'')+'" placeholder="🔍 Buscar centro, descripción, gerente..." '
+    +'style="flex:1;max-width:400px;padding:7px 12px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)" '
+    +'oninput="S._srchCentros=this.value;renderCentros()">'
+    +'<span style="font-size:12px;color:var(--muted)">'+centrosF.length+' de '+S.centros.length+'</span></div>'
     +'<div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Descripción</th><th>Proyecto</th><th>Origen</th><th>Cód. Mant.</th><th>Gerente de Zona</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
     +'<div id="modalEditCentro" class="modal"><div class="modal-box sm"><div class="modal-hdr"><div class="modal-ttl">✏ Editar Centro</div><button class="btn btn-secondary btn-sm" onclick="closeModal(\"modalEditCentro\")">✕</button></div><div id="modalEditCentroBody"></div></div></div>';
 }
@@ -5333,59 +5371,88 @@ function exportarReportePDF(){
 // ═══════════════════════════════════════════════════════
 // Log local — evita dependencia de índice Firestore
 if(!window._localLog)window._localLog=[];
-const _MAX_LOG=200;
+const _MAX_LOG=500;
+
 function logAction(accion,modulo,detalle){
   if(!S.currentUser)return;
-  window._localLog.unshift({accion,modulo,detalle:detalle||'',usuario:S.currentUser.email,ts:Date.now()});
+  var entry={accion:accion,modulo:modulo,detalle:detalle||'',usuario:S.currentUser.email,ts:Date.now()};
+  window._localLog.unshift(entry);
   if(window._localLog.length>_MAX_LOG)window._localLog.length=_MAX_LOG;
-  // Intentar también en Firestore pero sin bloquear
-  if(S.empresa)window.FB.log(S.empresa,S.currentUser.email,accion,modulo,detalle).catch(()=>{});
+  if(S.empresa)window.FB.log(S.empresa,S.currentUser.email,accion,modulo,detalle).catch(function(){});
 }
 
 function renderLog(){
-  const logs=window._localLog||[];
-  const iconos={LOGIN:'🔑',LOGOUT:'🚪',CREAR:'➕',EDITAR:'✏',ELIMINAR:'🗑',default:'📋'};
-  const colores={LOGIN:'b-ok',LOGOUT:'b-neu',CREAR:'b-blue',EDITAR:'b-warn',ELIMINAR:'b-err',default:'b-neu'};
-  const usuarios=[...new Set(logs.map(l=>l.usuario))];
-  const mods=[...new Set(logs.map(l=>l.modulo))];
+  var content=document.getElementById('content');
+  content.innerHTML='<div style="display:flex;align-items:center;justify-content:center;padding:40px;color:var(--muted)">Cargando actividad...</div>';
+  // Load from Firestore (all users of this empresa)
+  var isAdmin=S.currentUser&&(S.currentUser.rol==='admin'||S.currentUser.rol==='supervisor');
+  var limite=isAdmin?500:200;
+  window.FB.getLogs(S.empresa,limite).then(function(remoteLogs){
+    // Merge local + remote, dedupe by ts+usuario+accion
+    var merged=remoteLogs.length?remoteLogs:window._localLog;
+    if(remoteLogs.length){
+      // Add any local-only entries not yet in Firestore
+      var remoteKeys=new Set(remoteLogs.map(function(l){return l.ts+'|'+l.usuario+'|'+l.accion;}));
+      window._localLog.forEach(function(l){
+        if(!remoteKeys.has(l.ts+'|'+l.usuario+'|'+l.accion))merged.push(l);
+      });
+      merged.sort(function(a,b){return b.ts-a.ts;});
+    }
+    renderLogData(merged);
+  }).catch(function(){
+    renderLogData(window._localLog);
+  });
+}
 
-  let logHtml=logs.length===0?`<div class="empty">Sin actividad en esta sesión</div>`:'';
-  logs.forEach(l=>{
-    const ic=iconos[l.accion]||iconos.default;
-    const col=colores[l.accion]||colores.default;
-    logHtml+=`<div class="log-entry" data-mod="${l.modulo}" data-user="${l.usuario}">
-      <div class="log-icon" style="background:var(--surface2)">${ic}</div>
-      <div class="log-body">
-        <div class="log-action"><span class="badge ${col}" style="margin-right:6px">${l.accion}</span><strong>${esc(l.modulo)}</strong>${l.detalle?' — '+esc(l.detalle):''}</div>
-        <div class="log-meta">👤 ${esc(l.usuario)} · 🕐 ${fmtTs(l.ts)}</div>
-      </div>
-    </div>`;
+function renderLogData(logs){
+  var iconos={LOGIN:'🔑',LOGOUT:'🚪',CREAR:'➕',EDITAR:'✏',ELIMINAR:'🗑',GUARDAR:'💾',IMPORTAR:'📥',default:'📋'};
+  var colores={LOGIN:'b-ok',LOGOUT:'b-neu',CREAR:'b-blue',EDITAR:'b-warn',ELIMINAR:'b-err',GUARDAR:'b-warn',IMPORTAR:'b-blue',default:'b-neu'};
+  var usuarios=[...new Set(logs.map(function(l){return l.usuario;}))].sort();
+  var mods=[...new Set(logs.map(function(l){return l.modulo;}))].sort();
+
+  var logHtml=logs.length===0?'<div class="empty" style="padding:40px;text-align:center">Sin actividad registrada</div>':'';
+  logs.forEach(function(l){
+    var ic=iconos[l.accion]||iconos.default;
+    var col=colores[l.accion]||colores.default;
+    logHtml+='<div class="log-item" data-mod="'+esc(l.modulo)+'" data-user="'+esc(l.usuario||'')+'">'
+      +'<div class="log-dot"></div>'
+      +'<div style="flex:1;min-width:0">'
+      +'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
+      +'<span class="badge '+col+'" style="font-size:10px">'+ic+' '+esc(l.accion)+'</span>'
+      +'<strong style="font-size:13px">'+esc(l.modulo)+'</strong>'
+      +(l.detalle?' <span style="font-size:12px;color:var(--muted)">— '+esc(l.detalle)+'</span>':'')
+      +'</div>'
+      +'<div style="font-size:11px;color:var(--muted);margin-top:3px">👤 '+esc(l.usuario||'—')+' · '+fmtTs(l.ts)+'</div>'
+      +'</div></div>';
   });
 
-  document.getElementById('content').innerHTML=`
-  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px">
-    <div style="font-size:13px;color:var(--muted)">${logs.length} registros en esta sesión</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <select id="logFiltroMod" onchange="filtrarLog()" style="min-width:150px">
-        <option value="">Todos los módulos</option>
-        ${mods.map(m=>`<option value="${m}">${esc(m)}</option>`).join('')}
-      </select>
-      <select id="logFiltroUser" onchange="filtrarLog()" style="min-width:180px">
-        <option value="">Todos los usuarios</option>
-        ${usuarios.map(u=>`<option value="${u}">${esc(u)}</option>`).join('')}
-      </select>
-    </div>
-  </div>
-  <div id="logList">${logHtml}</div>`;
+  var usuariosOpts=usuarios.map(function(u){return'<option value="'+esc(u)+'">'+esc(u)+'</option>';}).join('');
+  var modsOpts=mods.map(function(m){return'<option value="'+esc(m)+'">'+esc(m)+'</option>';}).join('');
+
+  document.getElementById('content').innerHTML=
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px">'
+    +'<div style="font-size:13px;color:var(--muted)">'+logs.length+' registros — todos los usuarios de la empresa</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+    +'<input id="logSearch" placeholder="Buscar..." style="width:160px;padding:6px 10px;font-size:12px" oninput="filtrarLog()">'
+    +'<select id="logFiltroMod" onchange="filtrarLog()" style="min-width:140px"><option value="">Todos los módulos</option>'+modsOpts+'</select>'
+    +'<select id="logFiltroUser" onchange="filtrarLog()" style="min-width:160px"><option value="">Todos los usuarios</option>'+usuariosOpts+'</select>'
+    +'<button class="btn btn-secondary btn-sm" onclick="renderLog()">↻ Actualizar</button>'
+    +'</div></div>'
+    +'<div id="logList" style="border:1px solid var(--border);border-radius:10px;overflow:hidden">'+logHtml+'</div>';
 }
 
 function filtrarLog(){
-  const mod=document.getElementById('logFiltroMod')?.value;
-  const user=document.getElementById('logFiltroUser')?.value;
-  document.querySelectorAll('.log-entry').forEach(el=>{
-    const mm=!mod||el.dataset.mod===mod;
-    const mu=!user||el.dataset.user===user;
-    el.style.display=mm&&mu?'flex':'none';
+  var mod=document.getElementById('logFiltroMod');
+  var user=document.getElementById('logFiltroUser');
+  var search=document.getElementById('logSearch');
+  var modV=mod?mod.value:'';
+  var userV=user?user.value:'';
+  var searchV=search?search.value.toLowerCase():'';
+  document.querySelectorAll('#logList .log-item').forEach(function(el){
+    var mm=!modV||el.dataset.mod===modV;
+    var mu=!userV||el.dataset.user===userV;
+    var ms=!searchV||el.textContent.toLowerCase().includes(searchV);
+    el.style.display=(mm&&mu&&ms)?'':'none';
   });
 }
 
@@ -5560,10 +5627,15 @@ function renderInventario(){
   const totalProds=prods.length;
   const totalItems=prods.reduce((s,p)=>s+(parseFloat(p.cantidad)||0),0);
   const bajo=prods.filter(p=>p.minimo&&parseFloat(p.cantidad)<parseFloat(p.minimo)).length;
-  const prodsFilt=selBodega==='todas'?prods:prods.filter(p=>p.bodegaId===selBodega);
+  const _qInv=(S._srchInv||'').toLowerCase();
+  const prodsFilt=(selBodega==='todas'?prods:prods.filter(p=>p.bodegaId===selBodega))
+    .filter(function(p){
+      if(!_qInv)return true;
+      return (p.nombre||'').toLowerCase().includes(_qInv)||(p.codigo||'').toLowerCase().includes(_qInv)||(p.unidad||'').toLowerCase().includes(_qInv);
+    });
   const bodOpts=bodegas.map(b=>`<option value="${b.id}" ${selBodega===b.id?'selected':''}>${esc(b.nombre)}</option>`).join('');
 
-  let prodRows=prodsFilt.length===0?`<tr><td colspan="8" class="empty">Sin productos${selBodega!=='todas'?' en esta bodega':''}</td></tr>`:'';
+  let prodRows=prodsFilt.length===0?`<tr><td colspan="8" class="empty">${_qInv?'Sin resultados para "'+esc(_qInv)+'"':('Sin productos'+(selBodega!=='todas'?' en esta bodega':''))}</td></tr>`:'';
   prodsFilt.forEach(p=>{
     const bodNombre=bodegas.find(b=>b.id===p.bodegaId)?.nombre||'Sin bodega';
     const esBajo=p.minimo&&parseFloat(p.cantidad)<parseFloat(p.minimo);
@@ -5628,6 +5700,10 @@ function renderInventario(){
       <option value="todas" ${selBodega==='todas'?'selected':''}>Todas las bodegas</option>
       ${bodOpts}
     </select>
+    <input id="srchInv" value="${S._srchInv||''}" placeholder="🔍 Buscar producto, código..."
+      style="flex:1;max-width:280px;padding:7px 12px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)"
+      oninput="S._srchInv=this.value;renderInventario()">
+    <span style="font-size:12px;color:var(--muted)">${prodsFilt.length} de ${prods.length}</span>
     <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-left:auto">
       <button class="btn btn-${selTab==='productos'?'primary':'secondary'}" style="border-radius:0;border:none" onclick="S._invTab='productos';renderInventario()">📦 Productos</button>
       <button class="btn btn-${selTab==='movimientos'?'primary':'secondary'}" style="border-radius:0;border:none" onclick="S._invTab='movimientos';renderInventario()">📋 Movimientos</button>
@@ -6748,7 +6824,7 @@ function openThemePanel(){
 function render(){
   if(window.innerWidth<=800)closeSB();
   // Sidebar — solo módulos permitidos
-  const navIcColors={dashboard:'#e8a020',proyectos:'#4ea8de',gastos:'#e84040',proveedores:'#2db87a',centros:'#c084fc',reportes:'#f0a040',cotizaciones:'#60c8f0',inventario:'#a0e060',bodegas:'#f0a060',log:'#888',usuarios:'#c084fc',config:'#777',mant_panel:'#f0a040',mant_equipos:'#60c8f0',mant_checklists:'#2db87a',mant_tecnicos:'#c084fc',mant_reportes:'#e8a020',ei_dashboard:'#facc15',ei_modelo:'#38bdf8',ei_alertas:'#f87171',ei_ranking:'#a78bfa',ei_prediccion:'#34d399',ei_checklist:'#fb923c',gz_gerentes:'#818cf8',gz_dashboard:'#38bdf8',importar:'#34d399'};
+  const navIcColors={dashboard:'#e8a020',proyectos:'#4ea8de',gastos:'#e84040',proveedores:'#2db87a',centros:'#c084fc',reportes:'#f0a040',inventario:'#a0e060',bodegas:'#f0a060',log:'#888',usuarios:'#c084fc',config:'#777',mant_panel:'#f0a040',mant_equipos:'#60c8f0',mant_checklists:'#2db87a',mant_tecnicos:'#c084fc',mant_reportes:'#e8a020',ei_dashboard:'#facc15',ei_modelo:'#38bdf8',ei_alertas:'#f87171',ei_ranking:'#a78bfa',ei_prediccion:'#34d399',ei_checklist:'#fb923c',gz_gerentes:'#818cf8',gz_dashboard:'#38bdf8',importar:'#34d399'};
   const collapsed=getSBCollapsed();
   let navHtml='';
   SB_GRUPOS.forEach(grp=>{
@@ -6775,7 +6851,7 @@ function render(){
     navHtml+='</div>';
   });
   document.getElementById('nav').innerHTML=navHtml;
-  const titles={dashboard:'Dashboard',proyectos:'Proyectos',gastos:'Gastos',proveedores:'Proveedores',centros:'Centros de Costo',reportes:'Reportes',cotizaciones:'Comparar Cotizaciones',inventario:'Inventario',bodegas:'Gestión de Bodegas',cajachica:'Caja Chica',log:'Registro de Actividad',usuarios:'Usuarios',config:'Configuración',mant_panel:'Panel de OTs',mant_equipos:'Equipos',mant_checklists:'Checklists',mant_tecnicos:'Técnicos',mant_reportes:'Reportes Mantenimiento',ei_dashboard:'⚡ Energy Intelligence',ei_modelo:'Modelo de Consumo',ei_alertas:'Alertas Energéticas',ei_ranking:'Ranking de Tiendas',ei_prediccion:'Predicción de Factura',ei_checklist:'Checklist Operativo',gz_gerentes:'Gerentes de Zona',gz_dashboard:'Dashboard Gerentes de Zona',importar:'📥 Importar Datos'};
+  const titles={dashboard:'Dashboard',proyectos:'Proyectos',gastos:'Gastos',proveedores:'Proveedores',centros:'Centros de Costo',reportes:'Reportes',inventario:'Inventario',bodegas:'Gestión de Bodegas',cajachica:'Caja Chica',log:'Registro de Actividad',usuarios:'Usuarios',config:'Configuración',mant_panel:'Panel de OTs',mant_equipos:'Equipos',mant_checklists:'Checklists',mant_tecnicos:'Técnicos',mant_reportes:'Reportes Mantenimiento',ei_dashboard:'⚡ Energy Intelligence',ei_modelo:'Modelo de Consumo',ei_alertas:'Alertas Energéticas',ei_ranking:'Ranking de Tiendas',ei_prediccion:'Predicción de Factura',ei_checklist:'Checklist Operativo',gz_gerentes:'Gerentes de Zona',gz_dashboard:'Dashboard Gerentes de Zona',importar:'📥 Importar Datos'};
   document.getElementById('pageTitle').textContent=titles[S.activeTab]||S.activeTab;
   const ha=document.getElementById('headerActions');
   var haHtml='';
@@ -6793,7 +6869,6 @@ function render(){
   else if(S.activeTab==='proveedores')renderProveedores();
   else if(S.activeTab==='centros')renderCentros();
   else if(S.activeTab==='reportes')renderReportes();
-  else if(S.activeTab==='cotizaciones')renderCotizaciones();
   else if(S.activeTab==='inventario')renderInventario();
   else if(S.activeTab==='bodegas')renderBodegas();
   else if(S.activeTab==='cajachica')renderCajaChica();
@@ -8656,33 +8731,45 @@ function eiSubirEvidencia(input, tipo) {
 // ── CRUD Gerentes ────────────────────────────────────────
 function renderGZGerentes(){
   var gz = S.gerentesZona || [];
+  var _q=(S._srchGZ||'').toLowerCase();
 
-  // Contar centros por gerente
   function centrosDe(gid){
     return S.centros.filter(function(c){return c.gerenteId===gid;});
   }
 
-  var rows = gz.length===0
-    ? '<tr><td colspan="5" class="empty">Sin gerentes de zona — agrega el primero</td></tr>'
+  var gzF=gz.filter(function(g){
+    if(!_q)return true;
+    return (g.nombre||'').toLowerCase().includes(_q)||(g.email||'').toLowerCase().includes(_q)||(g.telefono||'').toLowerCase().includes(_q)||(g.notas||'').toLowerCase().includes(_q);
+  });
+
+  var rows = gzF.length===0
+    ? '<tr><td colspan="5" class="empty">'+(gz.length===0?'Sin gerentes de zona — agrega el primero':('Sin resultados para "'+esc(_q)+'"'))+'</td></tr>'
     : '';
-  gz.forEach(function(g){
+  gzF.forEach(function(g){
     var ccs = centrosDe(g.id);
+    var q2="'";
     rows += '<tr>'
       + '<td><strong>'+esc(g.nombre)+'</strong></td>'
       + '<td style="font-size:12px">'+esc(g.email||'—')+'</td>'
       + '<td style="font-size:12px">'+esc(g.telefono||'—')+'</td>'
       + '<td style="text-align:center"><span class="badge b-blue">'+ccs.length+' tiendas</span></td>'
       + '<td><div class="td-act">'
-      + '<button class="btn btn-secondary btn-xs" onclick="gzVerDetalle(\''+g.id+'\')">👁 Ver</button>'
-      + '<button class="btn btn-secondary btn-xs" onclick="gzModalGerente(\''+g.id+'\')">✏</button>'
-      + '<button class="btn btn-danger btn-xs" onclick="gzEliminarGerente(\''+g.id+'\')">✕</button>'
+      + '<button class="btn btn-secondary btn-xs" onclick="gzVerDetalle('+q2+g.id+q2+')">👁 Ver</button>'
+      + '<button class="btn btn-secondary btn-xs" onclick="gzModalGerente('+q2+g.id+q2+')">✏</button>'
+      + '<button class="btn btn-danger btn-xs" onclick="gzEliminarGerente('+q2+g.id+q2+')">✕</button>'
       + '</div></td>'
       + '</tr>';
   });
 
   document.getElementById('content').innerHTML =
-    '<div style="display:flex;justify-content:flex-end;margin-bottom:14px">'
-    + '<button class="btn btn-primary" onclick="gzModalGerente(\'\')">+ Nuevo Gerente de Zona</button>'
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">'
+    +'<div style="display:flex;align-items:center;gap:8px;flex:1">'
+    +'<input id="srchGZ" value="'+(S._srchGZ||'')+'" placeholder="🔍 Buscar gerente, email, zona..." '
+    +'style="flex:1;max-width:360px;padding:7px 12px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)" '
+    +'oninput="S._srchGZ=this.value;renderGZGerentes()">'
+    +'<span style="font-size:12px;color:var(--muted)">'+gzF.length+' de '+gz.length+'</span>'
+    +'</div>'
+    + '<button class="btn btn-primary" onclick="gzModalGerente("")">+ Nuevo Gerente de Zona</button>'
     + '</div>'
     + '<div class="tbl-wrap"><table><thead><tr>'
     + '<th>Nombre</th><th>Email</th><th>Teléfono</th><th style="text-align:center">Tiendas</th><th>Acciones</th>'
@@ -8691,7 +8778,6 @@ function renderGZGerentes(){
     + 'ℹ️ Para asignar tiendas a un gerente ve a <strong>Centros de Costo</strong> → edita cada centro y selecciona el gerente.'
     + '</div>';
 }
-
 function gzModalGerente(id){
   var g = id ? (S.gerentesZona||[]).find(function(x){return x.id===id;}) : null;
   var div = document.createElement('div');
