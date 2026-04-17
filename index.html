@@ -83,11 +83,23 @@ window.FB={
   },
   async getLogs(empresa,limite){
     try{
-      let q=_fbDb.collection('logs').where('empresa','==',empresa).orderBy('ts','desc');
-      if(limite)q=q.limit(limite);
+      // Sin orderBy para evitar requerir índice compuesto en Firestore
+      // Ordenamos en el cliente después de obtener los datos
+      let q=_fbDb.collection('logs').where('empresa','==',empresa);
+      if(limite)q=q.limit(limite*3); // pedir más para compensar el sort client-side
       const s=await q.get();
-      return s.docs.map(d=>({id:d.id,...d.data()}));
-    }catch(e){return[]}
+      const docs=s.docs.map(d=>({id:d.id,...d.data()}));
+      docs.sort((a,b)=>(b.ts||0)-(a.ts||0));
+      return limite?docs.slice(0,limite):docs;
+    }catch(e){
+      // Fallback: intentar sin where (más permisivo)
+      try{
+        const s=await _fbDb.collection('logs').get();
+        const docs=s.docs.map(d=>({id:d.id,...d.data()})).filter(d=>d.empresa===empresa);
+        docs.sort((a,b)=>(b.ts||0)-(a.ts||0));
+        return limite?docs.slice(0,limite):docs;
+      }catch(e2){return[];}
+    }
   },
   waitForAuth(){return new Promise(r=>{const u=_fbAuth.onAuthStateChanged(user=>{u();r(user)})})},
   onAuthChange(cb){_fbAuth.onAuthStateChanged(cb)},
@@ -2001,12 +2013,22 @@ async function renderSALog(){
 //  GASTOS
 // ═══════════════════════════════════════════════════════
 function gastosDeProyecto(pid){
+  // Centro de costo automático del proyecto
+  const autoCc=S.centros.find(c=>c.proyectoId===pid&&c.auto);
+  const autoCcId=autoCc?autoCc.id:null;
   // Incluir gastos del proyecto donde sumarAlProy no sea false explícitamente
-  return S.gastos.filter(g=>g.proyectoId===pid&&g.sumarAlProy!==false);
+  // También incluir gastos vinculados solo por centroId al CC auto del proyecto
+  return S.gastos.filter(g=>{
+    if(g.sumarAlProy===false)return false;
+    if(g.proyectoId===pid)return true;
+    if(autoCcId&&g.centroId===autoCcId&&!g.proyectoId)return true;
+    return false;
+  });
 }
 function todosGastosDeProyecto(pid){
-  // Todos los gastos vinculados al proyecto, incluyendo los que no suman
-  return S.gastos.filter(g=>g.proyectoId===pid);
+  const autoCc=S.centros.find(c=>c.proyectoId===pid&&c.auto);
+  const autoCcId=autoCc?autoCc.id:null;
+  return S.gastos.filter(g=>g.proyectoId===pid||(autoCcId&&g.centroId===autoCcId));
 }
 function totalGastosProyecto(pid){return gastosDeProyecto(pid).reduce((s,g)=>s+(parseFloat(g.valor)||0),0)}
 
@@ -5383,77 +5405,186 @@ function logAction(accion,modulo,detalle){
 
 function renderLog(){
   var content=document.getElementById('content');
-  content.innerHTML='<div style="display:flex;align-items:center;justify-content:center;padding:40px;color:var(--muted)">Cargando actividad...</div>';
-  // Load from Firestore (all users of this empresa)
-  var isAdmin=S.currentUser&&(S.currentUser.rol==='admin'||S.currentUser.rol==='supervisor');
-  var limite=isAdmin?500:200;
-  window.FB.getLogs(S.empresa,limite).then(function(remoteLogs){
-    // Merge local + remote, dedupe by ts+usuario+accion
-    var merged=remoteLogs.length?remoteLogs:window._localLog;
-    if(remoteLogs.length){
-      // Add any local-only entries not yet in Firestore
-      var remoteKeys=new Set(remoteLogs.map(function(l){return l.ts+'|'+l.usuario+'|'+l.accion;}));
+  content.innerHTML=
+    '<div style="display:flex;align-items:center;gap:10px;padding:40px;color:var(--muted)">'
+    +'<div class="sync-dot saving" style="width:10px;height:10px"></div>'
+    +'<span>Cargando historial completo desde Firebase...</span></div>';
+
+  // Sin límite — cargamos todo el historial de la empresa
+  window.FB.getLogs(S.empresa, 2000).then(function(remoteLogs){
+    var merged = remoteLogs.slice(); // copia del array de Firestore
+
+    // Mezclar con logs locales de esta sesión que aún no llegaron a Firestore
+    if(window._localLog && window._localLog.length){
+      var remoteKeys = new Set(merged.map(function(l){
+        return String(l.ts)+'|'+String(l.usuario||'')+'|'+String(l.accion||'');
+      }));
       window._localLog.forEach(function(l){
-        if(!remoteKeys.has(l.ts+'|'+l.usuario+'|'+l.accion))merged.push(l);
+        var k = String(l.ts)+'|'+String(l.usuario||'')+'|'+String(l.accion||'');
+        if(!remoteKeys.has(k)) merged.push(l);
       });
-      merged.sort(function(a,b){return b.ts-a.ts;});
     }
+
+    // Ordenar por timestamp desc
+    merged.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
+
+    // Guardar globalmente para re-filtrar sin red
+    window._allLogs = merged;
+    S._logPage = 0;
     renderLogData(merged);
-  }).catch(function(){
-    renderLogData(window._localLog);
+
+  }).catch(function(err){
+    // Fallback a logs locales con mensaje de error
+    window._allLogs = window._localLog || [];
+    S._logPage = 0;
+    renderLogData(window._allLogs, true);
   });
 }
 
-function renderLogData(logs){
-  var iconos={LOGIN:'🔑',LOGOUT:'🚪',CREAR:'➕',EDITAR:'✏',ELIMINAR:'🗑',GUARDAR:'💾',IMPORTAR:'📥',default:'📋'};
+var _LOG_PAGE_SIZE = 100;
+
+function renderLogData(logs, firestoreError){
+  var iconos={LOGIN:'🔑',LOGOUT:'🚪',CREAR:'➕',EDITAR:'✏',ELIMINAR:'🗑',GUARDAR:'💾',IMPORTAR:'📥',GUARDAR_REINTEGRO:'💵',default:'📋'};
   var colores={LOGIN:'b-ok',LOGOUT:'b-neu',CREAR:'b-blue',EDITAR:'b-warn',ELIMINAR:'b-err',GUARDAR:'b-warn',IMPORTAR:'b-blue',default:'b-neu'};
-  var usuarios=[...new Set(logs.map(function(l){return l.usuario;}))].sort();
-  var mods=[...new Set(logs.map(function(l){return l.modulo;}))].sort();
 
-  var logHtml=logs.length===0?'<div class="empty" style="padding:40px;text-align:center">Sin actividad registrada</div>':'';
-  logs.forEach(function(l){
-    var ic=iconos[l.accion]||iconos.default;
-    var col=colores[l.accion]||colores.default;
-    logHtml+='<div class="log-item" data-mod="'+esc(l.modulo)+'" data-user="'+esc(l.usuario||'')+'">'
-      +'<div class="log-dot"></div>'
-      +'<div style="flex:1;min-width:0">'
-      +'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
-      +'<span class="badge '+col+'" style="font-size:10px">'+ic+' '+esc(l.accion)+'</span>'
-      +'<strong style="font-size:13px">'+esc(l.modulo)+'</strong>'
-      +(l.detalle?' <span style="font-size:12px;color:var(--muted)">— '+esc(l.detalle)+'</span>':'')
-      +'</div>'
-      +'<div style="font-size:11px;color:var(--muted);margin-top:3px">👤 '+esc(l.usuario||'—')+' · '+fmtTs(l.ts)+'</div>'
-      +'</div></div>';
-  });
+  var usuarios=[...new Set(logs.map(function(l){return l.usuario||'—';}))].sort();
+  var mods=[...new Set(logs.map(function(l){return l.modulo||'—';}))].sort();
 
-  var usuariosOpts=usuarios.map(function(u){return'<option value="'+esc(u)+'">'+esc(u)+'</option>';}).join('');
-  var modsOpts=mods.map(function(m){return'<option value="'+esc(m)+'">'+esc(m)+'</option>';}).join('');
+  // Paginación
+  var page = S._logPage || 0;
+  var totalPags = Math.ceil(logs.length / _LOG_PAGE_SIZE);
+  var pageLogs = logs.slice(page * _LOG_PAGE_SIZE, (page+1) * _LOG_PAGE_SIZE);
+
+  var logHtml = '';
+  if(logs.length === 0){
+    logHtml = '<div class="empty" style="padding:40px;text-align:center">'
+      +(firestoreError ? '⚠ No se pudo cargar Firestore. Mostrando solo sesión actual.' : 'Sin actividad registrada.')
+      +'</div>';
+  } else {
+    pageLogs.forEach(function(l){
+      var ic=iconos[l.accion]||iconos.default;
+      var col=colores[l.accion]||colores.default;
+      var fecha = l.fecha ? l.fecha.slice(0,10) : (l.ts ? new Date(l.ts).toLocaleDateString('es-SV') : '—');
+      logHtml+='<div class="log-item" data-mod="'+esc(l.modulo||'')+'" data-user="'+esc(l.usuario||'')+'" data-txt="'+esc((l.modulo+' '+l.accion+' '+(l.detalle||'')+' '+(l.usuario||'')).toLowerCase())+'">'
+        +'<div class="log-dot"></div>'
+        +'<div style="flex:1;min-width:0">'
+        +'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
+        +'<span class="badge '+col+'" style="font-size:10px">'+ic+' '+esc(l.accion||'—')+'</span>'
+        +'<strong style="font-size:13px">'+esc(l.modulo||'—')+'</strong>'
+        +(l.detalle?'<span style="font-size:12px;color:var(--muted)">— '+esc(l.detalle)+'</span>':'')
+        +'</div>'
+        +'<div style="font-size:11px;color:var(--muted);margin-top:3px">'
+        +'<span style="font-weight:600;color:var(--text)">👤 '+esc(l.usuario||'—')+'</span>'
+        +' · '+esc(fmtTs(l.ts))
+        +'</div>'
+        +'</div></div>';
+    });
+  }
+
+  var usuariosOpts='<option value="">👥 Todos los usuarios</option>'
+    +usuarios.map(function(u){
+      var saved=document.getElementById('logFiltroUser');
+      var cur=saved?saved.value:'';
+      return'<option value="'+esc(u)+'"'+(cur===u?' selected':'')+'>'+esc(u)+'</option>';
+    }).join('');
+  var modsOpts='<option value="">📂 Todos los módulos</option>'
+    +mods.map(function(m){
+      var saved=document.getElementById('logFiltroMod');
+      var cur=saved?saved.value:'';
+      return'<option value="'+esc(m)+'"'+(cur===m?' selected':'')+'>'+esc(m)+'</option>';
+    }).join('');
+
+  // Paginación HTML
+  var pagNav='';
+  if(totalPags > 1){
+    var from=(page*_LOG_PAGE_SIZE)+1, to=Math.min((page+1)*_LOG_PAGE_SIZE, logs.length);
+    pagNav='<div style="display:flex;align-items:center;justify-content:center;gap:10px;padding:12px;border-top:1px solid var(--border)">'
+      +'<button class="btn btn-secondary btn-sm" onclick="logIrPag('+(page-1)+')" '+( page===0?'disabled':'')+'>← Anterior</button>'
+      +'<span style="font-size:12px;color:var(--muted)">'+from+'–'+to+' de '+logs.length+'</span>'
+      +'<button class="btn btn-secondary btn-sm" onclick="logIrPag('+(page+1)+')" '+(page>=totalPags-1?'disabled':'')+'>Siguiente →</button>'
+      +'</div>';
+  }
 
   document.getElementById('content').innerHTML=
+    // Header con stats
     '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px">'
-    +'<div style="font-size:13px;color:var(--muted)">'+logs.length+' registros — todos los usuarios de la empresa</div>'
-    +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
-    +'<input id="logSearch" placeholder="Buscar..." style="width:160px;padding:6px 10px;font-size:12px" oninput="filtrarLog()">'
-    +'<select id="logFiltroMod" onchange="filtrarLog()" style="min-width:140px"><option value="">Todos los módulos</option>'+modsOpts+'</select>'
-    +'<select id="logFiltroUser" onchange="filtrarLog()" style="min-width:160px"><option value="">Todos los usuarios</option>'+usuariosOpts+'</select>'
+    +'<div>'
+    +'<div style="font-size:15px;font-weight:700">'+logs.length.toLocaleString()+' registros'+(firestoreError?' <span style="font-size:11px;color:var(--red)">(sin conexión Firestore)</span>':'')+'</div>'
+    +'<div style="font-size:11px;color:var(--muted);margin-top:2px">Historial completo de todos los usuarios de la empresa</div>'
+    +'</div>'
     +'<button class="btn btn-secondary btn-sm" onclick="renderLog()">↻ Actualizar</button>'
-    +'</div></div>'
-    +'<div id="logList" style="border:1px solid var(--border);border-radius:10px;overflow:hidden">'+logHtml+'</div>';
+    +'</div>'
+
+    // Filtros
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center">'
+    +'<input id="logSearch" placeholder="🔍 Buscar en el historial..." '
+    +'style="flex:1;min-width:180px;max-width:300px;padding:7px 12px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)" '
+    +'oninput="filtrarLog()">'
+    +'<select id="logFiltroUser" onchange="filtrarLog()" style="min-width:180px;padding:7px 10px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)">'+usuariosOpts+'</select>'
+    +'<select id="logFiltroMod" onchange="filtrarLog()" style="min-width:160px;padding:7px 10px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)">'+modsOpts+'</select>'
+    +'<span id="logCount" style="font-size:12px;color:var(--muted)"></span>'
+    +'</div>'
+
+    // Lista
+    +'<div id="logList" style="border:1px solid var(--border);border-radius:10px;overflow:hidden">'+logHtml+pagNav+'</div>';
 }
 
 function filtrarLog(){
-  var mod=document.getElementById('logFiltroMod');
-  var user=document.getElementById('logFiltroUser');
-  var search=document.getElementById('logSearch');
-  var modV=mod?mod.value:'';
-  var userV=user?user.value:'';
-  var searchV=search?search.value.toLowerCase():'';
-  document.querySelectorAll('#logList .log-item').forEach(function(el){
-    var mm=!modV||el.dataset.mod===modV;
-    var mu=!userV||el.dataset.user===userV;
-    var ms=!searchV||el.textContent.toLowerCase().includes(searchV);
-    el.style.display=(mm&&mu&&ms)?'':'none';
+  var modEl=document.getElementById('logFiltroMod');
+  var userEl=document.getElementById('logFiltroUser');
+  var searchEl=document.getElementById('logSearch');
+  var modV=modEl?modEl.value:'';
+  var userV=userEl?userEl.value:'';
+  var searchV=searchEl?searchEl.value.toLowerCase().trim():'';
+
+  // Filtrar sobre _allLogs completo y re-renderizar paginado
+  var all=window._allLogs||[];
+  var filtered=all.filter(function(l){
+    var mm=!modV||(l.modulo||'')=== modV;
+    var mu=!userV||(l.usuario||'')=== userV;
+    var ms=!searchV||((l.modulo||'')+' '+(l.accion||'')+' '+(l.detalle||'')+' '+(l.usuario||'')).toLowerCase().includes(searchV);
+    return mm&&mu&&ms;
   });
+
+  // Re-render paginado con el subconjunto filtrado
+  S._logPage=0;
+  var cnt=document.getElementById('logCount');
+  if(cnt) cnt.textContent=filtered.length!==all.length?(filtered.length+' de '+all.length):'';
+  renderLogData(filtered, false);
+
+  // Restore filter values after re-render
+  setTimeout(function(){
+    var ms2=document.getElementById('logSearch');
+    var mm2=document.getElementById('logFiltroMod');
+    var mu2=document.getElementById('logFiltroUser');
+    if(ms2){ms2.value=searchV;ms2.focus();}
+    if(mm2)mm2.value=modV;
+    if(mu2)mu2.value=userV;
+  },0);
+}
+
+function logIrPag(page){
+  S._logPage=page;
+  var all=window._allLogs||[];
+  var modV=(document.getElementById('logFiltroMod')||{}).value||'';
+  var userV=(document.getElementById('logFiltroUser')||{}).value||'';
+  var searchV=((document.getElementById('logSearch')||{}).value||'').toLowerCase().trim();
+  var filtered=all.filter(function(l){
+    var mm=!modV||(l.modulo||'')=== modV;
+    var mu=!userV||(l.usuario||'')=== userV;
+    var ms=!searchV||((l.modulo||'')+' '+(l.accion||'')+' '+(l.detalle||'')+' '+(l.usuario||'')).toLowerCase().includes(searchV);
+    return mm&&mu&&ms;
+  });
+  renderLogData(filtered, false);
+  setTimeout(function(){
+    var ms2=document.getElementById('logSearch');
+    var mm2=document.getElementById('logFiltroMod');
+    var mu2=document.getElementById('logFiltroUser');
+    if(ms2)ms2.value=searchV;
+    if(mm2)mm2.value=modV;
+    if(mu2)mu2.value=userV;
+    document.getElementById('content').scrollTo(0,0);
+  },0);
 }
 
 // ═══════════════════════════════════════════════════════
