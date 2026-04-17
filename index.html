@@ -1025,7 +1025,7 @@ function addDias(ds,dias){if(!ds||!dias)return'';const d=new Date(ds+'T12:00:00'
 function toast(msg,err=false){const t=document.getElementById('toast');t.textContent=msg;t.style.borderLeftColor=err?'var(--red)':'var(--green)';t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',3200)}
 function openModal(id){const m=document.getElementById(id);if(!m)return;m.classList.add('open');setTimeout(()=>_focusFirst(m),80);}
 function closeModal(id){document.getElementById(id).classList.remove('open')}
-function toggleSB(){const s=document.getElementById('sidebar'),o=document.getElementById('overlay'),b=document.getElementById('hmbBtn');const op=s.classList.contains('open');s.classList.toggle('open');o.classList.toggle('on');b.textContent=op?'☰':'✕'}
+function toggleSB(){const s=document.getElementById('sidebar'),o=document.getElementById('overlay'),b=document.getElementById('hmbBtn');const op=s.classList.contains('open');if(!op){sessionStorage.removeItem('sb_collapsed');}s.classList.toggle('open');o.classList.toggle('on');b.textContent=op?'☰':'✕'}
 function closeSB(){document.getElementById('sidebar').classList.remove('open');document.getElementById('overlay').classList.remove('on');const b=document.getElementById('hmbBtn');if(b)b.textContent='☰'}
 function badgeEst(e){const m={'Sin iniciar':'b-neu','En ejecución':'b-warn','Retrasado':'b-err','Finalizado':'b-ok'};return`<span class="badge ${m[e]||'b-neu'}">${e}</span>`}
 function setSyncUI(state,txt){const dot=document.getElementById('syncDot'),stxt=document.getElementById('syncTxt');if(dot)dot.className='sync-dot '+state;if(stxt)stxt.textContent=txt}
@@ -2764,8 +2764,8 @@ function renderGastos(){
   <div style="display:flex;align-items:center;gap:8px;margin-top:14px;margin-bottom:8px;flex-wrap:wrap">
     <input id="srchGastos" placeholder="🔍 Buscar factura, proveedor, descripción, centro..." value="${S._srchGastos||''}"
       style="flex:1;max-width:420px;padding:7px 12px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)"
-      oninput="S._srchGastos=this.value;renderGastos()">
-    <span style="font-size:12px;color:var(--muted)">${gastosF.length} de ${S.gastos.length} registros</span>
+      oninput="srchFiltrarTabla(this,'tblGastos','cntGastos')">
+    <span id="cntGastos" style="font-size:12px;color:var(--muted)">${gastosF.length} de ${S.gastos.length} registros</span>
   </div>
   <div class="tbl-wrap" style="overflow-x:auto"><table style="table-layout:auto;min-width:0">
     <thead><tr>
@@ -2779,7 +2779,7 @@ function renderGastos(){
       <th style="text-align:center">📎</th>
       <th></th>
     </tr></thead>
-    <tbody>${rows}</tbody>
+    <tbody id="tblGastos">${rows}</tbody>
   </table></div>`;
 }
 
@@ -4573,10 +4573,10 @@ function renderProveedores(){
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
     <input id="srchProv" value="${S._srchProv||''}" placeholder="🔍 Buscar proveedor, tipo..."
       style="flex:1;max-width:360px;padding:7px 12px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)"
-      oninput="S._srchProv=this.value;renderProveedores()">
-    <span style="font-size:12px;color:var(--muted)">${provF.length} de ${S.proveedores.length}</span>
+      oninput="srchFiltrarTabla(this,'tblProveedores','cntProveedores')">
+    <span id="cntProveedores" style="font-size:12px;color:var(--muted)">${provF.length} de ${S.proveedores.length}</span>
   </div>
-  <div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Tipo</th><th>Teléfono</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  <div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Tipo</th><th>Teléfono</th><th></th></tr></thead><tbody id="tblProveedores">${rows}</tbody></table></div>`;
 }
 function addProv(){const n=document.getElementById('pvN').value.trim();if(!n){toast('Nombre requerido',true);document.getElementById('pvN').focus();return}S.proveedores.push({id:genId(),nombre:n,tipo:document.getElementById('pvT').value.trim(),tel:document.getElementById('pvTel').value.trim()});saveData();render();toast('✓ Proveedor registrado');setTimeout(()=>_focusFirst('#content .card'),40);}
 function delProv(id){if(!confirm('¿Eliminar proveedor?'))return;S.proveedores=S.proveedores.filter(x=>x.id!==id);saveData();render()}
@@ -4613,9 +4613,9 @@ function renderCentros(){
     +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">'
     +'<input id="srchCentros" value="'+(S._srchCentros||'')+'" placeholder="🔍 Buscar centro, descripción, gerente..." '
     +'style="flex:1;max-width:400px;padding:7px 12px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)" '
-    +'oninput="S._srchCentros=this.value;renderCentros()">'
-    +'<span style="font-size:12px;color:var(--muted)">'+centrosF.length+' de '+S.centros.length+'</span></div>'
-    +'<div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Descripción</th><th>Proyecto</th><th>Origen</th><th>Cód. Mant.</th><th>Gerente de Zona</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    +'oninput="srchFiltrarTabla(this,\"tblCentros\",\"cntCentros\")">'
+    +'<span id="cntCentros" style="font-size:12px;color:var(--muted)">'+centrosF.length+' de '+S.centros.length+'</span></div>'
+    +'<div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Descripción</th><th>Proyecto</th><th>Origen</th><th>Cód. Mant.</th><th>Gerente de Zona</th><th></th></tr></thead><tbody id="tblCentros">'+rows+'</tbody></table></div>'
     +'<div id="modalEditCentro" class="modal"><div class="modal-box sm"><div class="modal-hdr"><div class="modal-ttl">✏ Editar Centro</div><button class="btn btn-secondary btn-sm" onclick="closeModal(\"modalEditCentro\")">✕</button></div><div id="modalEditCentroBody"></div></div></div>';
 }
 function addCentro(){var n=document.getElementById('ccN').value.trim();if(!n){toast('Nombre requerido',true);document.getElementById('ccN').focus();return;}S.centros.push({id:genId(),nombre:n,descripcion:document.getElementById('ccD').value.trim(),proyectoId:document.getElementById('ccP').value||null,auto:false});saveData();render();toast('✓ Centro registrado');setTimeout(function(){_focusFirst('#content .card');},40);}
@@ -5702,8 +5702,8 @@ function renderInventario(){
     </select>
     <input id="srchInv" value="${S._srchInv||''}" placeholder="🔍 Buscar producto, código..."
       style="flex:1;max-width:280px;padding:7px 12px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)"
-      oninput="S._srchInv=this.value;renderInventario()">
-    <span style="font-size:12px;color:var(--muted)">${prodsFilt.length} de ${prods.length}</span>
+      oninput="srchFiltrarTabla(this,'tblInventario','cntInventario')">
+    <span id="cntInventario" style="font-size:12px;color:var(--muted)">${prodsFilt.length} de ${prods.length}</span>
     <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-left:auto">
       <button class="btn btn-${selTab==='productos'?'primary':'secondary'}" style="border-radius:0;border:none" onclick="S._invTab='productos';renderInventario()">📦 Productos</button>
       <button class="btn btn-${selTab==='movimientos'?'primary':'secondary'}" style="border-radius:0;border:none" onclick="S._invTab='movimientos';renderInventario()">📋 Movimientos</button>
@@ -5714,7 +5714,7 @@ function renderInventario(){
   <div class="card" style="padding:0;overflow:hidden">
     <div class="tbl-wrap"><table style="table-layout:auto">
       <thead><tr><th>Producto</th><th class="hide-sm">Bodega</th><th style="text-align:right">Stock</th><th class="hide-sm">Descripción</th><th>Estado</th><th></th></tr></thead>
-      <tbody>${prodRows}</tbody>
+      <tbody id="tblInventario">${prodRows}</tbody>
     </table></div>
   </div>`:`
   <div class="card" style="padding:0;overflow:hidden">
@@ -6830,7 +6830,7 @@ function render(){
   SB_GRUPOS.forEach(grp=>{
     const items=grp.items.filter(id=>puedeVer(id));
     if(items.length===0)return;
-    const isOpen=!collapsed[grp.id]; // abierto por defecto
+    const isOpen=collapsed[grp.id]===true; // cerrado por defecto
     navHtml+=`<div class="sb-grupo-hdr" onclick="toggleSBGrupo('${grp.id}')">
       <span class="sb-grupo-ic">${grp.ic}</span>
       <span style="flex:1">${grp.label}</span>
@@ -6890,7 +6890,7 @@ function render(){
   else if(S.activeTab==='gz_dashboard')renderGZDashboard();
   else if(S.activeTab==='importar')renderImportar();
 }
-function goTab(t){if(!puedeVer(t)){toast('Sin acceso a este módulo',true);return}S.activeTab=t;render()}
+function goTab(t){if(!puedeVer(t)){toast('Sin acceso a este módulo',true);return}S.activeTab=t;closeSB();render()}
 
 // ═══════════════════════════════════════════════════════
 //  NAVEGACIÓN DE FORMULARIOS — Enter avanza al siguiente campo
@@ -8766,14 +8766,14 @@ function renderGZGerentes(){
     +'<div style="display:flex;align-items:center;gap:8px;flex:1">'
     +'<input id="srchGZ" value="'+(S._srchGZ||'')+'" placeholder="🔍 Buscar gerente, email, zona..." '
     +'style="flex:1;max-width:360px;padding:7px 12px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)" '
-    +'oninput="S._srchGZ=this.value;renderGZGerentes()">'
-    +'<span style="font-size:12px;color:var(--muted)">'+gzF.length+' de '+gz.length+'</span>'
+    +'oninput="srchFiltrarTabla(this,\"tblGerentes\",\"cntGerentes\")">'
+    +'<span id="cntGerentes" style="font-size:12px;color:var(--muted)">'+gzF.length+' de '+gz.length+'</span>'
     +'</div>'
     + '<button class="btn btn-primary" onclick="gzModalGerente("")">+ Nuevo Gerente de Zona</button>'
     + '</div>'
     + '<div class="tbl-wrap"><table><thead><tr>'
     + '<th>Nombre</th><th>Email</th><th>Teléfono</th><th style="text-align:center">Tiendas</th><th>Acciones</th>'
-    + '</tr></thead><tbody>'+rows+'</tbody></table></div>'
+    + '</tr></thead><tbody id="tblGerentes">'+rows+'</tbody></table></div>'
     + '<div style="margin-top:12px;padding:10px 14px;background:var(--surface2);border-radius:10px;border:1px solid var(--border);font-size:12px;color:var(--muted)">'
     + 'ℹ️ Para asignar tiendas a un gerente ve a <strong>Centros de Costo</strong> → edita cada centro y selecciona el gerente.'
     + '</div>';
@@ -9648,6 +9648,31 @@ function impDescargarPlantilla(modId) {
   a.click();
   URL.revokeObjectURL(a.href);
   toast('✓ Plantilla descargada');
+}
+
+// ── BÚSQUEDA EN TABLA SIN RE-RENDER ─────────────────────
+function srchFiltrarTabla(input, tbodyId, cntId){
+  var q=(input.value||'').toLowerCase().trim();
+  var tbody=document.getElementById(tbodyId);
+  if(!tbody)return;
+  var total=0,visible=0;
+  tbody.querySelectorAll('tr').forEach(function(tr){
+    total++;
+    var text=tr.textContent.toLowerCase();
+    var show=!q||text.includes(q);
+    tr.style.display=show?'':'none';
+    if(show)visible++;
+  });
+  var cnt=cntId?document.getElementById(cntId):null;
+  if(cnt){
+    if(q){
+      cnt.textContent=visible+' de '+total+(visible===0?' — sin resultados':'');
+      cnt.style.color=visible===0?'var(--red)':'var(--muted)';
+    } else {
+      cnt.textContent=total+' registros';
+      cnt.style.color='var(--muted)';
+    }
+  }
 }
 
 </script>
