@@ -1137,28 +1137,32 @@ async function loadData(){
   if(window.FB&&user&&S.empresa){
     try{
       const remote=await window.FB.load(S.empresa);
-      if(remote && (remote._ts||remote.proyectos)){
-        // Firebase tiene datos — aplicar
+      if(remote){
+        // Firebase tiene datos — SIEMPRE aplicar sin condiciones
         applyData(remote,false);
         setSyncUI('ok','Sincronizado');
         startListening();
         return;
-      } else if(!remote){
-        // Firebase devolvió null — verificar si localStorage tiene datos antes de reiniciar
+      } else {
+        // Firebase devolvió null — empresa nueva o datos perdidos
+        // Verificar localStorage antes de reiniciar
         let localRaw=null;
         try{localRaw=localStorage.getItem('pp3_'+S.empresa);}catch(e){}
         if(localRaw){
-          // Hay datos en local — restaurar y subir a Firebase
-          const localData=JSON.parse(localRaw);
-          applyData(localData,false);
-          setSyncUI('saving','Restaurando...');
-          await window.FB.save(S.empresa,{...serializeForFirestore(),_ts:Date.now()});
-          setSyncUI('ok','Restaurado desde local');
-          startListening();
-          console.log('[PP] Datos restaurados desde localStorage');
-          return;
+          try{
+            const localData=JSON.parse(localRaw);
+            // Solo restaurar si el local tiene datos reales
+            if(localData&&(localData.gastos||localData.proyectos)){
+              applyData(localData,false);
+              setSyncUI('saving','Restaurando desde respaldo...');
+              await window.FB.save(S.empresa,{...serializeForFirestore(),_ts:Date.now()});
+              setSyncUI('ok','Restaurado desde respaldo local');
+              startListening();
+              return;
+            }
+          }catch(e2){}
         }
-        // No hay datos en ningún lado — empresa nueva
+        // Empresa nueva sin datos
         S.proyectos=[];S.gastos=[];
         S.proveedores=[{id:'pv1',nombre:'Proveedor Demo',tipo:'General',tel:''}];
         S.centros=[];S.config={appName:'Proyectos Pro',logoUrl:'',accentColor:'#e8a020'};
@@ -1172,7 +1176,7 @@ async function loadData(){
       // Fallback a localStorage si Firebase falla
       try{
         const raw=localStorage.getItem('pp3_'+S.empresa);
-        if(raw){applyData(JSON.parse(raw));setSyncUI('err','Solo local (Firebase no disponible)');startListening();return;}
+        if(raw){applyData(JSON.parse(raw));setSyncUI('err','Solo local');startListening();return;}
       }catch(e2){}
     }
   }
@@ -5815,10 +5819,128 @@ function renderConfig(){
       Usuario: <strong style="color:var(--text)">${S.currentUser?.nombre||'—'}</strong> · Rol: <strong style="color:var(--text)">${ROLES[S.currentUser?.rol]?.label||S.currentUser?.rol||'—'}</strong><br>
       Firebase: <strong style="color:var(--green)">pf-construccion ✓</strong>
     </div>
+  </div>
+  <div class="card" style="border-color:var(--accent)33">
+    <div class="sec-hdr">🔧 Diagnóstico y Recuperación de Datos</div>
+    <div id="diagResult" style="font-size:13px;color:var(--muted);margin-bottom:12px">Presiona Diagnosticar para ver el estado actual de tus datos.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-secondary" onclick="diagData()">🔍 Diagnosticar</button>
+      <button class="btn btn-secondary" onclick="diagRestoreLocal()" style="color:var(--accent);border-color:var(--accent)">♻ Restaurar desde respaldo local</button>
+      <button class="btn btn-secondary" onclick="diagForceSave()" style="color:var(--green);border-color:var(--green)">⬆ Forzar guardado en Firebase</button>
+    </div>
   </div>`;
 }
 function handleLogoUpload(input){const file=input.files[0];if(!file)return;if(file.size>500000){toast('Logo muy grande — máx 500KB',true);return}const reader=new FileReader();reader.onload=e=>{S.config.logoUrl=e.target.result;saveData();applyBranding();render();toast('✓ Logo actualizado')};reader.readAsDataURL(file)}
 function addMarca(){const n=document.getElementById('nmarca')?.value.trim();if(!n||S.marcas.includes(n))return;S.marcas.push(n);saveData();render();toast('✓ Marca agregada')}
+
+// ── Herramientas de diagnóstico y recuperación ──────────
+async function diagData(){
+  var el=document.getElementById('diagResult');
+  if(!el)return;
+  el.innerHTML='<span style="color:var(--muted)">Analizando...</span>';
+
+  var lines=[];
+  // Estado en memoria
+  lines.push('📊 <strong>Datos en memoria (sesión actual):</strong>');
+  lines.push('&nbsp;&nbsp;Gastos: <strong>'+S.gastos.length+'</strong> registros');
+  lines.push('&nbsp;&nbsp;Proyectos: <strong>'+S.proyectos.length+'</strong>');
+  lines.push('&nbsp;&nbsp;Proveedores: <strong>'+S.proveedores.length+'</strong>');
+  lines.push('&nbsp;&nbsp;Centros: <strong>'+S.centros.length+'</strong>');
+  lines.push('&nbsp;&nbsp;Inventario productos: <strong>'+((S.inventario&&S.inventario.productos&&S.inventario.productos.length)||0)+'</strong>');
+  lines.push('');
+
+  // localStorage
+  try{
+    var raw=localStorage.getItem('pp3_'+S.empresa);
+    if(raw){
+      var local=JSON.parse(raw);
+      var localTs=local._ts?new Date(local._ts).toLocaleString('es-SV'):'sin fecha';
+      lines.push('💾 <strong>Respaldo local (localStorage):</strong>');
+      lines.push('&nbsp;&nbsp;Gastos: <strong style="color:var(--green)">'+( local.gastos&&local.gastos.length||0)+'</strong>');
+      lines.push('&nbsp;&nbsp;Proyectos: <strong style="color:var(--green)">'+(local.proyectos&&local.proyectos.length||0)+'</strong>');
+      lines.push('&nbsp;&nbsp;Proveedores: <strong style="color:var(--green)">'+(local.proveedores&&local.proveedores.length||0)+'</strong>');
+      lines.push('&nbsp;&nbsp;Guardado: <strong>'+localTs+'</strong>');
+      lines.push('');
+    } else {
+      lines.push('💾 <strong>Respaldo local:</strong> <span style="color:var(--red)">Sin datos en este dispositivo</span>');
+      lines.push('');
+    }
+  }catch(e){lines.push('💾 localStorage: error al leer');}
+
+  // Firebase
+  try{
+    var remote=await window.FB.load(S.empresa);
+    if(remote){
+      var remoteTs=remote._ts?new Date(remote._ts).toLocaleString('es-SV'):'sin fecha';
+      lines.push('☁ <strong>Firebase (datos en la nube):</strong>');
+      lines.push('&nbsp;&nbsp;Gastos: <strong style="color:'+(remote.gastos&&remote.gastos.length>0?'var(--green)':'var(--red)')+'">'+( remote.gastos&&remote.gastos.length||0)+'</strong>');
+      lines.push('&nbsp;&nbsp;Proyectos: <strong style="color:'+(remote.proyectos&&remote.proyectos.length>0?'var(--green)':'var(--red)')+'">'+( remote.proyectos&&remote.proyectos.length||0)+'</strong>');
+      lines.push('&nbsp;&nbsp;Última sincronización: <strong>'+remoteTs+'</strong>');
+    } else {
+      lines.push('☁ <strong>Firebase:</strong> <span style="color:var(--red)">Sin documento — empresa nueva o sin datos</span>');
+    }
+  }catch(e){lines.push('☁ Firebase: error al conectar — '+e.message);}
+
+  el.innerHTML=lines.join('<br>');
+}
+
+async function diagRestoreLocal(){
+  var el=document.getElementById('diagResult');
+  try{
+    var raw=localStorage.getItem('pp3_'+S.empresa);
+    if(!raw){
+      if(el)el.innerHTML='<span style="color:var(--red)">❌ No hay respaldo local en este dispositivo.</span>';
+      toast('Sin respaldo local disponible',true);
+      return;
+    }
+    var local=JSON.parse(raw);
+    var nGastos=(local.gastos&&local.gastos.length)||0;
+    var nProy=(local.proyectos&&local.proyectos.length)||0;
+    if(!confirm('¿Restaurar desde el respaldo local?\n\nContiene: '+nGastos+' gastos, '+nProy+' proyectos.\n\nEsto sobreescribirá los datos actuales.')){return;}
+    applyData(local,false);
+    if(el)el.innerHTML='<span style="color:var(--green)">✓ Datos restaurados desde respaldo local. Guardando en Firebase...</span>';
+    render();
+    // Forzar guardado inmediato
+    clearTimeout(S._syncTimer);
+    S._lastSaveTs=Date.now();
+    const dataToSave={...serializeForFirestore(),_ts:S._lastSaveTs};
+    var ok=await window.FB.save(S.empresa,dataToSave);
+    if(ok){
+      if(el)el.innerHTML='<span style="color:var(--green)">✅ Datos restaurados y guardados en Firebase correctamente.</span>';
+      toast('✅ Datos restaurados y sincronizados');
+    } else {
+      if(el)el.innerHTML='<span style="color:var(--accent)">⚠ Datos restaurados en pantalla pero Firebase no respondió. Intenta "Forzar guardado".</span>';
+    }
+  }catch(e){
+    toast('Error: '+e.message,true);
+    if(el)el.innerHTML='<span style="color:var(--red)">Error: '+e.message+'</span>';
+  }
+}
+
+async function diagForceSave(){
+  var el=document.getElementById('diagResult');
+  if(el)el.innerHTML='<span style="color:var(--muted)">Guardando en Firebase...</span>';
+  try{
+    clearTimeout(S._syncTimer);
+    S._saving=true;
+    S._lastSaveTs=Date.now();
+    const dataToSave={...serializeForFirestore(),_ts:S._lastSaveTs};
+    var ok=await window.FB.save(S.empresa,dataToSave);
+    S._saving=false;
+    if(ok){
+      setSyncUI('ok','Sincronizado');
+      if(el)el.innerHTML='<span style="color:var(--green)">✅ Guardado exitoso en Firebase. Gastos: '+S.gastos.length+', Proyectos: '+S.proyectos.length+'</span>';
+      toast('✅ Datos guardados en Firebase');
+    } else {
+      if(el)el.innerHTML='<span style="color:var(--red)">❌ Firebase rechazó el guardado. Revisa permisos en Firestore.</span>';
+      toast('Error al guardar en Firebase',true);
+    }
+  }catch(e){
+    S._saving=false;
+    if(el)el.innerHTML='<span style="color:var(--red)">Error: '+e.message+'</span>';
+    toast('Error: '+e.message,true);
+  }
+}
 
 
 // ═══════════════════════════════════════════════════════
