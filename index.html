@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- Proyectos Pro v3.9 build:2026-04-18 03:50 -->
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -1136,11 +1137,50 @@ async function loadData(){
   if(window.FB&&user&&S.empresa){
     try{
       const remote=await window.FB.load(S.empresa);
-      if(remote){applyData(remote,false);setSyncUI('ok','Sincronizado');startListening();return;}
-      else{S.proyectos=[];S.gastos=[];S.proveedores=[{id:'pv1',nombre:'Proveedor Demo',tipo:'General',tel:''}];S.centros=[];S.config={appName:'Proyectos Pro',logoUrl:'',accentColor:'#e8a020'};await window.FB.save(S.empresa,serializeState());setSyncUI('ok','Empresa iniciada');startListening();return;}
-    }catch(e){console.error('[PP] loadData error:',e)}
+      if(remote && (remote._ts||remote.proyectos)){
+        // Firebase tiene datos — aplicar
+        applyData(remote,false);
+        setSyncUI('ok','Sincronizado');
+        startListening();
+        return;
+      } else if(!remote){
+        // Firebase devolvió null — verificar si localStorage tiene datos antes de reiniciar
+        let localRaw=null;
+        try{localRaw=localStorage.getItem('pp3_'+S.empresa);}catch(e){}
+        if(localRaw){
+          // Hay datos en local — restaurar y subir a Firebase
+          const localData=JSON.parse(localRaw);
+          applyData(localData,false);
+          setSyncUI('saving','Restaurando...');
+          await window.FB.save(S.empresa,{...serializeForFirestore(),_ts:Date.now()});
+          setSyncUI('ok','Restaurado desde local');
+          startListening();
+          console.log('[PP] Datos restaurados desde localStorage');
+          return;
+        }
+        // No hay datos en ningún lado — empresa nueva
+        S.proyectos=[];S.gastos=[];
+        S.proveedores=[{id:'pv1',nombre:'Proveedor Demo',tipo:'General',tel:''}];
+        S.centros=[];S.config={appName:'Proyectos Pro',logoUrl:'',accentColor:'#e8a020'};
+        await window.FB.save(S.empresa,{...serializeState(),_ts:Date.now()});
+        setSyncUI('ok','Empresa iniciada');
+        startListening();
+        return;
+      }
+    }catch(e){
+      console.error('[PP] loadData error:',e);
+      // Fallback a localStorage si Firebase falla
+      try{
+        const raw=localStorage.getItem('pp3_'+S.empresa);
+        if(raw){applyData(JSON.parse(raw));setSyncUI('err','Solo local (Firebase no disponible)');startListening();return;}
+      }catch(e2){}
+    }
   }
-  try{const raw=localStorage.getItem('pp3_'+S.empresa);if(raw){applyData(JSON.parse(raw));setSyncUI('err','Solo local');}}catch(e){}
+  // Sin Firebase: intentar localStorage
+  try{
+    const raw=localStorage.getItem('pp3_'+S.empresa);
+    if(raw){applyData(JSON.parse(raw));setSyncUI('err','Solo local');}
+  }catch(e){}
   setSyncUI('err','Sin conexión');
 }
 function startListening(){
@@ -1161,23 +1201,60 @@ function startListening(){
   });
 }
 
+// ── Guardar al cerrar/salir de la app ──────────────────────
+// pagehide cubre móvil (iOS/Android) + escritorio
+// beforeunload cubre escritorio
+function _emergencySave(){
+  if(!S._dirty||!S.empresa)return;
+  try{
+    // Guardar en localStorage de forma síncrona (siempre funciona)
+    localStorage.setItem('pp3_'+S.empresa,JSON.stringify(serializeState()));
+    // Intentar Firebase (puede no completarse en móvil al cerrar)
+    clearTimeout(S._syncTimer);
+    _doSaveFirebase();
+  }catch(e){}
+}
+window.addEventListener('pagehide', _emergencySave);
+window.addEventListener('beforeunload', _emergencySave);
+// visibilitychange: cuando el usuario pone la app en background en móvil
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState==='hidden' && S._dirty){
+    _emergencySave();
+  }
+});
+
 async function saveData(){
   clearTimeout(S._syncTimer);
   setSyncUI('saving','Guardando...');
+  // Guardar siempre en localStorage inmediatamente
   try{localStorage.setItem('pp3_'+S.empresa,JSON.stringify(serializeState()));}catch(e){}
-  S._syncTimer=setTimeout(async()=>{
-    const user=window.FB?.currentUser();
-    if(window.FB&&user&&S.empresa){
-      S._saving=true;
-      S._lastSaveTs=Date.now();
-      const dataToSave={...serializeForFirestore(),_ts:S._lastSaveTs};
-      const ok=await window.FB.save(S.empresa,dataToSave);
-      S._saving=false;
-      S._dirty=false;
-      setSyncUI(ok?'ok':'err',ok?'Sincronizado':'Error al guardar');
-    }else{S._dirty=false;S._saving=false;setSyncUI('err','Sin sesión');}
-  },400);
   S._dirty=true;
+  // Guardar en Firebase con debounce corto (150ms)
+  S._syncTimer=setTimeout(()=>_doSaveFirebase(),150);
+}
+
+async function _doSaveFirebase(){
+  const user=window.FB?.currentUser();
+  if(!window.FB||!user||!S.empresa){
+    S._dirty=false;S._saving=false;
+    setSyncUI('err','Sin sesión');
+    return;
+  }
+  try{
+    S._saving=true;
+    S._lastSaveTs=Date.now();
+    const dataToSave={...serializeForFirestore(),_ts:S._lastSaveTs};
+    const ok=await window.FB.save(S.empresa,dataToSave);
+    S._saving=false;
+    S._dirty=false;
+    setSyncUI(ok?'ok':'err',ok?'Sincronizado':'Error al guardar');
+    if(!ok)console.error('[PP] Firebase save returned false');
+  }catch(e){
+    S._saving=false;
+    S._dirty=false;
+    setSyncUI('err','Error al guardar');
+    console.error('[PP] saveData error:',e);
+  }
 }
 function applyBranding(){
   const cfg=S.config||{};const name=cfg.appName||'Proyectos Pro';
@@ -4635,7 +4712,7 @@ function renderCentros(){
     +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">'
     +'<input id="srchCentros" value="'+(S._srchCentros||'')+'" placeholder="🔍 Buscar centro, descripción, gerente..." '
     +'style="flex:1;max-width:400px;padding:7px 12px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)" '
-    +'oninput="srchFiltrarTabla(this,\"tblCentros\",\"cntCentros\")">'
+    +'data-target="tblCentros" data-count="cntCentros" oninput="srchFiltrarTabla(this)">'
     +'<span id="cntCentros" style="font-size:12px;color:var(--muted)">'+centrosF.length+' de '+S.centros.length+'</span></div>'
     +'<div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Descripción</th><th>Proyecto</th><th>Origen</th><th>Cód. Mant.</th><th>Gerente de Zona</th><th></th></tr></thead><tbody id="tblCentros">'+rows+'</tbody></table></div>'
     +'<div id="modalEditCentro" class="modal"><div class="modal-box sm"><div class="modal-hdr"><div class="modal-ttl">✏ Editar Centro</div><button class="btn btn-secondary btn-sm" onclick="closeModal(\"modalEditCentro\")">✕</button></div><div id="modalEditCentroBody"></div></div></div>';
@@ -8897,7 +8974,7 @@ function renderGZGerentes(){
     +'<div style="display:flex;align-items:center;gap:8px;flex:1">'
     +'<input id="srchGZ" value="'+(S._srchGZ||'')+'" placeholder="🔍 Buscar gerente, email, zona..." '
     +'style="flex:1;max-width:360px;padding:7px 12px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)" '
-    +'oninput="srchFiltrarTabla(this,\"tblGerentes\",\"cntGerentes\")">'
+    +'data-target="tblGerentes" data-count="cntGerentes" oninput="srchFiltrarTabla(this)">'
     +'<span id="cntGerentes" style="font-size:12px;color:var(--muted)">'+gzF.length+' de '+gz.length+'</span>'
     +'</div>'
     + '<button class="btn btn-primary" onclick="gzModalGerente("")">+ Nuevo Gerente de Zona</button>'
@@ -9782,26 +9859,29 @@ function impDescargarPlantilla(modId) {
 }
 
 // ── BÚSQUEDA EN TABLA SIN RE-RENDER ─────────────────────
+// Acepta params explícitos O atributos data-target/data-count en el input
 function srchFiltrarTabla(input, tbodyId, cntId){
-  var q=(input.value||'').toLowerCase().trim();
-  var tbody=document.getElementById(tbodyId);
-  if(!tbody)return;
-  var total=0,visible=0;
+  var tid = tbodyId || (input.dataset ? input.dataset.target : '');
+  var cid = cntId || (input.dataset ? input.dataset.count : '');
+  var q = (input.value||'').toLowerCase().trim();
+  var tbody = document.getElementById(tid);
+  if(!tbody){ return; }
+  var total=0, visible=0;
   tbody.querySelectorAll('tr').forEach(function(tr){
     total++;
-    var text=tr.textContent.toLowerCase();
-    var show=!q||text.includes(q);
-    tr.style.display=show?'':'none';
-    if(show)visible++;
+    var text = tr.textContent.toLowerCase();
+    var show = !q || text.includes(q);
+    tr.style.display = show ? '' : 'none';
+    if(show) visible++;
   });
-  var cnt=cntId?document.getElementById(cntId):null;
+  var cnt = cid ? document.getElementById(cid) : null;
   if(cnt){
     if(q){
-      cnt.textContent=visible+' de '+total+(visible===0?' — sin resultados':'');
-      cnt.style.color=visible===0?'var(--red)':'var(--muted)';
+      cnt.textContent = visible + ' de ' + total + (visible===0 ? ' — sin resultados' : '');
+      cnt.style.color = visible===0 ? 'var(--red)' : 'var(--muted)';
     } else {
-      cnt.textContent=total+' registros';
-      cnt.style.color='var(--muted)';
+      cnt.textContent = total + ' registros';
+      cnt.style.color = 'var(--muted)';
     }
   }
 }
