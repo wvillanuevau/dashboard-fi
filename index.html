@@ -1875,8 +1875,8 @@ async function renderSAUsuarios(){
         <td><span class="badge ${u.activo!==false?'b-ok':'b-err'}">${u.activo!==false?'Activo':'Inactivo'}</span></td>
         <td style="font-size:11px;color:var(--muted)">${u.creadoEn?new Date(u.creadoEn).toLocaleDateString('es-SV'):'—'}</td>
         <td class="td-act">
-          <button class="btn btn-secondary btn-xs" onclick="editarUsuarioSA('${u.id}')">✏</button>
-          <button class="btn ${u.activo!==false?'btn-danger':'btn-success'} btn-xs" onclick="toggleUsuarioSA('${u.id}',${u.activo!==false})">${u.activo!==false?'⊘':'✓'}</button>
+          <button class="btn btn-secondary btn-xs" onclick="editarUsuarioSA('${u.id}')" title="Editar usuario" style="min-width:60px">✏ Editar</button>
+          <button class="btn ${u.activo!==false?'btn-danger':'btn-success'} btn-xs" onclick="toggleUsuarioSA('${u.id}',${u.activo!==false})" title="${u.activo!==false?'Desactivar':'Activar'}">${u.activo!==false?'⊘ Des.':'✓ Act.'}</button>
           <button class="btn btn-danger btn-xs" onclick="eliminarUsuarioSA('${u.id}','${esc(u.email)}')" title="Eliminar permanente">🗑</button>
         </td>
       </tr>`;
@@ -1972,7 +1972,16 @@ async function crearUsuarioSA(){
 }
 
 async function editarUsuarioSA(uid){
-  const u=(window._SA_USUARIOS||[]).find(x=>x.id===uid);if(!u)return;
+  // Buscar en caché local primero, si no recargar de Firebase
+  var u=(window._SA_USUARIOS||[]).find(x=>x.id===uid);
+  if(!u){
+    try{
+      const todos=await window.FB.getAllUsuarios();
+      window._SA_USUARIOS=todos;
+      u=todos.find(x=>x.id===uid);
+    }catch(e){}
+  }
+  if(!u){toast('No se encontró el usuario',true);return;}
   const empresas=await window.FB.getAllEmpresas();
   const empOpts=empresas.map(e=>`<option value="${e.id}" ${u.empresa===e.id?'selected':''}>${esc(e.id)} — ${esc(e.nombre||e.id)}</option>`).join('');
   const html=`<div style="position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:600;display:flex;align-items:center;justify-content:center;padding:20px" id="editUModal">
@@ -2588,7 +2597,7 @@ function tplCron(p){
     const partidaFechaInicio=m.fechaInicio||cr.fechaInicio||'';
     const partidaFechaFin=addDias(partidaFechaInicio,dp);
 
-    html+=`<tr style="background:#0d0b09">
+    html+=`<tr style="background:var(--surface2)">
       <td>
         ${(!isCerrado&&!esContratista)
           ?`<input value="${esc(m.nombre)}" style="font-weight:700;background:transparent;border:none;color:var(--text);width:100%;font-size:13px" onchange="updPartida('${p.id}',${mi},'nombre',this.value)">`
@@ -2666,7 +2675,7 @@ function tplCron(p){
     });
   });
 
-  html+=`<tr style="background:#0a0908;border-top:2px solid var(--accent)">
+  html+=`<tr style="background:var(--surface);border-top:2px solid var(--accent)">
     <td colspan="6" style="text-align:right;color:var(--muted);font-size:11px;padding:10px 12px">TOTAL PRESUPUESTO:</td>
     <td style="text-align:right;padding:10px 12px"><strong style="color:var(--accent);font-size:17px">${fmt(grand)}</strong></td>
     <td></td>
@@ -3945,7 +3954,7 @@ function tplPagosYGastos(p){
       </tr>`;
     }).join('')}
     <!-- IMPREVISTOS como fila adicional -->
-    <tr style="background:#1a1008">
+    <tr style="background:var(--surface2)">
       <td><strong style="color:var(--accent)">⚠ Imprevistos</strong></td>
       <td><span class="badge b-warn">Adicional</span></td>
       <td style="text-align:right">
@@ -4468,7 +4477,7 @@ function tplPagosYGastos(p){
         </td>
       </tr>`;
     }).join('')}
-    <tr style="background:#1a1208">
+    <tr style="background:var(--surface2)">
       <td><strong style="color:var(--accent)">⚠ Imprevistos</strong></td>
       <td><span class="badge b-neu" style="font-size:10px">Adicional</span></td>
       <td><input type="number" min="0" id="impInput_${p.id}" value="${imp}" style="text-align:right;font-weight:700;color:var(--accent)"
@@ -5031,7 +5040,7 @@ function renderReporteOutput(){
         const dp=m.sub.reduce((s,x)=>s+(parseInt(x.dias)||0),0);
         const doneM=m.sub.filter(x=>x.done).length;
         const pctM=m.sub.length>0?Math.round((doneM/m.sub.length)*100):0;
-        bloque+=`<tr style="background:#0d0b09">
+        bloque+=`<tr style="background:var(--surface2)">
           <td colspan="4" style="font-weight:700;padding:8px 12px">${mi+1}. ${esc(m.nombre)}
             <span style="font-size:11px;color:var(--muted);font-weight:400;margin-left:8px">${dp} días</span>
           </td>
@@ -6690,7 +6699,7 @@ function verComparacion(idx){
         <button class="btn btn-secondary btn-sm" onclick="this.closest('[style*=fixed]').remove()">✕ Cerrar</button>
       </div>
     </div>
-    <div style="background:#0a0908;border:1px solid var(--border);border-radius:12px;padding:20px;overflow-x:auto">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;overflow-x:auto">
       ${comp.resultado}
     </div>
   </div>`;
@@ -6928,7 +6937,7 @@ function ganttHTML(p){
         <span style="display:flex;align-items:center;gap:5px"><span style="width:2px;height:14px;background:#e8a020;display:inline-block"></span>Hoy</span>
       </div>
     </div>
-    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:12px;background:#0a0908">
+    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:12px;background:var(--surface)">
       <svg width="${LABEL_W+W}" height="${H}" style="display:block;min-width:${LABEL_W+W}px;font-family:Karla,sans-serif">
         <!-- Fondo sólido del Gantt -->
         <rect x="0" y="0" width="${LABEL_W+W}" height="${H}" fill="#0e0c0a" rx="0"/>
