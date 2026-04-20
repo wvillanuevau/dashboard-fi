@@ -1006,6 +1006,11 @@ input[type=date]{color-scheme:dark}
 <div id="modalDP" class="modal"><div class="modal-box lg">
   <div id="dpContent"></div>
   <div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn btn-secondary" onclick="closeModal('modalDP')">Cerrar</button></div>
+  <!-- Floating close button always visible -->
+  <button onclick="closeModal('modalDP')" title="Cerrar proyecto"
+    style="position:fixed;top:14px;right:18px;z-index:1200;background:var(--surface2);border:1px solid var(--border);border-radius:50%;width:36px;height:36px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 12px rgba(0,0,0,.4);color:var(--muted);transition:all .15s"
+    onmouseover="this.style.background='var(--red)';this.style.color='#fff';this.style.borderColor='var(--red)'"
+    onmouseout="this.style.background='var(--surface2)';this.style.color='var(--muted)';this.style.borderColor='var(--border)'">✕</button>
 </div></div>
 
 <div id="toast" class="toast"></div>
@@ -1875,9 +1880,9 @@ async function renderSAUsuarios(){
         <td><span class="badge ${u.activo!==false?'b-ok':'b-err'}">${u.activo!==false?'Activo':'Inactivo'}</span></td>
         <td style="font-size:11px;color:var(--muted)">${u.creadoEn?new Date(u.creadoEn).toLocaleDateString('es-SV'):'—'}</td>
         <td class="td-act">
-          <button class="btn btn-secondary btn-xs" onclick="editarUsuarioSA('${u.id}')" title="Editar usuario" style="min-width:60px">✏ Editar</button>
-          <button class="btn ${u.activo!==false?'btn-danger':'btn-success'} btn-xs" onclick="toggleUsuarioSA('${u.id}',${u.activo!==false})" title="${u.activo!==false?'Desactivar':'Activar'}">${u.activo!==false?'⊘ Des.':'✓ Act.'}</button>
-          <button class="btn btn-danger btn-xs" onclick="eliminarUsuarioSA('${u.id}','${esc(u.email)}')" title="Eliminar permanente">🗑</button>
+          <button class="btn btn-secondary btn-xs sa-edit-btn" data-uid="${u.id}" title="Editar usuario" style="min-width:60px">✏ Editar</button>
+          <button class="btn ${u.activo!==false?'btn-danger':'btn-success'} btn-xs sa-toggle-btn" data-uid="${u.id}" data-activo="${u.activo!==false}" title="${u.activo!==false?'Desactivar':'Activar'}">${u.activo!==false?'⊘ Des.':'✓ Act.'}</button>
+          <button class="btn btn-danger btn-xs sa-del-btn" data-uid="${u.id}" data-email="${esc(u.email)}" title="Eliminar permanente">🗑</button>
         </td>
       </tr>`;
     }).join('');
@@ -1926,6 +1931,20 @@ async function renderSAUsuarios(){
 
   window._SA_USUARIOS=todos;
   window._SA_buildRows=buildRows;
+
+  // Event delegation — avoids onclick string escaping issues con UIDs especiales
+  setTimeout(function(){
+    var saC=document.getElementById('saContent');
+    if(!saC)return;
+    saC.addEventListener('click',function(e){
+      var editBtn=e.target.closest('.sa-edit-btn');
+      var toggleBtn=e.target.closest('.sa-toggle-btn');
+      var delBtn=e.target.closest('.sa-del-btn');
+      if(editBtn){editarUsuarioSA(editBtn.dataset.uid);}
+      else if(toggleBtn){toggleUsuarioSA(toggleBtn.dataset.uid,toggleBtn.dataset.activo==='true');}
+      else if(delBtn){eliminarUsuarioSA(delBtn.dataset.uid,delBtn.dataset.email);}
+    },{once:true});
+  },100);
 }
 
 function filtrarUsuariosSA(){
@@ -2627,8 +2646,8 @@ function tplCron(p){
       const t=(parseFloat(sub.cantidad)||0)*(parseFloat(sub.precio)||0);
       const isDone=!!sub.done;
       // Color según estado — NO tachar, cambiar color
-      const rowBg=isDone?'#0a140a':'#111009';
-      const textColor=isDone?'#558855':'var(--text)';
+      const rowBg=isDone?'var(--surface2)':'var(--surface)';
+      const textColor=isDone?'var(--green)':'var(--text)';
 
       const subFechaInicio=sub.fechaInicio||partidaFechaInicio||cr.fechaInicio||'';
       html+=`<tr style="background:${rowBg}">
@@ -5055,10 +5074,10 @@ function renderReporteOutput(){
         </tr>`;
         m.sub.forEach((sub,si)=>{
           const t=(parseFloat(sub.cantidad)||0)*(parseFloat(sub.precio)||0);
-          bloque+=`<tr style="background:${sub.done?'#0a140a':'#111009'}">
+          bloque+=`<tr style="background:${sub.done?'var(--surface2)':'var(--surface)'}">
             <td style="padding-left:24px;font-size:13px">
-              ${sub.done?'<span style="color:var(--green)">✅</span>':'<span style="color:#333">⬜</span>'}
-              <span style="color:${sub.done?'#558855':'var(--text)'};margin-left:6px">${esc(sub.desc||'—')}</span>
+              ${sub.done?'<span style="color:var(--green)">✅</span>':'<span style="color:var(--muted)">⬜</span>'}
+              <span style="color:${sub.done?'var(--green)':'var(--text)'};margin-left:6px">${esc(sub.desc||'—')}</span>
             </td>
             <td style="font-size:12px;color:var(--muted)">${esc(sub.unidad||'—')}</td>
             <td style="text-align:right;font-size:12px">${sub.cantidad||0}</td>
