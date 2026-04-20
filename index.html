@@ -1169,7 +1169,17 @@ function serializeForFirestore(){
   };
 }
 function applyData(d,fromRemote=false){
-  S.proyectos=d.proyectos||[];S.gastos=d.gastos||[];S.proveedores=d.proveedores||[];S.centros=d.centros||[];
+  S.proyectos=d.proyectos||[];
+  // Si los gastos están en chunks, NO sobreescribir con el array vacío del doc principal
+  // Solo aplicar gastos si vienen con datos reales O si es una carga inicial completa (FB.load)
+  if(d._gastosChunked&&fromRemote&&d.gastos&&d.gastos.length===0){
+    // Gastos chunkeados recibidos por listener — preservar los gastos en memoria
+    // (ya fueron cargados correctamente por FB.load al iniciar)
+    console.log('[PP] Snapshot con gastos chunkeados — preservando S.gastos en memoria');
+  } else {
+    S.gastos=d.gastos||[];
+  }
+  S.proveedores=d.proveedores||[];S.centros=d.centros||[];
   S.marcas=d.marcas||['Papa Johns','Jimmy Johns'];S.usuarios=d.usuarios||[];
   S.config=d.config||{appName:'Proyectos Pro',logoUrl:'',accentColor:'#e8a020'};
   S.inventario=d.inventario||{bodegas:[],productos:[],movimientos:[]};
@@ -1247,15 +1257,33 @@ async function loadData(){
   startListening();
 }
 
+var _listenReloadTimer=null;
 function startListening(){
   if(S._listening||!window.FB||!S.empresa)return;
   const user=window.FB.currentUser();if(!user)return;
   S._listening=true;
   window.FB.listen(S.empresa,(remoteData)=>{
-    // Si estamos guardando activamente, no sobreescribir
     if(S._saving)return;
-    // Aplicar datos de Firebase siempre que sean válidos
-    if(remoteData&&Object.keys(remoteData).length>3){
+    if(!remoteData||Object.keys(remoteData).length<=3)return;
+    if(remoteData._gastosChunked){
+      // Gastos en subcolección — necesitamos hacer FB.load completo para obtenerlos
+      // Debounce para no llamar FB.load en cada keystroke
+      clearTimeout(_listenReloadTimer);
+      _listenReloadTimer=setTimeout(async ()=>{
+        try{
+          const full=await window.FB.load(S.empresa);
+          if(full&&!S._saving){
+            applyData(full,false);
+            if(S.currentUser)render();
+            setSyncUI('ok','Actualizado');
+          }
+        }catch(e){console.warn('[PP] listener reload failed:',e.message);}
+      },800);
+      // Mientras tanto, aplicar todo excepto gastos (para que proyectos/centros/etc actualicen)
+      applyData(remoteData,true);
+      if(S.currentUser)render();
+      setSyncUI('ok','Actualizado');
+    } else {
       applyData(remoteData,true);
       if(S.currentUser)render();
       setSyncUI('ok','Actualizado');
@@ -2375,7 +2403,7 @@ function tplPagos(p){
           <td><input type="checkbox" ${t.paid?'checked':''} onchange="updTramoOC('${p.id}',${i},'paid',this.checked)" style="width:18px;height:18px;cursor:pointer"></td>
         </tr>`;
       }).join('')}
-      <tr style="background:#0e0c0a">
+      <tr style="background:var(--surface2)">
         <td colspan="2" style="text-align:right;color:var(--muted);font-size:11px">PENDIENTE:</td>
         <td style="text-align:right"><strong style="color:${pendienteOC>0?'var(--accent)':'var(--green)'}">${fmt(pendienteOC)}</strong></td>
         <td colspan="2"></td>
@@ -2408,7 +2436,7 @@ function tplPagos(p){
   <!-- Gastos vinculados -->
   <div class="divider"></div><div class="sec-hdr">Gastos vinculados al proyecto</div>
   <div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Factura</th><th>Descripción</th><th>Proveedor</th><th style="text-align:right">Valor</th></tr></thead>
-  <tbody>${gastoRows}${lista.length>0?`<tr style="background:#0e0c0a"><td colspan="4" style="text-align:right;font-size:11px;color:var(--muted)">SUBTOTAL:</td><td style="text-align:right"><strong style="color:var(--red)">${fmt(gp)}</strong></td></tr>`:''}</tbody></table></div>`;
+  <tbody>${gastoRows}${lista.length>0?`<tr style="background:var(--surface2)"><td colspan="4" style="text-align:right;font-size:11px;color:var(--muted)">SUBTOTAL:</td><td style="text-align:right"><strong style="color:var(--red)">${fmt(gp)}</strong></td></tr>`:''}</tbody></table></div>`;
 }
 
 function tplGastosProy(p){
@@ -2539,7 +2567,7 @@ function tplCron(p){
       <col style="width:${isCerrado?'15':'12'}%">
       ${!isCerrado?'<col style="width:8%">':''}
     </colgroup>
-    <thead><tr style="background:#0e0c0a">
+    <thead><tr style="background:var(--surface2)">
       <th>Partida / Subpartida</th>
       <th>Unidad</th>
       <th style="text-align:right">Cant.</th>
@@ -3366,7 +3394,7 @@ function tplPagosYGastos(p){
         </td>
       </tr>`;
     }).join('')}
-    <tr style="background:#0e0c0a">
+    <tr style="background:var(--surface2)">
       <td colspan="2" style="text-align:right;font-size:11px;color:var(--muted)">PENDIENTE OC:</td>
       <td style="text-align:right"><strong style="color:var(--accent)">${fmt(oc-pagadoOC)}</strong></td>
       <td colspan="2"></td>
@@ -3410,7 +3438,7 @@ function tplPagosYGastos(p){
       <th>Fecha</th>
       <th style="text-align:center">📎</th>
     </tr></thead>
-    <tbody>${gastoRows}${lista.length>0?`<tr style="background:#0e0c0a">
+    <tbody>${gastoRows}${lista.length>0?`<tr style="background:var(--surface2)">
       <td colspan="3" style="text-align:right;font-size:11px;color:var(--muted)">SUBTOTAL:</td>
       <td style="text-align:right"><strong style="color:var(--red)">${fmt(gp)}</strong></td>
       <td colspan="2"></td>
@@ -3948,7 +3976,7 @@ function tplPagosYGastos(p){
       </td>
     </tr>
     <!-- Totales -->
-    <tr style="background:#0e0c0a;border-top:2px solid var(--border)">
+    <tr style="background:var(--surface2);border-top:2px solid var(--border)">
       <td colspan="2" style="text-align:right;font-size:11px;color:var(--muted)">PENDIENTE OC:</td>
       <td style="text-align:right"><strong style="color:var(--accent)">${fmt(oc-pagadoOC)}</strong></td>
       <td colspan="2"></td>
@@ -3982,7 +4010,7 @@ function tplPagosYGastos(p){
       <th class="hide-sm">Fecha</th>
       <th style="text-align:center">📎</th>
     </tr></thead>
-    <tbody>${gastoRows}${lista.length>0?`<tr style="background:#0e0c0a">
+    <tbody>${gastoRows}${lista.length>0?`<tr style="background:var(--surface2)">
       <td colspan="3" style="text-align:right;font-size:11px;color:var(--muted)">SUBTOTAL:</td>
       <td style="text-align:right"><strong style="color:var(--red)">${fmt(gp)}</strong></td>
       <td colspan="2"></td>
@@ -4464,7 +4492,7 @@ function tplPagosYGastos(p){
         `}
       </td>
     </tr>
-    <tr style="background:#0e0c0a;border-top:2px solid var(--border)">
+    <tr style="background:var(--surface2);border-top:2px solid var(--border)">
       <td colspan="2" style="text-align:right;font-size:11px;color:var(--muted)">PENDIENTE OC:</td>
       <td style="text-align:right"><strong style="color:var(--accent)">${fmt(oc-pagadoOC)}</strong></td>
       <td colspan="2"></td>
@@ -4493,7 +4521,7 @@ function tplPagosYGastos(p){
       <th style="text-align:right">Valor</th><th class="hide-sm">Fecha</th>
       <th style="text-align:center">📎</th>
     </tr></thead>
-    <tbody>${gastoRows}${lista.length>0?`<tr style="background:#0e0c0a">
+    <tbody>${gastoRows}${lista.length>0?`<tr style="background:var(--surface2)">
       <td colspan="3" style="text-align:right;font-size:11px;color:var(--muted)">SUBTOTAL:</td>
       <td style="text-align:right;color:var(--red);font-weight:700">${fmt(gp)}</td>
       <td colspan="2"></td>
@@ -4901,7 +4929,7 @@ function renderReporteOutput(){
     const porMes={};
     gastos.forEach(g=>{const mes=g.fecha?g.fecha.substring(0,7):'Sin fecha';porMes[mes]=(porMes[mes]||0)+(parseFloat(g.valor)||0);});
     let rows=Object.entries(porMes).sort().map(([mes,val])=>`<tr><td>${mes}</td><td style="text-align:right"><strong>${fmt(val)}</strong></td><td style="text-align:right">${((val/total)*100).toFixed(1)}%</td></tr>`).join('');
-    rows+=`<tr style="background:#0e0c0a;font-weight:700"><td>TOTAL</td><td style="text-align:right">${fmt(total)}</td><td style="text-align:right">100%</td></tr>`;
+    rows+=`<tr style="background:var(--surface2);font-weight:700"><td>TOTAL</td><td style="text-align:right">${fmt(total)}</td><td style="text-align:right">100%</td></tr>`;
     html=`<div class="sec-hdr">Gastos por período ${desde?'desde '+fmtDate(desde):''} ${hasta?'hasta '+fmtDate(hasta):''}</div>
     <div class="tbl-wrap"><table><thead><tr><th>Mes</th><th style="text-align:right">Total</th><th style="text-align:right">%</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
@@ -4911,7 +4939,7 @@ function renderReporteOutput(){
     const porProv={};
     gastos.forEach(g=>{porProv[g.proveedor||'Sin proveedor']=(porProv[g.proveedor||'Sin proveedor']||0)+(parseFloat(g.valor)||0);});
     let rows=Object.entries(porProv).sort((a,b)=>b[1]-a[1]).map(([prov,val])=>`<tr><td>${esc(prov)}</td><td style="text-align:right"><strong>${fmt(val)}</strong></td><td style="text-align:right">${((val/total)*100).toFixed(1)}%</td><td><div class="prog" style="width:120px"><div class="prog-fill" style="width:${((val/total)*100).toFixed(0)}%"></div></div></td></tr>`).join('');
-    rows+=`<tr style="background:#0e0c0a;font-weight:700"><td>TOTAL</td><td style="text-align:right">${fmt(total)}</td><td style="text-align:right">100%</td><td></td></tr>`;
+    rows+=`<tr style="background:var(--surface2);font-weight:700"><td>TOTAL</td><td style="text-align:right">${fmt(total)}</td><td style="text-align:right">100%</td><td></td></tr>`;
     html=`<div class="sec-hdr">Gastos por proveedor</div><div class="tbl-wrap"><table><thead><tr><th>Proveedor</th><th style="text-align:right">Total</th><th style="text-align:right">%</th><th>Proporción</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
@@ -4923,7 +4951,7 @@ function renderReporteOutput(){
       return`<tr><td><strong>${esc(p.nombre)}</strong></td><td>${fmt(oc)}</td><td>${fmt(imp)}</td><td style="color:var(--red)">${fmt(gp)}</td><td style="color:var(--accent)"><strong>${fmt(oc+imp+gp)}</strong></td></tr>`;
     }).join('');
     const gSinProy=gastos.filter(g=>!g.proyectoId).reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
-    html=`<div class="sec-hdr">Gastos por proyecto</div><div class="tbl-wrap"><table><thead><tr><th>Proyecto</th><th>Obra Civil</th><th>Imprevistos</th><th>Gastos registrados</th><th>Total</th></tr></thead><tbody>${rows}<tr style="background:#0e0c0a"><td>Sin proyecto</td><td>—</td><td>—</td><td style="color:var(--red)">${fmt(gSinProy)}</td><td>${fmt(gSinProy)}</td></tr></tbody></table></div>`;
+    html=`<div class="sec-hdr">Gastos por proyecto</div><div class="tbl-wrap"><table><thead><tr><th>Proyecto</th><th>Obra Civil</th><th>Imprevistos</th><th>Gastos registrados</th><th>Total</th></tr></thead><tbody>${rows}<tr style="background:var(--surface2)"><td>Sin proyecto</td><td>—</td><td>—</td><td style="color:var(--red)">${fmt(gSinProy)}</td><td>${fmt(gSinProy)}</td></tr></tbody></table></div>`;
   }
 
   else if(tipo==='avance_proyectos'){
@@ -5995,7 +6023,11 @@ async function diagRestoreLocal(){
     const dataToSave={...serializeForFirestore(),_ts:S._lastSaveTs};
     var ok=await window.FB.save(S.empresa,dataToSave);
     if(ok){
-      if(el)el.innerHTML='<span style="color:var(--green)">✅ Datos restaurados y guardados en Firebase correctamente.</span>';
+      if(el)el.innerHTML='<span style="color:var(--green)">✅ Guardado en Firebase. Recargando datos completos...</span>';
+      // Recargar desde Firebase para obtener versión chunkeada correcta
+      const full=await window.FB.load(S.empresa);
+      if(full){applyData(full,false);render();}
+      if(el)el.innerHTML='<span style="color:var(--green)">✅ '+S.gastos.length+' gastos y '+S.proyectos.length+' proyectos cargados correctamente.</span>';
       toast('✅ Datos restaurados y sincronizados');
     } else {
       if(el)el.innerHTML='<span style="color:var(--accent)">⚠ Datos restaurados en pantalla pero Firebase no respondió. Intenta "Forzar guardado".</span>';
@@ -6695,27 +6727,71 @@ function delComparacion(idx){
 // ── Duración real del proyecto (considera solapamiento de tareas) ──────────
 // Calcula el span real en días: desde la fecha más temprana hasta la más tardía
 // ignorando que tareas paralelas se suman incorrectamente
+// Calcula la duración real del proyecto en días calendario
+// usando las fechas absolutas de cada subpartida (no offsets que pueden ser negativos)
 function calcDuracionReal(cr){
-  if(!cr||!cr.partidas||!cr.partidas.length||!cr.fechaInicio)return 0;
-  const base=new Date(cr.fechaInicio+'T00:00:00');
-  let maxEnd=0;
+  if(!cr||!cr.partidas||!cr.partidas.length)return 0;
+  var allStarts=[], allEnds=[];
+
   cr.partidas.forEach(function(m){
-    const partidaStart=m.fechaInicio||cr.fechaInicio;
-    let cursor=Math.max(0,Math.round((new Date(partidaStart+'T00:00:00')-base)/86400000));
+    var partidaFechaBase=m.fechaInicio||cr.fechaInicio||'';
+    var cursor=partidaFechaBase?new Date(partidaFechaBase+'T00:00:00'):null;
+
     (m.sub||[]).forEach(function(s){
-      const d=parseInt(s.dias)||1;
-      let start=cursor;
+      var d=Math.max(parseInt(s.dias)||1,1);
+      var startDt;
+
       if(s.fechaInicio){
-        const off=Math.round((new Date(s.fechaInicio+'T00:00:00')-base)/86400000);
-        if(off>=0)start=off;
+        startDt=new Date(s.fechaInicio+'T00:00:00');
+      } else if(cursor){
+        startDt=new Date(cursor.getTime());
+      } else {
+        return;
       }
-      const end=start+d;
-      if(end>maxEnd)maxEnd=end;
-      cursor=start+d;
+
+      var endDt=new Date(startDt.getTime());
+      endDt.setDate(endDt.getDate()+d);
+
+      allStarts.push(startDt.getTime());
+      allEnds.push(endDt.getTime());
+
+      // avanzar cursor para la siguiente sub sin fecha propia
+      cursor=endDt;
     });
   });
-  return maxEnd;
+
+  if(!allStarts.length)return 0;
+  var earliest=Math.min.apply(null,allStarts);
+  var latest=Math.max.apply(null,allEnds);
+  return Math.round((latest-earliest)/86400000);
 }
+
+// Devuelve la fecha de inicio real del proyecto (puede ser antes de cr.fechaInicio)
+function calcFechaInicioReal(cr){
+  if(!cr||!cr.partidas||!cr.partidas.length)return cr&&cr.fechaInicio||'';
+  var earliest=Infinity;
+  var fallback=cr.fechaInicio||'';
+
+  cr.partidas.forEach(function(m){
+    var base=m.fechaInicio||cr.fechaInicio||'';
+    var cursor=base?new Date(base+'T00:00:00'):null;
+    (m.sub||[]).forEach(function(s){
+      var startDt=s.fechaInicio?new Date(s.fechaInicio+'T00:00:00'):cursor;
+      if(startDt&&startDt.getTime()<earliest){
+        earliest=startDt.getTime();
+      }
+      if(cursor){
+        var d=Math.max(parseInt(s.dias)||1,1);
+        cursor=new Date(cursor.getTime());
+        cursor.setDate(cursor.getDate()+d);
+      }
+    });
+  });
+
+  if(earliest===Infinity)return fallback;
+  return new Date(earliest).toISOString().slice(0,10);
+}
+
 function ganttHTML(p){
   const cr=p.cronograma;
   if(!cr.partidas||cr.partidas.length===0)return`<div class="empty" style="padding:20px">Agrega partidas para ver el Gantt</div>`;
@@ -6725,7 +6801,9 @@ function ganttHTML(p){
   const durReal=calcDuracionReal(cr)||totalDias;
   if(totalDias===0)return`<div class="warn-box">Agrega días a las subpartidas para ver el Gantt</div>`;
 
-  const startDate=new Date(cr.fechaInicio+'T00:00:00');
+  // Usar la fecha de inicio real (puede ser anterior a la global si hay subs con fechas previas)
+  const realStartStr=calcFechaInicioReal(cr)||cr.fechaInicio;
+  const startDate=new Date(realStartStr+'T00:00:00');
   const ROW_H=34, HEAD_H=48, LABEL_W=220, DAY_W=28;
   const today=new Date();today.setHours(0,0,0,0);
   const diffToday=Math.floor((today-startDate)/86400000);
@@ -6736,28 +6814,29 @@ function ganttHTML(p){
   cr.partidas.forEach((m,mi)=>{
     const pDays=m.sub.reduce((s,x)=>s+(parseInt(x.dias)||0),0);
     const doneM=m.sub.filter(x=>x.done).length;
-    // Offset: si la partida tiene fecha propia, calcular días desde fecha global
-    const partidaStart=m.fechaInicio||cr.fechaInicio;
+    // Offset desde la fecha real de inicio (puede ser anterior a cr.fechaInicio)
+    const partidaFechaStr=m.fechaInicio||cr.fechaInicio||realStartStr;
     let startOffset=0;
-    if(partidaStart&&cr.fechaInicio){
-      const base=new Date(cr.fechaInicio+'T00:00:00');
-      const pStart=new Date(partidaStart+'T00:00:00');
-      startOffset=Math.max(0,Math.round((pStart-base)/86400000));
+    if(partidaFechaStr){
+      const pStart=new Date(partidaFechaStr+'T00:00:00');
+      startOffset=Math.max(0,Math.round((pStart-startDate)/86400000));
     }
     rows.push({type:'partida',label:m.nombre,start:startOffset,days:pDays,mi,done:doneM,total:m.sub.length});
-    let cursor=startOffset;
+    let cursorDt=new Date(startDate.getTime());
+    cursorDt.setDate(cursorDt.getDate()+startOffset);
     m.sub.forEach((sub,si)=>{
-      const d=parseInt(sub.dias)||1;
-      // Si la subpartida tiene fecha propia, calcular offset desde la fecha global
-      let subStart=cursor;
-      if(sub.fechaInicio&&cr.fechaInicio){
-        const base=new Date(cr.fechaInicio+'T00:00:00');
-        const sStart=new Date(sub.fechaInicio+'T00:00:00');
-        const off=Math.round((sStart-base)/86400000);
-        if(off>=0)subStart=off;
+      const d=Math.max(parseInt(sub.dias)||1,1);
+      // Calcular offset desde realStartDate usando fechas absolutas
+      let subStartDt;
+      if(sub.fechaInicio){
+        subStartDt=new Date(sub.fechaInicio+'T00:00:00');
+      } else {
+        subStartDt=new Date(cursorDt.getTime());
       }
+      const subStart=Math.max(0,Math.round((subStartDt-startDate)/86400000));
       rows.push({type:'sub',label:sub.desc||'—',start:subStart,days:d,mi,si,done:sub.done,unidad:sub.unidad||''});
-      cursor=subStart+d;
+      cursorDt=new Date(subStartDt.getTime());
+      cursorDt.setDate(cursorDt.getDate()+d);
     });
   });
   // Calcular el rango total del gantt considerando todas las partidas
