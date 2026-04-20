@@ -904,7 +904,7 @@ input[type=date]{color-scheme:dark}
       <button class="hamburger" id="hmbBtn" onclick="toggleSB()" title="Menú" style="display:flex;align-items:center;justify-content:center;width:38px;height:38px;padding:0;flex-shrink:0">☰</button>
       <div class="page-ttl" id="pageTitle" style="flex:1">Dashboard</div>
       <div class="topbar-right">
-        <div class="sync-badge" id="syncBadge"><div class="sync-dot" id="syncDot"></div><span id="syncTxt">—</span></div>
+        <div class="sync-badge" id="syncBadge" onclick="forceReloadFromFirebase()" title="Clic para recargar datos desde Firebase" style="cursor:pointer"><div class="sync-dot" id="syncDot"></div><span id="syncTxt">—</span></div>
         <button onclick="openThemePanel()" title="Personalizar apariencia" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);cursor:pointer;font-size:14px;color:var(--muted);display:flex;align-items:center;gap:5px;transition:all .15s" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">🎨 <span style="font-size:12px;font-family:'Karla',sans-serif;font-weight:600">Tema</span></button>
         <div id="headerActions"></div>
       </div>
@@ -1134,76 +1134,84 @@ function migrateData(){
 async function loadData(){
   setSyncUI('saving','Cargando...');
   const user=window.FB.currentUser();
-  if(window.FB&&user&&S.empresa){
-    try{
-      const remote=await window.FB.load(S.empresa);
-      if(remote){
-        // Firebase tiene datos — SIEMPRE aplicar sin condiciones
-        applyData(remote,false);
-        setSyncUI('ok','Sincronizado');
-        startListening();
-        return;
-      } else {
-        // Firebase devolvió null — empresa nueva o datos perdidos
-        // Verificar localStorage antes de reiniciar
-        let localRaw=null;
-        try{localRaw=localStorage.getItem('pp3_'+S.empresa);}catch(e){}
-        if(localRaw){
-          try{
-            const localData=JSON.parse(localRaw);
-            // Solo restaurar si el local tiene datos reales
-            if(localData&&(localData.gastos||localData.proyectos)){
-              applyData(localData,false);
-              setSyncUI('saving','Restaurando desde respaldo...');
-              await window.FB.save(S.empresa,{...serializeForFirestore(),_ts:Date.now()});
-              setSyncUI('ok','Restaurado desde respaldo local');
-              startListening();
-              return;
-            }
-          }catch(e2){}
-        }
-        // Empresa nueva sin datos
-        S.proyectos=[];S.gastos=[];
-        S.proveedores=[{id:'pv1',nombre:'Proveedor Demo',tipo:'General',tel:''}];
-        S.centros=[];S.config={appName:'Proyectos Pro',logoUrl:'',accentColor:'#e8a020'};
-        await window.FB.save(S.empresa,{...serializeState(),_ts:Date.now()});
-        setSyncUI('ok','Empresa iniciada');
-        startListening();
-        return;
-      }
-    }catch(e){
-      console.error('[PP] loadData error:',e);
-      // Fallback a localStorage si Firebase falla
+  if(!window.FB||!user||!S.empresa){setSyncUI('err','Sin sesión');return;}
+  try{
+    const remote=await window.FB.load(S.empresa);
+    if(remote&&Object.keys(remote).length>3){
+      // Firebase tiene datos reales — aplicar SIEMPRE
+      applyData(remote,false);
+      setSyncUI('ok','Sincronizado');
+    } else {
+      // Firebase vacío o sin documento — intentar localStorage SIN tocar Firebase
+      let restored=false;
       try{
         const raw=localStorage.getItem('pp3_'+S.empresa);
-        if(raw){applyData(JSON.parse(raw));setSyncUI('err','Solo local');startListening();return;}
-      }catch(e2){}
+        if(raw){
+          const local=JSON.parse(raw);
+          if(local&&(local.gastos||local.proyectos||local.centros)){
+            applyData(local,false);
+            setSyncUI('saving','Subiendo respaldo...');
+            await window.FB.save(S.empresa,{...serializeForFirestore(),_ts:Date.now()});
+            setSyncUI('ok','Restaurado');
+            restored=true;
+          }
+        }
+      }catch(e2){console.warn('[PP] local restore:',e2);}
+      if(!restored){
+        // Sin datos en ningún lado — empresa nueva (NO guardar aún para no sobreescribir)
+        setSyncUI('ok','Listo');
+      }
     }
+  }catch(e){
+    console.error('[PP] loadData error:',e.code||e.message);
+    // Firebase falló — usar localStorage
+    try{
+      const raw=localStorage.getItem('pp3_'+S.empresa);
+      if(raw){applyData(JSON.parse(raw));setSyncUI('err','Solo local');}
+      else{setSyncUI('err','Sin conexión');}
+    }catch(e2){setSyncUI('err','Sin conexión');}
   }
-  // Sin Firebase: intentar localStorage
-  try{
-    const raw=localStorage.getItem('pp3_'+S.empresa);
-    if(raw){applyData(JSON.parse(raw));setSyncUI('err','Solo local');}
-  }catch(e){}
-  setSyncUI('err','Sin conexión');
+  startListening();
 }
+
 function startListening(){
   if(S._listening||!window.FB||!S.empresa)return;
   const user=window.FB.currentUser();if(!user)return;
   S._listening=true;
   window.FB.listen(S.empresa,(remoteData)=>{
-    // Ignorar si el snapshot es más viejo que lo que acabamos de guardar
-    if(S._lastSaveTs&&remoteData._ts<S._lastSaveTs)return;
-    // Ignorar si el timestamp es el mismo (nuestro propio save)
-    if(remoteData._ts===S._lastSaveTs)return;
-    // Aplicar datos remotos siempre que no estemos en medio de un guardado activo
-    if(!S._saving){
+    // Si estamos guardando activamente, no sobreescribir
+    if(S._saving)return;
+    // Aplicar datos de Firebase siempre que sean válidos
+    if(remoteData&&Object.keys(remoteData).length>3){
       applyData(remoteData,true);
       if(S.currentUser)render();
       setSyncUI('ok','Actualizado');
     }
   });
 }
+
+async function forceReloadFromFirebase(){
+  setSyncUI('saving','Recargando...');
+  S._listening=false;
+  if(window.FB.stopListen)window.FB.stopListen();
+  try{
+    const remote=await window.FB.load(S.empresa);
+    if(remote&&Object.keys(remote).length>3){
+      applyData(remote,false);
+      render();
+      setSyncUI('ok','Recargado');
+      toast('✓ Datos recargados desde Firebase');
+    } else {
+      setSyncUI('err','Sin datos');
+      toast('Firebase no tiene datos — usa el panel de diagnóstico',true);
+    }
+  }catch(e){
+    setSyncUI('err','Error');
+    toast('Error al recargar: '+e.message,true);
+  }
+  startListening();
+}
+
 
 // ── Guardar al cerrar/salir de la app ──────────────────────
 // pagehide cubre móvil (iOS/Android) + escritorio
@@ -5840,13 +5848,14 @@ async function diagData(){
   el.innerHTML='<span style="color:var(--muted)">Analizando...</span>';
 
   var lines=[];
+
   // Estado en memoria
-  lines.push('📊 <strong>Datos en memoria (sesión actual):</strong>');
-  lines.push('&nbsp;&nbsp;Gastos: <strong>'+S.gastos.length+'</strong> registros');
-  lines.push('&nbsp;&nbsp;Proyectos: <strong>'+S.proyectos.length+'</strong>');
+  lines.push('📊 <strong>Datos en memoria ahora:</strong>');
+  lines.push('&nbsp;&nbsp;Gastos: <strong style="color:'+(S.gastos.length>0?'var(--green)':'var(--red)')+'">'+S.gastos.length+'</strong>');
+  lines.push('&nbsp;&nbsp;Proyectos: <strong style="color:'+(S.proyectos.length>0?'var(--green)':'var(--red)')+'">'+S.proyectos.length+'</strong>');
   lines.push('&nbsp;&nbsp;Proveedores: <strong>'+S.proveedores.length+'</strong>');
   lines.push('&nbsp;&nbsp;Centros: <strong>'+S.centros.length+'</strong>');
-  lines.push('&nbsp;&nbsp;Inventario productos: <strong>'+((S.inventario&&S.inventario.productos&&S.inventario.productos.length)||0)+'</strong>');
+  lines.push('&nbsp;&nbsp;Inventario: <strong>'+((S.inventario&&S.inventario.productos&&S.inventario.productos.length)||0)+' productos</strong>');
   lines.push('');
 
   // localStorage
@@ -5855,31 +5864,43 @@ async function diagData(){
     if(raw){
       var local=JSON.parse(raw);
       var localTs=local._ts?new Date(local._ts).toLocaleString('es-SV'):'sin fecha';
-      lines.push('💾 <strong>Respaldo local (localStorage):</strong>');
-      lines.push('&nbsp;&nbsp;Gastos: <strong style="color:var(--green)">'+( local.gastos&&local.gastos.length||0)+'</strong>');
-      lines.push('&nbsp;&nbsp;Proyectos: <strong style="color:var(--green)">'+(local.proyectos&&local.proyectos.length||0)+'</strong>');
-      lines.push('&nbsp;&nbsp;Proveedores: <strong style="color:var(--green)">'+(local.proveedores&&local.proveedores.length||0)+'</strong>');
+      var lG=(local.gastos&&local.gastos.length)||0;
+      var lP=(local.proyectos&&local.proyectos.length)||0;
+      lines.push('💾 <strong>Respaldo local (este dispositivo):</strong>');
+      lines.push('&nbsp;&nbsp;Gastos: <strong style="color:'+(lG>0?'var(--green)':'var(--red)')+'">'+lG+'</strong>');
+      lines.push('&nbsp;&nbsp;Proyectos: <strong style="color:'+(lP>0?'var(--green)':'var(--red)')+'">'+lP+'</strong>');
       lines.push('&nbsp;&nbsp;Guardado: <strong>'+localTs+'</strong>');
+      if(lG>0||lP>0){
+        lines.push('&nbsp;&nbsp;<span style="color:var(--green)">✓ HAY DATOS EN RESPALDO LOCAL — usa ♻ Restaurar</span>');
+      }
       lines.push('');
     } else {
-      lines.push('💾 <strong>Respaldo local:</strong> <span style="color:var(--red)">Sin datos en este dispositivo</span>');
+      lines.push('💾 <strong>Respaldo local:</strong> <span style="color:var(--red)">Sin datos en ESTE dispositivo</span>');
+      lines.push('&nbsp;&nbsp;<em>Intenta en el celular donde más usabas la app</em>');
       lines.push('');
     }
-  }catch(e){lines.push('💾 localStorage: error al leer');}
+  }catch(e){lines.push('💾 localStorage: error — '+e.message);}
 
   // Firebase
   try{
     var remote=await window.FB.load(S.empresa);
     if(remote){
       var remoteTs=remote._ts?new Date(remote._ts).toLocaleString('es-SV'):'sin fecha';
-      lines.push('☁ <strong>Firebase (datos en la nube):</strong>');
-      lines.push('&nbsp;&nbsp;Gastos: <strong style="color:'+(remote.gastos&&remote.gastos.length>0?'var(--green)':'var(--red)')+'">'+( remote.gastos&&remote.gastos.length||0)+'</strong>');
-      lines.push('&nbsp;&nbsp;Proyectos: <strong style="color:'+(remote.proyectos&&remote.proyectos.length>0?'var(--green)':'var(--red)')+'">'+( remote.proyectos&&remote.proyectos.length||0)+'</strong>');
-      lines.push('&nbsp;&nbsp;Última sincronización: <strong>'+remoteTs+'</strong>');
+      var rG=(remote.gastos&&remote.gastos.length)||0;
+      var rP=(remote.proyectos&&remote.proyectos.length)||0;
+      var rKeys=Object.keys(remote).length;
+      lines.push('☁ <strong>Firebase (nube) — '+rKeys+' campos en documento:</strong>');
+      lines.push('&nbsp;&nbsp;Gastos: <strong style="color:'+(rG>0?'var(--green)':'var(--red)')+'">'+rG+'</strong>');
+      lines.push('&nbsp;&nbsp;Proyectos: <strong style="color:'+(rP>0?'var(--green)':'var(--red)')+'">'+rP+'</strong>');
+      lines.push('&nbsp;&nbsp;Última sync: <strong>'+remoteTs+'</strong>');
+      if(rG===0&&rP===0){
+        lines.push('&nbsp;&nbsp;<span style="color:var(--red)">⚠ Firebase tiene arrays vacíos — los datos fueron sobreescritos</span>');
+        lines.push('&nbsp;&nbsp;<em>Ve a console.firebase.google.com → pf-construccion → Firestore → empresas → '+S.empresa+' para ver si hay historial</em>');
+      }
     } else {
-      lines.push('☁ <strong>Firebase:</strong> <span style="color:var(--red)">Sin documento — empresa nueva o sin datos</span>');
+      lines.push('☁ <strong>Firebase:</strong> <span style="color:var(--red)">Sin documento para empresa "'+S.empresa+'"</span>');
     }
-  }catch(e){lines.push('☁ Firebase: error al conectar — '+e.message);}
+  }catch(e){lines.push('☁ Firebase: error — '+e.message);}
 
   el.innerHTML=lines.join('<br>');
 }
