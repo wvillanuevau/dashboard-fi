@@ -2441,15 +2441,18 @@ function tplCron(p){
   // Contratista: solo puede editar precio, fechas inicio y checks. Todo lo demás bloqueado.
   // Para el contratista se comporta siempre como si estuviera cerrado, más restricciones de precio/fecha
   const bloqueado=isCerrado||esContratista;
+  // totalDias: suma bruta de días (para mostrar en tabla)
   const totalDias=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+(parseInt(x.dias)||0),0),0);
+  // duracionReal: span real del proyecto considerando tareas paralelas
+  const duracionReal=calcDuracionReal(cr);
   const grand=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0),0);
   const totalSubs=cr.partidas.reduce((s,m)=>s+m.sub.length,0);
   const doneSubs=cr.partidas.reduce((s,m)=>s+m.sub.filter(x=>x.done).length,0);
   const pctReal=totalSubs>0?Math.round((doneSubs/totalSubs)*100):0;
   const unidSel=(sub)=>UNIDADES.map(u=>`<option${sub.unidad===u?' selected':''}>${u}</option>`).join('');
 
-  // Calcular fecha fin desde fecha global
-  const fechaFin=addDias(cr.fechaInicio,totalDias);
+  // Fecha fin real = fecha inicio + duración real (span, no suma lineal)
+  const fechaFin=addDias(cr.fechaInicio,duracionReal);
 
   let html=`
   <!-- Estado de oferta -->
@@ -2497,7 +2500,7 @@ function tplCron(p){
   <!-- KPIs -->
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
     <div class="kpi"><div class="kpi-lbl">Partidas</div><div class="kpi-val">${cr.partidas.length}</div></div>
-    <div class="kpi"><div class="kpi-lbl">Días totales</div><div class="kpi-val" style="color:var(--accent)">${totalDias}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Duración real</div><div class="kpi-val" style="color:var(--accent)">${duracionReal}</div><div class="kpi-sub" style="font-size:10px">${totalDias} días suma</div></div>
     <div class="kpi"><div class="kpi-lbl">Total presupuesto</div><div class="kpi-val" style="font-size:16px;color:var(--accent)">${fmt(grand)}</div></div>
     <div class="kpi"><div class="kpi-lbl">Fecha fin est.</div><div class="kpi-val" style="font-size:14px;color:var(--green)">${fechaFin?fmtDate(fechaFin):'—'}</div></div>
   </div>
@@ -3488,7 +3491,7 @@ function imprimirCronograma(pid){
   const cfg=S.config||{};
   const totalDias=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+(parseInt(x.dias)||0),0),0);
   const grand=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0),0);
-  const fechaFin=addDias(cr.fechaInicio,totalDias);
+  const duracionReal=calcDuracionReal(cr); const fechaFin=addDias(cr.fechaInicio,duracionReal);
   const hoy=new Date().toLocaleDateString('es-SV',{year:'numeric',month:'long',day:'numeric'});
 
   let partRows='';
@@ -4014,7 +4017,7 @@ function imprimirCronograma(pid){
   const cfg=S.config||{};
   const totalDias=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+(parseInt(x.dias)||0),0),0);
   const grand=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0),0);
-  const fechaFin=addDias(cr.fechaInicio,totalDias);
+  const duracionReal=calcDuracionReal(cr); const fechaFin=addDias(cr.fechaInicio,duracionReal);
   const hoy=new Date().toLocaleDateString('es-SV',{year:'numeric',month:'long',day:'numeric'});
 
   let partRows='';
@@ -4525,7 +4528,7 @@ function imprimirCronograma(pid){
   const cfg=S.config||{};
   const totalDias=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+(parseInt(x.dias)||0),0),0);
   const grand=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0),0);
-  const fechaFin=addDias(cr.fechaInicio,totalDias);
+  const duracionReal=calcDuracionReal(cr); const fechaFin=addDias(cr.fechaInicio,duracionReal);
   const hoy=new Date().toLocaleDateString('es-SV',{year:'numeric',month:'long',day:'numeric'});
 
   let partRows='';
@@ -6688,12 +6691,38 @@ function delComparacion(idx){
 //  DASHBOARD
 // ═══════════════════════════════════════════════════════
 // ═══ GANTT INTERACTIVO ══════════════════════════════════
+
+// ── Duración real del proyecto (considera solapamiento de tareas) ──────────
+// Calcula el span real en días: desde la fecha más temprana hasta la más tardía
+// ignorando que tareas paralelas se suman incorrectamente
+function calcDuracionReal(cr){
+  if(!cr||!cr.partidas||!cr.partidas.length||!cr.fechaInicio)return 0;
+  const base=new Date(cr.fechaInicio+'T00:00:00');
+  let maxEnd=0;
+  cr.partidas.forEach(function(m){
+    const partidaStart=m.fechaInicio||cr.fechaInicio;
+    let cursor=Math.max(0,Math.round((new Date(partidaStart+'T00:00:00')-base)/86400000));
+    (m.sub||[]).forEach(function(s){
+      const d=parseInt(s.dias)||1;
+      let start=cursor;
+      if(s.fechaInicio){
+        const off=Math.round((new Date(s.fechaInicio+'T00:00:00')-base)/86400000);
+        if(off>=0)start=off;
+      }
+      const end=start+d;
+      if(end>maxEnd)maxEnd=end;
+      cursor=start+d;
+    });
+  });
+  return maxEnd;
+}
 function ganttHTML(p){
   const cr=p.cronograma;
   if(!cr.partidas||cr.partidas.length===0)return`<div class="empty" style="padding:20px">Agrega partidas para ver el Gantt</div>`;
   if(!cr.fechaInicio)return`<div class="warn-box">Define la fecha de inicio para ver el Gantt</div>`;
 
   const totalDias=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+(parseInt(x.dias)||0),0),0);
+  const durReal=calcDuracionReal(cr)||totalDias;
   if(totalDias===0)return`<div class="warn-box">Agrega días a las subpartidas para ver el Gantt</div>`;
 
   const startDate=new Date(cr.fechaInicio+'T00:00:00');
@@ -6732,7 +6761,7 @@ function ganttHTML(p){
     });
   });
   // Calcular el rango total del gantt considerando todas las partidas
-  const ganttEnd=rows.reduce((m,r)=>Math.max(m,r.start+r.days),totalDias);
+  const ganttEnd=rows.reduce((m,r)=>Math.max(m,r.start+r.days),durReal);
 
   const W=Math.max((ganttEnd||totalDias)*DAY_W,400);
   const H=HEAD_H+rows.length*ROW_H+40;
@@ -6775,7 +6804,7 @@ function ganttHTML(p){
       :`${r.label}${r.unidad?' ('+r.unidad+')':''} | Inicio: ${fmtD(fechaIni)} → Fin: ${fmtD(fechaFin)} | ${r.days} días${r.done?' ✓ Completada':''}`;
 
     // Fondo alterno
-    rowsSVG+=`<rect x="0" y="${y}" width="${LABEL_W+W}" height="${ROW_H}" fill="${isPartida?'rgba(128,128,128,.12)':i%2===0?'rgba(128,128,128,.06)':'rgba(128,128,128,.02)'}"/>`;
+    rowsSVG+=`<rect x="0" y="${y}" width="${LABEL_W+W}" height="${ROW_H}" fill="${isPartida?'rgba(80,60,10,.35)':i%2===0?'rgba(255,255,255,.04)':'rgba(0,0,0,.12)'}"/>`;
 
     if(isPartida){
       const pctDone=r.total>0?r.done/r.total:0;
@@ -6822,6 +6851,10 @@ function ganttHTML(p){
     </div>
     <div style="overflow-x:auto;border:1px solid var(--border);border-radius:12px;background:#0a0908">
       <svg width="${LABEL_W+W}" height="${H}" style="display:block;min-width:${LABEL_W+W}px;font-family:Karla,sans-serif">
+        <!-- Fondo sólido del Gantt -->
+        <rect x="0" y="0" width="${LABEL_W+W}" height="${H}" fill="#0e0c0a" rx="0"/>
+        <rect x="0" y="0" width="${LABEL_W}" height="${H}" fill="#0c0a08"/>
+        <rect x="${LABEL_W}" y="0" width="${W}" height="${HEAD_H}" fill="#141210"/>
         <defs>
           <clipPath id="labelClip"><rect x="0" y="0" width="${LABEL_W-8}" height="${H}"/></clipPath>
         </defs>
