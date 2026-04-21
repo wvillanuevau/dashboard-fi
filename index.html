@@ -3029,7 +3029,13 @@ function renderGastos(){
     <button class="btn btn-secondary btn-xs" onclick="gastosIrPag(${totalPags-1})" ${S._gastosPag>=totalPags-1?'disabled':''}>⟫</button>
   </div>`:'<div id="gastosPagControls"></div>';
 
-document.getElementById('content').innerHTML=`
+
+  // ── Variables necesarias para el formulario ──────────────────────────────
+  const proyOpts=(function(){var out='';S.proyectos.forEach(function(p){var cc=S.centros.find(function(c){return c.proyectoId===p.id&&c.auto;});out+='<option value="'+p.id+'" data-cc="'+(cc?cc.id||'':'')+'">'+(p.nombre||'')+'</option>';});return out;})();
+  const ccManual=S.centros.filter(function(c){return!c.auto;});
+  const ccOpts=(function(){var o='';ccManual.forEach(function(c){o+='<option value="'+c.id+'">'+esc(c.nombre)+'</option>';});return o;})();
+
+  document.getElementById('content').innerHTML=`
   <div class="kpi-grid">
     <div class="kpi"><div class="kpi-lbl">Total Gastos</div><div class="kpi-val">${fmt(total)}</div></div>
     <div class="kpi"><div class="kpi-lbl">Registros</div><div class="kpi-val">${S.gastos.length}</div></div>
