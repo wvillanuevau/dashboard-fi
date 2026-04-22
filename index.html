@@ -1021,8 +1021,8 @@ input[type=date]{color-scheme:dark}
 //  DEFINICIÓN DE ROLES Y PERMISOS
 // ═══════════════════════════════════════════════════════
 const ROLES={
-  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','usuarios','config','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','importar']},
-  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard']},
+  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','usuarios','config','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','importar']},
+  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia']},
   empleado:{label:'Empleado',color:'b-ok',modulos:[]}, // permisos individuales
   viewer:{label:'Viewer',color:'b-neu',modulos:['dashboard','proyectos']},
   cliente:{label:'Cliente',color:'b-purple',modulos:['proyectos']}, // solo general, planificacion, cronograma
@@ -1058,12 +1058,13 @@ const MODULOS=[
   {id:'ei_checklist',label:'Checklist Diario',ic:'📋'},
   {id:'gz_gerentes',label:'Gerentes de Zona',ic:'👔'},
   {id:'gz_dashboard',label:'Dashboard GZ',ic:'🗺'},
+  {id:'asistencia',label:'Asistencia',ic:'📋'},
 ];
 
 // Grupos del sidebar colapsibles
 const SB_GRUPOS=[
   {id:'proyectos_grp',label:'Proyectos',ic:'🏗',items:['dashboard','proyectos']},
-  {id:'empresa_grp',label:'Gestión de Empresa',ic:'🏢',items:['gastos','inventario','proveedores','centros','bodegas','reportes','gz_gerentes','gz_dashboard']},
+  {id:'empresa_grp',label:'Gestión de Empresa',ic:'🏢',items:['gastos','inventario','proveedores','centros','bodegas','reportes','asistencia','gz_gerentes','gz_dashboard','asistencia']},
   {id:'mant_grp',label:'Mantenimiento',ic:'🔧',items:['mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes']},
   {id:'energy_grp',label:'Energy Intelligence',ic:'⚡',items:['ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist']},
   {id:'config_grp',label:'Configuración General',ic:'⚙',items:['log','usuarios','config','importar']},
@@ -1264,6 +1265,7 @@ function applyData(d,fromRemote=false){
   S.mantenimiento=d.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[]};
   S.energy=d.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12};
   S.gerentesZona=d.gerentesZona||[];
+  S.asistencia=d.asistencia||{registros:[]};
   migrateData();applyBranding();
 }
 function migrateData(){
@@ -2950,29 +2952,23 @@ function _loadProvSelect(){
   el.innerHTML=opts;
 }
 function onGastoProyChange(){
+  // Dropdown unificado: values pueden ser "proy:{id}", "cc:{id}" o ""
   const sel=document.getElementById('gProy');
-  const pid=sel?sel.value:'';
+  const val=sel?sel.value:'';
   const ccLabel=document.getElementById('gCCLabel');
-  const ccManualWrap=document.getElementById('gCCManualWrap');
-  const ccHidden=document.getElementById('gCCHidden');
   const sumarWrap=document.getElementById('gSumarWrap');
-  if(pid){
+  if(val.indexOf('proy:')===0){
+    const pid=val.slice(5);
     const cc=S.centros.find(function(c){return c.proyectoId===pid&&c.auto;});
-    if(cc){
-      if(ccLabel)ccLabel.textContent='Centro de Costo: '+cc.nombre+' (asignado automáticamente)';
-      if(ccHidden)ccHidden.value=cc.id;
-      const ccSel=document.getElementById('gCC');if(ccSel)ccSel.value=cc.id;
-    } else {
-      if(ccLabel)ccLabel.textContent='Este proyecto no tiene un Centro de Costo asignado.';
-      if(ccHidden)ccHidden.value='';
-    }
-    if(ccManualWrap)ccManualWrap.style.display='none';
+    if(ccLabel)ccLabel.textContent=cc?('Centro de Costo: '+cc.nombre+' (asignado automáticamente)'):'Este proyecto no tiene un Centro de Costo asignado.';
     if(sumarWrap)sumarWrap.style.display='block';
+  } else if(val.indexOf('cc:')===0){
+    const ccid=val.slice(3);
+    const cc=S.centros.find(function(c){return c.id===ccid;});
+    if(ccLabel)ccLabel.textContent='Centro de Costo: '+(cc?cc.nombre:'')+' (independiente)';
+    if(sumarWrap)sumarWrap.style.display='none';
   } else {
-    if(ccLabel)ccLabel.textContent='El Centro de Costo se asigna automáticamente al seleccionar un proyecto.';
-    if(ccHidden)ccHidden.value='';
-    const ccManual=S.centros.filter(function(c){return!c.auto;});
-    if(ccManualWrap)ccManualWrap.style.display=ccManual.length>0?'block':'none';
+    if(ccLabel)ccLabel.textContent='Selecciona un proyecto o un centro de costo.';
     if(sumarWrap)sumarWrap.style.display='none';
   }
 }
@@ -3049,9 +3045,10 @@ function renderGastos(){
 
 
   // ── Variables necesarias para el formulario ──────────────────────────────
-  const proyOpts=(function(){var out='';S.proyectos.forEach(function(p){var cc=S.centros.find(function(c){return c.proyectoId===p.id&&c.auto;});out+='<option value="'+p.id+'" data-cc="'+(cc?cc.id||'':'')+'">'+(p.nombre||'')+'</option>';});return out;})();
+  // Dropdown unico unificado: proyectos usan prefijo "proy:" y CCs usan prefijo "cc:"
+  const proyOpts=(function(){var out='';S.proyectos.forEach(function(p){out+='<option value="proy:'+p.id+'">'+esc(p.nombre||'')+'</option>';});return out;})();
   const ccManual=S.centros.filter(function(c){return!c.auto;});
-  const ccOpts=(function(){var o='';ccManual.forEach(function(c){o+='<option value="'+c.id+'">'+esc(c.nombre)+'</option>';});return o;})();
+  const ccOpts=(function(){var o='';ccManual.forEach(function(c){o+='<option value="cc:'+c.id+'">'+esc(c.nombre)+'</option>';});return o;})();
 
   document.getElementById('content').innerHTML=`
   <div class="kpi-grid">
@@ -3076,24 +3073,21 @@ function renderGastos(){
     <div class="fg">
       <label>Proyecto / Centro de Costo</label>
       <select id="gProy" onchange="onGastoProyChange()">
-        <option value="">— Gasto general (sin proyecto) —</option>
-        ${proyOpts}
+        <option value="">— Gasto general (sin proyecto/CC) —</option>
+        ${S.proyectos.length>0?`<optgroup label="Proyectos">${proyOpts}</optgroup>`:''}
+        ${ccManual.length>0?`<optgroup label="Centros de Costo">${ccOpts}</optgroup>`:''}
       </select>
-      <div style="font-size:11px;color:var(--muted);margin-top:5px" id="gCCLabel">El Centro de Costo se asigna automáticamente al seleccionar un proyecto.</div>
-      <div id="gCCManualWrap" style="margin-top:8px;display:${ccManual.length>0?'block':'none'}">
-        <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px">Centro de costo independiente (opcional)</label>
-        <select id="gCC"><option value="">— Ninguno —</option>${ccOpts}</select>
-      </div>
-      <input type="hidden" id="gCCHidden">
-      <!-- Checkbox sumar al proyecto -->
+      <div style="font-size:11px;color:var(--muted);margin-top:5px" id="gCCLabel">Selecciona un proyecto o un centro de costo.</div>
+      <!-- Checkbox sumar al proyecto (solo visible cuando se selecciona un proyecto) -->
       <div id="gSumarWrap" style="display:none;margin-top:10px;padding:10px 12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
         <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-          <input type="checkbox" id="gSumarProy" checked style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer">
+          <input type="checkbox" id="gSumarProy" style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer">
           <div>
             <div style="font-size:13px;font-weight:600">Sumar al presupuesto del proyecto</div>
             <div style="font-size:11px;color:var(--muted);margin-top:2px">
-              ✅ Activado — se suma al total del proyecto<br>
-              ☐ Desactivado — se registra en el CC pero <strong>no</strong> afecta el presupuesto del proyecto
+              Marca esta casilla <strong>solo si</strong> este gasto forma parte del presupuesto del proyecto.<br>
+              ✅ Marcado — se suma al total del proyecto<br>
+              ☐ Sin marcar — se registra en el CC pero <strong>no</strong> afecta el presupuesto
             </div>
           </div>
         </label>
@@ -3294,12 +3288,26 @@ function regGasto(){
   const factura=document.getElementById('gFact').value.trim();
   const provId=document.getElementById('gProv').value;
   const valor=parseFloat(document.getElementById('gValor').value)||0;
-  const pid=document.getElementById('gProy').value||null;
-  const ccId=pid?document.getElementById('gCCHidden')?.value||null:document.getElementById('gCC')?.value||null;
+
+  // Dropdown unificado: parsear prefijo para determinar tipo
+  const rawVal=document.getElementById('gProy').value||'';
+  let pid=null, ccId=null, sumarAlProy=false;
+  if(rawVal.indexOf('proy:')===0){
+    pid=rawVal.slice(5);
+    // Auto-asignar el CC del proyecto
+    const cc=S.centros.find(function(c){return c.proyectoId===pid&&c.auto;});
+    ccId=cc?cc.id:null;
+    // Checkbox solo aplica para proyectos (default: desmarcado — usuario decide explícitamente)
+    const sumarCheck=document.getElementById('gSumarProy');
+    sumarAlProy=sumarCheck?sumarCheck.checked:false;
+  } else if(rawVal.indexOf('cc:')===0){
+    pid=null;
+    ccId=rawVal.slice(3);
+    sumarAlProy=false; // CC independiente — no suma a ningún proyecto
+  }
+  // else: gasto general, ambos null, sumarAlProy queda false (irrelevante)
+
   const compData=document.getElementById('gCompData')?.value||null;
-  // Checkbox: solo aplica cuando hay proyecto seleccionado
-  const sumarCheck=document.getElementById('gSumarProy');
-  const sumarAlProy=pid?(sumarCheck?sumarCheck.checked:true):false;
   const cajaChica=document.getElementById('gCajaChica')?.checked||false;
 
   if(!factura){toast('Ingrese número de factura',true);return}
@@ -3315,7 +3323,6 @@ function regGasto(){
     proveedor:prov?prov.nombre:'',
     valor,
     fecha:document.getElementById('gFecha').value,
-    // proyectoId siempre guardado — el flag sumarAlProy controla si afecta presupuesto
     proyectoId:pid||null,
     centroId:ccId||null,
     sumarAlProy,
@@ -4910,15 +4917,20 @@ function editarGasto(id){
     _loadProvSelect();
     const pEl=document.getElementById('gProv');
     if(pEl)[...pEl.options].forEach(o=>{if(o.text===g.proveedor)pEl.value=o.value;});
-    if(g.proyectoId){const pEl2=document.getElementById('gProy');if(pEl2){pEl2.value=g.proyectoId;onGastoProyChange();}}
-    const ccEl=document.getElementById('gCC');if(ccEl&&g.centroId)ccEl.value=g.centroId;
+    // Dropdown unificado: setear el valor con prefijo según el tipo
+    const pEl2=document.getElementById('gProy');
+    if(pEl2){
+      if(g.proyectoId)pEl2.value='proy:'+g.proyectoId;
+      else if(g.centroId)pEl2.value='cc:'+g.centroId;
+      else pEl2.value='';
+      onGastoProyChange();
+    }
     const sp=document.getElementById('gSumarProy');if(sp)sp.checked=g.sumarAlProy!==false;
     const ccc=document.getElementById('gCajaChica');if(ccc)ccc.checked=!!g.cajaChica;
     const btn=document.querySelector('#content .card button.btn-primary');
     if(btn){btn.textContent='✓ Actualizar Gasto';btn.style.background='#1a4a2a';btn.style.color='#80e080';}
     document.querySelector('#content .card')?.scrollIntoView({behavior:'smooth',block:'start'});
     setTimeout(()=>{const f=document.getElementById('gFact');if(f){f.focus();f.select();}},80);
-    // Cargar proveedor dropdown después del render inicial
     setTimeout(_loadProvSelect, 150);
   },60);
 }
@@ -7658,7 +7670,7 @@ function render(){
     navHtml+='</div>';
   });
   document.getElementById('nav').innerHTML=navHtml;
-  const titles={dashboard:'Dashboard',proyectos:'Proyectos',gastos:'Gastos',proveedores:'Proveedores',centros:'Centros de Costo',reportes:'Reportes',inventario:'Inventario',bodegas:'Gestión de Bodegas',cajachica:'Caja Chica',log:'Registro de Actividad',usuarios:'Usuarios',config:'Configuración',mant_panel:'Panel de OTs',mant_equipos:'Equipos',mant_checklists:'Checklists',mant_tecnicos:'Técnicos',mant_reportes:'Reportes Mantenimiento',ei_dashboard:'⚡ Energy Intelligence',ei_modelo:'Modelo de Consumo',ei_alertas:'Alertas Energéticas',ei_ranking:'Ranking de Tiendas',ei_prediccion:'Predicción de Factura',ei_checklist:'Checklist Operativo',gz_gerentes:'Gerentes de Zona',gz_dashboard:'Dashboard Gerentes de Zona',importar:'📥 Importar Datos'};
+  const titles={dashboard:'Dashboard',proyectos:'Proyectos',gastos:'Gastos',proveedores:'Proveedores',centros:'Centros de Costo',reportes:'Reportes',inventario:'Inventario',bodegas:'Gestión de Bodegas',cajachica:'Caja Chica',log:'Registro de Actividad',usuarios:'Usuarios',config:'Configuración',mant_panel:'Panel de OTs',mant_equipos:'Equipos',mant_checklists:'Checklists',mant_tecnicos:'Técnicos',mant_reportes:'Reportes Mantenimiento',ei_dashboard:'⚡ Energy Intelligence',ei_modelo:'Modelo de Consumo',ei_alertas:'Alertas Energéticas',ei_ranking:'Ranking de Tiendas',ei_prediccion:'Predicción de Factura',ei_checklist:'Checklist Operativo',gz_gerentes:'Gerentes de Zona',gz_dashboard:'Dashboard Gerentes de Zona',asistencia:'📋 Asistencia',importar:'📥 Importar Datos'};
   document.getElementById('pageTitle').textContent=titles[S.activeTab]||S.activeTab;
   const ha=document.getElementById('headerActions');
   var haHtml='';
@@ -7695,6 +7707,7 @@ function render(){
   else if(S.activeTab==='ei_checklist')renderEIChecklist();
   else if(S.activeTab==='gz_gerentes')renderGZGerentes();
   else if(S.activeTab==='gz_dashboard')renderGZDashboard();
+  else if(S.activeTab==='asistencia')renderAsistencia();
   else if(S.activeTab==='importar')renderImportar();
 }
 function goTab(t){if(!puedeVer(t)){toast('Sin acceso a este módulo',true);return}S.activeTab=t;sessionStorage.removeItem('sb_collapsed');closeSB();render()}
@@ -10318,6 +10331,440 @@ function impApply(result) {
 }
 
 // ── Render main page ─────────────────────────────────────
+
+// ═══════════════════════════════════════════════════════
+//  MÓDULO: ASISTENCIA Y REPORTERÍA
+// ═══════════════════════════════════════════════════════
+function asistData(){
+  if(!S.asistencia)S.asistencia={registros:[]};
+  if(!S.asistencia.registros)S.asistencia.registros=[];
+  return S.asistencia;
+}
+
+function asistRegistros(){return asistData().registros;}
+
+// Minutos tarde vs hora meta (configurable — default 08:00)
+var ASIST_HORA_META='08:00';
+function asistMinutosTarde(horaStr){
+  if(!horaStr)return 0;
+  var meta=ASIST_HORA_META.split(':');
+  var entrada=horaStr.split(':');
+  var diff=(parseInt(entrada[0])*60+parseInt(entrada[1]))-(parseInt(meta[0])*60+parseInt(meta[1]));
+  return diff>0?diff:0;
+}
+
+// Estado visual
+function asistBadgeStyle(estado){
+  if(estado==='RC')return'background:#0a2a1a;color:#2db87a;border:1px solid #1a5a3a';
+  if(estado==='RI')return'background:#0a1a2a;color:#4ea8de;border:1px solid #1a3a5a';
+  if(estado==='X') return'background:#2a0a0a;color:#e84040;border:1px solid #5a1a1a';
+  if(estado==='P') return'background:#2a1a00;color:#e8a020;border:1px solid #5a3a00';
+  if(estado==='I') return'background:#1a0a2a;color:#c084fc;border:1px solid #3a1a5a';
+  return'background:var(--surface2);color:var(--muted);border:1px solid var(--border)';
+}
+function asistEstadoColor(estado){
+  if(estado==='RC')return'color:#2db87a';
+  if(estado==='RI')return'color:#4ea8de';
+  if(estado==='X') return'color:#e84040';
+  if(estado==='P') return'color:#e8a020';
+  if(estado==='I') return'color:#c084fc';
+  return'color:var(--border)';
+}
+
+function renderAsistencia(){
+  if(!S._asistTab)S._asistTab='registro';
+  var tab=S._asistTab;
+  var m=mantData();
+  var tecnicos=m.tecnicos.filter(function(t){return t.activo!==false;});
+
+  // Sub-tabs HTML
+  var subTabs=['registro','semanal','mensual'].map(function(t){
+    var labels={registro:'📝 Registro Diario',semanal:'📊 Reporte Semanal',mensual:'📆 Control Mensual'};
+    return'<div class="tab'+(tab===t?' active':'')+'" onclick="S._asistTab=\''+t+'\';renderAsistencia()">'+labels[t]+'</div>';
+  }).join('');
+
+  document.getElementById('content').innerHTML='<div class="tabs" style="margin-bottom:18px">'+subTabs+'</div><div id="asistPanel"></div>';
+
+  if(tab==='registro') asistRenderRegistro(tecnicos);
+  else if(tab==='semanal') asistRenderSemanal(tecnicos);
+  else if(tab==='mensual') asistRenderMensual(tecnicos);
+}
+
+// ── Pestaña 1: Registro diario ─────────────────────────────────────
+function asistRenderRegistro(tecnicos){
+  var hoy=new Date().toISOString().slice(0,10);
+  var fechaSel=S._asistFecha||hoy;
+  var registros=asistRegistros().filter(function(r){return r.fecha===fechaSel;});
+
+  // KPIs
+  var nRC=registros.filter(function(r){return r.estado==='RC'||r.estado==='RI';}).length;
+  var nX=registros.filter(function(r){return r.estado==='X';}).length;
+  var nP=registros.filter(function(r){return r.estado==='P'||r.estado==='I';}).length;
+  var nTarde=registros.filter(function(r){return (r.minutosTarde||0)>5;}).length;
+
+  // Opciones de técnicos
+  var tecOpts='<option value="">— Seleccionar empleado —</option>';
+  tecnicos.forEach(function(t){tecOpts+='<option value="'+t.id+'">'+esc(t.nombre)+'</option>';});
+
+  // Opciones de Ruta: centros + proveedores + otro
+  var rutaOpts='<optgroup label="Centros de Costo">';
+  S.centros.forEach(function(c){rutaOpts+='<option value="cc:'+c.id+'">'+esc(c.nombre)+'</option>';});
+  rutaOpts+='</optgroup><optgroup label="Proveedores">';
+  S.proveedores.slice(0,50).forEach(function(p){rutaOpts+='<option value="pv:'+p.id+'">'+esc(p.nombre)+'</option>';});
+  rutaOpts+='</optgroup><optgroup label="Otro"><option value="otro">✏ Otro — escribir en observación</option></optgroup>';
+
+  // Lista del día
+  var listaHTML='';
+  registros.forEach(function(r){
+    var tec=tecnicos.find(function(t){return t.id===r.tecnicoId;})||{nombre:'—'};
+    var mt=r.minutosTarde||0;
+    var tardeStr=mt>5?'<span style="color:#e84040;font-size:11px;font-weight:600">+'+mt+' min</span>':'<span style="color:#2db87a;font-size:11px">a tiempo</span>';
+    var rutaNom=r.rutaNombre||'—';
+    listaHTML+='<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--surface2);border-radius:8px;margin-bottom:8px;border:1px solid var(--border)">'
+      +'<div style="width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0;'+asistBadgeStyle(r.estado)+'">'+esc(r.estado)+'</div>'
+      +'<div style="flex:1;min-width:0">'
+        +'<div style="font-weight:600;font-size:13px">'+esc(tec.nombre)+'</div>'
+        +'<div style="font-size:11px;color:var(--muted)">'+esc(rutaNom)+(r.horaEntrada?' · '+r.horaEntrada+' '+tardeStr:'')+(r.observacion?' · '+esc(r.observacion):'')+'</div>'
+      +'</div>'
+      +'<button onclick="asistEliminar(\''+r.id+'\')" class="btn btn-danger btn-xs">✕</button>'
+    +'</div>';
+  });
+
+  var sinRegistrar=tecnicos.filter(function(t){return!registros.find(function(r){return r.tecnicoId===t.id;});});
+  if(sinRegistrar.length>0){
+    listaHTML+='<div style="margin-top:8px;padding:10px 14px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--muted)">'
+      +'⚠ Sin registrar: <strong style="color:#e84040">'+sinRegistrar.map(function(t){return t.nombre;}).join(', ')+'</strong></div>';
+  }
+  if(registros.length===0&&sinRegistrar.length===0){
+    listaHTML='<div class="empty" style="padding:30px">Sin empleados activos registrados</div>';
+  }
+
+  // Fecha label
+  var dFecha=new Date(fechaSel+'T12:00:00');
+  var diasSem=['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+  var mesesNom=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  var fechaLabel=diasSem[dFecha.getDay()]+' '+dFecha.getDate()+' de '+mesesNom[dFecha.getMonth()]+' '+dFecha.getFullYear();
+
+  document.getElementById('asistPanel').innerHTML=
+    '<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr)">'
+      +'<div class="kpi"><div class="kpi-lbl">Asistencias</div><div class="kpi-val" style="color:var(--green)">'+nRC+'</div></div>'
+      +'<div class="kpi"><div class="kpi-lbl">No reportó</div><div class="kpi-val" style="color:var(--red)">'+nX+'</div></div>'
+      +'<div class="kpi"><div class="kpi-lbl">Permisos/Incap.</div><div class="kpi-val" style="color:var(--accent)">'+nP+'</div></div>'
+      +'<div class="kpi"><div class="kpi-lbl">Tarde (&gt;5 min)</div><div class="kpi-val" style="color:#c084fc">'+nTarde+'</div></div>'
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1.5fr;gap:16px">'
+
+      // Formulario
+      +'<div class="card">'
+        +'<div class="sec-hdr">✍ Registrar entrada</div>'
+        +'<div class="fg"><label>Fecha</label><input type="date" id="asistFecha" value="'+fechaSel+'" onchange="S._asistFecha=this.value;renderAsistencia()"></div>'
+        +'<div class="fg"><label>Empleado *</label><select id="asistTec">'+tecOpts+'</select></div>'
+        +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
+          +'<div class="fg" style="margin:0"><label>Hora de entrada</label><input type="time" id="asistHora" value="'+new Date().toTimeString().slice(0,5)+'"></div>'
+          +'<div class="fg" style="margin:0"><label>Estado</label>'
+            +'<select id="asistEstado">'
+              +'<option value="RC">R.C. — Reporte Completo</option>'
+              +'<option value="RI">R.I. — Incompleto</option>'
+              +'<option value="X">X — No Reportó</option>'
+              +'<option value="P">P — Permiso</option>'
+              +'<option value="I">I — Incapacidad/ISSS</option>'
+            +'</select></div>'
+        +'</div>'
+        +'<div class="fg"><label>Ruta</label>'
+          +'<select id="asistRuta" onchange="document.getElementById(\'asistRutaObs\').style.display=this.value===\'otro\'?\'block\':\'none\'">'+rutaOpts+'</select>'
+          +'<input type="text" id="asistRutaObs" placeholder="Describe el lugar visitado..." style="display:none;margin-top:6px">'
+        +'</div>'
+        +'<div class="fg"><label>Observación</label><textarea id="asistObs" rows="2" placeholder="Canje de horas, vacaciones, cita médica..."></textarea></div>'
+        +'<div id="asistTardeInfo" style="background:var(--surface2);border-radius:8px;padding:9px 13px;margin-bottom:12px;font-size:12px;display:none">'
+          +'⏱ Hora meta: <strong>'+ASIST_HORA_META+'</strong>'
+        +'</div>'
+        +'<button class="btn btn-primary" style="width:100%" onclick="asistGuardar()">✅ Registrar</button>'
+      +'</div>'
+
+      // Lista del día
+      +'<div class="card">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">'
+          +'<div style="font-size:13px;font-weight:700">📅 '+esc(fechaLabel)+'</div>'
+          +'<button class="btn btn-secondary btn-sm" onclick="asistImprimirDia(\''+fechaSel+'\')">🖨 Imprimir</button>'
+        +'</div>'
+        +listaHTML
+      +'</div>'
+    +'</div>';
+
+  // Calcular tarde en tiempo real
+  var horaEl=document.getElementById('asistHora');
+  if(horaEl){horaEl.addEventListener('input',function(){
+    var mt=asistMinutosTarde(this.value);
+    var info=document.getElementById('asistTardeInfo');
+    if(info){
+      info.style.display='block';
+      var extra=mt>0?(' &nbsp;·&nbsp; <span style="color:#e84040;font-weight:600">'+mt+' min tarde</span>'):'&nbsp;·&nbsp; <span style="color:#2db87a">A tiempo ✓</span>';
+      info.innerHTML='⏱ Hora meta: <strong>'+ASIST_HORA_META+'</strong>'+extra;
+    }
+  });}
+}
+
+function asistGuardar(){
+  var tecId=document.getElementById('asistTec').value;
+  if(!tecId){toast('Selecciona un empleado',true);return;}
+  var fecha=document.getElementById('asistFecha').value;
+  var hora=document.getElementById('asistHora').value;
+  var estado=document.getElementById('asistEstado').value;
+  var rutaVal=document.getElementById('asistRuta').value;
+  var rutaNombre='';
+  if(rutaVal==='otro'){
+    rutaNombre=document.getElementById('asistRutaObs').value.trim();
+  } else if(rutaVal.startsWith('cc:')){
+    var ccId=rutaVal.slice(3);
+    var cc=S.centros.find(function(c){return c.id===ccId;});
+    rutaNombre=cc?cc.nombre:'';
+  } else if(rutaVal.startsWith('pv:')){
+    var pvId=rutaVal.slice(3);
+    var pv=S.proveedores.find(function(p){return p.id===pvId;});
+    rutaNombre=pv?pv.nombre:'';
+  }
+  var obs=document.getElementById('asistObs').value.trim();
+  var mt=hora?asistMinutosTarde(hora):0;
+
+  var datos=asistData();
+  // Si ya existe registro del día para este técnico, reemplazar
+  datos.registros=datos.registros.filter(function(r){return!(r.tecnicoId===tecId&&r.fecha===fecha);});
+  datos.registros.push({
+    id:genId(),tecnicoId:tecId,fecha:fecha,horaEntrada:hora,
+    estado:estado,rutaNombre:rutaNombre,observacion:obs,minutosTarde:mt
+  });
+  saveData();
+  toast('✓ Registro guardado');
+  renderAsistencia();
+}
+
+function asistEliminar(id){
+  if(!confirm('¿Eliminar este registro?'))return;
+  asistData().registros=asistData().registros.filter(function(r){return r.id!==id;});
+  saveData();renderAsistencia();
+}
+
+// ── Pestaña 2: Reporte semanal ─────────────────────────────────────
+function asistRenderSemanal(tecnicos){
+  // Semana seleccionada (lunes a sábado)
+  if(!S._asistSemana){
+    var hoy=new Date();var dia=hoy.getDay()||7;
+    var lun=new Date(hoy);lun.setDate(hoy.getDate()-(dia-1));
+    S._asistSemana=lun.toISOString().slice(0,10);
+  }
+  var lunDate=new Date(S._asistSemana+'T12:00:00');
+  var dias=[];
+  for(var i=0;i<6;i++){var d=new Date(lunDate);d.setDate(lunDate.getDate()+i);dias.push(d);}
+  var diasStr=dias.map(function(d){return d.toISOString().slice(0,10);});
+  var diasLabel=['LUN','MAR','MIÉ','JUE','VIE','SÁB'];
+  var mesesNom=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+  var semLabel=dias[0].getDate()+' – '+dias[5].getDate()+' de '+mesesNom[dias[0].getMonth()]+' '+dias[0].getFullYear();
+
+  var registros=asistRegistros();
+
+  // Cabecera de días
+  var thDias=diasStr.map(function(f,i){
+    var d=dias[i];
+    return'<th style="text-align:center;min-width:65px;cursor:pointer" onclick="S._asistFecha=\''+f+'\';S._asistTab=\'registro\';renderAsistencia()">'+diasLabel[i]+'<br><span style="font-size:10px;font-weight:400;color:var(--muted)">'+d.getDate()+'</span></th>';
+  }).join('');
+
+  // Filas por técnico
+  var rows=tecnicos.length===0?'<tr><td colspan="12" class="empty">Sin técnicos activos</td></tr>':'';
+  tecnicos.forEach(function(t,idx){
+    var asist=0,faltas=0,obs='';
+    var celdas=diasStr.map(function(f){
+      var r=registros.find(function(x){return x.tecnicoId===t.id&&x.fecha===f;});
+      if(!r)return'<td style="text-align:center;color:var(--border)">—</td>';
+      if(r.estado==='RC'||r.estado==='RI')asist++;
+      if(r.estado==='X')faltas++;
+      if(r.observacion&&!obs)obs=r.observacion;
+      return'<td class="estado-cell" style="text-align:center;font-weight:800;'+asistEstadoColor(r.estado)+'">'+esc(r.estado)+'</td>';
+    }).join('');
+    var aBadge=asist>0?'<span class="badge b-ok">'+asist+'</span>':'<span class="badge b-neu">0</span>';
+    var fBadge=faltas>0?'<span class="badge b-err">'+faltas+'</span>':'<span class="badge b-neu">0</span>';
+    rows+='<tr><td>'+aBadge+'</td><td>'+fBadge+'</td><td style="color:var(--muted);font-size:12px">'+(idx+1)+'</td>'
+      +'<td><strong>'+esc(t.nombre)+'</strong></td>'+celdas
+      +'<td style="font-size:11px;color:var(--muted)">'+esc(obs)+'</td></tr>';
+  });
+
+  // Totales por día
+  var totalesCeldas=diasStr.map(function(f){
+    var n=tecnicos.filter(function(t){
+      var r=registros.find(function(x){return x.tecnicoId===t.id&&x.fecha===f;});
+      return r&&(r.estado==='RC'||r.estado==='RI');
+    }).length;
+    return'<td style="text-align:center;color:var(--green);font-weight:700">'+(n||'—')+'</td>';
+  }).join('');
+
+  var prevLun=new Date(lunDate);prevLun.setDate(prevLun.getDate()-7);
+  var nextLun=new Date(lunDate);nextLun.setDate(nextLun.getDate()+7);
+
+  document.getElementById('asistPanel').innerHTML=
+    '<div class="card">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">'
+        +'<div><div style="font-size:14px;font-weight:700">CONTROL DE REPORTE DIARIO</div><div style="font-size:12px;color:var(--muted)">'+esc(mesesNom[dias[0].getMonth()])+' '+dias[0].getFullYear()+'</div></div>'
+        +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+          +'<div style="display:flex;align-items:center;gap:8px">'
+            +'<button class="btn btn-secondary btn-sm" onclick="S._asistSemana=\''+prevLun.toISOString().slice(0,10)+'\';renderAsistencia()">‹</button>'
+            +'<span style="font-weight:700;color:var(--accent);font-size:13px;min-width:160px;text-align:center">'+semLabel+'</span>'
+            +'<button class="btn btn-secondary btn-sm" onclick="S._asistSemana=\''+nextLun.toISOString().slice(0,10)+'\';renderAsistencia()">›</button>'
+          +'</div>'
+          +'<button class="btn btn-secondary btn-sm" onclick="asistImprimirSemanal()">🖨 Imprimir</button>'
+        +'</div>'
+      +'</div>'
+      +'<div class="tbl-wrap"><table>'
+        +'<thead><tr>'
+          +'<th style="min-width:50px">ASIST.</th><th style="min-width:50px;color:var(--red)">FALTAS</th>'
+          +'<th style="min-width:30px">N°</th><th style="min-width:180px">NOMBRE</th>'
+          +thDias
+          +'<th style="min-width:160px">Observación</th>'
+        +'</tr></thead>'
+        +'<tbody>'+rows+'</tbody>'
+        +'<tfoot><tr style="background:var(--surface2)">'
+          +'<td colspan="4" style="text-align:right;font-size:11px;color:var(--muted);padding:8px 12px">ASISTENCIAS DEL DÍA:</td>'
+          +totalesCeldas+'<td></td>'
+        +'</tr></tfoot>'
+      +'</table></div>'
+      +'<div style="display:flex;gap:16px;flex-wrap:wrap;padding:10px 14px;background:var(--surface2);border-radius:8px;font-size:11px;margin-top:12px;color:var(--muted)">'
+        +'<span><strong style="color:#2db87a">R.C.</strong> Reporte Completo</span>'
+        +'<span><strong style="color:#4ea8de">R.I.</strong> Reporte Incompleto</span>'
+        +'<span><strong style="color:#e84040">X</strong> No Reportó</span>'
+        +'<span><strong style="color:#e8a020">P</strong> Permiso</span>'
+        +'<span><strong style="color:#c084fc">I</strong> Incapacidad / ISSS</span>'
+      +'</div>'
+    +'</div>';
+}
+
+// ── Pestaña 3: Control mensual ─────────────────────────────────────
+function asistRenderMensual(tecnicos){
+  if(!S._asistMes)S._asistMes=new Date().toISOString().slice(0,7);
+  var mes=S._asistMes;
+  var registros=asistRegistros().filter(function(r){return r.fecha&&r.fecha.startsWith(mes);});
+
+  // Días hábiles del mes (lun-sáb)
+  var year=parseInt(mes.slice(0,4)),month=parseInt(mes.slice(5,7))-1;
+  var diasHab=0;
+  var daysInMonth=new Date(year,month+1,0).getDate();
+  for(var d=1;d<=daysInMonth;d++){var dow=new Date(year,month,d).getDay();if(dow!==0)diasHab++;}
+
+  var mesesNom=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+  // Mes anterior / siguiente
+  var prev=new Date(year,month-1,1).toISOString().slice(0,7);
+  var next=new Date(year,month+1,1).toISOString().slice(0,7);
+
+  var rows=tecnicos.length===0?'<tr><td colspan="8" class="empty">Sin técnicos</td></tr>':'';
+  tecnicos.forEach(function(t,idx){
+    var recs=registros.filter(function(r){return r.tecnicoId===t.id;});
+    var asist=recs.filter(function(r){return r.estado==='RC'||r.estado==='RI';}).length;
+    var faltas=recs.filter(function(r){return r.estado==='X';}).length;
+    var permisos=recs.filter(function(r){return r.estado==='P';}).length;
+    var incap=recs.filter(function(r){return r.estado==='I';}).length;
+    var minTarde=recs.reduce(function(s,r){return s+(r.minutosTarde||0);},0);
+    var obsArr=recs.filter(function(r){return r.observacion;}).map(function(r){return r.observacion;});
+    var obs=[...new Set(obsArr)].slice(0,2).join('; ');
+    rows+='<tr>'
+      +'<td style="font-size:12px;color:var(--muted)">'+(idx+1)+'</td>'
+      +'<td><strong>'+esc(t.nombre)+'</strong></td>'
+      +'<td style="text-align:center">'+diasHab+'</td>'
+      +'<td style="text-align:center"><span class="badge b-ok">'+asist+'</span></td>'
+      +'<td style="text-align:center"><span class="badge '+(faltas>0?'b-err':'b-neu')+'">'+faltas+'</span></td>'
+      +'<td style="text-align:center"><span class="badge '+(permisos>0?'b-warn':'b-neu')+'">'+permisos+'</span></td>'
+      +'<td style="text-align:center"><span class="badge '+(incap>0?'b-blue':'b-neu')+'">'+incap+'</span></td>'
+      +'<td style="text-align:center;color:'+(minTarde>0?'#c084fc':'#2db87a')+'">'+minTarde+' min</td>'
+      +'<td style="font-size:11px;color:var(--muted)">'+esc(obs)+'</td>'
+    +'</tr>';
+  });
+
+  document.getElementById('asistPanel').innerHTML=
+    '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">'
+      +'<div style="display:flex;align-items:center;gap:8px">'
+        +'<button class="btn btn-secondary btn-sm" onclick="S._asistMes=\''+prev+'\';renderAsistencia()">‹</button>'
+        +'<span style="font-weight:700;color:var(--accent);min-width:130px;text-align:center">'+mesesNom[month]+' '+year+'</span>'
+        +'<button class="btn btn-secondary btn-sm" onclick="S._asistMes=\''+next+'\';renderAsistencia()">›</button>'
+      +'</div>'
+      +'<button class="btn btn-secondary btn-sm" onclick="asistImprimirMensual()">🖨 Imprimir</button>'
+      +'<button class="btn btn-secondary btn-sm" onclick="asistExportarCSV()">📊 CSV</button>'
+    +'</div>'
+    +'<div class="card"><div class="tbl-wrap"><table>'
+      +'<thead><tr>'
+        +'<th>N°</th><th>NOMBRE</th>'
+        +'<th style="text-align:center">Días háb.</th>'
+        +'<th style="text-align:center;color:#2db87a">Asistencias</th>'
+        +'<th style="text-align:center;color:#e84040">Faltas (X)</th>'
+        +'<th style="text-align:center;color:#e8a020">Permisos (P)</th>'
+        +'<th style="text-align:center;color:#4ea8de">Incap. (I)</th>'
+        +'<th style="text-align:center">Min. tarde</th>'
+        +'<th>Observaciones</th>'
+      +'</tr></thead>'
+      +'<tbody>'+rows+'</tbody>'
+    +'</table></div></div>';
+}
+
+// ── Impresión dia ──────────────────────────────────────────────────
+function asistImprimirDia(fecha){
+  var m=mantData();
+  var tecnicos=m.tecnicos.filter(function(t){return t.activo!==false;});
+  var registros=asistRegistros().filter(function(r){return r.fecha===fecha;});
+  var dFecha=new Date(fecha+'T12:00:00');
+  var mesesNom=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  var fechaLabel=dFecha.getDate()+' de '+mesesNom[dFecha.getMonth()]+' de '+dFecha.getFullYear();
+  var hoy=new Date().toLocaleDateString('es-SV');
+
+  var rows='';
+  var num=1;
+  registros.forEach(function(r){
+    var tec=tecnicos.find(function(t){return t.id===r.tecnicoId;})||{nombre:'—'};
+    var mt=r.minutosTarde||0;
+    rows+='<tr>'
+      +'<td style="text-align:center">'+num+'</td>'
+      +'<td>'+esc(tec.nombre)+'</td>'
+      +'<td>'+esc(r.fecha)+'</td>'
+      +'<td>'+esc(r.horaEntrada||'—')+'</td>'
+      +'<td style="text-align:center;font-weight:700">'+esc(r.estado)+'</td>'
+      +'<td>'+esc(r.rutaNombre||'—')+'</td>'
+      +'<td style="text-align:center">'+(mt>0?mt+' min':'—')+'</td>'
+      +'<td>'+esc(r.observacion||'')+'</td>'
+    +'</tr>';
+    num++;
+  });
+
+  var w=window.open('','_blank','width=900,height=600');
+  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Control Asistencia</title>'
+    +'<style>body{font-family:Arial,sans-serif;padding:20px;color:#111}table{width:100%;border-collapse:collapse;font-size:11pt}'
+    +'th,td{padding:6px 10px;border:1px solid #ccc}thead{background:#f0f0f0}'
+    +'h2{font-size:14pt;margin-bottom:4px}p{font-size:10pt;color:#555;margin-bottom:12px}'
+    +'tfoot td{font-weight:700;background:#f0f0f0}@media print{button{display:none}}</style></head><body>'
+    +'<h2>CONTROL DE ASISTENCIA — '+esc(S.empresa)+'</h2>'
+    +'<p>MES: <strong>'+mesesNom[dFecha.getMonth()].toUpperCase()+'</strong> &nbsp;·&nbsp; Fecha: '+fechaLabel+'</p>'
+    +'<table><thead><tr><th>N°</th><th>NOMBRE</th><th>FECHA</th><th>HORA ENTRADA</th><th>ESTADO</th><th>RUTA</th><th>MIN. TARDE</th><th>OBSERVACIÓN</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table>'
+    +'<p style="margin-top:20px;font-size:9pt;color:#999">Generado el '+hoy+' · '+esc(S.config.appName||'Proyectos Pro')+'</p>'
+    +'</body></html>');
+  w.document.close();
+  w.onload=function(){w.focus();w.print();};
+}
+
+function asistImprimirSemanal(){toast('Usa Ctrl+P para imprimir la tabla semanal');}
+function asistImprimirMensual(){toast('Usa Ctrl+P para imprimir el control mensual');}
+
+function asistExportarCSV(){
+  var mes=S._asistMes||new Date().toISOString().slice(0,7);
+  var m=mantData();
+  var tecnicos=m.tecnicos.filter(function(t){return t.activo!==false;});
+  var registros=asistRegistros().filter(function(r){return r.fecha&&r.fecha.startsWith(mes);});
+  var header='Nombre,Fecha,Hora Entrada,Estado,Ruta,Min. Tarde,Observación\n';
+  var rows=registros.map(function(r){
+    var tec=tecnicos.find(function(t){return t.id===r.tecnicoId;})||{nombre:''};
+    return[esc(tec.nombre),r.fecha,r.horaEntrada||'',r.estado,esc(r.rutaNombre||''),r.minutosTarde||0,esc(r.observacion||'')].join(',');
+  }).join('\n');
+  var blob=new Blob(['\uFEFF'+header+rows],{type:'text/csv;charset=utf-8'});
+  var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='asistencia_'+mes+'.csv';a.click();
+  URL.revokeObjectURL(a.href);
+  toast('✓ CSV exportado');
+}
+
 function renderImportar() {
   var selMod = S._impMod || 'gastos';
   var mod = IMP_MODULES.find(function(m) { return m.id === selMod; }) || IMP_MODULES[0];
