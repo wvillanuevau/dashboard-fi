@@ -2950,11 +2950,30 @@ function _loadProvSelect(){
   el.innerHTML=opts;
 }
 function onGastoProyChange(){
-  // Al seleccionar proyecto, auto-asignar su CC y limpiar si se deselecciona
-  const pid=document.getElementById('gProy')?.value;
+  const sel=document.getElementById('gProy');
+  const pid=sel?sel.value:'';
+  const ccLabel=document.getElementById('gCCLabel');
+  const ccManualWrap=document.getElementById('gCCManualWrap');
+  const ccHidden=document.getElementById('gCCHidden');
+  const sumarWrap=document.getElementById('gSumarWrap');
   if(pid){
-    const cc=S.centros.find(c=>c.proyectoId===pid&&c.auto);
-    if(cc){const sel=document.getElementById('gCC');if(sel)sel.value=cc.id;}
+    const cc=S.centros.find(function(c){return c.proyectoId===pid&&c.auto;});
+    if(cc){
+      if(ccLabel)ccLabel.textContent='Centro de Costo: '+cc.nombre+' (asignado automáticamente)';
+      if(ccHidden)ccHidden.value=cc.id;
+      const ccSel=document.getElementById('gCC');if(ccSel)ccSel.value=cc.id;
+    } else {
+      if(ccLabel)ccLabel.textContent='Este proyecto no tiene un Centro de Costo asignado.';
+      if(ccHidden)ccHidden.value='';
+    }
+    if(ccManualWrap)ccManualWrap.style.display='none';
+    if(sumarWrap)sumarWrap.style.display='block';
+  } else {
+    if(ccLabel)ccLabel.textContent='El Centro de Costo se asigna automáticamente al seleccionar un proyecto.';
+    if(ccHidden)ccHidden.value='';
+    const ccManual=S.centros.filter(function(c){return!c.auto;});
+    if(ccManualWrap)ccManualWrap.style.display=ccManual.length>0?'block':'none';
+    if(sumarWrap)sumarWrap.style.display='none';
   }
 }
 
