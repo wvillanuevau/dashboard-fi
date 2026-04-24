@@ -133,13 +133,51 @@ window.FB={
           }
         }catch(e2){}
       }
-      // Verificar tamaño del doc principal (límite Firestore 1MB)
-      const docStr=JSON.stringify(mainDoc);
+      // Verificar tamaño del doc principal (límite Firestore 1MB = 1048576 bytes)
+      var docStr=JSON.stringify(mainDoc);
       if(docStr.length>900000){
-        console.warn('[FB] Doc muy grande:',docStr.length,'bytes — truncando inventario movimientos');
-        // Truncar movimientos de inventario (historial grande)
-        if(mainDoc.inventario&&mainDoc.inventario.movimientos&&mainDoc.inventario.movimientos.length>500){
-          mainDoc.inventario={...mainDoc.inventario,movimientos:mainDoc.inventario.movimientos.slice(-500)};
+        console.warn('[FB] Doc muy grande:',docStr.length,'bytes — aplicando truncación robusta');
+
+        // 1. Truncar movimientos de inventario (historial grande)
+        if(mainDoc.inventario&&mainDoc.inventario.movimientos&&mainDoc.inventario.movimientos.length>200){
+          mainDoc.inventario={...mainDoc.inventario,movimientos:mainDoc.inventario.movimientos.slice(-200)};
+          console.warn('[FB] Truncados movimientos inventario a 200');
+        }
+
+        // 2. Sustituir fotos base64 grandes en productos por refs (deberían ya estar como ref:)
+        if(mainDoc.inventario&&mainDoc.inventario.productos){
+          mainDoc.inventario.productos=mainDoc.inventario.productos.map(function(p){
+            if(p.foto&&typeof p.foto==='string'&&p.foto.length>1000&&p.foto.startsWith('data:')){
+              return {...p, foto:'ref:prod_'+p.id};
+            }
+            return p;
+          });
+        }
+
+        // 3. Sustituir fotos base64 en items de auditorías por refs
+        if(mainDoc.auditorias&&mainDoc.auditorias.registros){
+          mainDoc.auditorias={...mainDoc.auditorias, registros:mainDoc.auditorias.registros.map(function(r){
+            if(r.items&&r.items.length){
+              return {...r, items:r.items.map(function(it){
+                if(it.foto&&typeof it.foto==='string'&&it.foto.length>1000&&it.foto.startsWith('data:')){
+                  return {...it, foto:null}; // por ahora drop fotos pesadas — no hay storage para auditorias
+                }
+                return it;
+              })};
+            }
+            return r;
+          })};
+          console.warn('[FB] Limpiadas fotos base64 grandes de auditorías');
+        }
+
+        // 4. Re-medir
+        docStr=JSON.stringify(mainDoc);
+        console.warn('[FB] Tamaño tras truncación:',docStr.length,'bytes');
+
+        // 5. Si aún es muy grande, abortar para no perder datos críticos
+        if(docStr.length>1000000){
+          console.error('[FB] Doc supera 1MB tras truncación — RECHAZANDO save para evitar pérdida de datos');
+          return false;
         }
       }
       await _fbDb.collection('empresas').doc(empresa).set(mainDoc);
@@ -1246,6 +1284,24 @@ function serializeForFirestore(){
     resultado:c.resultado||''
   }));
 
+  // Auditorías de herramientas: base64 de fotos puede pesar mucho
+  // En el futuro guardar en Storage; por ahora, truncar fotos >50KB para que el doc quepa
+  const auditoriasOrig=state.auditorias||{registros:[]};
+  const auditorias={
+    registros:(auditoriasOrig.registros||[]).map(function(r){
+      return{
+        ...r,
+        items:(r.items||[]).map(function(it){
+          // Si la foto base64 es muy grande, mantenerla solo si cabe; si no, marcar como ref pendiente
+          if(it.foto&&typeof it.foto==='string'&&it.foto.length>50000&&it.foto.startsWith('data:')){
+            return{...it, foto:null, _fotoOmitida:true};
+          }
+          return it;
+        })
+      };
+    })
+  };
+
   return{...state, proyectos, gastos,
     inventario:{...inv,productos,movimientos},
     cotizaciones:{comparaciones},
@@ -1254,7 +1310,7 @@ function serializeForFirestore(){
     gerentesZona:S.gerentesZona||[],
     cajachica:S.cajachica||{reintegros:[]},
     asistencia:S.asistencia||{registros:[]},
-    auditorias:S.auditorias||{registros:[]},
+    auditorias:auditorias,
     taller:S.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[]}
   };
 }
