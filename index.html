@@ -1206,7 +1206,7 @@ function setSyncUI(state,txt){const dot=document.getElementById('syncDot'),stxt=
 // ═══════════════════════════════════════════════════════
 //  SYNC
 // ═══════════════════════════════════════════════════════
-function serializeState(){return{_v:3,_ts:Date.now(),proyectos:S.proyectos,gastos:S.gastos,proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios,config:S.config,inventario:S.inventario||{bodegas:[],productos:[],movimientos:[]},cotizaciones:S.cotizaciones||{comparaciones:[]},cajachica:S.cajachica||{reintegros:[]},mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[]},energy:S.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12},gerentesZona:S.gerentesZona||[]}}
+function serializeState(){return{_v:3,_ts:Date.now(),proyectos:S.proyectos,gastos:S.gastos,proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios,config:S.config,inventario:S.inventario||{bodegas:[],productos:[],movimientos:[]},cotizaciones:S.cotizaciones||{comparaciones:[]},cajachica:S.cajachica||{reintegros:[]},mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[]},energy:S.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12},gerentesZona:S.gerentesZona||[],asistencia:S.asistencia||{registros:[]},auditorias:S.auditorias||{registros:[]},taller:S.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[]}}}
 
 // Versión limpia para Firestore — elimina base64 pesados que van en colección separada
 function serializeForFirestore(){
@@ -1251,7 +1251,11 @@ function serializeForFirestore(){
     cotizaciones:{comparaciones},
     mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[]},
     energy:S.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12},
-    gerentesZona:S.gerentesZona||[]
+    gerentesZona:S.gerentesZona||[],
+    cajachica:S.cajachica||{reintegros:[]},
+    asistencia:S.asistencia||{registros:[]},
+    auditorias:S.auditorias||{registros:[]},
+    taller:S.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[]}
   };
 }
 function applyData(d,fromRemote=false){
