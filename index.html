@@ -12860,161 +12860,176 @@ function previsualizarImportFlota(input){
   if(!file){return;}
   var prev=document.getElementById('previewImportFlota');
   if(prev)prev.innerHTML='<div style="color:var(--muted);font-size:12px">Leyendo archivo...</div>';
-  var reader=new FileReader();
-  reader.onload=function(e){
-    try{
-      var data=new Uint8Array(e.target.result);
-      var wb=XLSX.read(data,{type:'array',cellDates:true});
-      // Buscar la hoja correcta
-      var sheetName=wb.SheetNames.find(function(n){return n.toLowerCase().includes('levantamiento')||n.toLowerCase().includes('flota');});
-      if(!sheetName)sheetName=wb.SheetNames[0];
-      var ws=wb.Sheets[sheetName];
-      var rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
 
-      // Encontrar fila de encabezados (busco "Placa" en alguna columna)
-      var headerRow=-1;
-      for(var ri=0;ri<Math.min(rows.length,8);ri++){
-        var found=rows[ri].some(function(c){return String(c).toLowerCase().trim()==='placa';});
-        if(found){headerRow=ri;break;}
-      }
-      if(headerRow<0){
-        if(prev)prev.innerHTML='<div style="color:var(--red)">No se encontró la fila de encabezados. Verifica que el archivo tenga "Placa" como columna.</div>';
-        return;
-      }
+  // Asegurar que SheetJS esté disponible antes de procesar
+  function procesarConXLSX(){
+    var reader=new FileReader();
+    reader.onload=function(e){
+      try{
+        var data=new Uint8Array(e.target.result);
+        var wb=XLSX.read(data,{type:'array',cellDates:true});
+        // Buscar la hoja correcta
+        var sheetName=wb.SheetNames.find(function(n){return n.toLowerCase().includes('levantamiento')||n.toLowerCase().includes('flota');});
+        if(!sheetName)sheetName=wb.SheetNames[0];
+        var ws=wb.Sheets[sheetName];
+        var rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
 
-      var headers=rows[headerRow].map(function(c){return String(c).toLowerCase().trim();});
-      var col=function(name){
-        var n=name.toLowerCase();
-        var idx=headers.findIndex(function(h){return h.includes(n);});
-        return idx;
-      };
+        // Encontrar fila de encabezados (busco "Placa" en alguna columna)
+        var headerRow=-1;
+        for(var ri=0;ri<Math.min(rows.length,8);ri++){
+          var found=rows[ri].some(function(c){return String(c).toLowerCase().trim()==='placa';});
+          if(found){headerRow=ri;break;}
+        }
+        if(headerRow<0){
+          if(prev)prev.innerHTML='<div style="color:var(--red)">No se encontró la fila de encabezados. Verifica que el archivo tenga "Placa" como columna.</div>';
+          return;
+        }
 
-      // Mapear columnas clave
-      var colPlaca=col('placa');
-      var colNoEcon=col('económico');
-      var colMarca=col('marca');
-      var colModelo=col('modelo');
-      var colAnio=col('año');
-      var colTipo=col('tipo de veh');
-      var colColor=col('color');
-      var colVin=col('vin');
-      var colKm=col('kilometraje');
-      var colRuta=col('ruta');
-      var colMotorista=col('motorista');
-      var colMttoFecha=col('fecha último mtto');
-      var colMttoKm=col('km al último mtto');
-      var colMttoTaller=col('taller que realizó');
-      var colMttoDesc=col('descripción del último');
-      var colAceiteFecha=col('fecha último cambio de aceite');
-      var colAceiteKm=col('km al cambio de aceite');
-      var colAceiteMarca=col('tipo/marca de aceite');
-      var colLlantasFecha=col('fecha último cambio de llant');
-      var colLlantasPos=col('posición de llant');
-      var colLlantasMarca=col('marca/medida');
-      var colFallasMec=col('fallas mecánicas');
-      var colFallasElec=col('fallas eléctricas');
-      var colFallasCar=col('fallas de carrocería');
-      var colFallasEnf=col('fallas de sistema de enfr');
-      var colFallasPend=col('fallas actuales pendientes');
-      var colObs=col('observaciones');
-
-      var parsedVehs=[];
-      for(var i=headerRow+1;i<rows.length;i++){
-        var row=rows[i];
-        var placa=String(row[colPlaca]||'').trim().toUpperCase();
-        if(!placa||placa==='NAN'||placa==='')continue;
-        // Omitir filas sin placa real (solo número correlativo)
-        if(placa.match(/^\d+$/))continue;
-
-        var fallas=[];
-        var valMec=String(row[colFallasMec]||'').trim();
-        var valElec=String(row[colFallasElec]||'').trim();
-        var valCar=String(row[colFallasCar]||'').trim();
-        var valEnf=String(row[colFallasEnf]||'').trim();
-        var valPend=String(row[colFallasPend]||'').trim();
-        var noTiene=/^no tiene$/i;
-        if(valMec&&!noTiene.test(valMec))fallas.push({id:'fl_'+Date.now().toString(36)+'m'+i,categoria:'mecanica',descripcion:valMec,estado:'pendiente',fechaDeteccion:'',ts:Date.now()});
-        if(valElec&&!noTiene.test(valElec))fallas.push({id:'fl_'+Date.now().toString(36)+'e'+i,categoria:'electrica',descripcion:valElec,estado:'pendiente',fechaDeteccion:'',ts:Date.now()});
-        if(valCar&&!noTiene.test(valCar))fallas.push({id:'fl_'+Date.now().toString(36)+'c'+i,categoria:'carroceria',descripcion:valCar,estado:'pendiente',fechaDeteccion:'',ts:Date.now()});
-        if(valEnf&&!noTiene.test(valEnf))fallas.push({id:'fl_'+Date.now().toString(36)+'f'+i,categoria:'enfriamiento',descripcion:valEnf,estado:'pendiente',fechaDeteccion:'',ts:Date.now()});
-        if(valPend&&!noTiene.test(valPend))fallas.push({id:'fl_'+Date.now().toString(36)+'p'+i,categoria:'otros',descripcion:'PENDIENTE: '+valPend,estado:'pendiente',fechaDeteccion:'',ts:Date.now()});
-
-        var fmtDate2=function(val){
-          if(!val)return '';
-          if(val instanceof Date){var d=val;return d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate();}
-          var s=String(val).trim();
-          if(s.match(/^\d{4}-\d{2}-\d{2}/))return s.slice(0,10);
-          return s;
+        var headers=rows[headerRow].map(function(c){return String(c).toLowerCase().trim();});
+        var col=function(name){
+          var n=name.toLowerCase();
+          var idx=headers.findIndex(function(h){return h.includes(n);});
+          return idx;
         };
 
-        parsedVehs.push({
-          id:genId(),creadoEn:Date.now(),
-          placa:placa,
-          noEconomico:String(row[colNoEcon]||'').trim(),
-          marca:String(row[colMarca]||'').trim().toUpperCase(),
-          modelo:String(row[colModelo]||'').trim().toUpperCase(),
-          anio:parseInt(row[colAnio])||null,
-          tipo:String(row[colTipo]||'').trim().toUpperCase(),
-          color:String(row[colColor]||'').trim().toUpperCase(),
-          vin:String(row[colVin]||'').trim().toUpperCase(),
-          kmActual:parseFloat(String(row[colKm]||'').replace(',','.'))||0,
-          kmActuales:parseFloat(String(row[colKm]||'').replace(',','.'))||0,
-          ruta:String(row[colRuta]||'').trim().toUpperCase(),
-          motorista:String(row[colMotorista]||'').trim(),
-          estado:'activo',
-          mttoFecha:fmtDate2(row[colMttoFecha]),
-          mttoKm:parseFloat(String(row[colMttoKm]||'').replace(',','.'))||0,
-          mttoTaller:String(row[colMttoTaller]||'').trim(),
-          mttoDescripcion:String(row[colMttoDesc]||'').trim(),
-          aceiteFecha:fmtDate2(row[colAceiteFecha]),
-          aceiteKm:parseFloat(String(row[colAceiteKm]||'').replace(',','.'))||0,
-          aceiteMarca:String(row[colAceiteMarca]||'').trim(),
-          llantasFecha:fmtDate2(row[colLlantasFecha]),
-          llantasPosicion:String(row[colLlantasPos]||'').trim(),
-          llantasMarca:String(row[colLlantasMarca]||'').trim(),
-          observaciones:String(row[colObs]||'').trim(),
-          fallas:fallas
-        });
-      }
+        // Mapear columnas clave
+        var colPlaca=col('placa');
+        var colNoEcon=col('económico');
+        var colMarca=col('marca');
+        var colModelo=col('modelo');
+        var colAnio=col('año');
+        var colTipo=col('tipo de veh');
+        var colColor=col('color');
+        var colVin=col('vin');
+        var colKm=col('kilometraje');
+        var colRuta=col('ruta');
+        var colMotorista=col('motorista');
+        var colMttoFecha=col('fecha último mtto');
+        var colMttoKm=col('km al último mtto');
+        var colMttoTaller=col('taller que realizó');
+        var colMttoDesc=col('descripción del último');
+        var colAceiteFecha=col('fecha último cambio de aceite');
+        var colAceiteKm=col('km al cambio de aceite');
+        var colAceiteMarca=col('tipo/marca de aceite');
+        var colLlantasFecha=col('fecha último cambio de llant');
+        var colLlantasPos=col('posición de llant');
+        var colLlantasMarca=col('marca/medida');
+        var colFallasMec=col('fallas mecánicas');
+        var colFallasElec=col('fallas eléctricas');
+        var colFallasCar=col('fallas de carrocería');
+        var colFallasEnf=col('fallas de sistema de enfr');
+        var colFallasPend=col('fallas actuales pendientes');
+        var colObs=col('observaciones');
 
-      _importFlotaParsed=parsedVehs;
+        var parsedVehs=[];
+        for(var i=headerRow+1;i<rows.length;i++){
+          var row=rows[i];
+          var placa=String(row[colPlaca]||'').trim().toUpperCase();
+          if(!placa||placa==='NAN'||placa==='')continue;
+          if(placa.match(/^\d+$/))continue;
 
-      // Preview HTML
-      var phtml='<div class="sec-hdr">Vista previa — '+parsedVehs.length+' vehículo(s) encontrados</div>';
-      if(parsedVehs.length===0){
-        phtml+='<div style="color:var(--red)">No se encontraron vehículos con placa válida. Verifica el formato del archivo.</div>';
-      } else {
-        phtml+='<div class="tbl-wrap" style="max-height:240px;overflow-y:auto"><table style="font-size:12px"><thead><tr><th>Placa</th><th>Marca/Modelo</th><th>Tipo</th><th>Km</th><th>Motorista</th><th style="text-align:center">Fallas</th></tr></thead><tbody>';
-        parsedVehs.forEach(function(p){
-          phtml+='<tr>'
-            +'<td><strong>'+esc(p.placa)+'</strong></td>'
-            +'<td>'+esc(p.marca+' '+p.modelo)+'</td>'
-            +'<td>'+esc(p.tipo)+'</td>'
-            +'<td style="text-align:right">'+fmt(p.kmActual)+'</td>'
-            +'<td>'+esc(p.motorista)+'</td>'
-            +'<td style="text-align:center">'+(p.fallas.length>0?'<span class="badge b-err">'+p.fallas.length+'</span>':'<span class="badge b-ok">0</span>')+'</td>'
-          +'</tr>';
-        });
-        phtml+='</tbody></table></div>';
-        // Aviso de duplicados
-        var t=tallerData();
-        var dups=parsedVehs.filter(function(p){return t.vehiculos.find(function(x){return x.placa.toUpperCase()===p.placa;});});
-        if(dups.length>0){
-          phtml+='<div style="margin-top:8px;padding:8px 12px;background:rgba(232,160,32,0.1);border-left:3px solid var(--accent);border-radius:4px;font-size:12px">⚠ <strong>'+dups.length+' placa(s) ya existen</strong> en el sistema: '+dups.map(function(p){return p.placa;}).join(', ')+'. Se actualizarán sus datos.</div>';
+          var fallas=[];
+          var noTiene=/^no tiene$/i;
+          var valMec=String(row[colFallasMec]||'').trim();
+          var valElec=String(row[colFallasElec]||'').trim();
+          var valCar=String(row[colFallasCar]||'').trim();
+          var valEnf=String(row[colFallasEnf]||'').trim();
+          var valPend=String(row[colFallasPend]||'').trim();
+          var ts=Date.now();
+          if(valMec&&!noTiene.test(valMec))fallas.push({id:'fl_'+ts.toString(36)+'m'+i,categoria:'mecanica',descripcion:valMec,estado:'pendiente',fechaDeteccion:'',ts:ts});
+          if(valElec&&!noTiene.test(valElec))fallas.push({id:'fl_'+ts.toString(36)+'e'+i,categoria:'electrica',descripcion:valElec,estado:'pendiente',fechaDeteccion:'',ts:ts});
+          if(valCar&&!noTiene.test(valCar))fallas.push({id:'fl_'+ts.toString(36)+'c'+i,categoria:'carroceria',descripcion:valCar,estado:'pendiente',fechaDeteccion:'',ts:ts});
+          if(valEnf&&!noTiene.test(valEnf))fallas.push({id:'fl_'+ts.toString(36)+'f'+i,categoria:'enfriamiento',descripcion:valEnf,estado:'pendiente',fechaDeteccion:'',ts:ts});
+          if(valPend&&!noTiene.test(valPend))fallas.push({id:'fl_'+ts.toString(36)+'p'+i,categoria:'otros',descripcion:'PENDIENTE: '+valPend,estado:'pendiente',fechaDeteccion:'',ts:ts});
+
+          var fmtDate2=function(val){
+            if(!val)return '';
+            if(val instanceof Date){var d=val;return d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate();}
+            var s=String(val).trim();
+            if(s.match(/^\d{4}-\d{2}-\d{2}/))return s.slice(0,10);
+            return s;
+          };
+
+          parsedVehs.push({
+            id:genId(),creadoEn:ts,
+            placa:placa,
+            noEconomico:String(row[colNoEcon]||'').trim(),
+            marca:String(row[colMarca]||'').trim().toUpperCase(),
+            modelo:String(row[colModelo]||'').trim().toUpperCase(),
+            anio:parseInt(row[colAnio])||null,
+            tipo:String(row[colTipo]||'').trim().toUpperCase(),
+            color:String(row[colColor]||'').trim().toUpperCase(),
+            vin:String(row[colVin]||'').trim().toUpperCase(),
+            kmActual:parseFloat(String(row[colKm]||'').replace(',','.'))||0,
+            kmActuales:parseFloat(String(row[colKm]||'').replace(',','.'))||0,
+            ruta:String(row[colRuta]||'').trim().toUpperCase(),
+            motorista:String(row[colMotorista]||'').trim(),
+            estado:'activo',
+            mttoFecha:fmtDate2(row[colMttoFecha]),
+            mttoKm:parseFloat(String(row[colMttoKm]||'').replace(',','.'))||0,
+            mttoTaller:String(row[colMttoTaller]||'').trim(),
+            mttoDescripcion:String(row[colMttoDesc]||'').trim(),
+            aceiteFecha:fmtDate2(row[colAceiteFecha]),
+            aceiteKm:parseFloat(String(row[colAceiteKm]||'').replace(',','.'))||0,
+            aceiteMarca:String(row[colAceiteMarca]||'').trim(),
+            llantasFecha:fmtDate2(row[colLlantasFecha]),
+            llantasPosicion:String(row[colLlantasPos]||'').trim(),
+            llantasMarca:String(row[colLlantasMarca]||'').trim(),
+            observaciones:String(row[colObs]||'').trim(),
+            fallas:fallas
+          });
         }
+
+        _importFlotaParsed=parsedVehs;
+
+        var phtml='<div class="sec-hdr">Vista previa — '+parsedVehs.length+' vehículo(s) encontrados</div>';
+        if(parsedVehs.length===0){
+          phtml+='<div style="color:var(--red)">No se encontraron vehículos con placa válida.</div>';
+        } else {
+          phtml+='<div class="tbl-wrap" style="max-height:240px;overflow-y:auto"><table style="font-size:12px"><thead><tr><th>Placa</th><th>Marca/Modelo</th><th>Tipo</th><th>Km</th><th>Motorista</th><th style="text-align:center">Fallas</th></tr></thead><tbody>';
+          parsedVehs.forEach(function(p){
+            phtml+='<tr>'
+              +'<td><strong>'+esc(p.placa)+'</strong></td>'
+              +'<td>'+esc(p.marca+' '+p.modelo)+'</td>'
+              +'<td>'+esc(p.tipo)+'</td>'
+              +'<td style="text-align:right">'+fmt(p.kmActual)+'</td>'
+              +'<td>'+esc(p.motorista)+'</td>'
+              +'<td style="text-align:center">'+(p.fallas.length>0?'<span class="badge b-err">'+p.fallas.length+'</span>':'<span class="badge b-ok">0</span>')+'</td>'
+            +'</tr>';
+          });
+          phtml+='</tbody></table></div>';
+          var tDup=tallerData();
+          var dups=parsedVehs.filter(function(p){return tDup.vehiculos.find(function(x){return x.placa.toUpperCase()===p.placa;});});
+          if(dups.length>0){
+            phtml+='<div style="margin-top:8px;padding:8px 12px;background:rgba(232,160,32,0.1);border-left:3px solid var(--accent);border-radius:4px;font-size:12px">⚠ <strong>'+dups.length+' placa(s) ya existen</strong> y se actualizarán: '+dups.map(function(p){return p.placa;}).join(', ')+'</div>';
+          }
+        }
+        if(prev)prev.innerHTML=phtml;
+        var btn=document.getElementById('btnConfImport');
+        if(btn)btn.style.display=parsedVehs.length>0?'':'none';
+
+      }catch(err){
+        if(prev)prev.innerHTML='<div style="color:var(--red)">Error al leer el archivo: '+esc(err.message)+'</div>';
+        console.error(err);
       }
-      if(prev)prev.innerHTML=phtml;
-      var btn=document.getElementById('btnConfImport');
-      if(btn)btn.style.display=parsedVehs.length>0?'':'none';
+    };
+    reader.readAsArrayBuffer(file);
+  }
 
-    }catch(err){
-      if(prev)prev.innerHTML='<div style="color:var(--red)">Error al leer el archivo: '+esc(err.message)+'</div>';
-      console.error(err);
-    }
-  };
-  reader.readAsArrayBuffer(file);
+  // Cargar SheetJS si no está disponible
+  if(typeof XLSX!=='undefined'){
+    procesarConXLSX();
+  } else {
+    if(prev)prev.innerHTML='<div style="color:var(--muted);font-size:12px">Cargando librería Excel...</div>';
+    var s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload=function(){procesarConXLSX();};
+    s.onerror=function(){
+      if(prev)prev.innerHTML='<div style="color:var(--red)">No se pudo cargar la librería Excel. Verifica tu conexión a internet.</div>';
+    };
+    document.head.appendChild(s);
+  }
 }
-
 function confirmarImportFlota(){
   if(!_importFlotaParsed||_importFlotaParsed.length===0){toast('Nada que importar',true);return;}
   var t=tallerData();
