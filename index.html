@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Proyectos Pro v3.9.3 build:2026-04-25 — Taller enriquecido + Flota + Rutas + Combustible + Fix asistencia -->
+<!-- Proyectos Pro v4.0 build:2026-04-25 — Catálogos dinámicos + Personal unificado + Importar Flota en Config -->
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -1032,7 +1032,7 @@ input[type=date]{color-scheme:dark}
     <div class="fg"><label>Marca</label><select id="npMarca"></select></div>
   </div>
   <div class="row2">
-    <div class="fg"><label>Tipo</label><select id="npTipo"><option>Remodelación</option><option>Construcción nueva</option></select></div>
+    <div class="fg"><label>Tipo</label><select id="npTipo"></select></div>
     <div class="fg"><label>Ubicación</label><input id="npUbic" placeholder="Ciudad / dirección"></div>
   </div>
   <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px">
@@ -1145,7 +1145,58 @@ const S={
   empresa:'',proyectos:[],gastos:[],proveedores:[],centros:[],
   marcas:['Papa Johns','Jimmy Johns'],
   usuarios:[],
-  config:{appName:'Proyectos Pro',logoUrl:'',accentColor:'#e8a020'},
+  config:{
+    appName:'Proyectos Pro',logoUrl:'',accentColor:'#e8a020',
+    // Catálogos del sistema — editables desde Configuración
+    tiposTecnico:[
+      {id:'mecanica',label:'Mecánico',usadoEn:['taller','mant']},
+      {id:'motorista',label:'Motorista / Chofer',usadoEn:['taller']},
+      {id:'electrico',label:'Eléctrico',usadoEn:['mant']},
+      {id:'aire',label:'A/C',usadoEn:['mant']},
+      {id:'refrigeracion',label:'Refrigeración',usadoEn:['mant']},
+      {id:'cocina',label:'Cocina / Equipos',usadoEn:['mant']},
+      {id:'fontaneria',label:'Plomería / Fontanería',usadoEn:['mant']},
+      {id:'soldadura',label:'Soldadura',usadoEn:['mant','taller']},
+      {id:'civil',label:'Obra civil',usadoEn:['mant']},
+      {id:'mantenimiento',label:'Mantenimiento general',usadoEn:['mant']}
+    ],
+    categoriasArea:[
+      {id:'ac',label:'A/C'},
+      {id:'cocina',label:'Cocina'},
+      {id:'fontaneria',label:'Fontanería'},
+      {id:'civil',label:'Civil'},
+      {id:'general',label:'General'}
+    ],
+    frecuencias:['mensual','bimestral','trimestral','semestral','anual'],
+    tiposVehiculo:['CAMION','CAMION REFRIGERADO','PANEL','PICK UP','MOTO','OTRO'],
+    categoriasFallas:[
+      {id:'mecanica',label:'Mecánica',icono:'🔧'},
+      {id:'electrica',label:'Eléctrica',icono:'⚡'},
+      {id:'carroceria',label:'Carrocería',icono:'🚚'},
+      {id:'enfriamiento',label:'A/C / Enfriamiento',icono:'❄️'},
+      {id:'otros',label:'Otros',icono:'📌'}
+    ],
+    estadosOT:[
+      {id:'recibido',label:'Recibido',color:'b-purple'},
+      {id:'diagnostico',label:'Diagnóstico',color:'b-blue'},
+      {id:'reparacion',label:'En Reparación',color:'b-warn'},
+      {id:'listo',label:'Listo',color:'b-ok'},
+      {id:'entregado',label:'Entregado',color:'b-neu'}
+    ],
+    tiposOT:['preventivo','correctivo','urgente'],
+    categoriasInventario:['Materiales de construcción','Mobiliario','Equipos A/C','Herramientas','Eléctrico','Plomería','Acabados','Seguridad','Limpieza','Otros'],
+    unidadesInventario:['unidad','kg','lb','m','m²','m³','lt','galón','rollo','caja','bolsa','varilla','tubo','lamina','juego','par'],
+    tiposProyecto:['Remodelación','Construcción nueva','Ampliación'],
+    estadosProyecto:['Sin iniciar','En ejecución','Retrasado','Finalizado'],
+    estadosAsistencia:[
+      {id:'RC',label:'R.C. — Reporte Completo'},
+      {id:'RI',label:'R.I. — Incompleto'},
+      {id:'X',label:'X — No Reportó'},
+      {id:'P',label:'P — Permiso'},
+      {id:'I',label:'I — Incapacidad/ISSS'}
+    ],
+    horaMetaAsistencia:'08:00'
+  },
   cajachica:{reintegros:[]},
   mantenimiento:{tecnicos:[],checklists:[],equipos:[],ots:[]},
   energy:{logs:[],alertas:[],checklists:[],tarifa:0.12},
@@ -1246,7 +1297,7 @@ function setSyncUI(state,txt){const dot=document.getElementById('syncDot'),stxt=
 // ═══════════════════════════════════════════════════════
 //  SYNC
 // ═══════════════════════════════════════════════════════
-function serializeState(){return{_v:3,_ts:Date.now(),proyectos:S.proyectos,gastos:S.gastos,proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios,config:S.config,inventario:S.inventario||{bodegas:[],productos:[],movimientos:[]},cotizaciones:S.cotizaciones||{comparaciones:[]},cajachica:S.cajachica||{reintegros:[]},mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[]},energy:S.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12},gerentesZona:S.gerentesZona||[],asistencia:S.asistencia||{registros:[]},auditorias:S.auditorias||{registros:[]},taller:S.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[]}}}
+function serializeState(){return{_v:4,_ts:Date.now(),proyectos:S.proyectos,gastos:S.gastos,proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios,config:S.config,inventario:S.inventario||{bodegas:[],productos:[],movimientos:[]},cotizaciones:S.cotizaciones||{comparaciones:[]},cajachica:S.cajachica||{reintegros:[]},mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[]},energy:S.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12},gerentesZona:S.gerentesZona||[],asistencia:S.asistencia||{registros:[]},auditorias:S.auditorias||{registros:[]},taller:S.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[]}}}
 
 // Versión limpia para Firestore — elimina base64 pesados que van en colección separada
 function serializeForFirestore(){
@@ -1318,42 +1369,122 @@ function serializeForFirestore(){
 }
 function applyData(d,fromRemote=false){
   S.proyectos=d.proyectos||[];
-  // Si los gastos están en chunks, NO sobreescribir con el array vacío del doc principal
-  // Solo aplicar gastos si vienen con datos reales O si es una carga inicial completa (FB.load)
   if(d._gastosChunked&&fromRemote&&d.gastos&&d.gastos.length===0){
-    // Gastos chunkeados recibidos por listener — preservar los gastos en memoria
-    // (ya fueron cargados correctamente por FB.load al iniciar)
     console.log('[PP] Snapshot con gastos chunkeados — preservando S.gastos en memoria');
   } else {
     S.gastos=d.gastos||[];
   }
   S.proveedores=d.proveedores||[];S.centros=d.centros||[];
   S.marcas=d.marcas||['Papa Johns','Jimmy Johns'];S.usuarios=d.usuarios||[];
-  S.config=d.config||{appName:'Proyectos Pro',logoUrl:'',accentColor:'#e8a020'};
+  // Fusionar config preservando catálogos: los valores remotos tienen prioridad
+  var remCfg=d.config||{};
+  S.config=Object.assign({},S.config,remCfg);
+  _ensureCatalogDefaults();
   S.inventario=d.inventario||{bodegas:[],productos:[],movimientos:[]};
   S.cotizaciones=d.cotizaciones||{comparaciones:[]};
   S.cajachica=d.cajachica||{reintegros:[]};
   S.mantenimiento=d.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[]};
   S.energy=d.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12};
   S.gerentesZona=d.gerentesZona||[];
-  // FIX: preservar asistencia en memoria si el snapshot remoto trae vacío pero ya tenemos datos
-  // Esto ocurre cuando el doc es grande y el snapshot llega con _ts desactualizado
   if(fromRemote&&d.asistencia&&d.asistencia.registros&&d.asistencia.registros.length===0
       &&S.asistencia&&S.asistencia.registros&&S.asistencia.registros.length>0){
     console.log('[PP] Snapshot remoto con asistencia vacía — preservando registros en memoria ('+S.asistencia.registros.length+')');
   } else {
     S.asistencia=d.asistencia||{registros:[]};
   }
-  // FIX igual para auditorías
   if(fromRemote&&d.auditorias&&d.auditorias.registros&&d.auditorias.registros.length===0
       &&S.auditorias&&S.auditorias.registros&&S.auditorias.registros.length>0){
-    // preservar
   } else {
     S.auditorias=d.auditorias||{registros:[]};
   }
   S.taller=d.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[]};
   migrateData();applyBranding();
 }
+// ════════════════════════════════════════════════════════════
+//  CATÁLOGOS CONFIGURABLES — helpers que reemplazan constantes JS
+// ════════════════════════════════════════════════════════════
+var _CFG_DEFAULTS={
+  tiposTecnico:[
+    {id:'mecanica',label:'Mecánico',usadoEn:['taller','mant']},
+    {id:'motorista',label:'Motorista / Chofer',usadoEn:['taller']},
+    {id:'electrico',label:'Eléctrico',usadoEn:['mant']},
+    {id:'aire',label:'A/C',usadoEn:['mant']},
+    {id:'refrigeracion',label:'Refrigeración',usadoEn:['mant']},
+    {id:'cocina',label:'Cocina / Equipos',usadoEn:['mant']},
+    {id:'fontaneria',label:'Plomería / Fontanería',usadoEn:['mant']},
+    {id:'soldadura',label:'Soldadura',usadoEn:['mant','taller']},
+    {id:'civil',label:'Obra civil',usadoEn:['mant']},
+    {id:'mantenimiento',label:'Mantenimiento general',usadoEn:['mant']}
+  ],
+  categoriasArea:[{id:'ac',label:'A/C'},{id:'cocina',label:'Cocina'},{id:'fontaneria',label:'Fontanería'},{id:'civil',label:'Civil'},{id:'general',label:'General'}],
+  frecuencias:['mensual','bimestral','trimestral','semestral','anual'],
+  tiposVehiculo:['CAMION','CAMION REFRIGERADO','PANEL','PICK UP','MOTO','OTRO'],
+  categoriasFallas:[{id:'mecanica',label:'Mecánica',icono:'🔧'},{id:'electrica',label:'Eléctrica',icono:'⚡'},{id:'carroceria',label:'Carrocería',icono:'🚚'},{id:'enfriamiento',label:'A/C / Enfriamiento',icono:'❄️'},{id:'otros',label:'Otros',icono:'📌'}],
+  estadosOT:[{id:'recibido',label:'Recibido',color:'b-purple'},{id:'diagnostico',label:'Diagnóstico',color:'b-blue'},{id:'reparacion',label:'En Reparación',color:'b-warn'},{id:'listo',label:'Listo',color:'b-ok'},{id:'entregado',label:'Entregado',color:'b-neu'}],
+  tiposOT:['preventivo','correctivo','urgente'],
+  categoriasInventario:['Materiales de construcción','Mobiliario','Equipos A/C','Herramientas','Eléctrico','Plomería','Acabados','Seguridad','Limpieza','Otros'],
+  unidadesInventario:['unidad','kg','lb','m','m²','m³','lt','galón','rollo','caja','bolsa','varilla','tubo','lamina','juego','par'],
+  tiposProyecto:['Remodelación','Construcción nueva','Ampliación'],
+  estadosProyecto:['Sin iniciar','En ejecución','Retrasado','Finalizado'],
+  estadosAsistencia:[{id:'RC',label:'R.C. — Reporte Completo'},{id:'RI',label:'R.I. — Incompleto'},{id:'X',label:'X — No Reportó'},{id:'P',label:'P — Permiso'},{id:'I',label:'I — Incapacidad/ISSS'}],
+  horaMetaAsistencia:'08:00'
+};
+function _ensureCatalogDefaults(){
+  if(!S.config)S.config={};
+  Object.keys(_CFG_DEFAULTS).forEach(function(k){if(!S.config[k])S.config[k]=_CFG_DEFAULTS[k];});
+}
+function getCfgTiposTecnico(){return (S.config&&S.config.tiposTecnico)||_CFG_DEFAULTS.tiposTecnico;}
+function getCfgCategoriasArea(){return (S.config&&S.config.categoriasArea)||_CFG_DEFAULTS.categoriasArea;}
+function getCfgFrecuencias(){return (S.config&&S.config.frecuencias)||_CFG_DEFAULTS.frecuencias;}
+function getCfgTiposVehiculo(){return (S.config&&S.config.tiposVehiculo)||_CFG_DEFAULTS.tiposVehiculo;}
+function getCfgCategoriasFallas(){return (S.config&&S.config.categoriasFallas)||_CFG_DEFAULTS.categoriasFallas;}
+function getCfgEstadosOT(){return (S.config&&S.config.estadosOT)||_CFG_DEFAULTS.estadosOT;}
+function getCfgTiposOT(){return (S.config&&S.config.tiposOT)||_CFG_DEFAULTS.tiposOT;}
+function getCfgCategoriasInventario(){return (S.config&&S.config.categoriasInventario)||_CFG_DEFAULTS.categoriasInventario;}
+function getCfgUnidadesInventario(){return (S.config&&S.config.unidadesInventario)||_CFG_DEFAULTS.unidadesInventario;}
+function getCfgTiposProyecto(){return (S.config&&S.config.tiposProyecto)||_CFG_DEFAULTS.tiposProyecto;}
+function getCfgEstadosProyecto(){return (S.config&&S.config.estadosProyecto)||_CFG_DEFAULTS.estadosProyecto;}
+function getCfgEstadosAsistencia(){return (S.config&&S.config.estadosAsistencia)||_CFG_DEFAULTS.estadosAsistencia;}
+function getCfgHoraMeta(){return (S.config&&S.config.horaMetaAsistencia)||_CFG_DEFAULTS.horaMetaAsistencia;}
+function tecTipoLabel(tipo){if(!tipo)return 'Sin tipo';var t=getCfgTiposTecnico().find(function(x){return x.id===tipo;});return t?t.label:tipo;}
+function catAreaLabel(id){var c=getCfgCategoriasArea().find(function(x){return x.id===id;});return c?c.label:(id||'—');}
+function fallaLabel(id){var f=getCfgCategoriasFallas().find(function(x){return x.id===id;});return f?(f.icono+' '+f.label):(id||'—');}
+function otEstadoLabel(id){var e=getCfgEstadosOT().find(function(x){return x.id===id;});return e?e.label:(id||'—');}
+function otEstadoColor(id){var e=getCfgEstadosOT().find(function(x){return x.id===id;});return e?e.color:'b-neu';}
+function getTecnicosByArea(area){
+  return ((S.mantenimiento&&S.mantenimiento.tecnicos)||[]).filter(function(t){
+    if(t.activo===false)return false;
+    var tipo=getCfgTiposTecnico().find(function(x){return x.id===t.tipo;});
+    if(!tipo)return !!t.tipo;
+    return !tipo.usadoEn||tipo.usadoEn.indexOf(area)>=0;
+  });
+}
+function tallerMecanicos(){return getTecnicosByArea('taller');}
+function optsFromArray(arr,selVal){return arr.map(function(v){return '<option value="'+esc(v)+'" '+(v===selVal?'selected':'')+'>'+esc(v)+'</option>';}).join('');}
+function optsFromObjArray(arr,valKey,labelKey,selVal){return arr.map(function(o){return '<option value="'+esc(o[valKey])+'" '+(o[valKey]===selVal?'selected':'')+'>'+esc(o[labelKey])+'</option>';}).join('');}
+function optsTiposTecnico(selVal,filtroArea){
+  var lista=filtroArea?getCfgTiposTecnico().filter(function(t){return !t.usadoEn||t.usadoEn.indexOf(filtroArea)>=0;}):getCfgTiposTecnico();
+  return optsFromObjArray(lista,'id','label',selVal)+'<option value="__otro__" '+(selVal&&!lista.find(function(t){return t.id===selVal;})?'selected':'')+'>✏ Otro (escribir)...</option>';
+}
+function optsCategoriasArea(selVal){return optsFromObjArray(getCfgCategoriasArea(),'id','label',selVal);}
+function optsCategoriasFallas(selVal){return getCfgCategoriasFallas().map(function(f){return '<option value="'+esc(f.id)+'" '+(f.id===selVal?'selected':'')+'>'+esc(f.icono)+' '+esc(f.label)+'</option>';}).join('');}
+function optsEstadosOT(selVal){return optsFromObjArray(getCfgEstadosOT(),'id','label',selVal);}
+function optsTiposOT(selVal){return optsFromArray(getCfgTiposOT(),selVal);}
+function optsFrecuencias(selVal){return getCfgFrecuencias().map(function(f){return '<option value="'+esc(f)+'" '+(f===selVal?'selected':'')+'>'+esc(f.charAt(0).toUpperCase()+f.slice(1))+'</option>';}).join('');}
+function optsTiposVehiculo(selVal){return optsFromArray(getCfgTiposVehiculo(),selVal);}
+function optsEstadosProyecto(selVal){return optsFromArray(getCfgEstadosProyecto(),selVal);}
+function optsTiposProyecto(selVal){return optsFromArray(getCfgTiposProyecto(),selVal);}
+function optsCategoriasInventario(selVal){return optsFromArray(getCfgCategoriasInventario(),selVal);}
+function optsUnidadesInventario(selVal){return optsFromArray(getCfgUnidadesInventario(),selVal);}
+function optsEstadosAsistencia(selVal){return optsFromObjArray(getCfgEstadosAsistencia(),'id','label',selVal);}
+function optsTecnicos(selVal,area){
+  var lista=area?getTecnicosByArea(area):((S.mantenimiento&&S.mantenimiento.tecnicos)||[]).filter(function(t){return t.activo!==false;});
+  var opts='<option value="">— Seleccionar —</option>';
+  opts+=lista.map(function(t){return '<option value="'+esc(t.id)+'" '+(t.id===selVal?'selected':'')+'>'+esc(t.nombre)+' · '+esc(tecTipoLabel(t.tipo))+'</option>';}).join('');
+  opts+='<option value="__libre__" '+(selVal==='__libre__'?'selected':'')+'>✍ Texto libre</option>';
+  return opts;
+}
+
 function migrateData(){
   S.proyectos.forEach(p=>{
     if(!p.cronograma)p.cronograma={aceptado:false,fechaInicio:'',partidas:[]};
@@ -2209,7 +2340,7 @@ async function editarUsuarioSA(uid){
         <div class="perm-grid">${MODULOS.map(m=>`<label class="perm-item ${(u.permisos&&u.permisos[m.id])?'on':''}"><input type="checkbox" id="eu_${m.id}" ${(u.permisos&&u.permisos[m.id])?'checked':''}> ${m.ic} ${m.label}</label>`).join('')}</div>
       </div>
       <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
-        <button class="btn btn-secondary" onclick="document.getElementById('editUModal').remove()">Cancelar</button>
+        <button class="btn btn-secondary" onclick="(function(_e){if(_e)_e.remove();})(document.getElementById('editUModal'))">Cancelar</button>
         <button class="btn" style="background:#1a0a2a;color:#c084fc;border:1px solid #3a1a5a" onclick="guardarUsuarioSA('${uid}')">✓ Guardar</button>
       </div>
     </div>
@@ -2456,11 +2587,18 @@ function totalGastosProyecto(pid){return gastosDeProyecto(pid).reduce((s,g)=>s+(
 // ═══════════════════════════════════════════════════════
 //  PROYECTOS
 // ═══════════════════════════════════════════════════════
+function abrirModalNuevoProyecto(){
+  // Poblar selects dinámicos desde catálogos configurables
+  var selTipo=document.getElementById('npTipo');
+  if(selTipo)selTipo.innerHTML=optsTiposProyecto('Remodelación');
+  refreshMarcaSel();
+  openModal('modalNP');
+}
 function crearProyecto(){
   const nombre=document.getElementById('npNombre').value.trim();
   if(!nombre){toast('Ingrese nombre',true);return}
   const pid=genId();
-  S.proyectos.push({id:pid,nombre,marca:document.getElementById('npMarca').value,tipo:document.getElementById('npTipo').value,ubicacion:document.getElementById('npUbic').value.trim(),estado:'Sin iniciar',avanceFisico:0,montoObraCivil:0,pagos:{imp:{monto:0,paid:false}},cronograma:{aceptado:false,fechaInicio:'',partidas:[]},contratista:'',supervisor:'',observaciones:''});
+  S.proyectos.push({id:pid,nombre,marca:document.getElementById('npMarca').value,tipo:document.getElementById('npTipo').value,ubicacion:document.getElementById('npUbic').value.trim(),estado:(getCfgEstadosProyecto()[0]||'Sin iniciar'),avanceFisico:0,montoObraCivil:0,pagos:{imp:{monto:0,paid:false}},cronograma:{aceptado:false,fechaInicio:'',partidas:[]},contratista:'',supervisor:'',observaciones:''});
   S.centros.push({id:genId(),nombre,descripcion:'Centro de costo del proyecto',proyectoId:pid,auto:true});
   saveData();closeModal('modalNP');
   document.getElementById('npNombre').value='';document.getElementById('npUbic').value='';
@@ -2538,8 +2676,8 @@ function reloadTab(tab,id){const active=document.querySelector('#dpTabs .tab.act
 
 function tplGen(p){return`
   <div class="row2"><div class="fg"><label>Nombre</label><input value="${esc(p.nombre)}" onchange="updP('${p.id}','nombre',this.value)"></div><div class="fg"><label>Marca</label><select onchange="updP('${p.id}','marca',this.value)">${S.marcas.map(m=>`<option ${p.marca===m?'selected':''}>${m}</option>`).join('')}</select></div></div>
-  <div class="row2"><div class="fg"><label>Tipo</label><select onchange="updP('${p.id}','tipo',this.value)">${['Remodelación','Construcción nueva'].map(t=>`<option ${p.tipo===t?'selected':''}>${t}</option>`).join('')}</select></div><div class="fg"><label>Ubicación</label><input value="${esc(p.ubicacion||'')}" onchange="updP('${p.id}','ubicacion',this.value)"></div></div>
-  <div class="row2"><div class="fg"><label>Estado</label><select onchange="updP('${p.id}','estado',this.value)">${['Sin iniciar','En ejecución','Retrasado','Finalizado'].map(s=>`<option ${p.estado===s?'selected':''}>${s}</option>`).join('')}</select></div><div class="fg"><label>Monto Obra Civil ($)</label><input type="number" min="0" value="${p.montoObraCivil||0}" onchange="updP('${p.id}','montoObraCivil',Math.max(0,parseFloat(this.value)||0))"></div></div>
+  <div class="row2"><div class="fg"><label>Tipo</label><select onchange="updP('${p.id}','tipo',this.value)">${optsTiposProyecto(p.tipo)}</select></div><div class="fg"><label>Ubicación</label><input value="${esc(p.ubicacion||'')}" onchange="updP('${p.id}','ubicacion',this.value)"></div></div>
+  <div class="row2"><div class="fg"><label>Estado</label><select onchange="updP('${p.id}','estado',this.value)">${optsEstadosProyecto(p.estado)}</select></div><div class="fg"><label>Monto Obra Civil ($)</label><input type="number" min="0" value="${p.montoObraCivil||0}" onchange="updP('${p.id}','montoObraCivil',Math.max(0,parseFloat(this.value)||0))"></div></div>
   <div class="fg"><label>Avance Físico — <strong id="avlbl">${p.avanceFisico}%</strong></label><input type="range" min="0" max="100" value="${p.avanceFisico}" oninput="document.getElementById('avlbl').textContent=this.value+'%'" onchange="updP('${p.id}','avanceFisico',parseInt(this.value))"><div class="prog" style="margin-top:4px"><div class="prog-fill" style="width:${p.avanceFisico}%"></div></div></div>
   <div class="row2"><div class="fg"><label>Contratista</label><select onchange="updP('${p.id}','contratista',this.value)"><option value="">— Seleccionar proveedor —</option>${S.proveedores.filter(pv=>!pv.tipo||pv.tipo==='Subcontrato'||pv.tipo==='Servicios'||pv.tipo==='').map(pv=>`<option value="${esc(pv.nombre)}" ${p.contratista===pv.nombre?'selected':''} >${esc(pv.nombre)}</option>`).join('')}${S.proveedores.filter(pv=>pv.tipo&&pv.tipo!=='Subcontrato'&&pv.tipo!=='Servicios').map(pv=>`<option value="${esc(pv.nombre)}" ${p.contratista===pv.nombre?'selected':''}>${esc(pv.nombre)}</option>`).join('')}</select></div><div class="fg"><label>Supervisor</label><input value="${esc(p.supervisor||'')}" onchange="updP('${p.id}','supervisor',this.value)"></div></div>
   <div class="row2"><div class="fg"><label>Fecha Inicio</label>${inputFecha(p.fechaInicio||'',`updP('${p.id}','fechaInicio',v)`)}</div><div class="fg"><label>Fecha Fin Estimada</label>${inputFecha(p.fechaFin||'',`updP('${p.id}','fechaFin',v)`)}</div></div>
@@ -6367,7 +6505,7 @@ async function editarUsuario(uid){
       <div id="euProyLocal" style="max-height:200px;overflow-y:auto">${proyOpts||'<div style="color:#555;font-size:12px">Sin proyectos creados</div>'}</div>
     </div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
-      <button class="btn btn-secondary" onclick="document.getElementById('editUsuModal').remove()">Cancelar</button>
+      <button class="btn btn-secondary" onclick="(function(_e){if(_e)_e.remove();})(document.getElementById('editUsuModal'))">Cancelar</button>
       <button class="btn btn-primary" onclick="guardarEditUsuario('${uid}')">✓ Guardar cambios</button>
     </div>
   </div>`;
@@ -6421,6 +6559,233 @@ function renderConfig(){
         <input type="password" id="cfgApiKey" value="${esc(cfg.anthropicApiKey||'')}" placeholder="sk-ant-..." style="flex:1" onchange="S.config.anthropicApiKey=this.value;saveData();toast('✓ API Key guardada')">
         <button class="btn btn-secondary btn-sm" onclick="const el=document.getElementById('cfgApiKey');el.type=el.type==='password'?'text':'password'">👁</button>
       </div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="sec-hdr">🎨 Branding</div>
+    <div class="row3">
+      <div class="fg"><label>Nombre de la App</label><input id="cfgName" value="${esc(cfg.appName||'Proyectos Pro')}" onchange="S.config.appName=this.value;saveData();applyBranding()"></div>
+      <div class="fg"><label>Color principal</label><div style="display:flex;gap:8px;align-items:center"><input type="color" value="${cfg.accentColor||'#e8a020'}" style="width:50px;height:40px;padding:2px 4px;cursor:pointer" onchange="S.config.accentColor=this.value;saveData();applyBranding()"><input value="${cfg.accentColor||'#e8a020'}" style="flex:1" onchange="S.config.accentColor=this.value;saveData();applyBranding()"></div></div>
+      <div class="fg"><label>Logo URL</label><input value="${esc(cfg.logoUrl||'')}" placeholder="https://... o base64" onchange="S.config.logoUrl=this.value;saveData();applyBranding()"></div>
+    </div>
+    <div class="fg"><label>Subir logo</label>
+      <div class="logo-upload-area" onclick="document.getElementById('logoFI').click()">
+        ${cfg.logoUrl?`<img src="${esc(cfg.logoUrl)}" style="width:64px;height:64px;border-radius:12px;object-fit:cover;margin:0 auto"><div style="font-size:12px;color:var(--muted);margin-top:8px">Clic para cambiar</div>`:`<div style="font-size:28px;margin-bottom:6px">🖼</div><div style="font-size:13px;color:var(--muted)">PNG, JPG, SVG</div>`}
+      </div>
+      <input type="file" id="logoFI" accept="image/*" style="display:none" onchange="handleLogoUpload(this)">
+    </div>
+    ${cfg.logoUrl?`<button class="btn btn-danger btn-sm" onclick="S.config.logoUrl='';saveData();applyBranding();render()">🗑 Quitar logo</button>`:''}
+  </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="sec-hdr">Marcas</div>${mH}
+    <div style="display:flex;gap:8px;margin-top:8px"><input id="nmarca" placeholder="Nueva marca" style="flex:1"><button class="btn btn-primary btn-sm" onclick="addMarca()">+</button></div>
+  </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="sec-hdr">⏰ Asistencia</div>
+    <div class="fg"><label>Hora meta de entrada</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="time" value="${esc(getCfgHoraMeta())}" style="width:140px" onchange="S.config.horaMetaAsistencia=this.value;saveData();toast('✓ Hora meta actualizada')">
+        <div style="font-size:12px;color:var(--muted)">Los empleados que lleguen después de esta hora cuentan como tardanza</div>
+      </div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="sec-hdr">⚙️ Catálogos del Sistema</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Personaliza las listas desplegables de todos los módulos. Los cambios se aplican inmediatamente en todo el app.</div>
+    <div id="catalogsContainer">${renderCatalogosHTML()}</div>
+  </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="sec-hdr">Información del sistema</div>
+    <div style="font-size:13px;color:var(--muted);line-height:2">
+      Empresa: <strong style="color:var(--text)">${S.empresa}</strong><br>
+      Usuario: <strong style="color:var(--text)">${(S.currentUser&&S.currentUser.nombre)||'—'}</strong> · Rol: <strong style="color:var(--text)">${(ROLES[(S.currentUser&&S.currentUser.rol)]&&ROLES[(S.currentUser&&S.currentUser.rol)].label)||(S.currentUser&&S.currentUser.rol)||'—'}</strong><br>
+      Firebase: <strong style="color:var(--green)">pf-construccion ✓</strong>
+    </div>
+  </div>
+  <div class="card" style="border-color:var(--accent)33">
+    <div class="sec-hdr">🔧 Diagnóstico y Recuperación de Datos</div>
+    <div id="diagResult" style="font-size:13px;color:var(--muted);margin-bottom:12px">Presiona Diagnosticar para ver el estado actual de tus datos.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-secondary" onclick="diagData()">🔍 Diagnosticar</button>
+      <button class="btn btn-secondary" onclick="diagRestoreLocal()" style="color:var(--accent);border-color:var(--accent)">♻ Restaurar desde respaldo local</button>
+      <button class="btn btn-secondary" onclick="diagForceSave()" style="color:var(--green);border-color:var(--green)">⬆ Forzar guardado en Firebase</button>
+    </div>
+  </div>`;
+}
+
+function renderCatalogosHTML(){
+  var grupos=[
+    {
+      titulo:'👷 Personal — Tipos de técnico / rol',
+      key:'tiposTecnico',
+      tipo:'objArray',
+      campos:[{key:'id',label:'ID',readonly:true},{key:'label',label:'Nombre visible'},{key:'usadoEn',label:'Módulos (taller,mant)',tipo:'csv'}],
+      hint:'El campo "Módulos" define dónde aparece: taller = OTs y vehículos, mant = mantenimiento'
+    },
+    {
+      titulo:'🔧 Mantenimiento — Áreas / categorías',
+      key:'categoriasArea',
+      tipo:'objArray',
+      campos:[{key:'id',label:'ID',readonly:true},{key:'label',label:'Nombre visible'}],
+      hint:'Se usan en equipos, checklists y especialidad de técnicos'
+    },
+    {
+      titulo:'⏰ Mantenimiento — Frecuencias',
+      key:'frecuencias',
+      tipo:'stringArray',
+      hint:'Frecuencias disponibles para planes de mantenimiento preventivo'
+    },
+    {
+      titulo:'🚚 Taller — Tipos de vehículo',
+      key:'tiposVehiculo',
+      tipo:'stringArray',
+      hint:'Aparecen en el registro de vehículos de la flota'
+    },
+    {
+      titulo:'🚨 Taller — Categorías de fallas',
+      key:'categoriasFallas',
+      tipo:'objArray',
+      campos:[{key:'id',label:'ID',readonly:true},{key:'label',label:'Nombre'},{key:'icono',label:'Ícono'}],
+      hint:'Categorías para clasificar fallas en la ficha de cada vehículo'
+    },
+    {
+      titulo:'📋 Taller — Estados de OT',
+      key:'estadosOT',
+      tipo:'objArray',
+      campos:[{key:'id',label:'ID',readonly:true},{key:'label',label:'Nombre'},{key:'color',label:'Badge CSS'}],
+      hint:'Estados del flujo de órdenes de trabajo'
+    },
+    {
+      titulo:'📦 Inventario — Categorías de producto',
+      key:'categoriasInventario',
+      tipo:'stringArray',
+      hint:'Aparecen al registrar productos en el inventario'
+    },
+    {
+      titulo:'📏 Inventario — Unidades de medida',
+      key:'unidadesInventario',
+      tipo:'stringArray',
+      hint:'Unidades disponibles para productos del inventario'
+    },
+    {
+      titulo:'🏗 Proyectos — Tipos de proyecto',
+      key:'tiposProyecto',
+      tipo:'stringArray',
+      hint:'Aparece al crear o editar un proyecto'
+    },
+    {
+      titulo:'🔵 Proyectos — Estados de proyecto',
+      key:'estadosProyecto',
+      tipo:'stringArray',
+      hint:'Estados del ciclo de vida de un proyecto (afecta dashboard y reportes)'
+    },
+    {
+      titulo:'✅ Asistencia — Estados de registro',
+      key:'estadosAsistencia',
+      tipo:'objArray',
+      campos:[{key:'id',label:'Código'},{key:'label',label:'Nombre visible'}],
+      hint:'Códigos de estado que aparecen al registrar asistencia diaria'
+    }
+  ];
+
+  var html='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">';
+  grupos.forEach(function(g,i){
+    html+='<button class="btn btn-secondary btn-sm" onclick="scrollToCatalog(\'cat_'+g.key+'\')" style="font-size:11px">'+g.titulo.split(' — ')[0]+'</button>';
+  });
+  html+='</div>';
+
+  grupos.forEach(function(g){
+    var lista=(S.config&&S.config[g.key])||_CFG_DEFAULTS[g.key]||[];
+    html+='<div id="cat_'+g.key+'" style="margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">'
+      +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">'
+      +'<div><div style="font-weight:600;font-size:13px">'+g.titulo+'</div>'
+      +(g.hint?'<div style="font-size:11px;color:var(--muted);margin-top:2px">'+g.hint+'</div>':'')
+      +'</div>'
+      +'<button class="btn btn-primary btn-xs" onclick="cfgCatAgregar(\''+g.key+'\',\''+g.tipo+'\')">+ Agregar</button></div>';
+
+    if(g.tipo==='stringArray'){
+      html+='<div style="display:flex;flex-wrap:wrap;gap:6px">';
+      lista.forEach(function(item,idx){
+        html+='<div style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:3px 4px 3px 10px;font-size:12px">'
+          +'<span>'+esc(item)+'</span>'
+          +'<button class="btn btn-danger btn-xs" style="padding:0 4px;font-size:10px" onclick="cfgCatEliminar(\''+g.key+'\','+idx+')">✕</button></div>';
+      });
+      html+='</div>';
+    } else {
+      // objArray
+      html+='<div class="tbl-wrap" style="border:none;padding:0"><table style="font-size:12px"><thead><tr>';
+      (g.campos||[]).forEach(function(c){html+='<th>'+c.label+'</th>';});
+      html+='<th>Acciones</th></tr></thead><tbody>';
+      lista.forEach(function(item,idx){
+        html+='<tr>';
+        (g.campos||[]).forEach(function(fc){
+          var val=fc.tipo==='csv'&&Array.isArray(item[fc.key])?item[fc.key].join(','):(item[fc.key]||'');
+          html+='<td><input style="font-size:11px;padding:3px 6px;min-width:80px" value="'+esc(val)+'" '+(fc.readonly?'disabled':'')+' onchange="cfgCatEditarCampo(\''+g.key+'\','+idx+',\''+fc.key+'\',this.value,\''+esc(fc.tipo||'')+'\')"></td>';
+        });
+        html+='<td><button class="btn btn-danger btn-xs" onclick="cfgCatEliminar(\''+g.key+'\','+idx+')">✕</button></td></tr>';
+      });
+      html+='</tbody></table></div>';
+    }
+    html+='</div>';
+  });
+  return html;
+}
+
+function scrollToCatalog(id){
+  var el=document.getElementById(id);
+  if(el)el.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function cfgCatEditarCampo(key,idx,campo,valor,tipo){
+  if(!S.config[key])S.config[key]=_CFG_DEFAULTS[key]||[];
+  if(tipo==='csv'){
+    S.config[key][idx][campo]=valor.split(',').map(function(v){return v.trim();}).filter(Boolean);
+  } else {
+    S.config[key][idx][campo]=valor;
+  }
+  saveData();
+}
+
+function cfgCatEliminar(key,idx){
+  if(!S.config[key])S.config[key]=(_CFG_DEFAULTS[key]||[]).slice();
+  if(S.config[key].length<=1){toast('Debe quedar al menos un elemento',true);return;}
+  S.config[key].splice(idx,1);
+  saveData();
+  var cont=document.getElementById('catalogsContainer');
+  if(cont)cont.innerHTML=renderCatalogosHTML();
+}
+
+function cfgCatAgregar(key,tipo){
+  if(!S.config[key])S.config[key]=(_CFG_DEFAULTS[key]||[]).slice();
+  var newId='item_'+Date.now().toString(36);
+  if(tipo==='stringArray'){
+    var val=prompt('Nuevo valor para "'+key+'":','');
+    if(!val||!val.trim())return;
+    S.config[key].push(val.trim());
+  } else {
+    // objArray — agregar con valores vacíos
+    var obj={id:newId,label:'Nuevo'};
+    if(key==='tiposTecnico')obj.usadoEn=['mant'];
+    if(key==='categoriasFallas')obj.icono='📌';
+    if(key==='estadosOT')obj.color='b-neu';
+    if(key==='estadosAsistencia'){obj.id=newId;obj.label='Nuevo estado';}
+    S.config[key].push(obj);
+  }
+  saveData();
+  var cont=document.getElementById('catalogsContainer');
+  if(cont)cont.innerHTML=renderCatalogosHTML();
+  toast('✓ Elemento agregado — edita los campos directamente en la tabla');
+}
+
+  document.getElementById('content').innerHTML=`
+  <div class="card" style="margin-bottom:16px">
+    <div class="sec-hdr">🤖 Integraciones IA</div>
+    <div class="fg">
+      <label>API Key de Anthropic (para comparar cotizaciones)</label>
+      <div style="display:flex;gap:8px">
+        <input type="password" id="cfgApiKey" value="${esc(cfg.anthropicApiKey||'')}" placeholder="sk-ant-..." style="flex:1" onchange="S.config.anthropicApiKey=this.value;saveData();toast('✓ API Key guardada')">
+        <button class="btn btn-secondary btn-sm" onclick="const el=document.getElementById('cfgApiKey');el.type=el.type==='password'?'text':'password'">👁</button>
+      </div>
       <div style="font-size:11px;color:var(--muted);margin-top:4px">Obtén tu clave en <a href="https://console.anthropic.com" target="_blank" style="color:var(--accent)">console.anthropic.com</a> — se guarda cifrada en tu cuenta</div>
     </div>
   </div>
@@ -6454,13 +6819,6 @@ function renderConfig(){
   <div class="card" style="border-color:var(--accent)33">
     <div class="sec-hdr">🔧 Diagnóstico y Recuperación de Datos</div>
     <div id="diagResult" style="font-size:13px;color:var(--muted);margin-bottom:12px">Presiona Diagnosticar para ver el estado actual de tus datos.</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-secondary" onclick="diagData()">🔍 Diagnosticar</button>
-      <button class="btn btn-secondary" onclick="diagRestoreLocal()" style="color:var(--accent);border-color:var(--accent)">♻ Restaurar desde respaldo local</button>
-      <button class="btn btn-secondary" onclick="diagForceSave()" style="color:var(--green);border-color:var(--green)">⬆ Forzar guardado en Firebase</button>
-    </div>
-  </div>`;
-}
 function handleLogoUpload(input){const file=input.files[0];if(!file)return;if(file.size>500000){toast('Logo muy grande — máx 500KB',true);return}const reader=new FileReader();reader.onload=e=>{S.config.logoUrl=e.target.result;saveData();applyBranding();render();toast('✓ Logo actualizado')};reader.readAsDataURL(file)}
 function addMarca(){const n=(document.getElementById('nmarca')||{}).value.trim();if(!n||S.marcas.includes(n))return;S.marcas.push(n);saveData();render();toast('✓ Marca agregada')}
 
@@ -6721,8 +7079,8 @@ function modalNuevoProducto(editId){
     if(confirm('No hay bodegas creadas. ¿Ir a crear una bodega?')){goTab('bodegas');}
     return;
   }
-  const CATEGORIAS=['Materiales de construcción','Mobiliario','Equipos A/C','Herramientas','Eléctrico','Plomería','Acabados','Seguridad','Limpieza','Otros'];
-  const UNIDADES_INV=['unidad','kg','lb','m','m²','m³','lt','galón','rollo','caja','bolsa','varilla','tubo','lamina','juego','par'];
+  const CATEGORIAS=getCfgCategoriasInventario();
+  const UNIDADES_INV=getCfgUnidadesInventario();
   const isMobile=/Android|iPhone|iPad/i.test(navigator.userAgent);
   const ep=editId?((S.inventario&&S.inventario.productos)||[]).find(x=>x.id===editId):null;
   const catOpts=CATEGORIAS.map(c=>`<option ${(ep&&ep.categoria)===c?'selected':''}>${c}</option>`).join('');
@@ -6734,7 +7092,7 @@ function modalNuevoProducto(editId){
   div.innerHTML=`<div class="modal-box md" style="margin-top:auto;margin-bottom:auto">
     <div class="modal-hdr">
       <div class="modal-ttl">${editId?'✏ Editar Producto':'+ Nuevo Producto / Activo'}</div>
-      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('modalNuevoProd').remove()">✕</button>
+      <button class="btn btn-secondary btn-sm" onclick="(function(_e){if(_e)_e.remove();})(document.getElementById('modalNuevoProd'))">✕</button>
     </div>
     <div class="row2">
       <div class="fg"><label>Nombre *</label><input id="npNom" value="${esc((ep&&ep.nombre)||'')}" placeholder="Ej: Taladro DeWalt"></div>
@@ -6774,7 +7132,7 @@ function modalNuevoProducto(editId){
       <input type="hidden" id="npEditId" value="${editId||''}">
     </div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
-      <button class="btn btn-secondary" onclick="document.getElementById('modalNuevoProd').remove()">Cancelar</button>
+      <button class="btn btn-secondary" onclick="(function(_e){if(_e)_e.remove();})(document.getElementById('modalNuevoProd'))">Cancelar</button>
       <button class="btn btn-primary" onclick="guardarProducto(this)">${editId?'✓ Actualizar':'✓ Guardar producto'}</button>
     </div>
   </div>`;
@@ -6935,7 +7293,7 @@ function movInventario(prodId,tipo){
 
     <div class="fg"><label>Nota</label><input id="mvNota" placeholder="Motivo del movimiento"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
-      <button class="btn btn-secondary" onclick="document.getElementById('modalMov').remove()">Cancelar</button>
+      <button class="btn btn-secondary" onclick="(function(_e){if(_e)_e.remove();})(document.getElementById('modalMov'))">Cancelar</button>
       <button class="btn btn-primary" onclick="confirmarMov('${prodId}','${tipo}',this)">✓ Confirmar</button>
     </div>
   </div>`;
@@ -7960,7 +8318,7 @@ function render(){
   const ha=document.getElementById('headerActions');
   var haHtml='';
   if((S.activeTab==='proyectos'||S.activeTab==='dashboard')&&puedeVer('proyectos')){
-    haHtml+=`<button class="btn btn-primary" onclick="openModal('modalNP');refreshMarcaSel()">+ Nuevo Proyecto</button>`;
+    haHtml+=`<button class="btn btn-primary" onclick="abrirModalNuevoProyecto()">+ Nuevo Proyecto</button>`;
   }
   if(puedeVer('importar')){
     var impActive=S.activeTab==='importar';
@@ -8535,27 +8893,13 @@ function ccImprimirReintegro(id){
 // ═══════════════════════════════════════════════════════
 
 var frecDias={mensual:30,bimestral:60,trimestral:90,semestral:180,anual:365};
-var MANT_CATS=['ac','cocina','fontaneria','civil','general'];
-var MANT_CAT_LABELS={ac:'A/C',cocina:'Cocina',fontaneria:'Fontanería',civil:'Civil',general:'General'};
+// LEGACY: var MANT_CATS=['ac','cocina','fontaneria','civil','general'];
+// LEGACY: var MANT_CAT_LABELS={ac:'A/C',cocina:'Cocina',fontaneria:'Fontanería',civil:'Civil',general:'General'};
 
 // Tipos de técnico (predefinidos + soporte para "otro")
-var TEC_TIPOS=[
-  {id:'mantenimiento',label:'Mantenimiento general'},
-  {id:'mecanica',label:'Mecánica'},
-  {id:'electrico',label:'Eléctrico'},
-  {id:'refrigeracion',label:'Refrigeración'},
-  {id:'aire',label:'A/C'},
-  {id:'cocina',label:'Cocina / Equipos'},
-  {id:'fontaneria',label:'Plomería / Fontanería'},
-  {id:'soldadura',label:'Soldadura'},
-  {id:'civil',label:'Obra civil'}
-];
-function tecTipoLabel(tipo){
-  if(!tipo)return 'Mantenimiento general';
-  var t=TEC_TIPOS.find(function(x){return x.id===tipo;});
-  return t?t.label:tipo;
-}
-var MANT_FREQS=['mensual','bimestral','trimestral','semestral','anual'];
+/* LEGACY TEC_TIPOS — ahora usa getCfgTiposTecnico() */
+// tecTipoLabel — ahora en helpers de catálogos (línea ~1403)
+// LEGACY: var MANT_FREQS=['mensual','bimestral','trimestral','semestral','anual'];
 
 function mantData(){
   if(!S.mantenimiento)S.mantenimiento={tecnicos:[],checklists:[],equipos:[],ots:[]};
@@ -8727,7 +9071,7 @@ function renderMantEquipos(){
     var prox=mantFecháPróximo(eq);
     var proxColor=prox&&prox<hoy?'color:var(--red)':'';
     rows+='<tr><td><div>'+esc(eq.nombre)+'</div><div style="font-size:11px;color:var(--muted)">'+esc(centroNom)+'</div></td>';
-    rows+='<td><span class="badge b-neu">'+esc(MANT_CAT_LABELS[eq.categoria]||eq.tipo||eq.categoria||'\u2014')+'</span></td>';
+    rows+='<td><span class="badge b-neu">'+esc(catAreaLabel(eq.categoria)||eq.tipo||eq.categoria||'\u2014')+'</span></td>';
     rows+='<td style="text-align:center">'+esc(String(eq.unidades||eq.cantidad||1))+'</td>';
     rows+='<td>'+esc(eq.frecuencia||'\u2014')+'</td>';
     rows+='<td style="text-align:right">'+esc(String(eq.kw||'\u2014'))+'</td>';
@@ -8756,8 +9100,8 @@ function modalEquipo(id){
   var m=mantData();
   var eq=id?m.equipos.find(function(e){return e.id===id;}):null;
   var centrosOpts=_centrosOpts(false, eq&&eq.centroId||'');
-  var catOpts=MANT_CATS.map(function(cat){return'<option value="'+cat+'"'+(eq&&eq.categoria===cat?' selected':'')+'>'+MANT_CAT_LABELS[cat]+'</option>';}).join('');
-  var freqOpts=MANT_FREQS.map(function(f){return'<option value="'+f+'"'+(eq&&eq.frecuencia===f?' selected':'')+'>'+f.charAt(0).toUpperCase()+f.slice(1)+'</option>';}).join('');
+  var catOpts=optsCategoriasArea(eq&&eq.categoria);
+  var freqOpts=optsFrecuencias(eq&&eq.frecuencia);
 
   var div=document.createElement('div');
   div.className='modal open';
@@ -8836,7 +9180,7 @@ function renderMantChecklists(){
         +'<button class="btn btn-danger btn-xs" onclick="mantEliminarPunto('+ci+','+pi+')">✕</button>'
         +'</div>';
     });
-    var catOpts=MANT_CATS.map(function(cat){return'<option value="'+cat+'"'+(cl.categoria===cat?' selected':'')+'>'+MANT_CAT_LABELS[cat]+'</option>';}).join('');
+    var catOpts=optsCategoriasArea(cl.categoria);
     html+='<div class="card" style="margin-bottom:16px">'
       +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">'
       +'<input style="font-weight:700;flex:1;min-width:160px" value="'+esc(cl.nombre)+'" onchange="mantActualizarCL('+ci+',\'nombre\',this.value)">'
@@ -8886,83 +9230,114 @@ function mantActualizarPunto(ci,pi,campo,val){
 // ── mant_tecnicos ─────────────────────────────────────────
 function renderMantTecnicos(){
   var m=mantData();
-  var rows=m.tecnicos.length===0?'<tr><td colspan="5" class="empty">Sin técnicos registrados</td></tr>':'';
-  m.tecnicos.forEach(function(t){
-    rows+='<tr><td>'+esc(t.nombre)+'</td>'
+  var filtroArea=S._tecFiltroArea||'';
+  var lista=m.tecnicos.filter(function(t){
+    if(!filtroArea)return true;
+    var tipo=getCfgTiposTecnico().find(function(x){return x.id===t.tipo;});
+    return tipo&&tipo.usadoEn&&tipo.usadoEn.indexOf(filtroArea)>=0;
+  });
+  var rows=lista.length===0?'<tr><td colspan="7" class="empty">Sin personal registrado'+(filtroArea?' en esta área':'')+'</td></tr>':'';
+  lista.forEach(function(t){
+    var tipo=getCfgTiposTecnico().find(function(x){return x.id===t.tipo;});
+    var areas=(tipo&&tipo.usadoEn||[]).map(function(a){return a==='taller'?'<span class="badge b-warn" style="font-size:9px">Taller</span>':'<span class="badge b-blue" style="font-size:9px">Mant.</span>';}).join(' ');
+    rows+='<tr>'
+      +'<td><strong>'+esc(t.nombre)+'</strong>'+(t.telefono?'<div style="font-size:11px;color:var(--muted)">📞 '+esc(t.telefono)+'</div>':'')+'</td>'
       +'<td><span class="badge b-purple">'+esc(tecTipoLabel(t.tipo))+'</span></td>'
-      +'<td><span class="badge b-neu">'+esc(MANT_CAT_LABELS[t.especialidad]||t.especialidad)+'</span></td>'
+      +'<td>'+esc(catAreaLabel(t.especialidad)||t.especialidad||'—')+'</td>'
+      +'<td>'+areas+'</td>'
       +'<td style="text-align:center">'+(t.activo!==false?'<span class="badge b-ok">Activo</span>':'<span class="badge b-err">Inactivo</span>')+'</td>'
+      +'<td style="font-size:11px;color:var(--muted)">'+esc(t.notas||'')+'</td>'
       +'<td><div class="td-act"><button class="btn btn-secondary btn-xs" onclick="modalTecnico(\''+t.id+'\')">✏</button><button class="btn btn-danger btn-xs" onclick="delTecnico(\''+t.id+'\')">✕</button></div></td></tr>';
   });
-
-  document.getElementById('content').innerHTML='<div style="display:flex;justify-content:flex-end;margin-bottom:14px">'
-    +'<button class="btn btn-primary" onclick="modalTecnico(\'\')">+ Nuevo técnico</button></div>'
-    +'<div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Tipo</th><th>Área</th><th style="text-align:center">Estado</th><th>Acciones</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  var areaFiltros=[
+    {id:'',label:'Todos'},
+    {id:'taller',label:'🚚 Taller'},
+    {id:'mant',label:'🔧 Mantenimiento'}
+  ];
+  var filtroHTML=areaFiltros.map(function(f){
+    return '<button class="btn btn-'+(filtroArea===f.id?'primary':'secondary')+' btn-sm" onclick="S._tecFiltroArea=\''+f.id+'\';renderMantTecnicos()">'+f.label+'</button>';
+  }).join('');
+  document.getElementById('content').innerHTML=
+    '<div class="info-box">👷 <strong>Catálogo de todo el personal del sistema.</strong> Aquí se registran técnicos de mantenimiento, mecánicos de taller, motoristas y cualquier otro actor. El campo "Módulos" indica en qué parte del app aparece cada tipo de técnico (taller, mantenimiento, asistencia).</div>'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">'
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap">'+filtroHTML+'</div>'
+    +'<button class="btn btn-primary" onclick="modalTecnico(\'\')">+ Nuevo Personal</button></div>'
+    +'<div class="card" style="padding:0"><div class="tbl-wrap" style="border:none;border-radius:0">'
+    +'<table><thead><tr><th>Nombre</th><th>Tipo</th><th>Área Especialidad</th><th>Módulos</th><th style="text-align:center">Estado</th><th>Notas</th><th>Acciones</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table></div></div>';
 }
 
 function modalTecnico(id){
   var m=mantData();
   var t=id?m.tecnicos.find(function(x){return x.id===id;}):null;
-  var catOpts=MANT_CATS.map(function(cat){return'<option value="'+cat+'"'+(t&&t.especialidad===cat?' selected':'')+'>'+MANT_CAT_LABELS[cat]+'</option>';}).join('');
-  var div=document.createElement('div');
-  div.id='modalTecDiv';
-  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:center;justify-content:center;padding:12px';
-  div.innerHTML='<div class="modal-box sm">'
-    +'<div class="modal-hdr"><div class="modal-ttl">'+(id?'✏ Editar Técnico':'+ Nuevo Técnico')+'</div>'
-    +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalTecDiv\').remove()">✕</button></div>'
-    +'<div class="fg"><label>Nombre *</label><input id="tecNom" value="'+(t?esc(t.nombre):'')+'"></div>'
-    +'<div class="fg"><label>Tipo de técnico *</label><select id="tecTipo" onchange="document.getElementById(\'tecTipoOtroWrap\').style.display=this.value===\'otro\'?\'block\':\'none\'">'
-      +TEC_TIPOS.map(function(tt){return'<option value="'+tt.id+'"'+(t&&t.tipo===tt.id?' selected':'')+'>'+tt.label+'</option>';}).join('')
-      +'<option value="otro"'+(t&&t.tipo&&!TEC_TIPOS.find(function(tt){return tt.id===t.tipo;})?' selected':'')+'>✏ Otro (escribir)...</option>'
+  (function(_e){if(_e)_e.remove();})(document.getElementById('modalTecDiv'));
+  var esOtro=t&&t.tipo&&!getCfgTiposTecnico().find(function(tt){return tt.id===t.tipo;});
+  var html='<div id="modalTecDiv" class="modal open"><div class="modal-box md">'
+    +'<div class="modal-hdr"><div class="modal-ttl">'+(id?'✏ Editar Personal':'+ Nuevo Personal')+'</div>'
+    +'<button class="btn btn-secondary btn-sm" onclick="(function(_e){if(_e)_e.remove();})(document.getElementById(\'modalTecDiv\'))">✕</button></div>'
+    +'<div class="row2">'
+    +'<div class="fg"><label>Nombre completo *</label><input id="tecNom" value="'+esc((t&&t.nombre)||'')+'" placeholder="Nombre y apellido"></div>'
+    +'<div class="fg"><label>Teléfono</label><input id="tecTel" value="'+esc((t&&t.telefono)||'')+'" placeholder="7000-0000"></div>'
+    +'</div>'
+    +'<div class="row2">'
+    +'<div class="fg"><label>Tipo de técnico / Rol *</label>'
+    +'<select id="tecTipo" onchange="(function(){var v=this.value;document.getElementById(\'tecTipoOtroWrap\').style.display=v===\'__otro__\'?\'block\':\'none\'}).call(this)">'
+    +optsTiposTecnico(esOtro?'__otro__':(t&&t.tipo)||'')
     +'</select></div>'
-    +'<div class="fg" id="tecTipoOtroWrap" style="display:'+(t&&t.tipo&&!TEC_TIPOS.find(function(tt){return tt.id===t.tipo;})?'block':'none')+'">'
-      +'<label>Especifica el tipo</label><input id="tecTipoOtro" value="'+(t&&t.tipo&&!TEC_TIPOS.find(function(tt){return tt.id===t.tipo;})?esc(t.tipo):'')+'" placeholder="Ej: Pintura, Carpintería..."></div>'
-    +'<div class="fg"><label>Especialidad / Categoría área</label><select id="tecEsp">'+catOpts+'</select></div>'
-    +'<div class="fg"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="tecActivo"'+(t&&t.activo===false?'':' checked')+'> Activo</label></div>'
+    +'<div class="fg"><label>Área de especialización</label><select id="tecEsp">'+optsCategoriasArea(t&&t.especialidad)+'</select></div>'
+    +'</div>'
+    +'<div class="fg" id="tecTipoOtroWrap" style="display:'+(esOtro?'block':'none')+'">'
+    +'<label>Especifica el rol</label><input id="tecTipoOtro" value="'+esc(esOtro?t.tipo:'')+'" placeholder="Ej: Pintura, Carpintería, Supervisor..."></div>'
+    +'<div class="fg"><label>Notas</label><textarea id="tecNotas" rows="2" placeholder="Observaciones, certificaciones, disponibilidad...">'+esc((t&&t.notas)||'')+'</textarea></div>'
+    +'<div class="fg"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="tecActivo"'+((t&&t.activo===false)?'':' checked')+'> Activo en el sistema</label></div>'
     +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px">'
-    +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalTecDiv\').remove()">Cancelar</button>'
-    +'<button class="btn btn-primary" onclick="guardarTecnico(\''+id+'\')">Guardar</button></div></div>';
-  document.body.appendChild(div);
-  setTimeout(function(){_focusFirst(div);},80);
+    +'<button class="btn btn-secondary" onclick="(function(_e){if(_e)_e.remove();})(document.getElementById(\'modalTecDiv\'))">Cancelar</button>'
+    +'<button class="btn btn-primary" onclick="guardarTecnico(\''+esc(id||'')+'\')">✓ Guardar</button></div></div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+  setTimeout(function(){var el=document.getElementById('tecNom');if(el)el.focus();},80);
 }
 
 function guardarTecnico(id){
-  var m=mantData();
-  var nombre=(document.getElementById('tecNom').value||'').trim();
+  var nombre=((document.getElementById('tecNom')||{}).value||'').trim();
   if(!nombre){toast('Nombre requerido',true);return;}
-  var tipoSel=document.getElementById('tecTipo').value;
+  var tipoSel=((document.getElementById('tecTipo')||{}).value||'').trim();
   var tipo=tipoSel;
-  if(tipoSel==='otro'){
-    tipo=(document.getElementById('tecTipoOtro').value||'').trim();
-    if(!tipo){toast('Especifica el tipo',true);return;}
+  if(tipoSel==='__otro__'){
+    tipo=((document.getElementById('tecTipoOtro')||{}).value||'').trim();
+    if(!tipo){toast('Especifica el rol',true);return;}
   }
+  var m=mantData();
   var datos={
     nombre:nombre,
+    telefono:((document.getElementById('tecTel')||{}).value||'').trim(),
     tipo:tipo,
-    especialidad:document.getElementById('tecEsp').value,
-    activo:document.getElementById('tecActivo').checked
+    especialidad:((document.getElementById('tecEsp')||{}).value||'').trim(),
+    notas:((document.getElementById('tecNotas')||{}).value||'').trim(),
+    activo:((document.getElementById('tecActivo')||{}).checked!==false)
   };
   if(id){
     var t=m.tecnicos.find(function(x){return x.id===id;});
     if(t)Object.assign(t,datos);
     logAction('EDITAR','tecnicos','Técnico: '+nombre);
+    toast('✓ Técnico actualizado');
   } else {
     datos.id=genId();
     m.tecnicos.push(datos);
     logAction('CREAR','tecnicos','Nuevo técnico: '+nombre+' ('+tecTipoLabel(tipo)+')');
+    toast('✓ Técnico creado');
   }
   saveData();
-  var div=document.getElementById('modalTecDiv');
-  if(div)div.remove();
-  renderMantTecnicos();toast('✓ Técnico guardado');
+  (function(_e){if(_e)_e.remove();})(document.getElementById('modalTecDiv'));
+  renderMantTecnicos();
 }
 
 function delTecnico(id){
-  if(!confirm('¿Eliminar técnico?'))return;
+  if(!confirm('¿Eliminar este registro de personal?'))return;
   var m=mantData();
   m.tecnicos=m.tecnicos.filter(function(t){return t.id!==id;});
   saveData();renderMantTecnicos();toast('Técnico eliminado');
 }
+
 
 // ── modalVerOT ───────────────────────────────────────────
 function modalVerOT(otId){
@@ -9014,7 +9389,7 @@ function modalVerOT(otId){
     // Header info
     +'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;padding:12px;background:var(--surface2);border-radius:10px;border:1px solid var(--border)">'
     +'<div style="flex:1"><div style="font-weight:700">'+esc(equipo.nombre)+'</div>'
-    +'<div style="font-size:12px;color:var(--muted);margin-top:2px">'+esc(MANT_CAT_LABELS[equipo.categoria]||equipo.categoria)+' · '+fmtDate(ot.fechaProgramada)+'</div></div>'
+    +'<div style="font-size:12px;color:var(--muted);margin-top:2px">'+esc(catAreaLabel(equipo.categoria)||equipo.categoria)+' · '+fmtDate(ot.fechaProgramada)+'</div></div>'
     +'<div>'+mantBadgeEstado(ot.estado)+' '+mantBadgePrioridad(ot.prioridad)+'</div></div>'
 
     // Datos editables (admin/sup)
@@ -10614,6 +10989,56 @@ var IMP_MODULES = [
       return { items: imported, skipped: skipped, target: 'gerentesZona' };
     }
   },
+  {
+    id: 'flota',
+    label: 'Flota Vehicular',
+    ic: '🚚',
+    desc: 'Importa vehículos desde el formato Levantamiento de Flota Vehicular. Las fallas conocidas se importan como pendientes.',
+    cols: [
+      {key:'placa',       label:'Placa *',                req:true,  example:'C-135-073'},
+      {key:'marca',       label:'Marca',                   req:false, example:'HINO'},
+      {key:'modelo',      label:'Modelo',                  req:false, example:'XZU'},
+      {key:'año',         label:'Año',                     req:false, example:'2025'},
+      {key:'tipo',        label:'Tipo de Vehículo',        req:false, example:'CAMION'},
+      {key:'color',       label:'Color',                   req:false, example:'BLANCO'},
+      {key:'vin',         label:'No. VIN / Chasis',        req:false, example:'JHHCCJ3F3SK009404'},
+      {key:'kilometraje', label:'Kilometraje Actual',      req:false, example:'28144'},
+      {key:'ruta',        label:'Ruta / Sucursal',         req:false, example:'SAN SALVADOR'},
+      {key:'motorista',   label:'Motorista Responsable',   req:false, example:'Juan Pérez'},
+      {key:'observaciones',label:'Observaciones',          req:false, example:'Estado general del vehículo'},
+    ],
+    useXlsxImporter: true,
+    xlsxBtnLabel: '📥 Usar importador avanzado (con fallas y mantenimiento)',
+    transform: function(rows) {
+      var imported = [], skipped = [];
+      rows.forEach(function(r, i) {
+        var placa = String(r.placa || r['Placa'] || '').trim().toUpperCase();
+        if (!placa || /^\d+$/.test(placa)) { skipped.push(i+2); return; }
+        var dup = (S.taller&&S.taller.vehiculos||[]).find(function(v){return v.placa.toUpperCase()===placa;});
+        var datos = {
+          id: dup ? dup.id : genId(),
+          placa: placa,
+          marca: String(r.marca||r['Marca']||'').trim().toUpperCase(),
+          modelo: String(r.modelo||r['Modelo']||'').trim().toUpperCase(),
+          anio: parseInt(r['año']||r['año']||r['year']||'')||null,
+          tipo: String(r.tipo||r['tipo de vehículo']||r['Tipo de Vehículo']||'').trim().toUpperCase(),
+          color: String(r.color||r['Color']||'').trim().toUpperCase(),
+          vin: String(r.vin||r['No. VIN / Chasis']||r['VIN']||'').trim().toUpperCase(),
+          kmActual: parseFloat(String(r.kilometraje||r['Kilometraje Actual']||'').replace(',','.'))||0,
+          kmActuales: parseFloat(String(r.kilometraje||r['Kilometraje Actual']||'').replace(',','.'))||0,
+          ruta: String(r.ruta||r['Ruta / Sucursal']||r['Ruta']||'').trim().toUpperCase(),
+          motorista: String(r.motorista||r['Motorista Responsable']||'').trim(),
+          observaciones: String(r.observaciones||r['Observaciones']||'').trim(),
+          estado: 'activo',
+          fallas: dup ? (dup.fallas||[]) : [],
+          creadoEn: dup ? (dup.creadoEn||Date.now()) : Date.now(),
+          importado: true
+        };
+        imported.push(datos);
+      });
+      return { items: imported, skipped: skipped, target: 'flota' };
+    }
+  }
 ];
 
 // ── Apply imported data ───────────────────────────────────
@@ -10656,6 +11081,23 @@ function impApply(result) {
   } else if (target === 'gerentesZona') {
     if (!S.gerentesZona) S.gerentesZona = [];
     items.forEach(function(g) { S.gerentesZona.push(g); });
+  } else if (target === 'flota') {
+    if (!S.taller) S.taller = {vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[]};
+    if (!S.taller.vehiculos) S.taller.vehiculos = [];
+    var creados=0, actualizados=0;
+    items.forEach(function(v) {
+      var existing = S.taller.vehiculos.find(function(x){return x.placa.toUpperCase()===v.placa;});
+      if (existing) {
+        var fallasPrev = existing.fallas||[];
+        Object.assign(existing, v);
+        existing.fallas = fallasPrev;
+        actualizados++;
+      } else {
+        S.taller.vehiculos.push(v);
+        creados++;
+      }
+    });
+    logAction('IMPORTAR','taller','Flota: '+creados+' creados, '+actualizados+' actualizados');
   }
   saveData();
 }
@@ -10674,10 +11116,10 @@ function asistData(){
 function asistRegistros(){return asistData().registros;}
 
 // Minutos tarde vs hora meta (configurable — default 08:00)
-var ASIST_HORA_META='08:00';
+// getCfgHoraMeta() definida en helpers de catálogos — default 08:00
 function asistMinutosTarde(horaStr){
   if(!horaStr)return 0;
-  var meta=ASIST_HORA_META.split(':');
+  var meta=getCfgHoraMeta().split(':');
   var entrada=horaStr.split(':');
   var diff=(parseInt(entrada[0])*60+parseInt(entrada[1]))-(parseInt(meta[0])*60+parseInt(meta[1]));
   return diff>0?diff:0;
@@ -10804,11 +11246,7 @@ function asistRenderRegistro(tecnicos){
           +'<div class="fg" style="margin:0"><label>Hora de entrada</label><input type="time" id="asistHora" value="'+new Date().toTimeString().slice(0,5)+'"></div>'
           +'<div class="fg" style="margin:0"><label>Estado</label>'
             +'<select id="asistEstado">'
-              +'<option value="RC">R.C. — Reporte Completo</option>'
-              +'<option value="RI">R.I. — Incompleto</option>'
-              +'<option value="X">X — No Reportó</option>'
-              +'<option value="P">P — Permiso</option>'
-              +'<option value="I">I — Incapacidad/ISSS</option>'
+              +optsEstadosAsistencia('RC')
             +'</select></div>'
         +'</div>'
         +'<div class="fg"><label>Ruta</label>'
@@ -10817,7 +11255,7 @@ function asistRenderRegistro(tecnicos){
         +'</div>'
         +'<div class="fg"><label>Observación</label><textarea id="asistObs" rows="2" placeholder="Canje de horas, vacaciones, cita médica..."></textarea></div>'
         +'<div id="asistTardeInfo" style="background:var(--surface2);border-radius:8px;padding:9px 13px;margin-bottom:12px;font-size:12px;display:none">'
-          +'⏱ Hora meta: <strong>'+ASIST_HORA_META+'</strong>'
+          +'⏱ Hora meta: <strong>'+getCfgHoraMeta()+'</strong>'
         +'</div>'
         +'<button class="btn btn-primary" style="width:100%" onclick="asistGuardar()">✅ Registrar</button>'
       +'</div>'
@@ -10840,7 +11278,7 @@ function asistRenderRegistro(tecnicos){
     if(info){
       info.style.display='block';
       var extra=mt>0?(' &nbsp;·&nbsp; <span style="color:#e84040;font-weight:600">'+mt+' min tarde</span>'):'&nbsp;·&nbsp; <span style="color:#2db87a">A tiempo ✓</span>';
-      info.innerHTML='⏱ Hora meta: <strong>'+ASIST_HORA_META+'</strong>'+extra;
+      info.innerHTML='⏱ Hora meta: <strong>'+getCfgHoraMeta()+'</strong>'+extra;
     }
   });}
 }
@@ -11394,15 +11832,9 @@ function tallerMecanicos(){
     .filter(function(t){return t.tipo==='mecanica'&&t.activo!==false;});
 }
 
-var TALLER_OT_ESTADOS=[
-  {id:'recibido',label:'Recibido',color:'b-purple'},
-  {id:'diagnostico',label:'Diagnóstico',color:'b-blue'},
-  {id:'reparacion',label:'En Reparación',color:'b-warn'},
-  {id:'listo',label:'Listo',color:'b-ok'},
-  {id:'entregado',label:'Entregado',color:'b-neu'}
-];
-function tallerEstadoLabel(id){var e=TALLER_OT_ESTADOS.find(function(x){return x.id===id;});return e?e.label:id;}
-function tallerEstadoColor(id){var e=TALLER_OT_ESTADOS.find(function(x){return x.id===id;});return e?e.color:'b-neu';}
+/* LEGACY TALLER_OT_ESTADOS — ahora usa getCfgEstadosOT() */
+function tallerEstadoLabel(id){return otEstadoLabel(id);}
+function tallerEstadoColor(id){return otEstadoColor(id);}
 
 // ─── DASHBOARD (ENRIQUECIDO) ────────────────────────
 function renderTallerDashboard(){
@@ -11675,7 +12107,6 @@ function renderTallerVehiculos(){
     '<div class="info-box">🚚 <strong>Gestión de Flota Vehicular.</strong> Haz clic en cualquier fila para ver la ficha completa del vehículo con historial de fallas, mantenimientos y observaciones. El semáforo indica el estado: 🟢 al día · 🟡 atención · 🔴 crítico · ⚫ de baja.</div>'
     +'<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center">'
       +'<button class="btn btn-primary" onclick="modalVehiculo(\'\')">+ Nuevo Vehículo</button>'
-      +'<button class="btn btn-secondary" onclick="abrirImportadorFlota()" title="Importar vehículos desde Excel (formato Levantamiento de Flota)">📥 Importar desde Excel</button>'
       +'<input type="text" placeholder="🔍 Buscar por placa, marca, modelo, motorista, ruta..." value="'+esc(q)+'" oninput="S._tallerVehSrch=this.value;clearTimeout(S._tvtm);S._tvtm=setTimeout(renderTallerVehiculos,300)" style="flex:1;min-width:240px;max-width:500px">'
       +'<div style="font-size:12px;color:var(--muted)">Total: <strong>'+vehs.length+'</strong>'+(q&&vehs.length!==t.vehiculos.length?' de '+t.vehiculos.length:'')+'</div>'
     +'</div>'
@@ -11901,13 +12332,7 @@ function modalFalla(vehId,fallaId){
   var f=fallaId?((v.fallas||[]).find(function(x){return x.id===fallaId;})||null):null;
   var hoy=new Date().toISOString().slice(0,10);
 
-  var catOpts=[
-    {id:'mecanica',label:'🔧 Mecánica (motor, transmisión, frenos, dirección, suspensión)'},
-    {id:'electrica',label:'⚡ Eléctrica (luces, alternador, batería, sensores)'},
-    {id:'carroceria',label:'🚚 Carrocería (golpes, corrosión, puertas, vidrios, furgón)'},
-    {id:'enfriamiento',label:'❄️ A/C / Sistema de Enfriamiento (radiador, termostato, Termo King)'},
-    {id:'otros',label:'📌 Otros'}
-  ];
+  var catOpts=null;// ahora usa optsCategoriasFallas
   var estOpts=[
     {id:'pendiente',label:'Pendiente'},
     {id:'en_proceso',label:'En proceso'},
@@ -11988,10 +12413,7 @@ function modalVehiculo(id){
   var v=id?t.vehiculos.find(function(x){return x.id===id;}):null;
   var g=function(f){return v?(v[f]||''):'';}; // getter seguro
 
-  var tiposVeh=['CAMION','CAMION REFRIGERADO','PANEL','PICK UP','MOTO','OTRO'];
-  var tipoOpts=tiposVeh.map(function(tp){
-    return '<option value="'+tp+'"'+(g('tipo')===tp?' selected':'')+'>'+tp+'</option>';
-  }).join('');
+  var tipoOpts=optsTiposVehiculo(g('tipo'));
 
   var html='<div id="modalVehDiv" class="modal open"><div class="modal-box lg" style="max-width:900px">'
     +'<div class="modal-hdr"><div class="modal-ttl">'+(id?'✏ Editar Vehículo':'🚚 Nuevo Vehículo')+'</div>'
@@ -12013,7 +12435,7 @@ function modalVehiculo(id){
     +'<div class="fg"><label>Año</label><input type="number" id="vhAnio" value="'+esc(g('anio'))+'" min="1990" max="2035" placeholder="2022"></div></div>'
 
     +'<div class="row3">'
-    +'<div class="fg"><label>Tipo de Vehículo</label><select id="vhTipo">'+tipoOpts+'</select></div>'
+    +'<div class="fg"><label>Tipo de Vehículo</label><select id="vhTipo">'+optsTiposVehiculo(g('tipo'))+'</select></div>'
     +'<div class="fg"><label>Color</label><input id="vhColor" value="'+esc(g('color'))+'" placeholder="BLANCO, ROJO..."></div>'
     +'<div class="fg"><label>No. VIN / Chasis</label><input id="vhVin" value="'+esc(g('vin'))+'" placeholder="17 caracteres"></div></div>'
 
@@ -12172,7 +12594,7 @@ function renderTallerOTs(){
   }
 
   var estadoOpts='<option value="">Todos los estados</option>';
-  TALLER_OT_ESTADOS.forEach(function(e){estadoOpts+='<option value="'+e.id+'"'+(S._tallerOTFiltro===e.id?' selected':'')+'>'+e.label+'</option>';});
+  var estadoOpts='<option value="">Todos los estados</option>'+optsEstadosOT(S._tallerOTFiltro);
 
   document.getElementById('content').innerHTML=
     '<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">'
@@ -12202,8 +12624,7 @@ function modalOT(id,vehIdPrefill){
   var mecOpts='<option value="">— Sin asignar —</option>';
   mecanicos.forEach(function(m){mecOpts+='<option value="'+m.id+'"'+(o&&o.mecanicoId===m.id?' selected':'')+'>'+esc(m.nombre)+'</option>';});
 
-  var estOpts='';
-  TALLER_OT_ESTADOS.forEach(function(e){estOpts+='<option value="'+e.id+'"'+((o&&o.estado===e.id)||(!o&&e.id==='recibido')?' selected':'')+'>'+e.label+'</option>';});
+  var estOpts=optsEstadosOT((o&&o.estado)||'recibido');
 
   var div=document.createElement('div');
   div.id='modalOTDiv';
@@ -12214,8 +12635,7 @@ function modalOT(id,vehIdPrefill){
     +'<div class="fg"><label>Vehículo *</label><select id="otVeh">'+vehOpts+'</select></div>'
     +'<div class="row2">'
       +'<div class="fg"><label>Tipo *</label><select id="otTipo">'
-        +'<option value="preventivo"'+(!o||o.tipo==='preventivo'?' selected':'')+'>Preventivo</option>'
-        +'<option value="correctivo"'+(o&&o.tipo==='correctivo'?' selected':'')+'>Correctivo</option>'
+        +optsTiposOT((o&&o.tipo)||'preventivo')
       +'</select></div>'
       +'<div class="fg"><label>Estado *</label><select id="otEstado">'+estOpts+'</select></div>'
     +'</div>'
@@ -12275,7 +12695,7 @@ function guardarOT(id){
     datos.numero=String(maxNum+1).padStart(4,'0');
     t.ots.push(datos);
     // Si km de ingreso > km actuales del vehículo, actualizar
-    if(datos.kmIngreso&&veh&&datos.kmIngreso>(veh.kmActuales||0)){veh.kmActuales=datos.kmIngreso;}
+    if(datos.kmIngreso&&veh&&datos.kmIngreso>(veh.kmActuales||veh.kmActual||0)){veh.kmActuales=datos.kmIngreso;veh.kmActual=datos.kmIngreso;}
     logAction('CREAR','taller','OT-'+datos.numero+' · '+(veh?veh.placa:'')+' · '+desc.slice(0,40));
   }
   saveData();
@@ -12333,8 +12753,7 @@ function modalServicio(id){
     +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalSrvDiv\').remove()">✕</button></div>'
     +'<div class="fg"><label>Nombre *</label><input id="srvNom" value="'+(s?esc(s.nombre):'')+'"></div>'
     +'<div class="fg"><label>Tipo</label><select id="srvTipo">'
-      +'<option value="preventivo"'+(!s||s.tipo==='preventivo'?' selected':'')+'>Preventivo</option>'
-      +'<option value="correctivo"'+(s&&s.tipo==='correctivo'?' selected':'')+'>Correctivo</option>'
+      +optsTiposOT((s&&s.tipo)||'preventivo')
     +'</select></div>'
     +'<div class="fg"><label>Frecuencia sugerida</label><input id="srvFrec" value="'+(s?esc(s.frecuencia||''):'')+'" placeholder="Cada 5,000 km"></div>'
     +'<div class="fg"><label>Precio base ($)</label><input type="number" id="srvPrecio" step="0.01" value="'+(s?s.precio||0:0)+'"></div>'
@@ -12712,6 +13131,7 @@ function renderImportar() {
     +'</div>'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
     +'<button class="btn btn-secondary btn-sm" onclick="impDescargarPlantilla(\''+mod.id+'\')">📋 Descargar plantilla CSV</button>'
+    +(mod.id==='flota'?'<button class="btn btn-primary btn-sm" onclick="abrirImportadorFlota()">📥 Importar desde Excel (formato levantamiento completo)</button>':'')
     +'</div>'
     +'</div>'
 
