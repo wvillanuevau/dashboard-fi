@@ -1496,6 +1496,14 @@ function optsTecnicos(selVal,area){
 }
 
 function migrateData(){
+  // Normalizar emails de choferId en vehículos (case-insensitive match con currentUser.email)
+  if(S.taller&&S.taller.vehiculos){
+    S.taller.vehiculos.forEach(function(v){
+      if(v.choferId&&typeof v.choferId==='string'){
+        v.choferId=v.choferId.toLowerCase();
+      }
+    });
+  }
   S.proyectos.forEach(p=>{
     if(!p.cronograma)p.cronograma={aceptado:false,fechaInicio:'',partidas:[]};
     if(!p.cronograma.partidas)p.cronograma.partidas=[];
@@ -12502,7 +12510,9 @@ async function modalVehiculo(id){
     +'<div class="fg"><label>Chofer Asignado</label><select id="vhChoferId">'
       +'<option value="">— Sin chofer asignado —</option>'
       +(S.usuarios||[]).filter(function(u){return u.rol==='chofer';}).map(function(u){
-        return '<option value="'+esc(u.email)+'"'+(g('choferId')===u.email?' selected':'')+'>'+esc(u.nombre||u.email)+'</option>';
+        var emailLow=(u.email||'').toLowerCase();
+        var asigLow=(g('choferId')||'').toLowerCase();
+        return '<option value="'+esc(emailLow)+'"'+(asigLow===emailLow?' selected':'')+'>'+esc(u.nombre||u.email)+'</option>';
       }).join('')
     +'</select><div style="font-size:10px;color:var(--muted);margin-top:3px">Crea usuarios con rol Chofer en módulo Usuarios</div></div></div>'
     +'<div class="fg"><label>Motorista Responsable (texto libre, alternativo)</label><input id="vhMotorista" value="'+esc(g('motorista'))+'" placeholder="Si no es un usuario del sistema"></div>'
@@ -12563,7 +12573,7 @@ function guardarVehiculo(id){
     vin:((document.getElementById('vhVin')||{}).value||'').trim().toUpperCase(),
     kmActual:parseInt(((document.getElementById('vhKm')||{}).value||''))||0,
     rutaId:((document.getElementById('vhRutaId')||{}).value||'').trim(),
-    choferId:((document.getElementById('vhChoferId')||{}).value||'').trim(),
+    choferId:((document.getElementById('vhChoferId')||{}).value||'').trim().toLowerCase(),
     motorista:((document.getElementById('vhMotorista')||{}).value||'').trim(),
     estado:((document.getElementById('vhEstado')||{}).value||'activo'),
     mttoFecha:((document.getElementById('vhMttoFecha')||{}).value||'').trim(),
@@ -13200,8 +13210,12 @@ function solEstColor(id){var e=SOL_ESTADOS.find(function(x){return x.id===id;});
 // ── Helpers de datos ──
 function getMisCamiones(){
   if(!S.currentUser||!S.taller||!S.taller.vehiculos)return [];
-  var email=S.currentUser.email;
-  return S.taller.vehiculos.filter(function(v){return v.choferId===email&&v.estado!=='baja';});
+  var email=(S.currentUser.email||'').toLowerCase();
+  return S.taller.vehiculos.filter(function(v){
+    if(v.estado==='baja')return false;
+    var ch=(v.choferId||'').toLowerCase();
+    return ch===email;
+  });
 }
 function getReporteDelDia(vehId,fecha){
   if(!S.taller||!S.taller.reportesDiarios)return null;
