@@ -12453,8 +12453,15 @@ function delFalla(vehId,fallaId){
 }
 
 
-function modalVehiculo(id){
+async function modalVehiculo(id){
   var t=tallerData();
+  // Refrescar usuarios desde Firebase para que aparezcan choferes recién creados
+  if(window.FB&&window.FB.getUsuariosEmpresa&&S.empresa){
+    try{
+      var usuariosFresh=await window.FB.getUsuariosEmpresa(S.empresa);
+      if(usuariosFresh&&usuariosFresh.length>0)S.usuarios=usuariosFresh;
+    }catch(e){console.warn('[Vehículo] No se pudo refrescar usuarios:',e);}
+  }
   var v=id?t.vehiculos.find(function(x){return x.id===id;}):null;
   var g=function(f){return v?(v[f]||''):'';}; // getter seguro
 
