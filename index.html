@@ -1059,8 +1059,8 @@ input[type=date]{color-scheme:dark}
 //  DEFINICIÓN DE ROLES Y PERMISOS
 // ═══════════════════════════════════════════════════════
 const ROLES={
-  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','usuarios','config','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes','taller_solicitudes','chofer_portal','importar']},
-  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes','taller_solicitudes','chofer_portal']},
+  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','usuarios','config','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes','taller_solicitudes','taller_reportes_choferes','chofer_portal','importar']},
+  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes','taller_solicitudes','taller_reportes_choferes','chofer_portal']},
   empleado:{label:'Empleado',color:'b-ok',modulos:[]}, // permisos individuales
   viewer:{label:'Viewer',color:'b-neu',modulos:['dashboard','proyectos']},
   cliente:{label:'Cliente',color:'b-purple',modulos:['proyectos']}, // solo general, planificacion, cronograma
@@ -1109,6 +1109,7 @@ const MODULOS=[
   {id:'taller_combustible',label:'Combustible',ic:'⛽'},
   {id:'taller_reportes',label:'Reportes Taller',ic:'📈'},
   {id:'taller_solicitudes',label:'Solicitudes de revisión',ic:'📥'},
+  {id:'taller_reportes_choferes',label:'Reportes Diarios Choferes',ic:'📅'},
   {id:'chofer_portal',label:'Mi Camión (Chofer)',ic:'🚛'},
 ];
 
@@ -1118,7 +1119,7 @@ const SB_GRUPOS=[
   {id:'empresa_grp',label:'Gestión de Empresa',ic:'🏢',items:['gastos','inventario','asistencia','auditoria_herr','gz_dashboard','proveedores','centros','bodegas','gz_gerentes','reportes']},
   {id:'mant_grp',label:'Mantenimiento',ic:'🔧',items:['mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes']},
   {id:'energy_grp',label:'Energy Intelligence',ic:'⚡',items:['ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist']},
-  {id:'taller_grp',label:'Taller Mecánico',ic:'🚚',items:['taller_dashboard','taller_vehiculos','taller_ots','taller_solicitudes','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes']},
+  {id:'taller_grp',label:'Taller Mecánico',ic:'🚚',items:['taller_dashboard','taller_vehiculos','taller_ots','taller_solicitudes','taller_reportes_choferes','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes']},
   {id:'chofer_grp',label:'Portal Chofer',ic:'🚛',items:['chofer_portal']},
   {id:'config_grp',label:'Configuración General',ic:'⚙',items:['log','usuarios','config','importar']},
 ];
@@ -8399,6 +8400,7 @@ function render(){
   else if(S.activeTab==='taller_combustible')renderTallerCombustible();
   else if(S.activeTab==='taller_reportes')renderTallerReportes();
   else if(S.activeTab==='taller_solicitudes')renderTallerSolicitudes();
+  else if(S.activeTab==='taller_reportes_choferes')renderTallerReportesChoferes();
   else if(S.activeTab==='chofer_portal')renderChoferPortal();
   else if(S.activeTab==='importar')renderImportar();
 }
@@ -12523,7 +12525,6 @@ async function modalVehiculo(id){
         return '<option value="'+esc(emailLow)+'"'+(asigLow===emailLow?' selected':'')+'>'+esc(u.nombre||u.email)+'</option>';
       }).join('')
     +'</select><div style="font-size:10px;color:var(--muted);margin-top:3px">Crea usuarios con rol Chofer en módulo Usuarios</div></div></div>'
-    +'<div class="fg"><label>Motorista Responsable (texto libre, alternativo)</label><input id="vhMotorista" value="'+esc(g('motorista'))+'" placeholder="Si no es un usuario del sistema"></div>'
 
     // Mantenimiento
     +'<div class="sec-hdr" style="margin-top:14px">🔧 Último Mantenimiento General</div>'
@@ -12582,7 +12583,6 @@ function guardarVehiculo(id){
     kmActual:parseInt(((document.getElementById('vhKm')||{}).value||''))||0,
     rutaId:((document.getElementById('vhRutaId')||{}).value||'').trim(),
     choferId:((document.getElementById('vhChoferId')||{}).value||'').trim().toLowerCase(),
-    motorista:((document.getElementById('vhMotorista')||{}).value||'').trim(),
     estado:((document.getElementById('vhEstado')||{}).value||'activo'),
     mttoFecha:((document.getElementById('vhMttoFecha')||{}).value||'').trim(),
     mttoKm:parseInt(((document.getElementById('vhMttoKm')||{}).value||''))||0,
@@ -12596,6 +12596,14 @@ function guardarVehiculo(id){
     llantasMarca:((document.getElementById('vhLlantasMarca')||{}).value||'').trim(),
     observaciones:((document.getElementById('vhObs')||{}).value||'').trim()
   };
+
+  // Derivar nombre del motorista del usuario chofer asignado (backward compat)
+  if(datos.choferId){
+    var ch=(S.usuarios||[]).find(function(u){return (u.email||'').toLowerCase()===datos.choferId;});
+    datos.motorista=ch?(ch.nombre||ch.email):datos.choferId;
+  } else {
+    datos.motorista='';
+  }
 
   if(id){
     var v=t.vehiculos.find(function(x){return x.id===id;});
@@ -13463,9 +13471,20 @@ function choferGuardarReporte(vehId){
 }
 
 // ── Solicitar revisión ──
+function choferSeleccionarCat(catId){
+  document.querySelectorAll('.sol-cat').forEach(function(b){
+    b.style.background='var(--surface2)';
+    b.style.borderColor='var(--border)';
+  });
+  var btn=document.querySelector('.sol-cat[data-cat="'+catId+'"]');
+  if(btn){btn.style.background='#2a1a00';btn.style.borderColor='var(--accent)';}
+  var hidden=document.getElementById('solCatVal');
+  if(hidden)hidden.value=catId;
+}
+
 function choferRenderSolicitar(veh){
   var catOpts=SOL_CATEGORIAS.map(function(c){
-    return '<button onclick="document.querySelectorAll(\'.sol-cat\').forEach(function(b){b.style.background=\\\'var(--surface2)\\\';b.style.borderColor=\\\'var(--border)\\\';});this.style.background=\\\'#2a1a00\\\';this.style.borderColor=\\\'var(--accent)\\\';document.getElementById(\\\'solCatVal\\\').value=\''+c.id+'\';" class="sol-cat" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:8px;cursor:pointer;font-size:13px">'+c.ic+' '+c.label+'</button>';
+    return '<button type="button" onclick="choferSeleccionarCat(\''+c.id+'\')" data-cat="'+c.id+'" class="sol-cat" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:8px;cursor:pointer;font-size:13px">'+c.ic+' '+esc(c.label)+'</button>';
   }).join('');
 
   var urgOpts=SOL_URGENCIAS.map(function(u,i){
@@ -13768,6 +13787,112 @@ function solMarcarResuelta(solId){
   document.getElementById('modalSolDet').remove();
   renderTallerSolicitudes();
   toast('✓ Solicitud resuelta');
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  ADMIN — REPORTES DIARIOS DE CHOFERES (vista admin)
+// ═══════════════════════════════════════════════════════════════════
+function renderTallerReportesChoferes(){
+  var t=tallerData();
+  var reportes=[].concat(t.reportesDiarios||[]).sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+
+  // Filtros
+  if(!S._rdcFiltroVeh)S._rdcFiltroVeh='';
+  if(!S._rdcFiltroDesde){var d=new Date();d.setDate(d.getDate()-30);S._rdcFiltroDesde=d.toISOString().slice(0,10);}
+  if(!S._rdcFiltroHasta)S._rdcFiltroHasta=new Date().toISOString().slice(0,10);
+
+  var rep=reportes.filter(function(r){
+    if(S._rdcFiltroVeh&&r.vehiculoId!==S._rdcFiltroVeh)return false;
+    if(S._rdcFiltroDesde&&r.fecha<S._rdcFiltroDesde)return false;
+    if(S._rdcFiltroHasta&&r.fecha>S._rdcFiltroHasta)return false;
+    return true;
+  });
+
+  // KPIs
+  var totalKm=rep.reduce(function(s,r){return s+(r.kmRecorridos||0);},0);
+  var totalGal=rep.reduce(function(s,r){return s+(r.galonesCargados||0);},0);
+  var totalCost=rep.reduce(function(s,r){return s+(r.costoGasolina||0);},0);
+  var rendimiento=totalGal>0?(totalKm/totalGal).toFixed(2):'—';
+
+  // Estado de reporte hoy por chofer asignado
+  var hoyStr=new Date().toISOString().slice(0,10);
+  var camionesAsig=t.vehiculos.filter(function(v){return v.choferId&&v.estado!=='baja';});
+  var statusHoy=camionesAsig.map(function(v){
+    var rh=(t.reportesDiarios||[]).find(function(r){return r.vehiculoId===v.id&&r.fecha===hoyStr;});
+    var ch=(S.usuarios||[]).find(function(u){return (u.email||'').toLowerCase()===v.choferId;});
+    return {veh:v,chofer:ch?ch.nombre:v.choferId,reporte:rh};
+  });
+
+  var rowsHoy=statusHoy.map(function(s){
+    var rep=s.reporte;
+    return '<tr>'
+      +'<td><strong>'+esc(s.veh.placa)+'</strong></td>'
+      +'<td>'+esc(s.chofer)+'</td>'
+      +'<td>'+(rep?'<span class="badge b-ok">✓ Reportó</span>':'<span class="badge b-err">✗ Pendiente</span>')+'</td>'
+      +'<td style="text-align:right">'+(rep?rep.kmOdometro:'—')+'</td>'
+      +'<td style="text-align:right">'+(rep?rep.kmRecorridos:'—')+'</td>'
+      +'<td style="text-align:right">'+(rep&&rep.galonesCargados?rep.galonesCargados.toFixed(2):'—')+'</td>'
+      +'</tr>';
+  }).join('');
+  if(!rowsHoy)rowsHoy='<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:16px">Sin choferes asignados</td></tr>';
+
+  // Tabla histórico
+  var rowsHist=rep.slice(0,200).map(function(r){
+    var v=t.vehiculos.find(function(x){return x.id===r.vehiculoId;});
+    var ruta=r.rutaId?(t.rutas||[]).find(function(rt){return rt.id===r.rutaId;}):null;
+    var varStr='';
+    if(r.variacionKm!==null&&r.variacionKm!==undefined){
+      var clr=r.variacionKm>0?'var(--red)':'var(--green)';
+      varStr='<span style="color:'+clr+';font-size:11px">'+(r.variacionKm>0?'+':'')+r.variacionKm+' km</span>';
+    }
+    return '<tr>'
+      +'<td>'+fmtDate(r.fecha)+'</td>'
+      +'<td><strong>'+esc(v?v.placa:'—')+'</strong></td>'
+      +'<td>'+esc(r.choferNombre||'')+'</td>'
+      +'<td>'+esc(ruta?ruta.nombre:'—')+'</td>'
+      +'<td style="text-align:right">'+(r.kmOdometro||0)+'</td>'
+      +'<td style="text-align:right">'+(r.kmRecorridos||0)+' '+varStr+'</td>'
+      +'<td style="text-align:right">'+(r.galonesCargados?r.galonesCargados.toFixed(2):'—')+'</td>'
+      +'<td style="text-align:right">'+(r.costoGasolina?'$'+r.costoGasolina.toFixed(2):'—')+'</td>'
+      +'<td style="font-size:11px;max-width:200px;white-space:normal">'+esc(r.observaciones||'')+'</td>'
+      +'</tr>';
+  }).join('');
+  if(!rowsHist)rowsHist='<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:16px">Sin reportes en el período</td></tr>';
+
+  var vehOpts='<option value="">Todos los vehículos</option>'
+    +t.vehiculos.map(function(v){return '<option value="'+v.id+'"'+(S._rdcFiltroVeh===v.id?' selected':'')+'>'+esc(v.placa)+'</option>';}).join('');
+
+  document.getElementById('content').innerHTML=
+    // KPIs período
+    '<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">'
+    +'<div class="kpi"><div class="kpi-lbl">Reportes en el período</div><div class="kpi-val">'+rep.length+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Km totales recorridos</div><div class="kpi-val" style="color:var(--blue);font-size:18px">'+fmt(totalKm)+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Galones consumidos</div><div class="kpi-val" style="color:#facc15;font-size:18px">'+totalGal.toFixed(2)+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Rendimiento promedio</div><div class="kpi-val" style="color:var(--green);font-size:18px">'+rendimiento+' km/gal</div></div>'
+    +'</div>'
+
+    // Estado de hoy
+    +'<div class="card" style="margin-bottom:16px">'
+    +'<div class="sec-hdr">📅 Estado de reportes de HOY ('+fmtDate(hoyStr)+')</div>'
+    +'<div class="tbl-wrap"><table>'
+    +'<thead><tr><th>Vehículo</th><th>Chofer</th><th>Estado</th><th style="text-align:right">Km Odóm.</th><th style="text-align:right">Recorridos</th><th style="text-align:right">Galones</th></tr></thead>'
+    +'<tbody>'+rowsHoy+'</tbody></table></div></div>'
+
+    // Filtros + histórico
+    +'<div class="card" style="margin-bottom:12px">'
+    +'<div class="sec-hdr">🔍 Filtros</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">'
+    +'<div class="fg" style="margin:0"><label>Vehículo</label><select onchange="S._rdcFiltroVeh=this.value;renderTallerReportesChoferes()">'+vehOpts+'</select></div>'
+    +'<div class="fg" style="margin:0"><label>Desde</label><input type="date" value="'+S._rdcFiltroDesde+'" onchange="S._rdcFiltroDesde=this.value;renderTallerReportesChoferes()"></div>'
+    +'<div class="fg" style="margin:0"><label>Hasta</label><input type="date" value="'+S._rdcFiltroHasta+'" onchange="S._rdcFiltroHasta=this.value;renderTallerReportesChoferes()"></div>'
+    +'</div></div>'
+
+    // Histórico
+    +'<div class="card" style="padding:0">'
+    +'<div class="tbl-wrap" style="border:none;border-radius:0"><table>'
+    +'<thead><tr><th>Fecha</th><th>Vehículo</th><th>Chofer</th><th>Ruta</th><th style="text-align:right">Km Odóm.</th><th style="text-align:right">Recorridos</th><th style="text-align:right">Galones</th><th style="text-align:right">Costo</th><th>Observaciones</th></tr></thead>'
+    +'<tbody>'+rowsHist+'</tbody></table></div></div>';
 }
 
 function renderImportar() {
