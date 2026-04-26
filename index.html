@@ -6777,6 +6777,9 @@ function cfgCatAgregar(key,tipo){
   toast('✓ Elemento agregado — edita los campos directamente en la tabla');
 }
 
+function renderConfig(){
+  const cfg=S.config||{};
+  const mH=S.marcas.map((m,i)=>`<div style="display:flex;gap:8px;margin-bottom:8px"><input value="${esc(m)}" onchange="S.marcas[${i}]=this.value;saveData();refreshMarcaSel()"><button class="btn btn-danger btn-sm" onclick="S.marcas.splice(${i},1);saveData();render()">✕</button></div>`).join('');
   document.getElementById('content').innerHTML=`
   <div class="card" style="margin-bottom:16px">
     <div class="sec-hdr">🤖 Integraciones IA</div>
@@ -6819,6 +6822,14 @@ function cfgCatAgregar(key,tipo){
   <div class="card" style="border-color:var(--accent)33">
     <div class="sec-hdr">🔧 Diagnóstico y Recuperación de Datos</div>
     <div id="diagResult" style="font-size:13px;color:var(--muted);margin-bottom:12px">Presiona Diagnosticar para ver el estado actual de tus datos.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-secondary" onclick="diagData()">🔍 Diagnosticar</button>
+      <button class="btn btn-secondary" onclick="diagRestoreLocal()" style="color:var(--accent);border-color:var(--accent)">♻ Restaurar desde respaldo local</button>
+      <button class="btn btn-secondary" onclick="diagForceSave()" style="color:var(--green);border-color:var(--green)">⬆ Forzar guardado en Firebase</button>
+    </div>
+  </div>`;
+}
+
 function handleLogoUpload(input){const file=input.files[0];if(!file)return;if(file.size>500000){toast('Logo muy grande — máx 500KB',true);return}const reader=new FileReader();reader.onload=e=>{S.config.logoUrl=e.target.result;saveData();applyBranding();render();toast('✓ Logo actualizado')};reader.readAsDataURL(file)}
 function addMarca(){const n=(document.getElementById('nmarca')||{}).value.trim();if(!n||S.marcas.includes(n))return;S.marcas.push(n);saveData();render();toast('✓ Marca agregada')}
 
