@@ -1504,6 +1504,14 @@ function migrateData(){
       }
     });
   }
+  // Normalizar emails en S.usuarios (Firebase Auth los guarda en minúsculas)
+  if(S.usuarios&&Array.isArray(S.usuarios)){
+    S.usuarios.forEach(function(u){
+      if(u.email&&typeof u.email==='string'){
+        u.email=u.email.toLowerCase();
+      }
+    });
+  }
   S.proyectos.forEach(p=>{
     if(!p.cronograma)p.cronograma={aceptado:false,fechaInicio:'',partidas:[]};
     if(!p.cronograma.partidas)p.cronograma.partidas=[];
@@ -1759,7 +1767,7 @@ window.addEventListener('fb-ready',(e)=>{
   const user=(e.detail&&e.detail.user);
   if(user&&!S.currentUser){
     const empSaved=localStorage.getItem('pp_empresa');
-    if(empSaved){S.empresa=empSaved;loadData().then(()=>{window.FB.getUsuariosEmpresa(empSaved).then(usuarios=>{S.usuarios=usuarios;const uData=usuarios.find(u=>u.email===user.email)||{nombre:user.email.split('@')[0],rol:'viewer',permisos:{}};enterApp(user.email,uData.rol,uData.nombre,uData.permisos||{},uData.proyectosPermitidos||[]);});});}
+    if(empSaved){S.empresa=empSaved;loadData().then(()=>{window.FB.getUsuariosEmpresa(empSaved).then(usuarios=>{S.usuarios=usuarios;const uData=usuarios.find(u=>(u.email||'').toLowerCase()===(user.email||'').toLowerCase())||{nombre:user.email.split('@')[0],rol:'viewer',permisos:{}};enterApp(user.email,uData.rol,uData.nombre,uData.permisos||{},uData.proyectosPermitidos||[]);});});}
   }
 });
 setTimeout(()=>{const txt=document.getElementById('fbStatusTxt');if(txt&&txt.textContent==='Conectando...'){txt.textContent='Sin conexión';const d=document.getElementById('fbDot');if(d)d.className='sync-dot err';}},5000);
@@ -1806,7 +1814,7 @@ async function doLogin(){
   if(!uData){
     const usuarios=await window.FB.getUsuariosEmpresa(S.empresa);
     S.usuarios=usuarios;
-    uData=usuarios.find(u=>u.email===user.email)||null;
+    uData=usuarios.find(u=>(u.email||'').toLowerCase()===(user.email||'').toLowerCase())||null;
   }
 
   if(!uData){
@@ -2311,7 +2319,7 @@ function togglePermisosUI(){
 
 async function crearUsuarioSA(){
   const nombre=document.getElementById('saUNombre').value.trim();
-  const email=document.getElementById('saUEmail').value.trim();
+  const email=document.getElementById('saUEmail').value.trim().toLowerCase();
   const pass=document.getElementById('saUPass').value;
   // Empresa: preferir input manual si tiene valor, si no usar select
   const empresaSelect=document.getElementById('saUEmpresa').value;
