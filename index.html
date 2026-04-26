@@ -1119,8 +1119,8 @@ const SB_GRUPOS=[
   {id:'empresa_grp',label:'Gestión de Empresa',ic:'🏢',items:['gastos','inventario','asistencia','auditoria_herr','gz_dashboard','proveedores','centros','bodegas','gz_gerentes','reportes']},
   {id:'mant_grp',label:'Mantenimiento',ic:'🔧',items:['mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes']},
   {id:'energy_grp',label:'Energy Intelligence',ic:'⚡',items:['ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist']},
-  {id:'taller_grp',label:'Taller Mecánico',ic:'🚚',items:['taller_dashboard','taller_vehiculos','taller_ots','taller_solicitudes','taller_reportes_choferes','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes']},
-  {id:'chofer_grp',label:'Portal Chofer',ic:'🚛',items:['chofer_portal']},
+  {id:'taller_grp',label:'Taller Mecánico',ic:'🚚',items:['taller_dashboard','taller_vehiculos','taller_ots','taller_solicitudes','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes']},
+  {id:'chofer_grp',label:'Portal Chofer',ic:'🚛',items:['chofer_portal','taller_reportes_choferes']},
   {id:'config_grp',label:'Configuración General',ic:'⚙',items:['log','usuarios','config','importar']},
 ];
 // Estado de grupos colapsados (persistir en sessionStorage)
@@ -13795,7 +13795,7 @@ function solMarcarResuelta(solId){
 // ═══════════════════════════════════════════════════════════════════
 function renderTallerReportesChoferes(){
   var t=tallerData();
-  var reportes=[].concat(t.reportesDiarios||[]).sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+  var reportes=[].concat(t.reportesDiarios||[]).sort(function(a,b){return (a.fecha+'').localeCompare(b.fecha+'');});
 
   // Filtros
   if(!S._rdcFiltroVeh)S._rdcFiltroVeh='';
@@ -13815,7 +13815,7 @@ function renderTallerReportesChoferes(){
   var totalCost=rep.reduce(function(s,r){return s+(r.costoGasolina||0);},0);
   var rendimiento=totalGal>0?(totalKm/totalGal).toFixed(2):'—';
 
-  // Estado de reporte hoy por chofer asignado
+  // Estado de hoy
   var hoyStr=new Date().toISOString().slice(0,10);
   var camionesAsig=t.vehiculos.filter(function(v){return v.choferId&&v.estado!=='baja';});
   var statusHoy=camionesAsig.map(function(v){
@@ -13825,26 +13825,158 @@ function renderTallerReportesChoferes(){
   });
 
   var rowsHoy=statusHoy.map(function(s){
-    var rep=s.reporte;
+    var r=s.reporte;
     return '<tr>'
       +'<td><strong>'+esc(s.veh.placa)+'</strong></td>'
       +'<td>'+esc(s.chofer)+'</td>'
-      +'<td>'+(rep?'<span class="badge b-ok">✓ Reportó</span>':'<span class="badge b-err">✗ Pendiente</span>')+'</td>'
-      +'<td style="text-align:right">'+(rep?rep.kmOdometro:'—')+'</td>'
-      +'<td style="text-align:right">'+(rep?rep.kmRecorridos:'—')+'</td>'
-      +'<td style="text-align:right">'+(rep&&rep.galonesCargados?rep.galonesCargados.toFixed(2):'—')+'</td>'
+      +'<td>'+(r?'<span class="badge b-ok">✓ Reportó</span>':'<span class="badge b-err">✗ Pendiente</span>')+'</td>'
+      +'<td style="text-align:right">'+(r?r.kmOdometro:'—')+'</td>'
+      +'<td style="text-align:right">'+(r?r.kmRecorridos:'—')+'</td>'
+      +'<td style="text-align:right">'+(r&&r.galonesCargados?r.galonesCargados.toFixed(2):'—')+'</td>'
       +'</tr>';
   }).join('');
   if(!rowsHoy)rowsHoy='<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:16px">Sin choferes asignados</td></tr>';
 
-  // Tabla histórico
-  var rowsHist=rep.slice(0,200).map(function(r){
+  // ═══════════════════════════════════════════════════════════════════
+  // ANÁLISIS COMPARATIVO POR VEHÍCULO (vs Ruta y vs Histórico)
+  // ═══════════════════════════════════════════════════════════════════
+  var camsConRep={};
+  rep.forEach(function(r){
+    if(!camsConRep[r.vehiculoId])camsConRep[r.vehiculoId]=[];
+    camsConRep[r.vehiculoId].push(r);
+  });
+
+  var analisisHTML='';
+  Object.keys(camsConRep).forEach(function(vid){
+    var v=t.vehiculos.find(function(x){return x.id===vid;});
+    if(!v)return;
+    var reps=camsConRep[vid];
+    var ruta=v.rutaId?(t.rutas||[]).find(function(rt){return rt.id===v.rutaId;}):null;
+    var ch=(S.usuarios||[]).find(function(u){return (u.email||'').toLowerCase()===v.choferId;});
+
+    // Sumas del período
+    var sKm=reps.reduce(function(s,r){return s+(r.kmRecorridos||0);},0);
+    var sGal=reps.reduce(function(s,r){return s+(r.galonesCargados||0);},0);
+    var sCosto=reps.reduce(function(s,r){return s+(r.costoGasolina||0);},0);
+    var rendActual=sGal>0?sKm/sGal:0;
+
+    // Esperado segun ruta
+    var diasConRep=reps.length;
+    var kmEsperado=ruta?(parseFloat(ruta.kmEstimados)||0)*diasConRep:0;
+    var galEsperado=ruta?(parseFloat(ruta.galonesEstimados)||0)*diasConRep:0;
+    var rendEsperado=galEsperado>0?kmEsperado/galEsperado:0;
+
+    // Histórico (últimos 6 meses excluyendo período actual) — para detectar tendencias
+    var hace6m=new Date();hace6m.setMonth(hace6m.getMonth()-6);
+    var hace6mStr=hace6m.toISOString().slice(0,10);
+    var histReps=(t.reportesDiarios||[]).filter(function(r){
+      return r.vehiculoId===vid&&r.fecha>=hace6mStr&&r.fecha<S._rdcFiltroDesde;
+    });
+    var histKm=histReps.reduce(function(s,r){return s+(r.kmRecorridos||0);},0);
+    var histGal=histReps.reduce(function(s,r){return s+(r.galonesCargados||0);},0);
+    var rendHistorico=histGal>0?histKm/histGal:0;
+
+    // Variaciones %
+    var varKm=kmEsperado>0?((sKm-kmEsperado)/kmEsperado)*100:0;
+    var varGal=galEsperado>0?((sGal-galEsperado)/galEsperado)*100:0;
+    var varRend=rendHistorico>0?((rendActual-rendHistorico)/rendHistorico)*100:0;
+
+    // Niveles de alerta
+    function nivel(pct,umbralA,umbralR,inverso){
+      // inverso: si true (rendimiento), es malo cuando es NEGATIVO (peor)
+      var p=inverso?-pct:pct;
+      if(p>umbralR)return{lvl:'rojo',ic:'🚨',color:'#e84040',label:'ALERTA'};
+      if(p>umbralA)return{lvl:'amarillo',ic:'⚠',color:'#e8a020',label:'ATENCIÓN'};
+      return{lvl:'verde',ic:'✓',color:'#2db87a',label:'OK'};
+    }
+    var lvlKm=nivel(varKm,5,15,false);
+    var lvlGal=nivel(varGal,10,20,false);
+    var lvlRend=rendHistorico>0?nivel(varRend,5,15,true):{lvl:'gris',ic:'—',color:'var(--muted)',label:'Sin histórico'};
+
+    // Causas posibles
+    var causas=[];
+    if(lvlKm.lvl!=='verde')causas.push('Desvíos no autorizados o ruta más larga');
+    if(lvlGal.lvl!=='verde'){
+      causas.push('Posible trasiego/robo de combustible (huachicol)');
+      causas.push('Falla mecánica: motor, filtros, llantas, inyectores');
+    }
+    if(lvlRend.lvl==='rojo')causas.push('Degradación gradual del vehículo o cambio de hábitos de manejo');
+
+    // Datos para gráfica diaria
+    var datosDiarios=reps.map(function(r){
+      return {
+        fecha:r.fecha,
+        km:r.kmRecorridos||0,
+        gal:r.galonesCargados||0,
+        rend:(r.galonesCargados||0)>0?(r.kmRecorridos||0)/(r.galonesCargados||0):0
+      };
+    });
+
+    analisisHTML+=''
+      +'<div class="card" style="margin-bottom:16px">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">'
+      +'<div><div style="font-weight:700;font-size:15px">🚛 '+esc(v.placa)+' — '+esc(v.marca||'')+' '+esc(v.modelo||'')+'</div>'
+      +'<div style="font-size:12px;color:var(--muted)">Chofer: '+esc(ch?ch.nombre:(v.motorista||'Sin asignar'))+(ruta?' · Ruta: '+esc(ruta.nombre):'')+(diasConRep>0?' · '+diasConRep+' día(s) reportados':'')+'</div></div>'
+      +'</div>'
+      // Tabla de comparación
+      +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:14px">'
+
+      // KM
+      +'<div style="background:var(--surface2);padding:12px;border-radius:8px;border-left:4px solid '+lvlKm.color+'">'
+      +'<div style="font-size:11px;color:var(--muted);text-transform:uppercase">Km recorridos</div>'
+      +'<div style="font-size:18px;font-weight:700;margin-top:4px">'+fmt(sKm)+' km</div>'
+      +'<div style="font-size:11px;color:var(--muted);margin-top:2px">Esperado: '+fmt(kmEsperado)+' km</div>'
+      +'<div style="font-size:13px;color:'+lvlKm.color+';font-weight:700;margin-top:6px">'+lvlKm.ic+' '+(varKm>=0?'+':'')+varKm.toFixed(1)+'% '+lvlKm.label+'</div>'
+      +'</div>'
+
+      // Gal
+      +'<div style="background:var(--surface2);padding:12px;border-radius:8px;border-left:4px solid '+lvlGal.color+'">'
+      +'<div style="font-size:11px;color:var(--muted);text-transform:uppercase">Galones gastados</div>'
+      +'<div style="font-size:18px;font-weight:700;margin-top:4px">'+sGal.toFixed(2)+' gal</div>'
+      +'<div style="font-size:11px;color:var(--muted);margin-top:2px">Esperado: '+galEsperado.toFixed(2)+' gal · $'+sCosto.toFixed(2)+'</div>'
+      +'<div style="font-size:13px;color:'+lvlGal.color+';font-weight:700;margin-top:6px">'+lvlGal.ic+' '+(varGal>=0?'+':'')+varGal.toFixed(1)+'% '+lvlGal.label+'</div>'
+      +'</div>'
+
+      // Rendimiento vs histórico
+      +'<div style="background:var(--surface2);padding:12px;border-radius:8px;border-left:4px solid '+lvlRend.color+'">'
+      +'<div style="font-size:11px;color:var(--muted);text-transform:uppercase">Rendimiento (km/gal)</div>'
+      +'<div style="font-size:18px;font-weight:700;margin-top:4px">'+rendActual.toFixed(2)+' km/gal</div>'
+      +'<div style="font-size:11px;color:var(--muted);margin-top:2px">Histórico 6m: '+(rendHistorico>0?rendHistorico.toFixed(2):'—')+' km/gal</div>'
+      +'<div style="font-size:13px;color:'+lvlRend.color+';font-weight:700;margin-top:6px">'+lvlRend.ic+' '+(rendHistorico>0?(varRend>=0?'+':'')+varRend.toFixed(1)+'% '+lvlRend.label:lvlRend.label)+'</div>'
+      +'</div>'
+
+      +'</div>';
+
+    // Gráfica lineal comparativa (real vs esperado)
+    if(datosDiarios.length>=2&&ruta){
+      analisisHTML+=_chartComparativo(datosDiarios,ruta,v.id);
+    } else if(datosDiarios.length>=2){
+      analisisHTML+='<div style="font-size:11px;color:var(--muted);text-align:center;padding:8px">⚠ Sin ruta asignada — no se puede comparar contra esperado. Asigna una ruta al vehículo.</div>';
+    }
+
+    if(causas.length>0){
+      analisisHTML+='<div style="margin-top:10px;padding:10px 12px;background:#2a1a00;border:1px solid #5a3a00;border-radius:8px">'
+        +'<div style="font-weight:700;font-size:12px;color:var(--accent);margin-bottom:6px">⚠ POSIBLES CAUSAS A INVESTIGAR:</div>'
+        +'<ul style="margin:0;padding-left:18px;font-size:12px;color:var(--text)">'
+        +causas.map(function(c){return '<li style="margin:2px 0">'+esc(c)+'</li>';}).join('')
+        +'</ul></div>';
+    }
+
+    analisisHTML+='</div>';
+  });
+
+  if(analisisHTML===''){
+    analisisHTML='<div class="card" style="text-align:center;padding:30px;color:var(--muted)">Sin reportes en el período. Los choferes deben usar el Portal Chofer para reportar su km diario.</div>';
+  }
+
+  // Histórico tabla
+  var rowsHist=rep.slice().reverse().slice(0,200).map(function(r){
     var v=t.vehiculos.find(function(x){return x.id===r.vehiculoId;});
     var ruta=r.rutaId?(t.rutas||[]).find(function(rt){return rt.id===r.rutaId;}):null;
     var varStr='';
-    if(r.variacionKm!==null&&r.variacionKm!==undefined){
-      var clr=r.variacionKm>0?'var(--red)':'var(--green)';
-      varStr='<span style="color:'+clr+';font-size:11px">'+(r.variacionKm>0?'+':'')+r.variacionKm+' km</span>';
+    if(r.variacionKm!==null&&r.variacionKm!==undefined&&r.variacionKm!==0){
+      var clr=r.variacionKm>0?'#e84040':'#2db87a';
+      varStr=' <span style="color:'+clr+';font-size:11px">'+(r.variacionKm>0?'+':'')+r.variacionKm+'</span>';
     }
     return '<tr>'
       +'<td>'+fmtDate(r.fecha)+'</td>'
@@ -13852,24 +13984,25 @@ function renderTallerReportesChoferes(){
       +'<td>'+esc(r.choferNombre||'')+'</td>'
       +'<td>'+esc(ruta?ruta.nombre:'—')+'</td>'
       +'<td style="text-align:right">'+(r.kmOdometro||0)+'</td>'
-      +'<td style="text-align:right">'+(r.kmRecorridos||0)+' '+varStr+'</td>'
+      +'<td style="text-align:right">'+(r.kmRecorridos||0)+varStr+'</td>'
       +'<td style="text-align:right">'+(r.galonesCargados?r.galonesCargados.toFixed(2):'—')+'</td>'
       +'<td style="text-align:right">'+(r.costoGasolina?'$'+r.costoGasolina.toFixed(2):'—')+'</td>'
-      +'<td style="font-size:11px;max-width:200px;white-space:normal">'+esc(r.observaciones||'')+'</td>'
       +'</tr>';
   }).join('');
-  if(!rowsHist)rowsHist='<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:16px">Sin reportes en el período</td></tr>';
+  if(!rowsHist)rowsHist='<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:16px">Sin reportes en el período</td></tr>';
 
   var vehOpts='<option value="">Todos los vehículos</option>'
     +t.vehiculos.map(function(v){return '<option value="'+v.id+'"'+(S._rdcFiltroVeh===v.id?' selected':'')+'>'+esc(v.placa)+'</option>';}).join('');
 
   document.getElementById('content').innerHTML=
+    '<div class="info-box">📊 <strong>Análisis de consumo de combustible.</strong> Compara km y galones reales vs los estimados de cada ruta para detectar desvíos, fallas mecánicas o trasiego de combustible.</div>'
+
     // KPIs período
-    '<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">'
-    +'<div class="kpi"><div class="kpi-lbl">Reportes en el período</div><div class="kpi-val">'+rep.length+'</div></div>'
-    +'<div class="kpi"><div class="kpi-lbl">Km totales recorridos</div><div class="kpi-val" style="color:var(--blue);font-size:18px">'+fmt(totalKm)+'</div></div>'
-    +'<div class="kpi"><div class="kpi-lbl">Galones consumidos</div><div class="kpi-val" style="color:#facc15;font-size:18px">'+totalGal.toFixed(2)+'</div></div>'
-    +'<div class="kpi"><div class="kpi-lbl">Rendimiento promedio</div><div class="kpi-val" style="color:var(--green);font-size:18px">'+rendimiento+' km/gal</div></div>'
+    +'<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">'
+    +'<div class="kpi"><div class="kpi-lbl">Reportes período</div><div class="kpi-val">'+rep.length+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Km totales</div><div class="kpi-val" style="color:#4ea8de;font-size:18px">'+fmt(totalKm)+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Galones</div><div class="kpi-val" style="color:#facc15;font-size:18px">'+totalGal.toFixed(2)+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Rendimiento global</div><div class="kpi-val" style="color:#2db87a;font-size:18px">'+rendimiento+' km/gal</div></div>'
     +'</div>'
 
     // Estado de hoy
@@ -13879,21 +14012,98 @@ function renderTallerReportesChoferes(){
     +'<thead><tr><th>Vehículo</th><th>Chofer</th><th>Estado</th><th style="text-align:right">Km Odóm.</th><th style="text-align:right">Recorridos</th><th style="text-align:right">Galones</th></tr></thead>'
     +'<tbody>'+rowsHoy+'</tbody></table></div></div>'
 
-    // Filtros + histórico
+    // Filtros
     +'<div class="card" style="margin-bottom:12px">'
-    +'<div class="sec-hdr">🔍 Filtros</div>'
+    +'<div class="sec-hdr">🔍 Filtros del análisis</div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">'
     +'<div class="fg" style="margin:0"><label>Vehículo</label><select onchange="S._rdcFiltroVeh=this.value;renderTallerReportesChoferes()">'+vehOpts+'</select></div>'
     +'<div class="fg" style="margin:0"><label>Desde</label><input type="date" value="'+S._rdcFiltroDesde+'" onchange="S._rdcFiltroDesde=this.value;renderTallerReportesChoferes()"></div>'
     +'<div class="fg" style="margin:0"><label>Hasta</label><input type="date" value="'+S._rdcFiltroHasta+'" onchange="S._rdcFiltroHasta=this.value;renderTallerReportesChoferes()"></div>'
     +'</div></div>'
 
+    // Análisis comparativo (lo más importante)
+    +'<div class="sec-hdr" style="margin:18px 0 10px 0">🚨 ANÁLISIS COMPARATIVO POR VEHÍCULO</div>'
+    +analisisHTML
+
     // Histórico
+    +'<div class="sec-hdr" style="margin:18px 0 10px 0">📋 Histórico detallado de reportes</div>'
     +'<div class="card" style="padding:0">'
     +'<div class="tbl-wrap" style="border:none;border-radius:0"><table>'
-    +'<thead><tr><th>Fecha</th><th>Vehículo</th><th>Chofer</th><th>Ruta</th><th style="text-align:right">Km Odóm.</th><th style="text-align:right">Recorridos</th><th style="text-align:right">Galones</th><th style="text-align:right">Costo</th><th>Observaciones</th></tr></thead>'
+    +'<thead><tr><th>Fecha</th><th>Vehículo</th><th>Chofer</th><th>Ruta</th><th style="text-align:right">Km Odóm.</th><th style="text-align:right">Recorridos (var.)</th><th style="text-align:right">Galones</th><th style="text-align:right">Costo</th></tr></thead>'
     +'<tbody>'+rowsHist+'</tbody></table></div></div>';
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// GRÁFICA SVG LINEAL COMPARATIVA: real vs esperado por ruta
+// ═══════════════════════════════════════════════════════════════════
+function _chartComparativo(datosDiarios,ruta,vehId){
+  var W=800, H=320, padL=50, padR=20, padT=30, padB=50;
+  var iW=W-padL-padR, iH=H-padT-padB;
+  var n=datosDiarios.length;
+  var kmEsperado=parseFloat(ruta.kmEstimados)||0;
+  var galEsperado=parseFloat(ruta.galonesEstimados)||0;
+
+  // Determinar máximos para escala
+  var maxKm=Math.max(kmEsperado, Math.max.apply(null, datosDiarios.map(function(d){return d.km;})))*1.15;
+  var maxGal=Math.max(galEsperado, Math.max.apply(null, datosDiarios.map(function(d){return d.gal;})))*1.15;
+  if(maxKm===0)maxKm=10;
+  if(maxGal===0)maxGal=5;
+
+  // Escalas
+  function xScale(i){return padL+(n>1?(i*(iW/(n-1))):iW/2);}
+  function yKm(v){return padT+iH-((v/maxKm)*iH);}
+  function yGal(v){return padT+iH-((v/maxGal)*iH);}
+
+  // Líneas reales
+  var pathKm=datosDiarios.map(function(d,i){return (i===0?'M':'L')+xScale(i)+','+yKm(d.km);}).join('');
+  var pathGal=datosDiarios.map(function(d,i){return (i===0?'M':'L')+xScale(i)+','+yGal(d.gal);}).join('');
+
+  // Líneas esperadas (constantes — la ruta tiene valor fijo por día)
+  var lineEspKm='<line x1="'+padL+'" y1="'+yKm(kmEsperado)+'" x2="'+(padL+iW)+'" y2="'+yKm(kmEsperado)+'" stroke="#4ea8de" stroke-width="1.5" stroke-dasharray="6,4" opacity="0.7"/>';
+  var lineEspGal='<line x1="'+padL+'" y1="'+yGal(galEsperado)+'" x2="'+(padL+iW)+'" y2="'+yGal(galEsperado)+'" stroke="#facc15" stroke-width="1.5" stroke-dasharray="6,4" opacity="0.7"/>';
+
+  // Etiquetas eje X (mostrar máx 7 fechas)
+  var step=Math.ceil(n/7);
+  var xLabels='';
+  datosDiarios.forEach(function(d,i){
+    if(i%step===0||i===n-1){
+      var fLab=d.fecha.slice(5);
+      xLabels+='<text x="'+xScale(i)+'" y="'+(padT+iH+18)+'" text-anchor="middle" fill="var(--muted)" font-size="10">'+fLab+'</text>';
+    }
+  });
+
+  // Eje Y izq (km)
+  var yLabKm='';
+  for(var i=0;i<=4;i++){
+    var v=(maxKm/4)*i;
+    yLabKm+='<text x="'+(padL-6)+'" y="'+(yKm(v)+3)+'" text-anchor="end" fill="#4ea8de" font-size="9">'+Math.round(v)+'</text>';
+    yLabKm+='<line x1="'+padL+'" y1="'+yKm(v)+'" x2="'+(padL+iW)+'" y2="'+yKm(v)+'" stroke="var(--border)" stroke-width="0.5" opacity="0.4"/>';
+  }
+
+  // Puntos reales
+  var puntosKm=datosDiarios.map(function(d,i){return '<circle cx="'+xScale(i)+'" cy="'+yKm(d.km)+'" r="4" fill="#4ea8de"><title>'+d.fecha+': '+d.km+' km</title></circle>';}).join('');
+  var puntosGal=datosDiarios.map(function(d,i){return '<circle cx="'+xScale(i)+'" cy="'+yGal(d.gal)+'" r="4" fill="#facc15"><title>'+d.fecha+': '+d.gal.toFixed(2)+' gal</title></circle>';}).join('');
+
+  return '<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-top:10px">'
+    +'<div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:8px">📈 Gráfica comparativa: Real vs Esperado</div>'
+    +'<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-bottom:6px">'
+      +'<div><span style="display:inline-block;width:14px;height:3px;background:#4ea8de;vertical-align:middle"></span> Km recorridos (real)</div>'
+      +'<div><span style="display:inline-block;width:14px;height:3px;background:#4ea8de;border-top:1px dashed;vertical-align:middle;opacity:0.7"></span> Km esperado por ruta</div>'
+      +'<div><span style="display:inline-block;width:14px;height:3px;background:#facc15;vertical-align:middle"></span> Galones (real)</div>'
+      +'<div><span style="display:inline-block;width:14px;height:3px;background:#facc15;border-top:1px dashed;vertical-align:middle;opacity:0.7"></span> Galones esperado</div>'
+    +'</div>'
+    +'<div style="overflow-x:auto"><svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto;min-width:600px;display:block">'
+      +yLabKm
+      +lineEspKm
+      +lineEspGal
+      +'<path d="'+pathKm+'" stroke="#4ea8de" stroke-width="2" fill="none"/>'
+      +'<path d="'+pathGal+'" stroke="#facc15" stroke-width="2" fill="none"/>'
+      +puntosKm
+      +puntosGal
+      +xLabels
+    +'</svg></div></div>';
+}
+
 
 function renderImportar() {
   var selMod = S._impMod || 'gastos';
