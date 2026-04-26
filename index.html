@@ -9109,7 +9109,7 @@ function renderMantEquipos(){
   var rows=eqSlice.length===0?'<tr><td colspan="8" class="empty">Sin equipos</td></tr>':'';
   eqSlice.forEach(function(eq){
     var centroNom=centroMap[eq.centroId]||'\u2014';
-    var prox=mantFecháPróximo(eq);
+    var prox=mantFechaPróximo(eq);
     var proxColor=prox&&prox<hoy?'color:var(--red)':'';
     rows+='<tr><td><div>'+esc(eq.nombre)+'</div><div style="font-size:11px;color:var(--muted)">'+esc(centroNom)+'</div></td>';
     rows+='<td><span class="badge b-neu">'+esc(catAreaLabel(eq.categoria)||eq.tipo||eq.categoria||'\u2014')+'</span></td>';
