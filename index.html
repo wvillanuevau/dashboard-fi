@@ -1059,12 +1059,13 @@ input[type=date]{color-scheme:dark}
 //  DEFINICIÓN DE ROLES Y PERMISOS
 // ═══════════════════════════════════════════════════════
 const ROLES={
-  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','usuarios','config','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes','importar']},
-  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes']},
+  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','usuarios','config','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes','taller_solicitudes','chofer_portal','importar']},
+  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes','taller_solicitudes','chofer_portal']},
   empleado:{label:'Empleado',color:'b-ok',modulos:[]}, // permisos individuales
   viewer:{label:'Viewer',color:'b-neu',modulos:['dashboard','proyectos']},
   cliente:{label:'Cliente',color:'b-purple',modulos:['proyectos']}, // solo general, planificacion, cronograma
-  contratista:{label:'Contratista',color:'b-blue',modulos:['proyectos']} // solo cronograma: precio, fechas, checks, gantt, imprimir
+  contratista:{label:'Contratista',color:'b-blue',modulos:['proyectos']}, // solo cronograma: precio, fechas, checks, gantt, imprimir
+  chofer:{label:'Chofer',color:'b-blue',modulos:['chofer_portal']} // portal del chofer únicamente
 };
 
 // Unidades de medida para cronograma
@@ -1107,6 +1108,8 @@ const MODULOS=[
   {id:'taller_rutas',label:'Rutas',ic:'🗺️'},
   {id:'taller_combustible',label:'Combustible',ic:'⛽'},
   {id:'taller_reportes',label:'Reportes Taller',ic:'📈'},
+  {id:'taller_solicitudes',label:'Solicitudes de revisión',ic:'📥'},
+  {id:'chofer_portal',label:'Mi Camión (Chofer)',ic:'🚛'},
 ];
 
 // Grupos del sidebar colapsibles
@@ -1115,7 +1118,8 @@ const SB_GRUPOS=[
   {id:'empresa_grp',label:'Gestión de Empresa',ic:'🏢',items:['gastos','inventario','asistencia','auditoria_herr','gz_dashboard','proveedores','centros','bodegas','gz_gerentes','reportes']},
   {id:'mant_grp',label:'Mantenimiento',ic:'🔧',items:['mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes']},
   {id:'energy_grp',label:'Energy Intelligence',ic:'⚡',items:['ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist']},
-  {id:'taller_grp',label:'Taller Mecánico',ic:'🚚',items:['taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes']},
+  {id:'taller_grp',label:'Taller Mecánico',ic:'🚚',items:['taller_dashboard','taller_vehiculos','taller_ots','taller_solicitudes','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes']},
+  {id:'chofer_grp',label:'Portal Chofer',ic:'🚛',items:['chofer_portal']},
   {id:'config_grp',label:'Configuración General',ic:'⚙',items:['log','usuarios','config','importar']},
 ];
 // Estado de grupos colapsados (persistir en sessionStorage)
@@ -1195,7 +1199,9 @@ const S={
       {id:'P',label:'P — Permiso'},
       {id:'I',label:'I — Incapacidad/ISSS'}
     ],
-    horaMetaAsistencia:'08:00'
+    horaMetaAsistencia:'08:00',
+    deadlineReporteKm:'22:00',
+    precioGasolina:0
   },
   cajachica:{reintegros:[]},
   mantenimiento:{tecnicos:[],checklists:[],equipos:[],ots:[]},
@@ -1297,7 +1303,7 @@ function setSyncUI(state,txt){const dot=document.getElementById('syncDot'),stxt=
 // ═══════════════════════════════════════════════════════
 //  SYNC
 // ═══════════════════════════════════════════════════════
-function serializeState(){return{_v:4,_ts:Date.now(),proyectos:S.proyectos,gastos:S.gastos,proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios,config:S.config,inventario:S.inventario||{bodegas:[],productos:[],movimientos:[]},cotizaciones:S.cotizaciones||{comparaciones:[]},cajachica:S.cajachica||{reintegros:[]},mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[]},energy:S.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12},gerentesZona:S.gerentesZona||[],asistencia:S.asistencia||{registros:[]},auditorias:S.auditorias||{registros:[]},taller:S.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[]}}}
+function serializeState(){return{_v:4,_ts:Date.now(),proyectos:S.proyectos,gastos:S.gastos,proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios,config:S.config,inventario:S.inventario||{bodegas:[],productos:[],movimientos:[]},cotizaciones:S.cotizaciones||{comparaciones:[]},cajachica:S.cajachica||{reintegros:[]},mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[]},energy:S.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12},gerentesZona:S.gerentesZona||[],asistencia:S.asistencia||{registros:[]},auditorias:S.auditorias||{registros:[]},taller:S.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[],solicitudes:[],reportesDiarios:[]}}}
 
 // Versión limpia para Firestore — elimina base64 pesados que van en colección separada
 function serializeForFirestore(){
@@ -1364,7 +1370,7 @@ function serializeForFirestore(){
     cajachica:S.cajachica||{reintegros:[]},
     asistencia:S.asistencia||{registros:[]},
     auditorias:auditorias,
-    taller:S.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[]}
+    taller:S.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[],solicitudes:[],reportesDiarios:[]}
   };
 }
 function applyData(d,fromRemote=false){
@@ -1397,7 +1403,9 @@ function applyData(d,fromRemote=false){
   } else {
     S.auditorias=d.auditorias||{registros:[]};
   }
-  S.taller=d.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[]};
+  S.taller=d.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[],solicitudes:[],reportesDiarios:[]};
+  if(!S.taller.solicitudes)S.taller.solicitudes=[];
+  if(!S.taller.reportesDiarios)S.taller.reportesDiarios=[];
   migrateData();applyBranding();
 }
 // ════════════════════════════════════════════════════════════
@@ -1427,7 +1435,9 @@ var _CFG_DEFAULTS={
   tiposProyecto:['Remodelación','Construcción nueva','Ampliación'],
   estadosProyecto:['Sin iniciar','En ejecución','Retrasado','Finalizado'],
   estadosAsistencia:[{id:'RC',label:'R.C. — Reporte Completo'},{id:'RI',label:'R.I. — Incompleto'},{id:'X',label:'X — No Reportó'},{id:'P',label:'P — Permiso'},{id:'I',label:'I — Incapacidad/ISSS'}],
-  horaMetaAsistencia:'08:00'
+  horaMetaAsistencia:'08:00',
+  deadlineReporteKm:'22:00',
+  precioGasolina:0
 };
 function _ensureCatalogDefaults(){
   if(!S.config)S.config={};
@@ -8372,6 +8382,8 @@ function render(){
   else if(S.activeTab==='taller_rutas')renderTallerRutas();
   else if(S.activeTab==='taller_combustible')renderTallerCombustible();
   else if(S.activeTab==='taller_reportes')renderTallerReportes();
+  else if(S.activeTab==='taller_solicitudes')renderTallerSolicitudes();
+  else if(S.activeTab==='chofer_portal')renderChoferPortal();
   else if(S.activeTab==='importar')renderImportar();
 }
 function goTab(t){if(!puedeVer(t)){toast('Sin acceso a este módulo',true);return}S.activeTab=t;sessionStorage.removeItem('sb_collapsed');closeSB();render()}
@@ -11919,6 +11931,28 @@ function renderTallerDashboard(){
 
   // Banner de alertas críticas
   var alertasCriticas=[];
+
+  // Alerta: choferes que no reportaron km hoy
+  var hoyStr=new Date().toISOString().slice(0,10);
+  var ahoraStr=(new Date().getHours().toString().padStart(2,'0'))+':'+(new Date().getMinutes().toString().padStart(2,'0'));
+  var deadlineKm=getDeadlineReporteKm();
+  var camionesConChofer=vehs.filter(function(v){return v.choferId&&v.estado!=='baja';});
+  var sinReportar=camionesConChofer.filter(function(v){
+    var rep=((S.taller&&S.taller.reportesDiarios)||[]).find(function(r){return r.vehiculoId===v.id&&r.fecha===hoyStr;});
+    return !rep;
+  });
+  if(sinReportar.length>0&&ahoraStr>=deadlineKm){
+    alertasCriticas.push({ic:'🚛',text:sinReportar.length+' chofer(es) NO han reportado el km de hoy (deadline: '+deadlineKm+')',color:'var(--red)'});
+  } else if(sinReportar.length>0){
+    alertasCriticas.push({ic:'⏳',text:sinReportar.length+' chofer(es) pendientes de reportar km hoy',color:'var(--accent)'});
+  }
+
+  // Alerta: solicitudes pendientes
+  var solPend=((S.taller&&S.taller.solicitudes)||[]).filter(function(s){return s.estado==='enviada';}).length;
+  if(solPend>0){
+    alertasCriticas.push({ic:'📥',text:solPend+' solicitud(es) de revisión pendiente(s) de aprobar',color:'var(--accent)'});
+  }
+
   if(fallasPend>0)alertasCriticas.push({ic:'🔴',text:fallasPend+' falla(s) pendiente(s) sin reparar',color:'var(--red)'});
   if(vehMttoVencido.length>0)alertasCriticas.push({ic:'⚠️',text:vehMttoVencido.length+' vehículo(s) con mantenimiento VENCIDO (>120 días)',color:'var(--red)'});
   if(vehMttoProximo.length>0)alertasCriticas.push({ic:'⏰',text:vehMttoProximo.length+' vehículo(s) próximo a mantenimiento (>90 días)',color:'var(--accent)'});
@@ -12452,8 +12486,19 @@ function modalVehiculo(id){
 
     +'<div class="row3">'
     +'<div class="fg"><label>Km Actual</label><input type="number" id="vhKm" value="'+(v?(v.kmActual||v.kmActuales||0):0)+'" min="0" placeholder="0"></div>'
-    +'<div class="fg"><label>Ruta / Sucursal Asignada</label><input id="vhRuta" value="'+esc(g('ruta'))+'" placeholder="SAN SALVADOR, ORIENTE, OCCIDENTE..."></div>'
-    +'<div class="fg"><label>Motorista Responsable</label><input id="vhMotorista" value="'+esc(g('motorista'))+'" placeholder="Nombre completo"></div></div>'
+    +'<div class="fg"><label>Ruta Asignada</label><select id="vhRutaId">'
+      +'<option value="">— Sin ruta asignada —</option>'
+      +((S.taller&&S.taller.rutas)||[]).map(function(rt){
+        return '<option value="'+rt.id+'"'+(g('rutaId')===rt.id?' selected':'')+'>'+esc(rt.nombre)+'</option>';
+      }).join('')
+    +'</select><div style="font-size:10px;color:var(--muted);margin-top:3px">Define en módulo Rutas</div></div>'
+    +'<div class="fg"><label>Chofer Asignado</label><select id="vhChoferId">'
+      +'<option value="">— Sin chofer asignado —</option>'
+      +(S.usuarios||[]).filter(function(u){return u.rol==='chofer';}).map(function(u){
+        return '<option value="'+esc(u.email)+'"'+(g('choferId')===u.email?' selected':'')+'>'+esc(u.nombre||u.email)+'</option>';
+      }).join('')
+    +'</select><div style="font-size:10px;color:var(--muted);margin-top:3px">Crea usuarios con rol Chofer en módulo Usuarios</div></div></div>'
+    +'<div class="fg"><label>Motorista Responsable (texto libre, alternativo)</label><input id="vhMotorista" value="'+esc(g('motorista'))+'" placeholder="Si no es un usuario del sistema"></div>'
 
     // Mantenimiento
     +'<div class="sec-hdr" style="margin-top:14px">🔧 Último Mantenimiento General</div>'
@@ -12510,7 +12555,8 @@ function guardarVehiculo(id){
     color:((document.getElementById('vhColor')||{}).value||'').trim().toUpperCase(),
     vin:((document.getElementById('vhVin')||{}).value||'').trim().toUpperCase(),
     kmActual:parseInt(((document.getElementById('vhKm')||{}).value||''))||0,
-    ruta:((document.getElementById('vhRuta')||{}).value||'').trim().toUpperCase(),
+    rutaId:((document.getElementById('vhRutaId')||{}).value||'').trim(),
+    choferId:((document.getElementById('vhChoferId')||{}).value||'').trim(),
     motorista:((document.getElementById('vhMotorista')||{}).value||'').trim(),
     estado:((document.getElementById('vhEstado')||{}).value||'activo'),
     mttoFecha:((document.getElementById('vhMttoFecha')||{}).value||'').trim(),
@@ -13081,6 +13127,620 @@ function renderTallerReportes(){
     +output;
 }
 
+
+// ═══════════════════════════════════════════════════════════════════
+//  CHOFER PORTAL + ADMIN SOLICITUDES + REPORTES DIARIOS
+// ═══════════════════════════════════════════════════════════════════
+function getDeadlineReporteKm(){return (S.config&&S.config.deadlineReporteKm)||'22:00';}
+
+// Compresión de imagen para fotos de solicitudes (ancho máx 800px, JPEG calidad 0.6)
+function _comprimirImagenChofer(file,callback){
+  if(!file){callback(null);return;}
+  var reader=new FileReader();
+  reader.onload=function(e){
+    var img=new Image();
+    img.onload=function(){
+      var maxW=800;
+      var w=img.width,h=img.height;
+      if(w>maxW){h=h*(maxW/w);w=maxW;}
+      var canvas=document.createElement('canvas');
+      canvas.width=w;canvas.height=h;
+      var ctx=canvas.getContext('2d');
+      ctx.drawImage(img,0,0,w,h);
+      var dataUrl=canvas.toDataURL('image/jpeg',0.6);
+      callback(dataUrl);
+    };
+    img.onerror=function(){callback(null);};
+    img.src=e.target.result;
+  };
+  reader.onerror=function(){callback(null);};
+  reader.readAsDataURL(file);
+}
+
+// Categorías estructuradas para solicitudes de revisión
+var SOL_CATEGORIAS=[
+  {id:'motor',label:'Motor',ic:'⚙'},
+  {id:'frenos',label:'Frenos',ic:'🛑'},
+  {id:'transmision',label:'Transmisión',ic:'🔄'},
+  {id:'suspension',label:'Suspensión',ic:'🔩'},
+  {id:'electrico',label:'Eléctrico',ic:'⚡'},
+  {id:'llantas',label:'Llantas',ic:'🛞'},
+  {id:'aire',label:'Aire acondicionado',ic:'❄'},
+  {id:'carroceria',label:'Carrocería',ic:'🚛'},
+  {id:'otro',label:'Otro',ic:'📌'}
+];
+function solCatLabel(id){var c=SOL_CATEGORIAS.find(function(x){return x.id===id;});return c?(c.ic+' '+c.label):id;}
+
+var SOL_URGENCIAS=[
+  {id:'baja',label:'Baja — puede esperar',color:'b-neu'},
+  {id:'media',label:'Media — esta semana',color:'b-blue'},
+  {id:'alta',label:'Alta — esta semana sí o sí',color:'b-warn'},
+  {id:'critica',label:'Crítica — no puede salir el camión',color:'b-err'}
+];
+function solUrgLabel(id){var u=SOL_URGENCIAS.find(function(x){return x.id===id;});return u?u.label:id;}
+function solUrgColor(id){var u=SOL_URGENCIAS.find(function(x){return x.id===id;});return u?u.color:'b-neu';}
+
+var SOL_ESTADOS=[
+  {id:'enviada',label:'Enviada',color:'b-blue'},
+  {id:'aprobada',label:'Aprobada',color:'b-warn'},
+  {id:'ot_creada',label:'OT Creada',color:'b-purple'},
+  {id:'rechazada',label:'Rechazada',color:'b-err'},
+  {id:'resuelta',label:'Resuelta',color:'b-ok'}
+];
+function solEstLabel(id){var e=SOL_ESTADOS.find(function(x){return x.id===id;});return e?e.label:id;}
+function solEstColor(id){var e=SOL_ESTADOS.find(function(x){return x.id===id;});return e?e.color:'b-neu';}
+
+// ── Helpers de datos ──
+function getMisCamiones(){
+  if(!S.currentUser||!S.taller||!S.taller.vehiculos)return [];
+  var email=S.currentUser.email;
+  return S.taller.vehiculos.filter(function(v){return v.choferId===email&&v.estado!=='baja';});
+}
+function getReporteDelDia(vehId,fecha){
+  if(!S.taller||!S.taller.reportesDiarios)return null;
+  return S.taller.reportesDiarios.find(function(r){return r.vehiculoId===vehId&&r.fecha===fecha;});
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  RENDER PORTAL CHOFER
+// ═══════════════════════════════════════════════════════════════════
+function renderChoferPortal(){
+  if(!S._choferTab)S._choferTab='reporte';
+  var camiones=getMisCamiones();
+
+  // Si no es chofer y no tiene camión asignado, mensaje
+  if(camiones.length===0&&S.currentUser&&S.currentUser.rol==='chofer'){
+    document.getElementById('content').innerHTML=
+      '<div class="card" style="text-align:center;padding:40px">'
+      +'<div style="font-size:48px;margin-bottom:12px">🚛</div>'
+      +'<div style="font-weight:700;font-size:18px;margin-bottom:8px">No tienes camión asignado</div>'
+      +'<div style="color:var(--muted);font-size:13px">Pide al administrador que te asigne un vehículo desde el módulo Vehículos.</div>'
+      +'</div>';
+    return;
+  }
+  if(camiones.length===0){
+    document.getElementById('content').innerHTML=
+      '<div class="card" style="text-align:center;padding:40px">'
+      +'<div style="font-size:48px;margin-bottom:12px">🚛</div>'
+      +'<div style="font-weight:700;font-size:18px;margin-bottom:8px">Vista Previa — Portal del Chofer</div>'
+      +'<div style="color:var(--muted);font-size:13px;max-width:500px;margin:0 auto">Esta sección está diseñada para usuarios con rol Chofer. Asigna un usuario chofer a un vehículo desde el módulo Vehículos para ver datos aquí.</div>'
+      +'</div>';
+    return;
+  }
+
+  // Si tiene varios camiones, dropdown
+  if(!S._choferVeh)S._choferVeh=camiones[0].id;
+  var vehSel=camiones.find(function(v){return v.id===S._choferVeh;})||camiones[0];
+
+  var subTabs=[
+    {id:'reporte',label:'📅 Reporte diario'},
+    {id:'solicitar',label:'🔧 Solicitar revisión'},
+    {id:'mis_solicitudes',label:'📋 Mis solicitudes'}
+  ].map(function(t){
+    return '<div class="tab'+(S._choferTab===t.id?' active':'')+'" onclick="S._choferTab=\''+t.id+'\';renderChoferPortal()">'+t.label+'</div>';
+  }).join('');
+
+  var camHeader='';
+  if(camiones.length>1){
+    camHeader='<select onchange="S._choferVeh=this.value;renderChoferPortal()" style="max-width:280px;margin-bottom:12px">'
+      +camiones.map(function(v){return '<option value="'+v.id+'"'+(v.id===vehSel.id?' selected':'')+'>'+esc(v.placa)+' — '+esc(v.marca||'')+' '+esc(v.modelo||'')+'</option>';}).join('')
+      +'</select>';
+  } else {
+    camHeader='<div style="background:var(--surface2);padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px">'
+      +'🚛 <strong>'+esc(vehSel.placa)+'</strong> — '+esc(vehSel.marca||'')+' '+esc(vehSel.modelo||'')
+      +' · Km actual: <strong>'+(vehSel.kmActual||0)+'</strong></div>';
+  }
+
+  document.getElementById('content').innerHTML=
+    camHeader
+    +'<div class="tabs" style="margin-bottom:16px">'+subTabs+'</div>'
+    +'<div id="choferPanel"></div>';
+
+  if(S._choferTab==='reporte')choferRenderReporte(vehSel);
+  else if(S._choferTab==='solicitar')choferRenderSolicitar(vehSel);
+  else choferRenderMisSolicitudes(vehSel);
+}
+
+// ── Reporte diario ──
+function choferRenderReporte(veh){
+  var hoy=new Date().toISOString().slice(0,10);
+  var rep=getReporteDelDia(veh.id,hoy);
+  var deadline=getDeadlineReporteKm();
+  var ahora=new Date();
+  var hh=ahora.getHours().toString().padStart(2,'0');
+  var mm=ahora.getMinutes().toString().padStart(2,'0');
+  var horaActual=hh+':'+mm;
+  var pasoDeadline=horaActual>deadline&&!rep;
+
+  // Ruta asignada
+  var rutaAsig=null;
+  if(veh.rutaId&&S.taller&&S.taller.rutas){
+    rutaAsig=S.taller.rutas.find(function(r){return r.id===veh.rutaId;});
+  }
+
+  // Reporte previo (para calcular km recorridos)
+  var reps=((S.taller&&S.taller.reportesDiarios)||[]).filter(function(r){return r.vehiculoId===veh.id;}).sort(function(a,b){return (b.fecha+'').localeCompare(a.fecha+'');});
+  var ultimoReporte=reps.find(function(r){return r.fecha<hoy;});
+  var kmAyer=ultimoReporte?ultimoReporte.kmOdometro:(veh.kmActual||0);
+
+  var precio=getPrecioGasolina();
+
+  var alertaHTML='';
+  if(rep){
+    alertaHTML='<div class="info-box" style="background:#0a2a1a;color:#2db87a;border-color:#1a5a3a">✓ Ya reportaste hoy. Km: <strong>'+rep.kmOdometro+'</strong> · '+(rep.kmRecorridos||0)+' km recorridos</div>';
+  } else if(pasoDeadline){
+    alertaHTML='<div class="info-box" style="background:#2a0a0a;color:#e84040;border-color:#5a1a1a">⚠ <strong>Pasó la hora límite ('+deadline+').</strong> Reporta tu km cuanto antes.</div>';
+  } else {
+    alertaHTML='<div class="info-box">📅 <strong>Reporte de hoy ('+fmtDate(hoy)+').</strong> Hora límite: '+deadline+'</div>';
+  }
+
+  var rutaInfoHTML='';
+  if(rutaAsig){
+    var diasArr=Array.isArray(rutaAsig.diasSemana)?rutaAsig.diasSemana:[];
+    var diaHoy=(new Date().getDay()+6)%7; // lunes=0
+    var aplicaHoy=diasArr.length===0||diasArr.indexOf(diaHoy)>=0;
+    rutaInfoHTML='<div class="card" style="background:var(--surface2)">'
+      +'<div class="sec-hdr">🗺️ Tu ruta asignada</div>'
+      +'<div style="font-weight:700;font-size:15px">'+esc(rutaAsig.nombre)+'</div>'
+      +'<div style="font-size:12px;color:var(--muted);margin-top:4px">'+esc(rutaAsig.descripcion||'')+'</div>'
+      +'<div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap;font-size:12px">'
+      +'<div>📏 <strong>'+(rutaAsig.kmEstimados||0)+' km</strong></div>'
+      +'<div>⛽ <strong>'+(rutaAsig.galonesEstimados||0)+' gal</strong></div>'
+      +(precio?'<div>💰 Estimado: <strong style="color:var(--accent)">$'+((rutaAsig.galonesEstimados||0)*precio).toFixed(2)+'</strong></div>':'')
+      +'</div>'
+      +(aplicaHoy?'':'<div style="margin-top:8px;padding:8px;background:#2a1a00;border-radius:6px;font-size:11px;color:var(--accent)">⚠ Esta ruta no aplica hoy según el calendario configurado</div>')
+      +'</div>';
+  }
+
+  var formHTML='';
+  if(!rep){
+    formHTML='<div class="card">'
+      +'<div class="sec-hdr">✍ Registra tu km del día</div>'
+      +'<div class="row2">'
+      +'<div class="fg"><label>Km del odómetro al final de la jornada *</label>'
+      +'<input type="number" id="choferKm" min="'+kmAyer+'" placeholder="Mayor o igual a '+kmAyer+'" autofocus>'
+      +'<div style="font-size:11px;color:var(--muted);margin-top:3px">Último km registrado: <strong>'+kmAyer+'</strong></div></div>'
+      +'<div class="fg"><label>Galones cargados hoy (opcional)</label>'
+      +'<input type="number" id="choferGal" step="0.01" min="0" placeholder="0.00">'
+      +'<div style="font-size:11px;color:var(--muted);margin-top:3px">Solo si hoy cargaste combustible</div></div>'
+      +'</div>'
+      +'<div class="fg"><label>Observaciones (opcional)</label>'
+      +'<textarea id="choferObs" rows="2" placeholder="Notas sobre el día, desvíos, paradas extra..."></textarea></div>'
+      +'<div style="display:flex;gap:10px;margin-top:10px">'
+      +'<button class="btn btn-primary" onclick="choferGuardarReporte(\''+veh.id+'\')" style="flex:1">✓ Reportar km del día</button>'
+      +'</div></div>';
+  }
+
+  // Historial reciente
+  var ultimosReps=reps.slice(0,7);
+  var histHTML='';
+  if(ultimosReps.length>0){
+    histHTML='<div class="card"><div class="sec-hdr">📊 Tus últimos reportes</div>'
+      +'<div class="tbl-wrap"><table>'
+      +'<thead><tr><th>Fecha</th><th style="text-align:right">Km odómetro</th><th style="text-align:right">Recorridos</th><th style="text-align:right">Galones</th></tr></thead>'
+      +'<tbody>'+ultimosReps.map(function(r){
+        return '<tr><td>'+fmtDate(r.fecha)+'</td>'
+          +'<td style="text-align:right">'+(r.kmOdometro||0)+'</td>'
+          +'<td style="text-align:right">'+(r.kmRecorridos||0)+'</td>'
+          +'<td style="text-align:right">'+(r.galonesCargados?r.galonesCargados.toFixed(2):'—')+'</td></tr>';
+      }).join('')+'</tbody></table></div></div>';
+  }
+
+  document.getElementById('choferPanel').innerHTML=alertaHTML+rutaInfoHTML+formHTML+histHTML;
+}
+
+function choferGuardarReporte(vehId){
+  var km=parseInt((document.getElementById('choferKm')||{}).value)||0;
+  var gal=parseFloat((document.getElementById('choferGal')||{}).value)||0;
+  var obs=((document.getElementById('choferObs')||{}).value||'').trim();
+  if(!km){toast('Ingresa el kilometraje del odómetro',true);return;}
+
+  var t=tallerData();
+  if(!t.reportesDiarios)t.reportesDiarios=[];
+  if(!t.combustible)t.combustible=[];
+
+  var veh=t.vehiculos.find(function(v){return v.id===vehId;});
+  if(!veh){toast('Vehículo no encontrado',true);return;}
+
+  // Validar que el km no sea menor al actual
+  var kmActual=veh.kmActual||0;
+  if(km<kmActual){toast('El km nuevo no puede ser menor al actual ('+kmActual+')',true);return;}
+
+  var hoy=new Date().toISOString().slice(0,10);
+  // Calcular km recorridos
+  var reps=t.reportesDiarios.filter(function(r){return r.vehiculoId===vehId;}).sort(function(a,b){return (b.fecha+'').localeCompare(a.fecha+'');});
+  var ultimoReporte=reps.find(function(r){return r.fecha<hoy;});
+  var kmBase=ultimoReporte?ultimoReporte.kmOdometro:kmActual;
+  var kmRecorridos=km-kmBase;
+
+  var rutaAsig=null;
+  if(veh.rutaId&&t.rutas)rutaAsig=t.rutas.find(function(r){return r.id===veh.rutaId;});
+  var precio=getPrecioGasolina();
+  var costoCombustible=gal*precio;
+
+  // Variación vs ruta estimada
+  var varKm=null,varGal=null;
+  if(rutaAsig){
+    if(rutaAsig.kmEstimados)varKm=kmRecorridos-rutaAsig.kmEstimados;
+    if(rutaAsig.galonesEstimados&&gal>0)varGal=gal-rutaAsig.galonesEstimados;
+  }
+
+  var reporte={
+    id:'rd_'+Date.now().toString(36),
+    vehiculoId:vehId,
+    fecha:hoy,
+    ts:Date.now(),
+    choferId:S.currentUser?S.currentUser.email:null,
+    choferNombre:S.currentUser?S.currentUser.nombre:'',
+    kmOdometro:km,
+    kmRecorridos:kmRecorridos,
+    galonesCargados:gal,
+    costoGasolina:costoCombustible,
+    precioGasolina:precio,
+    rutaId:veh.rutaId||null,
+    variacionKm:varKm,
+    variacionGalones:varGal,
+    observaciones:obs
+  };
+  t.reportesDiarios.push(reporte);
+
+  // Actualizar km actual del vehículo
+  veh.kmActual=km;
+  veh.kmActuales=km;
+  veh.ultimoKmReporte=hoy;
+
+  // Si cargó combustible, crear también registro en tabla combustible
+  if(gal>0){
+    t.combustible.push({
+      id:'cb_'+Date.now().toString(36),
+      vehiculoId:vehId,
+      rutaId:veh.rutaId||null,
+      fecha:hoy,
+      ts:Date.now(),
+      galones:gal,
+      precioGalon:precio,
+      total:costoCombustible,
+      kmOdometro:km,
+      origen:'reporte_chofer',
+      reporteDiarioId:reporte.id,
+      observaciones:obs
+    });
+  }
+
+  saveData();
+  logAction('REPORTAR','chofer','Km diario: '+km+' (recorridos: '+kmRecorridos+')'+(gal>0?' · '+gal+' gal':''));
+  toast('✓ Reporte guardado: '+kmRecorridos+' km recorridos hoy');
+  renderChoferPortal();
+}
+
+// ── Solicitar revisión ──
+function choferRenderSolicitar(veh){
+  var catOpts=SOL_CATEGORIAS.map(function(c){
+    return '<button onclick="document.querySelectorAll(\'.sol-cat\').forEach(function(b){b.style.background=\\\'var(--surface2)\\\';b.style.borderColor=\\\'var(--border)\\\';});this.style.background=\\\'#2a1a00\\\';this.style.borderColor=\\\'var(--accent)\\\';document.getElementById(\\\'solCatVal\\\').value=\''+c.id+'\';" class="sol-cat" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:8px;cursor:pointer;font-size:13px">'+c.ic+' '+c.label+'</button>';
+  }).join('');
+
+  var urgOpts=SOL_URGENCIAS.map(function(u,i){
+    return '<label style="display:flex;align-items:center;gap:8px;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;cursor:pointer">'
+      +'<input type="radio" name="solUrg" value="'+u.id+'"'+(i===1?' checked':'')+'>'
+      +'<span class="badge '+u.color+'" style="font-size:11px">'+esc(u.label)+'</span></label>';
+  }).join('');
+
+  document.getElementById('choferPanel').innerHTML=
+    '<div class="card">'
+    +'<div class="sec-hdr">🔧 Solicitar revisión del camión</div>'
+    +'<div class="info-box">📌 Tu solicitud será revisada por el administrador antes de asignarse al mecánico.</div>'
+    +'<input type="hidden" id="solCatVal" value="">'
+    +'<div class="fg"><label>¿Qué tipo de problema? *</label>'
+    +'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">'+catOpts+'</div></div>'
+    +'<div class="fg" style="margin-top:14px"><label>Descripción del problema *</label>'
+    +'<textarea id="solDesc" rows="3" placeholder="Describe lo que está pasando: cuándo ocurre, qué sonidos hace, qué notaste..."></textarea></div>'
+    +'<div class="fg"><label>Urgencia *</label>'
+    +'<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">'+urgOpts+'</div></div>'
+    +'<div class="fg"><label>📷 Foto (opcional)</label>'
+    +'<input type="file" id="solFoto" accept="image/*" capture="environment" onchange="choferPreviewFoto(this)">'
+    +'<div id="solFotoPreview" style="margin-top:8px"></div>'
+    +'<div style="font-size:11px;color:var(--muted);margin-top:4px">La foto se comprime automáticamente para no consumir mucho espacio.</div></div>'
+    +'<input type="hidden" id="solFotoData" value="">'
+    +'<div style="display:flex;gap:10px;margin-top:14px">'
+    +'<button class="btn btn-primary" onclick="choferEnviarSolicitud(\''+veh.id+'\')" style="flex:1">📤 Enviar solicitud</button>'
+    +'</div></div>';
+}
+
+function choferPreviewFoto(input){
+  var file=input.files[0];
+  if(!file){return;}
+  var prev=document.getElementById('solFotoPreview');
+  prev.innerHTML='<div style="color:var(--muted);font-size:12px">Comprimiendo imagen...</div>';
+  _comprimirImagenChofer(file,function(dataUrl){
+    if(!dataUrl){prev.innerHTML='<div style="color:var(--red);font-size:12px">No se pudo procesar la imagen</div>';return;}
+    document.getElementById('solFotoData').value=dataUrl;
+    prev.innerHTML='<img src="'+dataUrl+'" style="max-width:200px;max-height:200px;border-radius:8px;border:1px solid var(--border)">'
+      +'<div style="font-size:11px;color:var(--green);margin-top:4px">✓ Imagen lista ('+(dataUrl.length/1024).toFixed(0)+' KB)</div>';
+  });
+}
+
+function choferEnviarSolicitud(vehId){
+  var cat=(document.getElementById('solCatVal')||{}).value;
+  var desc=((document.getElementById('solDesc')||{}).value||'').trim();
+  var urg=(document.querySelector('input[name="solUrg"]:checked')||{}).value;
+  var fotoData=(document.getElementById('solFotoData')||{}).value;
+
+  if(!cat){toast('Selecciona el tipo de problema',true);return;}
+  if(!desc){toast('Describe el problema',true);return;}
+  if(!urg){toast('Selecciona la urgencia',true);return;}
+
+  var t=tallerData();
+  if(!t.solicitudes)t.solicitudes=[];
+
+  var solId='sol_'+Date.now().toString(36);
+  var sol={
+    id:solId,
+    vehiculoId:vehId,
+    fecha:new Date().toISOString().slice(0,10),
+    ts:Date.now(),
+    choferId:S.currentUser?S.currentUser.email:null,
+    choferNombre:S.currentUser?S.currentUser.nombre:'Chofer',
+    categoria:cat,
+    descripcion:desc,
+    urgencia:urg,
+    estado:'enviada',
+    foto:null  // se sube después a Storage
+  };
+
+  // Guardar foto en Firebase Storage si existe
+  if(fotoData&&window.FB&&window.FB.saveComprobante){
+    sol.foto='ref:solicitud_'+solId;
+    window.FB.saveComprobante(S.empresa,'solicitud_'+solId,fotoData).catch(function(e){
+      console.error('[Chofer] Error subiendo foto:',e);
+    });
+  }
+
+  t.solicitudes.push(sol);
+  saveData();
+  logAction('CREAR','chofer_solicitud','Solicitud: '+solCatLabel(cat)+' · '+desc.slice(0,40));
+  toast('✓ Solicitud enviada al administrador');
+  S._choferTab='mis_solicitudes';
+  renderChoferPortal();
+}
+
+// ── Mis solicitudes ──
+function choferRenderMisSolicitudes(veh){
+  var t=tallerData();
+  var sols=((t.solicitudes||[]).filter(function(s){
+    return s.vehiculoId===veh.id&&(!S.currentUser||s.choferId===S.currentUser.email);
+  })).sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+
+  if(sols.length===0){
+    document.getElementById('choferPanel').innerHTML='<div class="card" style="text-align:center;padding:40px;color:var(--muted)">📭 Aún no has enviado solicitudes</div>';
+    return;
+  }
+
+  var html='<div class="card"><div class="sec-hdr">📋 Tus solicitudes ('+sols.length+')</div>';
+  sols.forEach(function(s){
+    var c=SOL_CATEGORIAS.find(function(x){return x.id===s.categoria;});
+    html+='<div style="background:var(--surface2);padding:12px;border-radius:8px;margin-bottom:8px;border:1px solid var(--border)">'
+      +'<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px;margin-bottom:6px">'
+        +'<div><div style="font-weight:700">'+(c?c.ic+' '+c.label:s.categoria)+'</div>'
+        +'<div style="font-size:11px;color:var(--muted)">'+fmtDate(s.fecha)+' · '+esc(solUrgLabel(s.urgencia))+'</div></div>'
+        +'<span class="badge '+solEstColor(s.estado)+'">'+esc(solEstLabel(s.estado))+'</span>'
+      +'</div>'
+      +'<div style="font-size:13px;margin-top:6px">'+esc(s.descripcion)+'</div>'
+      +(s.respuestaAdmin?'<div style="margin-top:8px;padding:8px;background:var(--surface);border-left:3px solid var(--accent);font-size:12px"><strong>Respuesta:</strong> '+esc(s.respuestaAdmin)+'</div>':'')
+      +'</div>';
+  });
+  html+='</div>';
+  document.getElementById('choferPanel').innerHTML=html;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  ADMIN — SOLICITUDES DE REVISIÓN
+// ═══════════════════════════════════════════════════════════════════
+function renderTallerSolicitudes(){
+  var t=tallerData();
+  if(!t.solicitudes)t.solicitudes=[];
+  if(!S._solFiltro)S._solFiltro='';
+
+  var sols=[].concat(t.solicitudes).sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+  if(S._solFiltro)sols=sols.filter(function(s){return s.estado===S._solFiltro;});
+
+  var pendientes=t.solicitudes.filter(function(s){return s.estado==='enviada';}).length;
+
+  var rows=sols.map(function(s){
+    var v=t.vehiculos.find(function(x){return x.id===s.vehiculoId;});
+    var c=SOL_CATEGORIAS.find(function(x){return x.id===s.categoria;});
+    return '<tr>'
+      +'<td><div style="font-weight:600;font-size:12px">'+fmtDate(s.fecha)+'</div></td>'
+      +'<td><strong>'+esc(v?v.placa:'(eliminado)')+'</strong></td>'
+      +'<td>'+esc(s.choferNombre||'')+'</td>'
+      +'<td>'+(c?c.ic+' '+c.label:esc(s.categoria))+'</td>'
+      +'<td><span class="badge '+solUrgColor(s.urgencia)+'" style="font-size:10px">'+esc(s.urgencia.toUpperCase())+'</span></td>'
+      +'<td style="font-size:12px;max-width:300px;white-space:normal">'+esc(s.descripcion)+'</td>'
+      +'<td><span class="badge '+solEstColor(s.estado)+'">'+esc(solEstLabel(s.estado))+'</span></td>'
+      +'<td class="td-act">'
+      +(s.foto?'<button class="btn btn-secondary btn-xs" onclick="solVerFoto(\''+s.id+'\')">📷</button>':'')
+      +'<button class="btn btn-primary btn-xs" onclick="solDetalle(\''+s.id+'\')">Ver</button>'
+      +'</td></tr>';
+  }).join('');
+  if(!rows)rows='<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">Sin solicitudes</td></tr>';
+
+  var filterBtns=[''].concat(SOL_ESTADOS.map(function(e){return e.id;})).map(function(id){
+    var label=id===''?'Todas':solEstLabel(id);
+    var active=S._solFiltro===id;
+    return '<button class="btn '+(active?'btn-primary':'btn-secondary')+' btn-xs" onclick="S._solFiltro=\''+id+'\';renderTallerSolicitudes()">'+label+'</button>';
+  }).join(' ');
+
+  document.getElementById('content').innerHTML=
+    (pendientes>0?'<div class="info-box" style="background:#2a1a00;color:var(--accent);border-color:#5a3a00">⚠ <strong>'+pendientes+' solicitud(es) pendiente(s) de revisión</strong></div>':'')
+    +'<div style="margin-bottom:12px">'+filterBtns+'</div>'
+    +'<div class="card" style="padding:0"><div class="tbl-wrap" style="border:none;border-radius:0">'
+    +'<table><thead><tr><th>Fecha</th><th>Vehículo</th><th>Chofer</th><th>Categoría</th><th>Urg.</th><th>Descripción</th><th>Estado</th><th>Acciones</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table></div></div>';
+}
+
+function solVerFoto(solId){
+  var t=tallerData();
+  var s=(t.solicitudes||[]).find(function(x){return x.id===solId;});
+  if(!s||!s.foto)return;
+  if(s.foto.indexOf('ref:')===0){
+    if(!window.FB||!window.FB.loadComprobante){toast('Storage no disponible',true);return;}
+    toast('Cargando foto...');
+    window.FB.loadComprobante(S.empresa,s.foto.replace('ref:','')).then(function(data){
+      if(data&&typeof verImagen==='function')verImagen(data,'Foto de solicitud');
+      else toast('No se pudo cargar la foto',true);
+    }).catch(function(){toast('Foto no disponible',true);});
+  } else if(typeof verImagen==='function'){
+    verImagen(s.foto,'Foto de solicitud');
+  }
+}
+
+function solDetalle(solId){
+  var t=tallerData();
+  var s=(t.solicitudes||[]).find(function(x){return x.id===solId;});
+  if(!s)return;
+  var v=t.vehiculos.find(function(x){return x.id===s.vehiculoId;});
+  var mecanicos=((S.mantenimiento&&S.mantenimiento.tecnicos)||[]).filter(function(x){return x.tipo==='mecanica'&&x.activo!==false;});
+
+  var mecOpts='<option value="">— Selecciona mecánico —</option>'
+    +mecanicos.map(function(m){return '<option value="'+m.id+'">'+esc(m.nombre)+'</option>';}).join('');
+
+  (function(_e){if(_e)_e.remove();})(document.getElementById('modalSolDet'));
+  var html='<div id="modalSolDet" class="modal open"><div class="modal-box md">'
+    +'<div class="modal-hdr"><span class="modal-ttl">📋 Solicitud de revisión</span>'
+    +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalSolDet\').remove()">✕</button></div>'
+    +'<div style="background:var(--surface2);padding:12px;border-radius:8px;margin-bottom:12px">'
+      +'<div style="font-size:13px;margin-bottom:4px"><strong>Vehículo:</strong> '+esc(v?v.placa+' — '+(v.marca||'')+' '+(v.modelo||''):'(eliminado)')+'</div>'
+      +'<div style="font-size:13px;margin-bottom:4px"><strong>Chofer:</strong> '+esc(s.choferNombre||s.choferId||'')+'</div>'
+      +'<div style="font-size:13px;margin-bottom:4px"><strong>Fecha:</strong> '+fmtDate(s.fecha)+'</div>'
+      +'<div style="font-size:13px;margin-bottom:4px"><strong>Categoría:</strong> '+solCatLabel(s.categoria)+'</div>'
+      +'<div style="font-size:13px;margin-bottom:4px"><strong>Urgencia:</strong> <span class="badge '+solUrgColor(s.urgencia)+'">'+esc(solUrgLabel(s.urgencia))+'</span></div>'
+      +'<div style="font-size:13px;margin-top:8px"><strong>Descripción:</strong></div>'
+      +'<div style="font-size:13px;background:var(--surface);padding:8px;border-radius:6px;margin-top:4px">'+esc(s.descripcion)+'</div>'
+      +(s.foto?'<div style="margin-top:8px"><button class="btn btn-secondary btn-xs" onclick="solVerFoto(\''+s.id+'\')">📷 Ver foto adjunta</button></div>':'')
+    +'</div>'
+    +'<div class="fg"><label>Estado actual: <span class="badge '+solEstColor(s.estado)+'">'+esc(solEstLabel(s.estado))+'</span></label></div>'
+    +'<div class="fg"><label>Respuesta / nota al chofer (opcional)</label>'
+    +'<textarea id="solRespuesta" rows="2" placeholder="Comentario que verá el chofer en su portal">'+esc(s.respuestaAdmin||'')+'</textarea></div>';
+
+  if(s.estado==='enviada'){
+    html+='<div class="fg"><label>Asignar mecánico (al aprobar y crear OT)</label>'
+      +'<select id="solMecanico">'+mecOpts+'</select></div>'
+      +'<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:14px">'
+      +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalSolDet\').remove()">Cerrar</button>'
+      +'<button class="btn btn-danger" onclick="solRechazar(\''+s.id+'\')">✕ Rechazar</button>'
+      +'<button class="btn btn-primary" onclick="solAprobarYCrearOT(\''+s.id+'\')">✓ Aprobar y crear OT</button>'
+      +'</div>';
+  } else if(s.estado==='ot_creada'||s.estado==='aprobada'){
+    html+='<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">'
+      +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalSolDet\').remove()">Cerrar</button>'
+      +'<button class="btn btn-green" onclick="solMarcarResuelta(\''+s.id+'\')">✓ Marcar como resuelta</button>'
+      +'</div>';
+  } else {
+    html+='<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">'
+      +'<button class="btn btn-primary" onclick="solGuardarRespuesta(\''+s.id+'\');document.getElementById(\'modalSolDet\').remove()">✓ Guardar nota</button>'
+      +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalSolDet\').remove()">Cerrar</button>'
+      +'</div>';
+  }
+  html+='</div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+
+function solGuardarRespuesta(solId){
+  var t=tallerData();
+  var s=(t.solicitudes||[]).find(function(x){return x.id===solId;});
+  if(!s)return;
+  s.respuestaAdmin=((document.getElementById('solRespuesta')||{}).value||'').trim();
+  saveData();
+  toast('✓ Respuesta guardada');
+}
+
+function solRechazar(solId){
+  if(!confirm('¿Rechazar esta solicitud?'))return;
+  var t=tallerData();
+  var s=(t.solicitudes||[]).find(function(x){return x.id===solId;});
+  if(!s)return;
+  s.estado='rechazada';
+  s.respuestaAdmin=((document.getElementById('solRespuesta')||{}).value||'').trim();
+  s.fechaRespuesta=Date.now();
+  saveData();
+  logAction('RECHAZAR','chofer_solicitud','Solicitud: '+solCatLabel(s.categoria));
+  document.getElementById('modalSolDet').remove();
+  renderTallerSolicitudes();
+  toast('Solicitud rechazada');
+}
+
+function solAprobarYCrearOT(solId){
+  var t=tallerData();
+  var s=(t.solicitudes||[]).find(function(x){return x.id===solId;});
+  if(!s)return;
+  var mecId=((document.getElementById('solMecanico')||{}).value||'');
+
+  // Crear OT vinculada
+  if(!t.ots)t.ots=[];
+  var maxNum=t.ots.reduce(function(m,o){return Math.max(m,parseInt(o.numero)||0);},0);
+  var ot={
+    id:'ot_'+Date.now().toString(36),
+    numero:String(maxNum+1).padStart(4,'0'),
+    vehiculoId:s.vehiculoId,
+    tipo:'correctivo',
+    estado:'recibido',
+    fechaIngreso:new Date().toISOString().slice(0,10),
+    mecanicoId:mecId||null,
+    descripcion:'[Solicitud chofer] '+s.descripcion,
+    diagnostico:'',
+    manoObra:0,costoRepuestos:0,costoTotal:0,
+    creadoEn:Date.now(),
+    solicitudId:solId
+  };
+  t.ots.push(ot);
+
+  s.estado='ot_creada';
+  s.otId=ot.id;
+  s.respuestaAdmin=((document.getElementById('solRespuesta')||{}).value||'').trim();
+  s.fechaRespuesta=Date.now();
+  s.mecanicoId=mecId||null;
+
+  saveData();
+  logAction('APROBAR','chofer_solicitud','Solicitud aprobada → OT-'+ot.numero);
+  document.getElementById('modalSolDet').remove();
+  renderTallerSolicitudes();
+  toast('✓ Solicitud aprobada y OT-'+ot.numero+' creada');
+}
+
+function solMarcarResuelta(solId){
+  if(!confirm('¿Marcar esta solicitud como resuelta?'))return;
+  var t=tallerData();
+  var s=(t.solicitudes||[]).find(function(x){return x.id===solId;});
+  if(!s)return;
+  s.estado='resuelta';
+  s.respuestaAdmin=((document.getElementById('solRespuesta')||{}).value||'').trim();
+  s.fechaRespuesta=Date.now();
+  saveData();
+  logAction('RESOLVER','chofer_solicitud','Solicitud resuelta');
+  document.getElementById('modalSolDet').remove();
+  renderTallerSolicitudes();
+  toast('✓ Solicitud resuelta');
+}
+
 function renderImportar() {
   var selMod = S._impMod || 'gastos';
   var mod = IMP_MODULES.find(function(m) { return m.id === selMod; }) || IMP_MODULES[0];
@@ -13493,33 +14153,79 @@ function confirmarImportFlota(){
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  TALLER — MÓDULO RUTAS
+//  TALLER — MÓDULO RUTAS (extendido: días semana, galones, costo)
 // ═══════════════════════════════════════════════════════════════════
+var DIAS_SEMANA=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+
+function getPrecioGasolina(){
+  return parseFloat((S.config&&S.config.precioGasolina)||0)||0;
+}
 function renderTallerRutas(){
   if(!S.taller)S.taller={vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[]};
   if(!S.taller.rutas)S.taller.rutas=[];
   var rutas=S.taller.rutas;
+  var precio=getPrecioGasolina();
   var rows=rutas.map(function(r){
     var usoCount=(S.taller.combustible||[]).filter(function(c){return c.rutaId===r.id;}).length;
+    var galones=parseFloat(r.galonesEstimados)||0;
+    var km=parseFloat(r.kmEstimados)||0;
+    var costoEst=galones*precio;
+    var diasArr=Array.isArray(r.diasSemana)?r.diasSemana:[];
+    var diasStr=diasArr.length>0?diasArr.map(function(d){return DIAS_SEMANA[d];}).join(', '):'—';
     return '<tr>'
-      +'<td><strong>'+esc(r.nombre||'—')+'</strong></td>'
-      +'<td style="white-space:normal;word-break:break-word">'+esc(r.descripcion||'—')+'</td>'
-      +'<td style="text-align:right">'+(r.kmEstimados?parseFloat(r.kmEstimados).toFixed(1)+' km':'—')+'</td>'
-      +'<td style="text-align:center"><span class="badge b-neu" style="font-size:10px">'+usoCount+' reg.</span></td>'
+      +'<td><strong>'+esc(r.nombre||'—')+'</strong>'
+      +(r.horaInicio||r.horaFin?'<div style="font-size:10px;color:var(--muted)">⏰ '+esc(r.horaInicio||'')+(r.horaInicio&&r.horaFin?' – ':'')+esc(r.horaFin||'')+'</div>':'')
+      +'</td>'
+      +'<td style="white-space:normal;word-break:break-word;font-size:12px">'+esc(r.descripcion||'—')+'</td>'
+      +'<td style="text-align:center;font-size:11px">'+esc(diasStr)+'</td>'
+      +'<td style="text-align:right">'+(km?km.toFixed(1)+' km':'—')+'</td>'
+      +'<td style="text-align:right">'+(galones?galones.toFixed(2)+' gal':'—')+'</td>'
+      +'<td style="text-align:right;color:var(--accent)">'+(costoEst?'$'+costoEst.toFixed(2):'—')+'</td>'
+      +'<td style="text-align:center"><span class="badge b-neu" style="font-size:10px">'+usoCount+'</span></td>'
       +'<td class="td-act">'
       +'<button class="btn btn-secondary btn-xs" onclick="editarRutaTaller(\''+r.id+'\')">✏</button>'
       +'<button class="btn btn-danger btn-xs" onclick="delRutaTaller(\''+r.id+'\')">✕</button>'
       +'</td></tr>';
   }).join('');
-  if(!rows)rows='<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Sin rutas registradas</td></tr>';
+  if(!rows)rows='<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">Sin rutas registradas</td></tr>';
+  var precioInfo=precio>0
+    ?'<span style="color:var(--green)">✓ Precio gasolina: <strong>$'+precio.toFixed(2)+'/gal</strong></span>'
+    :'<span style="color:var(--red)">⚠ Sin precio de gasolina configurado</span>';
   document.getElementById('content').innerHTML=
-    '<div class="info-box">🗺️ <strong>Catálogo de rutas reutilizables.</strong> Se usan en los registros de combustible. También puedes ingresar rutas de texto libre en cada registro para recorridos únicos.</div>'
+    '<div class="info-box">🗺️ <strong>Catálogo de rutas con datos de control.</strong> '+precioInfo+' · <button class="btn btn-secondary btn-xs" onclick="modalPrecioGasolina()" style="margin-left:8px">⚙ Configurar precio</button></div>'
     +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
     +'<div style="font-weight:700;font-size:14px">'+rutas.length+' ruta(s)</div>'
     +'<button class="btn btn-primary" onclick="nuevaRutaTaller()">+ Nueva Ruta</button></div>'
     +'<div class="card" style="padding:0"><div class="tbl-wrap" style="border:none;border-radius:0">'
-    +'<table><thead><tr><th>Nombre</th><th>Descripción</th><th style="text-align:right">Km Est.</th><th style="text-align:center">Uso</th><th>Acciones</th></tr></thead>'
+    +'<table><thead><tr><th>Nombre</th><th>Descripción</th><th style="text-align:center">Días</th><th style="text-align:right">Km</th><th style="text-align:right">Galones</th><th style="text-align:right">Costo Est.</th><th style="text-align:center">Uso</th><th>Acciones</th></tr></thead>'
     +'<tbody>'+rows+'</tbody></table></div></div>';
+}
+
+function modalPrecioGasolina(){
+  var actual=getPrecioGasolina();
+  (function(_e){if(_e)_e.remove();})(document.getElementById('modalPrecioGas'));
+  var html='<div id="modalPrecioGas" class="modal open"><div class="modal-box sm">'
+    +'<div class="modal-hdr"><span class="modal-ttl">⛽ Precio de gasolina</span>'
+    +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalPrecioGas\').remove()">✕</button></div>'
+    +'<div class="fg"><label>Precio actual por galón ($)</label>'
+    +'<input type="number" id="cfgPrecioGas" step="0.01" min="0" value="'+actual+'"></div>'
+    +'<div style="font-size:11px;color:var(--muted);margin-top:4px">Este precio se usa para calcular el costo de gasolina de cada ruta y reporte. Actualízalo cuando cambie el precio en la bomba.</div>'
+    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">'
+    +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalPrecioGas\').remove()">Cancelar</button>'
+    +'<button class="btn btn-primary" onclick="guardarPrecioGasolina()">✓ Guardar</button></div></div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+
+function guardarPrecioGasolina(){
+  var v=parseFloat((document.getElementById('cfgPrecioGas')||{}).value)||0;
+  if(v<=0){toast('Ingresa un precio válido',true);return;}
+  if(!S.config)S.config={};
+  S.config.precioGasolina=v;
+  saveData();
+  logAction('CONFIGURAR','taller','Precio gasolina: $'+v.toFixed(2));
+  document.getElementById('modalPrecioGas').remove();
+  toast('✓ Precio actualizado a $'+v.toFixed(2)+'/gal');
+  if(S.activeTab==='taller_rutas')renderTallerRutas();
 }
 function nuevaRutaTaller(){S._rutaEdit=null;abrirModalRuta();}
 function editarRutaTaller(id){
@@ -13527,15 +14233,35 @@ function editarRutaTaller(id){
   if(!r)return;S._rutaEdit=r;abrirModalRuta();
 }
 function abrirModalRuta(){
-  var r=S._rutaEdit||{nombre:'',descripcion:'',kmEstimados:''};
+  var r=S._rutaEdit||{nombre:'',descripcion:'',kmEstimados:'',galonesEstimados:'',diasSemana:[],horaInicio:'',horaFin:''};
+  if(!Array.isArray(r.diasSemana))r.diasSemana=[];
   (function(_e){if(_e)_e.remove();})(document.getElementById('modalRutaTaller'));
-  var html='<div id="modalRutaTaller" class="modal open"><div class="modal-box sm">'
+  var diasHtml=DIAS_SEMANA.map(function(d,i){
+    var checked=r.diasSemana.indexOf(i)>=0?' checked':'';
+    return '<label style="display:inline-flex;align-items:center;gap:4px;background:var(--surface2);padding:6px 10px;border-radius:6px;border:1px solid var(--border);cursor:pointer;font-size:12px">'
+      +'<input type="checkbox" class="rt-dia" data-dia="'+i+'"'+checked+'> '+d+'</label>';
+  }).join(' ');
+  var precio=getPrecioGasolina();
+  var galones=parseFloat(r.galonesEstimados)||0;
+  var costoEst=galones*precio;
+  var html='<div id="modalRutaTaller" class="modal open"><div class="modal-box md">'
     +'<div class="modal-hdr"><span class="modal-ttl">🗺️ '+(S._rutaEdit?'Editar ':'Nueva ')+'Ruta</span>'
     +'<button class="btn btn-secondary btn-sm" onclick="cerrarModalRuta()">✕</button></div>'
     +'<div class="fg"><label>Nombre / Código *</label><input id="rtNombre" value="'+esc(r.nombre||'')+'" placeholder="Ej: RUTA-SS-01"></div>'
-    +'<div class="fg"><label>Descripción *</label><textarea id="rtDescripcion" rows="3" placeholder="Describe el recorrido">'+esc(r.descripcion||'')+'</textarea></div>'
-    +'<div class="fg"><label>Km estimados (opcional)</label><input type="number" id="rtKm" step="0.1" min="0" value="'+esc(r.kmEstimados||'')+'" placeholder="0"></div>'
-    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px">'
+    +'<div class="fg"><label>Descripción *</label><textarea id="rtDescripcion" rows="2" placeholder="Describe el recorrido (puntos de paso, restaurantes que visita)">'+esc(r.descripcion||'')+'</textarea></div>'
+    +'<div class="fg"><label>Días que aplica esta ruta</label><div style="display:flex;flex-wrap:wrap;gap:6px">'+diasHtml+'</div></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+      +'<div class="fg"><label>Hora inicio</label><input type="time" id="rtHoraIni" value="'+esc(r.horaInicio||'')+'"></div>'
+      +'<div class="fg"><label>Hora fin</label><input type="time" id="rtHoraFin" value="'+esc(r.horaFin||'')+'"></div>'
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+      +'<div class="fg"><label>Kilometraje (km)</label><input type="number" id="rtKm" step="0.1" min="0" value="'+esc(r.kmEstimados||'')+'" placeholder="0"></div>'
+      +'<div class="fg"><label>Galones estimados</label><input type="number" id="rtGal" step="0.01" min="0" value="'+esc(r.galonesEstimados||'')+'" placeholder="0" oninput="document.getElementById(\'rtCostoCalc\').textContent=this.value*'+precio+'?\'$ \'+(this.value*'+precio+').toFixed(2):\'—\'"></div>'
+    +'</div>'
+    +'<div style="background:var(--surface2);padding:10px 12px;border-radius:8px;font-size:12px;color:var(--muted);margin-top:6px">'
+      +'⛽ Precio actual: <strong style="color:var(--text)">$'+precio.toFixed(2)+'/gal</strong> · Costo estimado: <strong id="rtCostoCalc" style="color:var(--accent)">'+(costoEst?'$ '+costoEst.toFixed(2):'—')+'</strong>'
+    +'</div>'
+    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">'
     +'<button class="btn btn-secondary" onclick="cerrarModalRuta()">Cancelar</button>'
     +'<button class="btn btn-primary" onclick="guardarRutaTaller()">✓ Guardar</button></div></div></div>';
   document.body.insertAdjacentHTML('beforeend',html);
@@ -13545,14 +14271,24 @@ function guardarRutaTaller(){
   var nombre=((document.getElementById('rtNombre')||{}).value||'').trim();
   var descripcion=((document.getElementById('rtDescripcion')||{}).value||'').trim();
   var km=parseFloat(((document.getElementById('rtKm')||{}).value||''))||0;
+  var gal=parseFloat(((document.getElementById('rtGal')||{}).value||''))||0;
+  var horaIni=((document.getElementById('rtHoraIni')||{}).value||'').trim();
+  var horaFin=((document.getElementById('rtHoraFin')||{}).value||'').trim();
+  var dias=[];
+  document.querySelectorAll('.rt-dia:checked').forEach(function(cb){
+    dias.push(parseInt(cb.getAttribute('data-dia'))||0);
+  });
   if(!nombre){toast('Ingresa un nombre para la ruta',true);return;}
   if(!descripcion){toast('La descripción es obligatoria',true);return;}
   if(!S.taller.rutas)S.taller.rutas=[];
+  var datos={nombre:nombre,descripcion:descripcion,kmEstimados:km,galonesEstimados:gal,diasSemana:dias,horaInicio:horaIni,horaFin:horaFin};
   if(S._rutaEdit){
-    S._rutaEdit.nombre=nombre;S._rutaEdit.descripcion=descripcion;S._rutaEdit.kmEstimados=km;
+    Object.assign(S._rutaEdit,datos);
     logAction('EDITAR','taller_rutas','Ruta: '+nombre);toast('✓ Ruta actualizada');
   } else {
-    S.taller.rutas.push({id:'rt_'+Date.now().toString(36),nombre:nombre,descripcion:descripcion,kmEstimados:km,ts:Date.now()});
+    datos.id='rt_'+Date.now().toString(36);
+    datos.ts=Date.now();
+    S.taller.rutas.push(datos);
     logAction('CREAR','taller_rutas','Ruta: '+nombre);toast('✓ Ruta creada');
   }
   saveData();cerrarModalRuta();renderTallerRutas();
