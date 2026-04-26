@@ -12114,6 +12114,115 @@ function renderTallerDashboard(){
   if(otsActivas.length===0)otsHTML='<div class="empty" style="padding:20px">Sin OTs activas</div>';
   html+='<div class="card"><div class="sec-hdr">📋 OTs activas (últimas 5)</div>'+otsHTML+'</div>';
 
+  // ═══════════════════════════════════════════════════════════════════
+  // TARJETA: REPORTES DE CHOFERES (resumen rápido)
+  // ═══════════════════════════════════════════════════════════════════
+  var hoyChStr=new Date().toISOString().slice(0,10);
+  var camsConChofer=t.vehiculos.filter(function(v){return v.choferId&&v.estado!=='baja';});
+  var reportesHoy=(t.reportesDiarios||[]).filter(function(r){return r.fecha===hoyChStr;});
+  var nReportoHoy=reportesHoy.length;
+  var nPendiente=camsConChofer.length-nReportoHoy;
+
+  // Detectar vehículos con alertas (último reporte vs ruta)
+  var alertasFlota=[];
+  camsConChofer.forEach(function(v){
+    var ruta=v.rutaId?(t.rutas||[]).find(function(rt){return rt.id===v.rutaId;}):null;
+    if(!ruta)return;
+    // Tomar reportes últimos 7 días
+    var hace7=new Date();hace7.setDate(hace7.getDate()-7);
+    var hace7Str=hace7.toISOString().slice(0,10);
+    var reps=(t.reportesDiarios||[]).filter(function(r){return r.vehiculoId===v.id&&r.fecha>=hace7Str;});
+    if(reps.length===0)return;
+    var sKm=reps.reduce(function(s,r){return s+(r.kmRecorridos||0);},0);
+    var sGal=reps.reduce(function(s,r){return s+(r.galonesCargados||0);},0);
+    var kmEsp=(parseFloat(ruta.kmEstimados)||0)*reps.length;
+    var galEsp=(parseFloat(ruta.galonesEstimados)||0)*reps.length;
+    var varKm=kmEsp>0?((sKm-kmEsp)/kmEsp)*100:0;
+    var varGal=galEsp>0?((sGal-galEsp)/galEsp)*100:0;
+    var sev='ok';
+    if(varGal>20||varKm>15)sev='rojo';
+    else if(varGal>10||varKm>5)sev='amarillo';
+    if(sev!=='ok'){
+      var ch=(S.usuarios||[]).find(function(u){return (u.email||'').toLowerCase()===v.choferId;});
+      alertasFlota.push({veh:v,chofer:ch?ch.nombre:v.choferId,sev:sev,varKm:varKm,varGal:varGal});
+    }
+  });
+  alertasFlota.sort(function(a,b){return (b.sev==='rojo'?2:1)-(a.sev==='rojo'?2:1);});
+
+  // Choferes que no reportaron hoy
+  var pendList=camsConChofer.filter(function(v){
+    return !reportesHoy.find(function(r){return r.vehiculoId===v.id;});
+  });
+
+  var rcHoyHTML='';
+  if(camsConChofer.length===0){
+    rcHoyHTML='<div style="padding:14px;text-align:center;color:var(--muted);font-size:13px">No hay vehículos con chofer asignado</div>';
+  } else {
+    var pctReportado=Math.round((nReportoHoy/camsConChofer.length)*100);
+    rcHoyHTML='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:12px">'
+      +'<div style="background:var(--surface2);padding:10px;border-radius:8px;border-left:3px solid var(--green)">'
+        +'<div style="font-size:11px;color:var(--muted);text-transform:uppercase">Reportaron hoy</div>'
+        +'<div style="font-size:20px;font-weight:700;color:var(--green)">'+nReportoHoy+'</div>'
+        +'<div style="font-size:10px;color:var(--muted)">de '+camsConChofer.length+' choferes</div>'
+      +'</div>'
+      +'<div style="background:var(--surface2);padding:10px;border-radius:8px;border-left:3px solid '+(nPendiente>0?'var(--red)':'var(--muted)')+'">'
+        +'<div style="font-size:11px;color:var(--muted);text-transform:uppercase">Pendientes</div>'
+        +'<div style="font-size:20px;font-weight:700;color:'+(nPendiente>0?'var(--red)':'var(--muted)')+'">'+nPendiente+'</div>'
+        +'<div style="font-size:10px;color:var(--muted)">'+pctReportado+'% reportado</div>'
+      +'</div>'
+      +'<div style="background:var(--surface2);padding:10px;border-radius:8px;border-left:3px solid '+(alertasFlota.length>0?'var(--accent)':'var(--green)')+'">'
+        +'<div style="font-size:11px;color:var(--muted);text-transform:uppercase">Alertas consumo (7d)</div>'
+        +'<div style="font-size:20px;font-weight:700;color:'+(alertasFlota.length>0?'var(--accent)':'var(--green)')+'">'+alertasFlota.length+'</div>'
+        +'<div style="font-size:10px;color:var(--muted)">vehículos</div>'
+      +'</div>'
+    +'</div>';
+
+    // Listas detalladas en grid 2 col
+    rcHoyHTML+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
+
+    // Pendientes hoy
+    rcHoyHTML+='<div><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:6px">⚠ Pendientes de reportar HOY</div>';
+    if(pendList.length===0){
+      rcHoyHTML+='<div style="font-size:12px;color:var(--green);padding:8px">✓ Todos reportaron</div>';
+    } else {
+      pendList.slice(0,5).forEach(function(v){
+        var ch=(S.usuarios||[]).find(function(u){return (u.email||'').toLowerCase()===v.choferId;});
+        rcHoyHTML+='<div style="display:flex;justify-content:space-between;padding:6px 10px;background:var(--surface2);border-radius:6px;margin-bottom:4px;font-size:12px">'
+          +'<span><strong>'+esc(v.placa)+'</strong> · '+esc(ch?ch.nombre:v.choferId)+'</span>'
+          +'<span class="badge b-err" style="font-size:10px">✗</span>'
+        +'</div>';
+      });
+      if(pendList.length>5)rcHoyHTML+='<div style="font-size:11px;color:var(--muted);text-align:center;padding:4px">+'+(pendList.length-5)+' más...</div>';
+    }
+    rcHoyHTML+='</div>';
+
+    // Alertas de consumo
+    rcHoyHTML+='<div><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:6px">🚨 Vehículos con consumo anómalo (últimos 7 días)</div>';
+    if(alertasFlota.length===0){
+      rcHoyHTML+='<div style="font-size:12px;color:var(--green);padding:8px">✓ Todo dentro de lo normal</div>';
+    } else {
+      alertasFlota.slice(0,5).forEach(function(a){
+        var color=a.sev==='rojo'?'var(--red)':'var(--accent)';
+        var ic=a.sev==='rojo'?'🚨':'⚠';
+        rcHoyHTML+='<div style="display:flex;justify-content:space-between;padding:6px 10px;background:var(--surface2);border-radius:6px;margin-bottom:4px;font-size:12px;border-left:3px solid '+color+'">'
+          +'<span><strong>'+esc(a.veh.placa)+'</strong> · '+esc(a.chofer)+'</span>'
+          +'<span style="color:'+color+';font-weight:700">'+ic+' Gal:'+(a.varGal>=0?'+':'')+a.varGal.toFixed(0)+'%</span>'
+        +'</div>';
+      });
+      if(alertasFlota.length>5)rcHoyHTML+='<div style="font-size:11px;color:var(--muted);text-align:center;padding:4px">+'+(alertasFlota.length-5)+' más...</div>';
+    }
+    rcHoyHTML+='</div>';
+
+    rcHoyHTML+='</div>';
+
+    rcHoyHTML+='<div style="margin-top:12px;text-align:center"><button class="btn btn-primary btn-sm" onclick="goTab(\'taller_reportes_choferes\')">📊 Ver análisis completo de choferes →</button></div>';
+  }
+
+  html+='<div class="card" style="margin-top:14px">'
+    +'<div class="sec-hdr">🚛 Reportes diarios de choferes</div>'
+    +rcHoyHTML
+    +'</div>';
+
   document.getElementById('content').innerHTML=html;
 }
 
