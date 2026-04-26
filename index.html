@@ -2241,7 +2241,7 @@ async function renderSAUsuarios(){
         <input id="saUEmpresaManual" placeholder="O escribe el código exacto (ej: FISDC)" style="margin-top:6px;font-size:13px" oninput="document.getElementById('saUEmpresa').value=''">
         <div style="font-size:11px;color:var(--muted);margin-top:3px">El código debe coincidir exactamente con el que usan al iniciar sesión (mayúsculas/minúsculas importan)</div>
       </div>
-      <div class="fg"><label>Rol *</label><select id="saURol" onchange="togglePermisosUI()"><option value="admin">Admin</option><option value="supervisor">Supervisor</option><option value="empleado">Empleado</option><option value="viewer">Viewer</option><option value="cliente">Cliente</option><option value="contratista">Contratista</option></select></div>
+      <div class="fg"><label>Rol *</label><select id="saURol" onchange="togglePermisosUI()"><option value="admin">Admin</option><option value="supervisor">Supervisor</option><option value="empleado">Empleado</option><option value="viewer">Viewer</option><option value="cliente">Cliente</option><option value="contratista">Contratista</option><option value="chofer">🚛 Chofer</option></select></div>
     </div>
     <div id="permisosUI" style="display:none">
       <div class="sec-hdr">Módulos — Empleado</div>
@@ -2343,7 +2343,7 @@ async function editarUsuarioSA(uid){
       <div class="fg"><label>Nombre</label><input id="euNombre" value="${esc(u.nombre||'')}"></div>
       <div class="row2">
         <div class="fg"><label>Empresa</label><select id="euEmpresa"><option value="">—</option>${empOpts}</select></div>
-        <div class="fg"><label>Rol</label><select id="euRol" onchange="toggleEUPermisos()"><option value="admin" ${u.rol==='admin'?'selected':''}>Admin</option><option value="supervisor" ${u.rol==='supervisor'?'selected':''}>Supervisor</option><option value="empleado" ${u.rol==='empleado'?'selected':''}>Empleado</option><option value="viewer" ${u.rol==='viewer'?'selected':''}>Viewer</option><option value="cliente" ${u.rol==='cliente'?'selected':''}>Cliente</option><option value="contratista" ${u.rol==='contratista'?'selected':''}>Contratista</option></select></div>
+        <div class="fg"><label>Rol</label><select id="euRol" onchange="toggleEUPermisos()"><option value="admin" ${u.rol==='admin'?'selected':''}>Admin</option><option value="supervisor" ${u.rol==='supervisor'?'selected':''}>Supervisor</option><option value="empleado" ${u.rol==='empleado'?'selected':''}>Empleado</option><option value="viewer" ${u.rol==='viewer'?'selected':''}>Viewer</option><option value="cliente" ${u.rol==='cliente'?'selected':''}>Cliente</option><option value="contratista" ${u.rol==='contratista'?'selected':''}>Contratista</option><option value="chofer" ${u.rol==='chofer'?'selected':''}>🚛 Chofer</option></select></div>
       </div>
       <div id="euPermisosUI" style="${u.rol==='empleado'?'':'display:none'}">
         <div class="sec-hdr">Módulos</div>
