@@ -9066,8 +9066,10 @@ function mantGenerarOTs(){
   var mesActual=hoy.slice(0,7);
   var fechaBase=mesActual+'-01';
   var creadas=0;
-  var saltados={almacenado:0,baja:0,sinFreq:0,sinChecklist:0};
+  var saltados={almacenado:0,baja:0,sinFreq:0,yaExiste:0,noCorresponde:0,total:0};
+  var detalleNoCorresponde=[];
   m.equipos.forEach(function(eq){
+    saltados.total++;
     // Solo equipos ACTIVOS (no almacenados ni dados de baja)
     if(eq.estado==='almacenado'){saltados.almacenado++;return;}
     if(eq.estado==='baja'){saltados.baja++;return;}
@@ -9076,21 +9078,27 @@ function mantGenerarOTs(){
     var dias=frecDias[eq.frecuencia]||30;
     var ultimo=eq.ultimoMant||null;
     var corresponde=false;
+    var prox=null;
     if(!ultimo){
       corresponde=true;
     } else {
-      var prox=addDias(ultimo,dias);
+      prox=addDias(ultimo,dias);
       if(prox&&prox<=hoy)corresponde=true;
     }
-    if(!corresponde)return;
+    if(!corresponde){
+      saltados.noCorresponde++;
+      if(detalleNoCorresponde.length<3){
+        detalleNoCorresponde.push(eq.nombre+' (último: '+ultimo+', próx: '+prox+')');
+      }
+      return;
+    }
     // ¿Ya existe OT para este equipo en este mes?
     var yaExiste=m.ots.find(function(ot){
       return ot.equipoId===eq.id&&(ot.fechaProgramada||'').slice(0,7)===mesActual&&ot.estado!=='completada';
     });
-    if(yaExiste)return;
+    if(yaExiste){saltados.yaExiste++;return;}
     // Buscar checklist de la categoría
     var cl=m.checklists.find(function(c){return c.categoria===eq.categoria;});
-    if(!cl)saltados.sinChecklist++;
     // Determinar centroId actual del equipo
     var centroIdEq=eq.ubicacionTipo==='centro'?eq.ubicacionId:(eq.centroId||'');
     m.ots.push({
@@ -9114,16 +9122,76 @@ function mantGenerarOTs(){
   });
   saveData();
   renderMantPanel();
-  // Mensaje detallado
-  var msg='✓ '+creadas+' OT(s) generadas';
-  var info=[];
-  if(saltados.almacenado>0)info.push(saltados.almacenado+' almacenados');
-  if(saltados.baja>0)info.push(saltados.baja+' dados de baja');
-  if(saltados.sinFreq>0)info.push(saltados.sinFreq+' sin frecuencia');
-  if(saltados.sinChecklist>0)info.push(saltados.sinChecklist+' sin checklist (igual se generaron)');
-  if(info.length>0)msg+=' · Saltados: '+info.join(', ');
-  toast(msg);
+
+  // Diagnóstico detallado SI no se generó nada
+  if(creadas===0){
+    var diagMsg='⚠ Ninguna OT generada. Diagnóstico de '+saltados.total+' equipo(s):\n\n';
+    diagMsg+='• '+saltados.almacenado+' almacenados (en bodega)\n';
+    diagMsg+='• '+saltados.baja+' dados de baja\n';
+    diagMsg+='• '+saltados.sinFreq+' sin frecuencia configurada\n';
+    diagMsg+='• '+saltados.yaExiste+' ya tienen OT pendiente este mes\n';
+    diagMsg+='• '+saltados.noCorresponde+' aún no les toca mantenimiento\n';
+    if(detalleNoCorresponde.length>0){
+      diagMsg+='\nEjemplos de "no toca aún":\n'+detalleNoCorresponde.join('\n');
+    }
+    diagMsg+='\n\n¿Forzar la generación de OTs para TODOS los equipos activos sin OT este mes (ignora última fecha)?';
+    if(confirm(diagMsg)){
+      mantGenerarOTsForzado();
+      return;
+    }
+    toast('0 OT(s) generadas — ver diagnóstico');
+  } else {
+    var msg='✓ '+creadas+' OT(s) generadas';
+    var info=[];
+    if(saltados.almacenado>0)info.push(saltados.almacenado+' almacenados');
+    if(saltados.baja>0)info.push(saltados.baja+' baja');
+    if(saltados.sinFreq>0)info.push(saltados.sinFreq+' sin freq');
+    if(saltados.yaExiste>0)info.push(saltados.yaExiste+' ya tenían OT');
+    if(saltados.noCorresponde>0)info.push(saltados.noCorresponde+' no toca aún');
+    if(info.length>0)msg+=' · Saltados: '+info.join(', ');
+    toast(msg);
+  }
   logAction('GENERAR','mant_ot',creadas+' OTs creadas para '+mesActual);
+}
+
+// Generación forzada: crea OT para TODOS los equipos activos sin OT pendiente este mes
+function mantGenerarOTsForzado(){
+  var m=mantData();
+  var hoy=mantHoy();
+  var mesActual=hoy.slice(0,7);
+  var fechaBase=mesActual+'-01';
+  var creadas=0;
+  m.equipos.forEach(function(eq){
+    if(eq.estado==='almacenado'||eq.estado==='baja')return;
+    var yaExiste=m.ots.find(function(ot){
+      return ot.equipoId===eq.id&&(ot.fechaProgramada||'').slice(0,7)===mesActual&&ot.estado!=='completada';
+    });
+    if(yaExiste)return;
+    var cl=m.checklists.find(function(c){return c.categoria===eq.categoria;});
+    var centroIdEq=eq.ubicacionTipo==='centro'?eq.ubicacionId:(eq.centroId||'');
+    m.ots.push({
+      id:genId(),
+      equipoId:eq.id,
+      centroId:centroIdEq,
+      tecnicoId:'',
+      fechaProgramada:fechaBase,
+      prioridad:'normal',
+      estado:'pendiente',
+      checklistId:cl?cl.id:'',
+      respuestas:[],
+      observaciones:'',
+      gastoId:'',
+      montoGasto:0,
+      codigoConfirmacion:'',
+      fechaCierre:'',
+      creadaEn:Date.now()
+    });
+    creadas++;
+  });
+  saveData();
+  renderMantPanel();
+  logAction('GENERAR','mant_ot',creadas+' OTs forzadas para '+mesActual);
+  toast('✓ '+creadas+' OT(s) generadas (modo forzado)');
 }
 
 // ── mant_equipos ─────────────────────────────────────────
