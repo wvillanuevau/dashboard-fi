@@ -9112,6 +9112,23 @@ function mantReasignarOTsPendientes(){
   var mesActual=hoy.slice(0,7);
   var cargaTec={};
 
+  // Diagnóstico: contar todo
+  var stats={
+    totalOT:m.ots.length,
+    pendientes:0,
+    pendientesEsteMes:0,
+    sinEquipo:0,
+    asignadas:0,
+    sinTec:{},
+    mesesEncontrados:{}
+  };
+
+  m.ots.forEach(function(ot){
+    var mesOT=(ot.fechaProgramada||'').slice(0,7);
+    if(mesOT)stats.mesesEncontrados[mesOT]=(stats.mesesEncontrados[mesOT]||0)+1;
+    if(ot.estado==='pendiente')stats.pendientes++;
+  });
+
   // Reset de asignaciones del mes
   m.ots.forEach(function(ot){
     if((ot.fechaProgramada||'').slice(0,7)===mesActual&&ot.estado==='pendiente'){
@@ -9126,54 +9143,53 @@ function mantReasignarOTsPendientes(){
     return tecs[0];
   }
 
-  var asignadas=0;
-  var sinTec={};  // categoría → cantidad
-  var ejemplosOT=[];
-
   m.ots.forEach(function(ot){
     if(ot.estado!=='pendiente')return;
     if((ot.fechaProgramada||'').slice(0,7)!==mesActual)return;
+    stats.pendientesEsteMes++;
     var eq=m.equipos.find(function(e){return e.id===ot.equipoId;});
-    if(!eq)return;
+    if(!eq){stats.sinEquipo++;return;}
     var cat=eq.categoria||'(sin categoría)';
     var tec=elegirTecnico(cat);
     if(tec){
       ot.tecnicoId=tec.id;
       cargaTec[tec.id]=(cargaTec[tec.id]||0)+1;
-      asignadas++;
+      stats.asignadas++;
     } else {
-      sinTec[cat]=(sinTec[cat]||0)+1;
-      if(ejemplosOT.length<3)ejemplosOT.push(eq.nombre+' (cat: '+cat+')');
+      stats.sinTec[cat]=(stats.sinTec[cat]||0)+1;
     }
   });
   saveData();
   renderMantPanel();
 
-  // Diagnóstico si no se asignó nada
-  if(asignadas===0){
-    var msg='⚠ No se asignó ninguna OT.\n\nDIAGNÓSTICO:\n';
-    var totalTec=((m.tecnicos||[]).filter(function(t){return t.activo!==false;})).length;
-    msg+='• Tienes '+totalTec+' técnico(s) activo(s)\n\n';
-    msg+='Categorías de equipos sin técnico disponible:\n';
-    Object.keys(sinTec).forEach(function(cat){
+  // Diagnóstico siempre detallado
+  var msg='DIAGNÓSTICO DE REASIGNACIÓN\n';
+  msg+='════════════════════════════\n\n';
+  msg+='Hoy: '+hoy+' (mes actual: '+mesActual+')\n';
+  msg+='Total OT en sistema: '+stats.totalOT+'\n';
+  msg+='Total OT con estado=pendiente: '+stats.pendientes+'\n';
+  msg+='OT pendientes de '+mesActual+' procesadas: '+stats.pendientesEsteMes+'\n';
+  msg+='OT sin equipo vinculado: '+stats.sinEquipo+'\n';
+  msg+='✓ ASIGNADAS: '+stats.asignadas+'\n\n';
+
+  if(Object.keys(stats.mesesEncontrados).length>0){
+    msg+='Meses encontrados en OT:\n';
+    Object.keys(stats.mesesEncontrados).sort().forEach(function(k){
+      msg+='  • '+k+': '+stats.mesesEncontrados[k]+' OT\n';
+    });
+  }
+
+  if(Object.keys(stats.sinTec).length>0){
+    msg+='\nCategorías de equipos sin técnico:\n';
+    Object.keys(stats.sinTec).forEach(function(cat){
       var tecs=getTecnicosByCategoria(cat);
       var label=catAreaLabel(cat)||cat;
-      msg+='  • "'+label+'" ('+cat+'): '+sinTec[cat]+' OT — '+tecs.length+' técnico(s) tienen esta especialidad\n';
+      msg+='  • "'+label+'" (id:'+cat+'): '+stats.sinTec[cat]+' OT — '+tecs.length+' técnicos con esta especialidad\n';
     });
-    if(ejemplosOT.length>0){
-      msg+='\nEjemplos: '+ejemplosOT.join(', ');
-    }
-    msg+='\n\nSOLUCIÓN: Ve a Técnicos y marca las especialidades correctas (las categorías con 0 técnicos no se pueden asignar).';
-    alert(msg);
-  } else {
-    var resumen='✓ '+asignadas+' OT(s) reasignadas';
-    if(Object.keys(sinTec).length>0){
-      var totalSin=Object.values(sinTec).reduce(function(s,v){return s+v;},0);
-      resumen+=' · '+totalSin+' sin técnico (revisa especialidades)';
-    }
-    toast(resumen);
   }
-  logAction('REASIGNAR','mant_ot',asignadas+' OTs reasignadas');
+
+  alert(msg);
+  logAction('REASIGNAR','mant_ot',stats.asignadas+' OTs reasignadas');
 }
 
 // ── mant_equipos ─────────────────────────────────────────
