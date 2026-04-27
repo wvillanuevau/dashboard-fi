@@ -6704,16 +6704,6 @@ function renderConfig(){
   const mH=S.marcas.map((m,i)=>`<div style="display:flex;gap:8px;margin-bottom:8px"><input value="${esc(m)}" onchange="S.marcas[${i}]=this.value;saveData();refreshMarcaSel()"><button class="btn btn-danger btn-sm" onclick="S.marcas.splice(${i},1);saveData();render()">✕</button></div>`).join('');
   document.getElementById('content').innerHTML=`
   <div class="card" style="margin-bottom:16px">
-    <div class="sec-hdr">🤖 Integraciones IA</div>
-    <div class="fg">
-      <label>API Key de Anthropic (para comparar cotizaciones)</label>
-      <div style="display:flex;gap:8px">
-        <input type="password" id="cfgApiKey" value="${esc(cfg.anthropicApiKey||'')}" placeholder="sk-ant-..." style="flex:1" onchange="S.config.anthropicApiKey=this.value;saveData();toast('✓ API Key guardada')">
-        <button class="btn btn-secondary btn-sm" onclick="const el=document.getElementById('cfgApiKey');el.type=el.type==='password'?'text':'password'">👁</button>
-      </div>
-    </div>
-  </div>
-  <div class="card" style="margin-bottom:16px">
     <div class="sec-hdr">🎨 Branding</div>
     <div class="row3">
       <div class="fg"><label>Nombre de la App</label><input id="cfgName" value="${esc(cfg.appName||'Proyectos Pro')}" onchange="S.config.appName=this.value;saveData();applyBranding()"></div>
@@ -6775,11 +6765,15 @@ function renderCatalogosHTML(){
       hint:'El campo "Módulos" define dónde aparece: taller = OTs y vehículos, mant = mantenimiento'
     },
     {
-      titulo:'🔧 Mantenimiento — Áreas / categorías',
+      titulo:'🎯 Especialidades / Áreas (catálogo unificado)',
       key:'categoriasArea',
       tipo:'objArray',
-      campos:[{key:'id',label:'ID',readonly:true},{key:'label',label:'Nombre visible'}],
-      hint:'Se usan en equipos, checklists y especialidad de técnicos'
+      campos:[
+        {key:'id',label:'ID',readonly:true},
+        {key:'label',label:'Nombre visible'},
+        {key:'modulo',label:'Módulo (mant / taller / chofer)'}
+      ],
+      hint:'Se usan en equipos, checklists, especialidad de técnicos y auto-asignación de OT. El módulo define dónde aparece (mant=mantenimiento, taller=taller mecánico, chofer=portal chofer)'
     },
     {
       titulo:'⏰ Mantenimiento — Frecuencias',
@@ -6921,6 +6915,7 @@ function cfgCatAgregar(key,tipo){
     if(key==='categoriasFallas')obj.icono='📌';
     if(key==='estadosOT')obj.color='b-neu';
     if(key==='estadosAsistencia'){obj.id=newId;obj.label='Nuevo estado';}
+    if(key==='categoriasArea')obj.modulo='mant'; // default: aparece en mantenimiento
     S.config[key].push(obj);
   }
   saveData();
@@ -6929,58 +6924,6 @@ function cfgCatAgregar(key,tipo){
   toast('✓ Elemento agregado — edita los campos directamente en la tabla');
 }
 
-function renderConfig(){
-  const cfg=S.config||{};
-  const mH=S.marcas.map((m,i)=>`<div style="display:flex;gap:8px;margin-bottom:8px"><input value="${esc(m)}" onchange="S.marcas[${i}]=this.value;saveData();refreshMarcaSel()"><button class="btn btn-danger btn-sm" onclick="S.marcas.splice(${i},1);saveData();render()">✕</button></div>`).join('');
-  document.getElementById('content').innerHTML=`
-  <div class="card" style="margin-bottom:16px">
-    <div class="sec-hdr">🤖 Integraciones IA</div>
-    <div class="fg">
-      <label>API Key de Anthropic (para comparar cotizaciones)</label>
-      <div style="display:flex;gap:8px">
-        <input type="password" id="cfgApiKey" value="${esc(cfg.anthropicApiKey||'')}" placeholder="sk-ant-..." style="flex:1" onchange="S.config.anthropicApiKey=this.value;saveData();toast('✓ API Key guardada')">
-        <button class="btn btn-secondary btn-sm" onclick="const el=document.getElementById('cfgApiKey');el.type=el.type==='password'?'text':'password'">👁</button>
-      </div>
-      <div style="font-size:11px;color:var(--muted);margin-top:4px">Obtén tu clave en <a href="https://console.anthropic.com" target="_blank" style="color:var(--accent)">console.anthropic.com</a> — se guarda cifrada en tu cuenta</div>
-    </div>
-  </div>
-  <div class="card" style="margin-bottom:16px">
-    <div class="sec-hdr">🎨 Branding</div>
-    <div class="row3">
-      <div class="fg"><label>Nombre de la App</label><input id="cfgName" value="${esc(cfg.appName||'Proyectos Pro')}" onchange="S.config.appName=this.value;saveData();applyBranding()"></div>
-      <div class="fg"><label>Color principal</label><div style="display:flex;gap:8px;align-items:center"><input type="color" value="${cfg.accentColor||'#e8a020'}" style="width:50px;height:40px;padding:2px 4px;cursor:pointer" onchange="S.config.accentColor=this.value;saveData();applyBranding()"><input value="${cfg.accentColor||'#e8a020'}" style="flex:1" onchange="S.config.accentColor=this.value;saveData();applyBranding()"></div></div>
-      <div class="fg"><label>Logo URL</label><input value="${esc(cfg.logoUrl||'')}" placeholder="https://... o base64" onchange="S.config.logoUrl=this.value;saveData();applyBranding()"></div>
-    </div>
-    <div class="fg"><label>Subir logo</label>
-      <div class="logo-upload-area" onclick="document.getElementById('logoFI').click()">
-        ${cfg.logoUrl?`<img src="${esc(cfg.logoUrl)}" style="width:64px;height:64px;border-radius:12px;object-fit:cover;margin:0 auto"><div style="font-size:12px;color:var(--muted);margin-top:8px">Clic para cambiar</div>`:`<div style="font-size:28px;margin-bottom:6px">🖼</div><div style="font-size:13px;color:var(--muted)">PNG, JPG, SVG — se convierte a base64</div>`}
-      </div>
-      <input type="file" id="logoFI" accept="image/*" style="display:none" onchange="handleLogoUpload(this)">
-    </div>
-    ${cfg.logoUrl?`<button class="btn btn-danger btn-sm" onclick="S.config.logoUrl='';saveData();applyBranding();render()">🗑 Quitar logo</button>`:''}
-  </div>
-  <div class="card" style="margin-bottom:16px">
-    <div class="sec-hdr">Marcas</div>${mH}
-    <div style="display:flex;gap:8px;margin-top:8px"><input id="nmarca" placeholder="Nueva marca" style="flex:1"><button class="btn btn-primary btn-sm" onclick="addMarca()">+</button></div>
-  </div>
-  <div class="card">
-    <div class="sec-hdr">Información del sistema</div>
-    <div style="font-size:13px;color:var(--muted);line-height:2">
-      Empresa: <strong style="color:var(--text)">${S.empresa}</strong><br>
-      Usuario: <strong style="color:var(--text)">${(S.currentUser&&S.currentUser.nombre)||'—'}</strong> · Rol: <strong style="color:var(--text)">${(ROLES[(S.currentUser&&S.currentUser.rol)]&&ROLES[(S.currentUser&&S.currentUser.rol)].label)||(S.currentUser&&S.currentUser.rol)||'—'}</strong><br>
-      Firebase: <strong style="color:var(--green)">pf-construccion ✓</strong>
-    </div>
-  </div>
-  <div class="card" style="border-color:var(--accent)33">
-    <div class="sec-hdr">🔧 Diagnóstico y Recuperación de Datos</div>
-    <div id="diagResult" style="font-size:13px;color:var(--muted);margin-bottom:12px">Presiona Diagnosticar para ver el estado actual de tus datos.</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-secondary" onclick="diagData()">🔍 Diagnosticar</button>
-      <button class="btn btn-secondary" onclick="diagRestoreLocal()" style="color:var(--accent);border-color:var(--accent)">♻ Restaurar desde respaldo local</button>
-      <button class="btn btn-secondary" onclick="diagForceSave()" style="color:var(--green);border-color:var(--green)">⬆ Forzar guardado en Firebase</button>
-    </div>
-  </div>`;
-}
 
 function handleLogoUpload(input){const file=input.files[0];if(!file)return;if(file.size>500000){toast('Logo muy grande — máx 500KB',true);return}const reader=new FileReader();reader.onload=e=>{S.config.logoUrl=e.target.result;saveData();applyBranding();render();toast('✓ Logo actualizado')};reader.readAsDataURL(file)}
 function addMarca(){const n=(document.getElementById('nmarca')||{}).value.trim();if(!n||S.marcas.includes(n))return;S.marcas.push(n);saveData();render();toast('✓ Marca agregada')}
@@ -9936,7 +9879,7 @@ function modalTecnico(id){
     +chkBlock(grupos.taller,'Taller mec\u00e1nico','\ud83d\ude9a')
     +chkBlock(grupos.chofer,'Conducci\u00f3n (chofer)','\ud83d\ude9b')
     +'</div>'
-    +'<div style="font-size:11px;color:var(--muted);margin-top:4px">Las OT se asignan autom\u00e1ticamente seg\u00fan las especialidades marcadas.</div></div>'
+    +'<div style="font-size:11px;color:var(--muted);margin-top:4px">Las OT se asignan autom\u00e1ticamente seg\u00fan las especialidades marcadas. <button class="btn btn-secondary btn-xs" onclick="agregarEspecialidadRapida()" style="margin-left:6px">+ Nueva especialidad</button></div></div>'
     +'<div class="fg" id="wrapChoferLink" style="display:'+(tieneConduccionInicial?'block':'none')+'">'
     +'<label>Vincular con usuario chofer (Portal Chofer)</label>'
     +'<select id="tecUsuarioChofer">'+choferOpts+'</select>'
@@ -9986,6 +9929,64 @@ function guardarTecnico(id){
   renderMantTecnicos();
 }
 
+
+function agregarEspecialidadRapida(){
+  var nombre=prompt('Nombre de la nueva especialidad:\n(Ej: Pintura, Carpintería, Soldadura...)','');
+  if(!nombre||!nombre.trim())return;
+  nombre=nombre.trim();
+  var modulo=prompt('¿Para qué módulo?\n\n• mant   = Mantenimiento de equipos\n• taller = Taller mecánico de vehículos\n• chofer = Portal del chofer\n\nEscribe uno: mant / taller / chofer','mant');
+  if(!modulo)return;
+  modulo=modulo.trim().toLowerCase();
+  if(['mant','taller','chofer'].indexOf(modulo)<0){
+    toast('Módulo inválido — usa mant, taller o chofer',true);return;
+  }
+  if(!S.config)S.config={};
+  if(!S.config.categoriasArea)S.config.categoriasArea=[];
+  // ID limpio basado en el nombre
+  var id=nombre.toLowerCase().replace(/[áàäâ]/g,'a').replace(/[éèëê]/g,'e')
+    .replace(/[íìïî]/g,'i').replace(/[óòöô]/g,'o').replace(/[úùüû]/g,'u')
+    .replace(/ñ/g,'n').replace(/[^a-z0-9]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
+  if(!id)id='esp_'+Date.now().toString(36);
+  // Verificar que no exista
+  if(S.config.categoriasArea.find(function(c){return c.id===id;})){
+    toast('Ya existe una especialidad con ese nombre',true);return;
+  }
+  S.config.categoriasArea.push({id:id,label:nombre,modulo:modulo});
+  saveData();
+  toast('✓ Especialidad "'+nombre+'" agregada');
+  // Re-renderizar el modal con la nueva categoría
+  var tecId=null;
+  // Detectar si estamos editando (botón guardar lleva el id)
+  var btnGuardar=document.querySelector('#modalTecDiv button.btn-primary[onclick*="guardarTecnico"]');
+  if(btnGuardar){
+    var match=btnGuardar.getAttribute('onclick').match(/guardarTecnico\('([^']*)'\)/);
+    if(match)tecId=match[1]||null;
+  }
+  // Preservar lo que ya marcaron + añadir
+  var marcados=[];
+  document.querySelectorAll('.tec-rol:checked').forEach(function(cb){marcados.push(cb.getAttribute('data-rol'));});
+  // Cerrar y reabrir
+  var modal=document.getElementById('modalTecDiv');
+  if(modal)modal.remove();
+  // Recolectar datos del form abierto antes de cerrar
+  var nom=((document.getElementById('tecNom')||{}).value||'').trim();
+  var tel=((document.getElementById('tecTel')||{}).value||'').trim();
+  var notas=((document.getElementById('tecNotas')||{}).value||'').trim();
+  var act=(document.getElementById('tecActivo')||{}).checked;
+  modalTecnico(tecId);
+  // Restaurar valores
+  setTimeout(function(){
+    if(nom)document.getElementById('tecNom').value=nom;
+    if(tel)document.getElementById('tecTel').value=tel;
+    if(notas)document.getElementById('tecNotas').value=notas;
+    var actEl=document.getElementById('tecActivo');if(actEl)actEl.checked=act;
+    // Marcar de nuevo lo previo + el nuevo
+    document.querySelectorAll('.tec-rol').forEach(function(cb){
+      var r=cb.getAttribute('data-rol');
+      if(marcados.indexOf(r)>=0||r===id)cb.checked=true;
+    });
+  },100);
+}
 
 function verOTsTecnico(tecId){
   var m=mantData();
