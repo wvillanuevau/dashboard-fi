@@ -1304,7 +1304,7 @@ function setSyncUI(state,txt){const dot=document.getElementById('syncDot'),stxt=
 // ═══════════════════════════════════════════════════════
 //  SYNC
 // ═══════════════════════════════════════════════════════
-function serializeState(){return{_v:4,_ts:Date.now(),proyectos:S.proyectos,gastos:S.gastos,proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios,config:S.config,inventario:S.inventario||{bodegas:[],productos:[],movimientos:[]},cotizaciones:S.cotizaciones||{comparaciones:[]},cajachica:S.cajachica||{reintegros:[]},mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[]},energy:S.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12},gerentesZona:S.gerentesZona||[],asistencia:S.asistencia||{registros:[]},auditorias:S.auditorias||{registros:[]},taller:S.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[],solicitudes:[],reportesDiarios:[]}}}
+function serializeState(){return{_v:4,_ts:Date.now(),proyectos:S.proyectos,gastos:S.gastos,proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios,config:S.config,inventario:S.inventario||{bodegas:[],productos:[],movimientos:[]},cotizaciones:S.cotizaciones||{comparaciones:[]},cajachica:S.cajachica||{reintegros:[]},mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[],movimientosEquipos:[]},energy:S.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12},gerentesZona:S.gerentesZona||[],asistencia:S.asistencia||{registros:[]},auditorias:S.auditorias||{registros:[]},taller:S.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[],solicitudes:[],reportesDiarios:[]}}}
 
 // Versión limpia para Firestore — elimina base64 pesados que van en colección separada
 function serializeForFirestore(){
@@ -1365,7 +1365,7 @@ function serializeForFirestore(){
   return{...state, proyectos, gastos,
     inventario:{...inv,productos,movimientos},
     cotizaciones:{comparaciones},
-    mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[]},
+    mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[],movimientosEquipos:[]},
     energy:S.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12},
     gerentesZona:S.gerentesZona||[],
     cajachica:S.cajachica||{reintegros:[]},
@@ -1390,7 +1390,8 @@ function applyData(d,fromRemote=false){
   S.inventario=d.inventario||{bodegas:[],productos:[],movimientos:[]};
   S.cotizaciones=d.cotizaciones||{comparaciones:[]};
   S.cajachica=d.cajachica||{reintegros:[]};
-  S.mantenimiento=d.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[]};
+  S.mantenimiento=d.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[],movimientosEquipos:[]};
+  if(!S.mantenimiento.movimientosEquipos)S.mantenimiento.movimientosEquipos=[];
   S.energy=d.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12};
   S.gerentesZona=d.gerentesZona||[];
   if(fromRemote&&d.asistencia&&d.asistencia.registros&&d.asistencia.registros.length===0
@@ -1497,6 +1498,24 @@ function optsTecnicos(selVal,area){
 }
 
 function migrateData(){
+  // ── Migración de schema de equipos: ubicación tipo + estado + origen ──
+  if(S.mantenimiento&&S.mantenimiento.equipos){
+    S.mantenimiento.equipos.forEach(function(eq){
+      // Si tiene centroId pero no ubicacionTipo, migrar
+      if(!eq.ubicacionTipo){
+        eq.ubicacionTipo='centro';
+        eq.ubicacionId=eq.centroId||'';
+        eq.estado='activo';
+      }
+      if(!eq.origen)eq.origen='preexistente';
+      if(!eq.fechaIngreso&&eq.creadoEn)eq.fechaIngreso=new Date(eq.creadoEn).toISOString().slice(0,10);
+    });
+  }
+  // Inicializar arreglo de movimientos de equipos
+  if(S.mantenimiento&&!S.mantenimiento.movimientosEquipos){
+    S.mantenimiento.movimientosEquipos=[];
+  }
+
   // Normalizar emails de choferId en vehículos (case-insensitive match con currentUser.email)
   if(S.taller&&S.taller.vehiculos){
     S.taller.vehiculos.forEach(function(v){
@@ -9047,7 +9066,12 @@ function mantGenerarOTs(){
   var mesActual=hoy.slice(0,7);
   var fechaBase=mesActual+'-01';
   var creadas=0;
+  var saltados={almacenado:0,baja:0,sinFreq:0,sinChecklist:0};
   m.equipos.forEach(function(eq){
+    // Solo equipos ACTIVOS (no almacenados ni dados de baja)
+    if(eq.estado==='almacenado'){saltados.almacenado++;return;}
+    if(eq.estado==='baja'){saltados.baja++;return;}
+    if(!eq.frecuencia){saltados.sinFreq++;return;}
     // ¿Corresponde mantenimiento este mes?
     var dias=frecDias[eq.frecuencia]||30;
     var ultimo=eq.ultimoMant||null;
@@ -9066,10 +9090,13 @@ function mantGenerarOTs(){
     if(yaExiste)return;
     // Buscar checklist de la categoría
     var cl=m.checklists.find(function(c){return c.categoria===eq.categoria;});
+    if(!cl)saltados.sinChecklist++;
+    // Determinar centroId actual del equipo
+    var centroIdEq=eq.ubicacionTipo==='centro'?eq.ubicacionId:(eq.centroId||'');
     m.ots.push({
       id:genId(),
       equipoId:eq.id,
-      centroId:eq.centroId,
+      centroId:centroIdEq,
       tecnicoId:'',
       fechaProgramada:fechaBase,
       prioridad:'normal',
@@ -9087,62 +9114,142 @@ function mantGenerarOTs(){
   });
   saveData();
   renderMantPanel();
-  toast('✓ '+creadas+' OT(s) generadas');
+  // Mensaje detallado
+  var msg='✓ '+creadas+' OT(s) generadas';
+  var info=[];
+  if(saltados.almacenado>0)info.push(saltados.almacenado+' almacenados');
+  if(saltados.baja>0)info.push(saltados.baja+' dados de baja');
+  if(saltados.sinFreq>0)info.push(saltados.sinFreq+' sin frecuencia');
+  if(saltados.sinChecklist>0)info.push(saltados.sinChecklist+' sin checklist (igual se generaron)');
+  if(info.length>0)msg+=' · Saltados: '+info.join(', ');
+  toast(msg);
+  logAction('GENERAR','mant_ot',creadas+' OTs creadas para '+mesActual);
 }
 
 // ── mant_equipos ─────────────────────────────────────────
 function renderMantEquipos(){
   var m=mantData();
   var filtro=S._mantEqFiltro||'';
-  var equipos=filtro?m.equipos.filter(function(e){return e.centroId===filtro;}):m.equipos;
+  var filtroEstado=S._mantEqEstado||'activo';
+  var equipos=m.equipos.filter(function(e){
+    if(filtroEstado&&e.estado&&e.estado!==filtroEstado)return false;
+    if(filtroEstado==='activo'&&e.estado&&e.estado!=='activo')return false;
+    if(filtro){
+      // Filtro por ubicación (centro o bodega)
+      var ubid=e.ubicacionId||e.centroId||'';
+      if(ubid!==filtro)return false;
+    }
+    return true;
+  });
 
-  var centrosOpts='<option value="">Todos los restaurantes</option>'+_centrosOpts(false,filtro);
+  var centrosOpts='<option value="">Todas las ubicaciones</option>';
+  centrosOpts+='<optgroup label="🍔 Restaurantes (centros de costo)">';
+  S.centros.forEach(function(c){
+    centrosOpts+='<option value="'+c.id+'"'+(filtro===c.id?' selected':'')+'>'+esc(c.nombre)+'</option>';
+  });
+  centrosOpts+='</optgroup>';
+  centrosOpts+='<optgroup label="📦 Bodegas">';
+  ((S.inventario&&S.inventario.bodegas)||[]).forEach(function(b){
+    centrosOpts+='<option value="'+b.id+'"'+(filtro===b.id?' selected':'')+'>'+esc(b.nombre)+'</option>';
+  });
+  centrosOpts+='</optgroup>';
 
-  // Paginación 50/página + mapa O(1) de centros
+  // Mapas para ubicación
+  var centroMap={};S.centros.forEach(function(c){centroMap[c.id]=c.nombre;});
+  var bodegaMap={};((S.inventario&&S.inventario.bodegas)||[]).forEach(function(b){bodegaMap[b.id]=b.nombre;});
+
+  // Paginación 50/página
   var EQ_PAGE=50;
   var totalEqPags=Math.max(1,Math.ceil(equipos.length/EQ_PAGE));
   if(S._mantEqPag===undefined)S._mantEqPag=0;
   if(S._mantEqPag>=totalEqPags)S._mantEqPag=0;
   var eqSlice=equipos.slice(S._mantEqPag*EQ_PAGE,(S._mantEqPag+1)*EQ_PAGE);
-  var centroMap={};S.centros.forEach(function(c){centroMap[c.id]=c.nombre;});
   var hoy=mantHoy();
+
+  // Conteos por estado
+  var contActivo=m.equipos.filter(function(e){return !e.estado||e.estado==='activo';}).length;
+  var contAlmac=m.equipos.filter(function(e){return e.estado==='almacenado';}).length;
+  var contBaja=m.equipos.filter(function(e){return e.estado==='baja';}).length;
+
   var rows=eqSlice.length===0?'<tr><td colspan="8" class="empty">Sin equipos</td></tr>':'';
   eqSlice.forEach(function(eq){
-    var centroNom=centroMap[eq.centroId]||'\u2014';
+    // Ubicación: leer de ubicacionTipo/ubicacionId, fallback a centroId
+    var ubTipo=eq.ubicacionTipo||'centro';
+    var ubId=eq.ubicacionId||eq.centroId||'';
+    var ubLabel='—';
+    var ubIc='🍔';
+    if(ubTipo==='centro'){ubLabel=centroMap[ubId]||'—';ubIc='🍔';}
+    else if(ubTipo==='bodega'){ubLabel=bodegaMap[ubId]||'—';ubIc='📦';}
+
+    var estadoBadge='';
+    if(!eq.estado||eq.estado==='activo')estadoBadge='<span class="badge b-ok" style="font-size:10px">✓ Activo</span>';
+    else if(eq.estado==='almacenado')estadoBadge='<span class="badge b-warn" style="font-size:10px">📦 Almacenado</span>';
+    else if(eq.estado==='baja')estadoBadge='<span class="badge b-err" style="font-size:10px">✕ Baja</span>';
+
     var prox=mantFechaPróximo(eq);
     var proxColor=prox&&prox<hoy?'color:var(--red)':'';
-    rows+='<tr><td><div>'+esc(eq.nombre)+'</div><div style="font-size:11px;color:var(--muted)">'+esc(centroNom)+'</div></td>';
-    rows+='<td><span class="badge b-neu">'+esc(catAreaLabel(eq.categoria)||eq.tipo||eq.categoria||'\u2014')+'</span></td>';
-    rows+='<td style="text-align:center">'+esc(String(eq.unidades||eq.cantidad||1))+'</td>';
-    rows+='<td>'+esc(eq.frecuencia||'\u2014')+'</td>';
-    rows+='<td style="text-align:right">'+esc(String(eq.kw||'\u2014'))+'</td>';
+    var proxStr=eq.estado==='almacenado'||eq.estado==='baja'?'<span style="color:var(--muted);font-size:11px">— pausado —</span>':fmtDate(prox);
+
+    rows+='<tr><td><div>'+esc(eq.nombre)+'</div><div style="font-size:11px;color:var(--muted)">'+ubIc+' '+esc(ubLabel)+'</div></td>';
+    rows+='<td><span class="badge b-neu">'+esc(catAreaLabel(eq.categoria)||eq.tipo||eq.categoria||'—')+'</span></td>';
+    rows+='<td style="text-align:center">'+estadoBadge+'</td>';
+    rows+='<td>'+esc(eq.frecuencia||'—')+'</td>';
     rows+='<td>'+fmtDate(eq.ultimoMant)+'</td>';
-    rows+='<td style="'+proxColor+'">'+fmtDate(prox)+'</td>';
-    rows+='<td><div class="td-act"><button class="btn btn-secondary btn-xs" onclick="modalEquipo(\''+eq.id+'\')">✏</button><button class="btn btn-danger btn-xs" onclick="delEquipo(\''+eq.id+'\')">✕</button></div></td></tr>';
+    rows+='<td style="'+proxColor+'">'+proxStr+'</td>';
+    rows+='<td><div class="td-act">'
+      +'<button class="btn btn-secondary btn-xs" onclick="modalEquipo(\''+eq.id+'\')" title="Editar">✏</button>'
+      +'<button class="btn btn-secondary btn-xs" onclick="modalMoverEquipo(\''+eq.id+'\')" title="Mover" style="color:var(--accent);border-color:var(--accent)">📦</button>'
+      +'<button class="btn btn-danger btn-xs" onclick="delEquipo(\''+eq.id+'\')" title="Eliminar">✕</button>'
+      +'</div></td></tr>';
   });
+
   var eqPagCtrl=totalEqPags>1
     ?'<div style="display:flex;align-items:center;gap:8px;margin-top:10px">'
-      +'<button class="btn btn-secondary btn-xs" onclick="S._mantEqPag=Math.max(0,S._mantEqPag-1);renderMantEquipos()" '+(S._mantEqPag===0?'disabled':'')+'>\u2039 Ant</button>'
-      +'<span style="font-size:13px;color:var(--muted)">Pág '+(S._mantEqPag+1)+' / '+totalEqPags+' \u00b7 '+equipos.length+' equipos</span>'
-      +'<button class="btn btn-secondary btn-xs" onclick="S._mantEqPag=Math.min('+(totalEqPags-1)+',S._mantEqPag+1);renderMantEquipos()" '+(S._mantEqPag>=totalEqPags-1?'disabled':'')+'>Sig \u203a</button></div>'
+      +'<button class="btn btn-secondary btn-xs" onclick="S._mantEqPag=Math.max(0,S._mantEqPag-1);renderMantEquipos()" '+(S._mantEqPag===0?'disabled':'')+'>‹ Ant</button>'
+      +'<span style="font-size:13px;color:var(--muted)">Pág '+(S._mantEqPag+1)+' / '+totalEqPags+' · '+equipos.length+' equipos</span>'
+      +'<button class="btn btn-secondary btn-xs" onclick="S._mantEqPag=Math.min('+(totalEqPags-1)+',S._mantEqPag+1);renderMantEquipos()" '+(S._mantEqPag>=totalEqPags-1?'disabled':'')+'>Sig ›</button></div>'
     :'<div style="font-size:12px;color:var(--muted);margin-top:8px">'+equipos.length+' equipo(s)</div>';
 
+  // Tabs de estado
+  function tabBtn(val,label,count,color){
+    var active=filtroEstado===val;
+    return '<button class="btn '+(active?'btn-primary':'btn-secondary')+' btn-sm" onclick="S._mantEqEstado=\''+val+'\';S._mantEqPag=0;renderMantEquipos()">'+label+' <span style="background:rgba(255,255,255,0.2);padding:1px 6px;border-radius:10px;margin-left:4px;font-size:11px">'+count+'</span></button>';
+  }
+
   document.getElementById('content').innerHTML=
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">'
-    +'<select style="max-width:280px" onchange="S._mantEqFiltro=this.value;S._mantEqPag=0;renderMantEquipos()">'+centrosOpts+'</select>'
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
+    +tabBtn('activo','✓ Activos',contActivo)
+    +tabBtn('almacenado','📦 Almacenados',contAlmac)
+    +tabBtn('baja','✕ Dados de baja',contBaja)
+    +'<button class="btn btn-secondary btn-sm" onclick="modalLimpiezaEquipos()" style="color:var(--accent);border-color:var(--accent);margin-left:auto">🧹 Limpiar nombres</button>'
+    +'<button class="btn btn-secondary btn-sm" onclick="renderMantMovimientos()">📋 Historial movimientos</button>'
+    +'</div>'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">'
+    +'<select style="max-width:340px" onchange="S._mantEqFiltro=this.value;S._mantEqPag=0;renderMantEquipos()">'+centrosOpts+'</select>'
     +'<button class="btn btn-primary" onclick="modalEquipo(\'\')">+ Nuevo equipo</button>'
     +'</div>'
-    +'<div class="tbl-wrap"><table><thead><tr><th>Nombre / Restaurante</th><th>Categor\u00eda</th><th style="text-align:center">Unid.</th><th>Frecuencia</th><th style="text-align:right">kW</th><th>\u00daltimo mant.</th><th>Pr\u00f3ximo mant.</th><th>Acciones</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
-    +eqPagCtrl
-    +'<div id="modalEquipoWrap"></div>';
+    +'<div class="tbl-wrap"><table><thead><tr><th>Nombre / Ubicación</th><th>Categoría</th><th style="text-align:center">Estado</th><th>Frecuencia</th><th>Último mant.</th><th>Próximo mant.</th><th>Acciones</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    +eqPagCtrl;
 }
 
 function modalEquipo(id){
   var m=mantData();
   var eq=id?m.equipos.find(function(e){return e.id===id;}):null;
-  var centrosOpts=_centrosOpts(false, eq&&eq.centroId||'');
   var catOpts=optsCategoriasArea(eq&&eq.categoria);
   var freqOpts=optsFrecuencias(eq&&eq.frecuencia);
+  var ubTipo=eq?(eq.ubicacionTipo||'centro'):'centro';
+  var ubId=eq?(eq.ubicacionId||eq.centroId||''):'';
+  var origen=eq?(eq.origen||'preexistente'):'compra_local';
+  var estado=eq?(eq.estado||'activo'):'activo';
+
+  var centrosOpts='<option value="">— Seleccionar —</option>';
+  S.centros.forEach(function(c){
+    centrosOpts+='<option value="'+c.id+'"'+(ubTipo==='centro'&&ubId===c.id?' selected':'')+'>'+esc(c.nombre)+'</option>';
+  });
+  var bodegasOpts='<option value="">— Seleccionar —</option>';
+  ((S.inventario&&S.inventario.bodegas)||[]).forEach(function(b){
+    bodegasOpts+='<option value="'+b.id+'"'+(ubTipo==='bodega'&&ubId===b.id?' selected':'')+'>'+esc(b.nombre)+'</option>';
+  });
 
   var div=document.createElement('div');
   div.className='modal open';
@@ -9151,30 +9258,91 @@ function modalEquipo(id){
   div.innerHTML='<div class="modal-box md" style="margin-top:auto;margin-bottom:auto">'
     +'<div class="modal-hdr"><div class="modal-ttl">'+(id?'✏ Editar Equipo':'+ Nuevo Equipo')+'</div>'
     +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalEquipoDiv\').remove()">✕</button></div>'
-    +'<div class="row2"><div class="fg"><label>Restaurante *</label><select id="eqCentro"><option value="">— Seleccionar —</option>'+centrosOpts+'</select></div>'
-    +'<div class="fg"><label>Nombre *</label><input id="eqNom" value="'+(eq?esc(eq.nombre):'')+'"></div></div>'
-    +'<div class="row2"><div class="fg"><label>Categoría *</label><select id="eqCat">'+catOpts+'</select></div>'
-    +'<div class="fg"><label>Frecuencia</label><select id="eqFreq">'+freqOpts+'</select></div></div>'
-    +'<div class="row3"><div class="fg"><label>Unidades</label><input type="number" id="eqUnid" min="1" value="'+(eq?eq.unidades||1:1)+'"></div>'
+
+    // Identificación
+    +'<div class="row2">'
+    +'<div class="fg"><label>Nombre *</label><input id="eqNom" value="'+(eq?esc(eq.nombre):'')+'" placeholder="Ej: A/C Split 24K"></div>'
+    +'<div class="fg"><label>Categoría *</label><select id="eqCat">'+catOpts+'</select></div>'
+    +'</div>'
+
+    // Origen del equipo
+    +'<div class="sec-hdr" style="margin-top:12px">📥 Origen del Equipo</div>'
+    +'<div class="row2">'
+    +'<div class="fg"><label>¿Cómo ingresó al sistema?</label><select id="eqOrigen">'
+      +'<option value="compra_local"'+(origen==='compra_local'?' selected':'')+'>🛒 Compra local</option>'
+      +'<option value="importacion"'+(origen==='importacion'?' selected':'')+'>🚢 Importación (China u otro país)</option>'
+      +'<option value="preexistente"'+(origen==='preexistente'?' selected':'')+'>📂 Ya existía (datos previos)</option>'
+    +'</select></div>'
+    +'<div class="fg"><label>País origen (si importado)</label><input id="eqPaisOrigen" value="'+(eq?esc(eq.paisOrigen||''):'')+'" placeholder="China, EEUU..."></div>'
+    +'</div>'
+    +'<div class="row3">'
+    +'<div class="fg"><label>Fecha ingreso</label><input type="date" id="eqFechaIng" value="'+(eq?(eq.fechaIngreso||''):'')+'"></div>'
+    +'<div class="fg"><label>Costo adquisición ($)</label><input type="number" step="0.01" id="eqCostoAdq" value="'+(eq?(eq.costoAdquisicion||''):'')+'"></div>'
+    +'<div class="fg"><label>No. Serie</label><input id="eqSerie" value="'+(eq?esc(eq.serie||''):'')+'"></div>'
+    +'</div>'
+
+    // Ubicación actual
+    +'<div class="sec-hdr" style="margin-top:12px">📍 Ubicación Actual</div>'
+    +'<div class="row2">'
+    +'<div class="fg"><label>Tipo de ubicación *</label><select id="eqUbTipo" onchange="document.getElementById(\'wrapCentro\').style.display=this.value===\'centro\'?\'\':\'none\';document.getElementById(\'wrapBodega\').style.display=this.value===\'bodega\'?\'\':\'none\'">'
+      +'<option value="centro"'+(ubTipo==='centro'?' selected':'')+'>🍔 Restaurante (centro de costo)</option>'
+      +'<option value="bodega"'+(ubTipo==='bodega'?' selected':'')+'>📦 Bodega (almacenado)</option>'
+    +'</select></div>'
+    +'<div class="fg" id="wrapCentro" style="display:'+(ubTipo==='centro'?'block':'none')+'"><label>Restaurante *</label><select id="eqCentro">'+centrosOpts+'</select></div>'
+    +'<div class="fg" id="wrapBodega" style="display:'+(ubTipo==='bodega'?'block':'none')+'"><label>Bodega *</label><select id="eqBodega">'+bodegasOpts+'</select></div>'
+    +'</div>'
+
+    +'<div class="fg"><label>Estado</label><select id="eqEstado">'
+      +'<option value="activo"'+(estado==='activo'?' selected':'')+'>✓ Activo (genera OTs de mantenimiento)</option>'
+      +'<option value="almacenado"'+(estado==='almacenado'?' selected':'')+'>📦 Almacenado (sin OTs hasta reactivar)</option>'
+      +'<option value="baja"'+(estado==='baja'?' selected':'')+'>✕ Dado de baja</option>'
+    +'</select></div>'
+
+    // Datos técnicos + mantenimiento
+    +'<div class="sec-hdr" style="margin-top:12px">⚙ Datos Técnicos y Mantenimiento</div>'
+    +'<div class="row3">'
+    +'<div class="fg"><label>Marca</label><input id="eqMarca" value="'+(eq?esc(eq.marca||''):'')+'"></div>'
+    +'<div class="fg"><label>Modelo</label><input id="eqModelo" value="'+(eq?esc(eq.modelo||''):'')+'"></div>'
+    +'<div class="fg"><label>Frecuencia mant.</label><select id="eqFreq">'+freqOpts+'</select></div>'
+    +'</div>'
+    +'<div class="row3">'
+    +'<div class="fg"><label>Unidades</label><input type="number" id="eqUnid" min="1" value="'+(eq?eq.unidades||1:1)+'"></div>'
     +'<div class="fg"><label>kW</label><input type="number" id="eqKw" step="0.1" value="'+(eq?eq.kw||'':'')+'"></div>'
-    +'<div class="fg"><label>Voltaje (V)</label><input type="number" id="eqVolt" value="'+(eq?eq.voltaje||'':'')+'"></div></div>'
-    +'<div class="row2"><div class="fg"><label>Corriente (A)</label><input type="number" id="eqCurr" step="0.1" value="'+(eq?eq.corriente||'':'')+'"></div>'
-    +'<div class="fg"><label>Último mantenimiento</label><input type="date" id="eqUltimo" value="'+(eq?eq.ultimoMant||'':'')+'"></div></div>'
-    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px">'
+    +'<div class="fg"><label>Voltaje (V)</label><input type="number" id="eqVolt" value="'+(eq?eq.voltaje||'':'')+'"></div>'
+    +'</div>'
+    +'<div class="row2">'
+    +'<div class="fg"><label>Corriente (A)</label><input type="number" id="eqCurr" step="0.1" value="'+(eq?eq.corriente||'':'')+'"></div>'
+    +'<div class="fg"><label>Último mantenimiento</label><input type="date" id="eqUltimo" value="'+(eq?eq.ultimoMant||'':'')+'"></div>'
+    +'</div>'
+
+    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">'
     +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalEquipoDiv\').remove()">Cancelar</button>'
-    +'<button class="btn btn-primary" onclick="guardarEquipo(\''+id+'\')">Guardar</button></div></div>';
+    +'<button class="btn btn-primary" onclick="guardarEquipo(\''+id+'\')">✓ Guardar</button></div></div>';
   document.body.appendChild(div);
   setTimeout(function(){_focusFirst(div);},80);
 }
 
 function guardarEquipo(id){
   var m=mantData();
-  var centroId=document.getElementById('eqCentro').value;
   var nombre=(document.getElementById('eqNom').value||'').trim();
-  if(!centroId){toast('Selecciona el restaurante',true);return;}
+  var ubTipo=document.getElementById('eqUbTipo').value;
+  var ubId=ubTipo==='centro'
+    ?document.getElementById('eqCentro').value
+    :document.getElementById('eqBodega').value;
   if(!nombre){toast('Nombre del equipo requerido',true);return;}
+  if(!ubId){toast('Selecciona '+(ubTipo==='centro'?'el restaurante':'la bodega'),true);return;}
+
+  // Detectar cambio de ubicación para registrar movimiento
+  var equipoExistente=id?m.equipos.find(function(e){return e.id===id;}):null;
+  var huboCambio=false;
+  if(equipoExistente){
+    var oldTipo=equipoExistente.ubicacionTipo||'centro';
+    var oldId=equipoExistente.ubicacionId||equipoExistente.centroId||'';
+    if(oldTipo!==ubTipo||oldId!==ubId){huboCambio=true;}
+  }
+
   var datos={
-    centroId:centroId,nombre:nombre,
+    nombre:nombre,
     categoria:document.getElementById('eqCat').value,
     frecuencia:document.getElementById('eqFreq').value,
     unidades:parseInt(document.getElementById('eqUnid').value)||1,
@@ -9182,20 +9350,160 @@ function guardarEquipo(id){
     voltaje:parseFloat(document.getElementById('eqVolt').value)||0,
     corriente:parseFloat(document.getElementById('eqCurr').value)||0,
     ultimoMant:document.getElementById('eqUltimo').value||null,
-    ultimoTecnico:''
+    ubicacionTipo:ubTipo,
+    ubicacionId:ubId,
+    centroId:ubTipo==='centro'?ubId:'', // mantener compat con código viejo
+    estado:document.getElementById('eqEstado').value||'activo',
+    origen:document.getElementById('eqOrigen').value||'compra_local',
+    paisOrigen:(document.getElementById('eqPaisOrigen').value||'').trim(),
+    fechaIngreso:document.getElementById('eqFechaIng').value||null,
+    costoAdquisicion:parseFloat(document.getElementById('eqCostoAdq').value)||0,
+    serie:(document.getElementById('eqSerie').value||'').trim(),
+    marca:(document.getElementById('eqMarca').value||'').trim(),
+    modelo:(document.getElementById('eqModelo').value||'').trim()
   };
-  if(id){
-    var eq=m.equipos.find(function(e){return e.id===id;});
-    if(eq)Object.assign(eq,datos);
+
+  if(id&&equipoExistente){
+    Object.assign(equipoExistente,datos);
+    // Si cambió ubicación, registrar movimiento
+    if(huboCambio){
+      _registrarMovimientoEquipo(id, oldTipo, oldId, ubTipo, ubId, 'traslado', 'Edición manual');
+    }
+    logAction('EDITAR','mant_equipo','Equipo: '+nombre);
   } else {
     datos.id=genId();
+    datos.creadoEn=Date.now();
+    if(!datos.fechaIngreso)datos.fechaIngreso=new Date().toISOString().slice(0,10);
     m.equipos.push(datos);
+    // Registrar ingreso como movimiento
+    _registrarMovimientoEquipo(datos.id, null, null, ubTipo, ubId, 'ingreso',
+      datos.origen==='importacion'?('Importación'+(datos.paisOrigen?' desde '+datos.paisOrigen:'')):
+      (datos.origen==='compra_local'?'Compra local':'Equipo preexistente'));
+    logAction('CREAR','mant_equipo','Equipo: '+nombre);
   }
   saveData();
   var div=document.getElementById('modalEquipoDiv');
   if(div)div.remove();
   renderMantEquipos();
   toast('✓ Equipo guardado');
+}
+
+// ── Registrar movimiento de equipo ──
+function _registrarMovimientoEquipo(equipoId, origenTipo, origenId, destinoTipo, destinoId, tipoMov, motivo){
+  var m=mantData();
+  if(!m.movimientosEquipos)m.movimientosEquipos=[];
+  m.movimientosEquipos.push({
+    id:'me_'+Date.now().toString(36),
+    equipoId:equipoId,
+    fecha:new Date().toISOString().slice(0,10),
+    ts:Date.now(),
+    usuario:S.currentUser?S.currentUser.email:'sistema',
+    tipoMov:tipoMov, // 'ingreso' | 'traslado' | 'baja'
+    origenTipo:origenTipo,
+    origenId:origenId,
+    destinoTipo:destinoTipo,
+    destinoId:destinoId,
+    motivo:motivo||''
+  });
+}
+
+// ── Modal "Mover equipo" rápido ──
+function modalMoverEquipo(id){
+  var m=mantData();
+  var eq=m.equipos.find(function(e){return e.id===id;});
+  if(!eq){toast('Equipo no encontrado',true);return;}
+  var ubTipoActual=eq.ubicacionTipo||'centro';
+  var ubIdActual=eq.ubicacionId||eq.centroId||'';
+  var nomActual='';
+  if(ubTipoActual==='centro'){
+    var c=S.centros.find(function(x){return x.id===ubIdActual;});
+    nomActual=c?'🍔 '+c.nombre:'Sin ubicación';
+  } else {
+    var b=((S.inventario&&S.inventario.bodegas)||[]).find(function(x){return x.id===ubIdActual;});
+    nomActual=b?'📦 '+b.nombre:'Sin ubicación';
+  }
+
+  (function(_e){if(_e)_e.remove();})(document.getElementById('modalMover'));
+  var html='<div id="modalMover" class="modal open"><div class="modal-box md">'
+    +'<div class="modal-hdr"><span class="modal-ttl">📦 Mover equipo</span>'
+    +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalMover\').remove()">✕</button></div>'
+    +'<div style="background:var(--surface2);padding:12px;border-radius:8px;margin-bottom:12px">'
+      +'<div style="font-weight:700;font-size:14px">'+esc(eq.nombre)+'</div>'
+      +'<div style="font-size:12px;color:var(--muted);margin-top:4px">Ubicación actual: <strong>'+esc(nomActual)+'</strong></div>'
+    +'</div>'
+    +'<div class="fg"><label>Tipo de movimiento</label><select id="mvTipo" onchange="_actualizarMover()">'
+      +'<option value="traslado">📦 Traslado a otra ubicación</option>'
+      +'<option value="baja">✕ Dar de baja (descarte/venta)</option>'
+    +'</select></div>'
+    +'<div id="wrapDestino">'
+      +'<div class="fg"><label>Tipo destino</label><select id="mvDestTipo" onchange="_actualizarMover()">'
+        +'<option value="centro">🍔 Restaurante (centro de costo)</option>'
+        +'<option value="bodega">📦 Bodega (almacenado)</option>'
+      +'</select></div>'
+      +'<div class="fg"><label>Destino *</label><select id="mvDestId"></select></div>'
+    +'</div>'
+    +'<div class="fg"><label>Motivo / Notas *</label><textarea id="mvMotivo" rows="2" placeholder="Ej: Cierre de sucursal, apertura local nuevo, equipo dañado..."></textarea></div>'
+    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">'
+    +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalMover\').remove()">Cancelar</button>'
+    +'<button class="btn btn-primary" onclick="ejecutarMoverEquipo(\''+id+'\')">✓ Ejecutar movimiento</button>'
+    +'</div></div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+  _actualizarMover();
+}
+
+function _actualizarMover(){
+  var tipoMov=(document.getElementById('mvTipo')||{}).value;
+  var wrap=document.getElementById('wrapDestino');
+  if(!wrap)return;
+  if(tipoMov==='baja'){wrap.style.display='none';return;}
+  wrap.style.display='block';
+  var destTipo=(document.getElementById('mvDestTipo')||{}).value;
+  var sel=document.getElementById('mvDestId');
+  if(!sel)return;
+  var opts='<option value="">— Seleccionar —</option>';
+  if(destTipo==='centro'){
+    S.centros.forEach(function(c){opts+='<option value="'+c.id+'">'+esc(c.nombre)+'</option>';});
+  } else {
+    ((S.inventario&&S.inventario.bodegas)||[]).forEach(function(b){opts+='<option value="'+b.id+'">'+esc(b.nombre)+'</option>';});
+  }
+  sel.innerHTML=opts;
+}
+
+function ejecutarMoverEquipo(id){
+  var m=mantData();
+  var eq=m.equipos.find(function(e){return e.id===id;});
+  if(!eq){toast('Equipo no encontrado',true);return;}
+  var tipoMov=(document.getElementById('mvTipo')||{}).value;
+  var motivo=((document.getElementById('mvMotivo')||{}).value||'').trim();
+  if(!motivo){toast('Indica el motivo del movimiento',true);return;}
+
+  var oldTipo=eq.ubicacionTipo||'centro';
+  var oldId=eq.ubicacionId||eq.centroId||'';
+
+  if(tipoMov==='baja'){
+    eq.estado='baja';
+    eq.fechaBaja=new Date().toISOString().slice(0,10);
+    eq.motivoBaja=motivo;
+    _registrarMovimientoEquipo(id, oldTipo, oldId, null, null, 'baja', motivo);
+    logAction('BAJA','mant_equipo','Baja: '+eq.nombre);
+    toast('✓ Equipo dado de baja');
+  } else {
+    var destTipo=(document.getElementById('mvDestTipo')||{}).value;
+    var destId=(document.getElementById('mvDestId')||{}).value;
+    if(!destId){toast('Selecciona el destino',true);return;}
+    eq.ubicacionTipo=destTipo;
+    eq.ubicacionId=destId;
+    eq.centroId=destTipo==='centro'?destId:'';
+    // Auto-cambiar estado según destino
+    if(destTipo==='bodega')eq.estado='almacenado';
+    else if(destTipo==='centro')eq.estado='activo';
+    _registrarMovimientoEquipo(id, oldTipo, oldId, destTipo, destId, 'traslado', motivo);
+    logAction('MOVER','mant_equipo','Movido: '+eq.nombre);
+    toast('✓ Equipo movido');
+  }
+  saveData();
+  document.getElementById('modalMover').remove();
+  renderMantEquipos();
 }
 
 function delEquipo(id){
@@ -14213,6 +14521,185 @@ function _chartComparativo(datosDiarios,ruta,vehId){
     +'</svg></div></div>';
 }
 
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  LIMPIEZA AUTOMÁTICA DE NOMBRES DE EQUIPOS
+//  Detecta nombres tipo "SONSONATE CVAP" → centro:SONSONATE, nombre:CVAP
+// ═══════════════════════════════════════════════════════════════════
+function _normalizar(s){
+  return (s||'').toUpperCase()
+    .replace(/[ÁÀÄÂ]/g,'A').replace(/[ÉÈËÊ]/g,'E').replace(/[ÍÌÏÎ]/g,'I')
+    .replace(/[ÓÒÖÔ]/g,'O').replace(/[ÚÙÜÛ]/g,'U').replace(/Ñ/g,'N')
+    .replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+}
+
+function _proponerLimpiezaEquipos(){
+  var m=mantData();
+  var centros=S.centros||[];
+  var propuestas=[];
+
+  m.equipos.forEach(function(eq){
+    if(eq.estado==='baja')return;
+    var nomNorm=_normalizar(eq.nombre);
+    if(!nomNorm)return;
+
+    // Buscar match con centros
+    var bestMatch=null;
+    var bestLen=0;
+    centros.forEach(function(c){
+      var cNorm=_normalizar(c.nombre);
+      if(!cNorm||cNorm.length<3)return;
+      // Buscar como palabra completa en el nombre
+      var palabras=nomNorm.split(' ');
+      var palabrasCentro=cNorm.split(' ');
+      // Match si TODAS las palabras del centro están en el nombre del equipo
+      var todasPresentes=palabrasCentro.every(function(pc){return palabras.indexOf(pc)>=0;});
+      if(todasPresentes&&cNorm.length>bestLen){
+        bestMatch=c;
+        bestLen=cNorm.length;
+      }
+    });
+
+    if(bestMatch){
+      // Quitar las palabras del centro del nombre
+      var palCentro=_normalizar(bestMatch.nombre).split(' ');
+      var palOrig=eq.nombre.split(/\s+/);
+      var palLimpio=palOrig.filter(function(p){
+        var pn=_normalizar(p);
+        return palCentro.indexOf(pn)<0;
+      });
+      var nombreLimpio=palLimpio.join(' ').trim();
+      if(!nombreLimpio)nombreLimpio=eq.nombre; // si queda vacío, dejar original
+
+      // ¿Hay cambio real?
+      var ubActual=eq.ubicacionId||eq.centroId||'';
+      var huboCambioCentro=ubActual!==bestMatch.id;
+      var huboCambioNombre=nombreLimpio!==eq.nombre;
+      if(huboCambioCentro||huboCambioNombre){
+        propuestas.push({
+          equipoId:eq.id,
+          nombreOrig:eq.nombre,
+          nombreNuevo:nombreLimpio,
+          centroAnt:ubActual,
+          centroNuevo:bestMatch.id,
+          centroNombre:bestMatch.nombre
+        });
+      }
+    }
+  });
+
+  return propuestas;
+}
+
+function modalLimpiezaEquipos(){
+  var propuestas=_proponerLimpiezaEquipos();
+  S._cleanPropuestas=propuestas;
+
+  (function(_e){if(_e)_e.remove();})(document.getElementById('modalLimpieza'));
+  if(propuestas.length===0){
+    toast('✓ No se detectaron nombres con centro embedido — todo limpio');
+    return;
+  }
+
+  var rows=propuestas.map(function(p,i){
+    var centroAntNombre='—';
+    if(p.centroAnt){var c=S.centros.find(function(x){return x.id===p.centroAnt;});if(c)centroAntNombre=c.nombre;}
+    return '<tr>'
+      +'<td><input type="checkbox" class="clean-chk" data-i="'+i+'" checked></td>'
+      +'<td style="font-size:12px"><div style="text-decoration:line-through;color:var(--muted)">'+esc(p.nombreOrig)+'</div>'
+      +'<div style="color:var(--green);font-weight:700">'+esc(p.nombreNuevo)+'</div></td>'
+      +'<td style="font-size:12px"><div style="text-decoration:line-through;color:var(--muted)">'+esc(centroAntNombre)+'</div>'
+      +'<div style="color:var(--green);font-weight:700">'+esc(p.centroNombre)+'</div></td>'
+      +'</tr>';
+  }).join('');
+
+  var html='<div id="modalLimpieza" class="modal open"><div class="modal-box lg">'
+    +'<div class="modal-hdr"><span class="modal-ttl">🧹 Limpieza automática de nombres de equipos</span>'
+    +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalLimpieza\').remove()">✕</button></div>'
+    +'<div class="info-box">Se detectaron '+propuestas.length+' equipos cuyo nombre contiene el nombre de un centro de costo. Revisa los cambios propuestos y desmarca los que NO quieras aplicar.</div>'
+    +'<div style="margin-bottom:8px"><button class="btn btn-secondary btn-xs" onclick="document.querySelectorAll(\'.clean-chk\').forEach(function(c){c.checked=true})">✓ Marcar todos</button>'
+    +' <button class="btn btn-secondary btn-xs" onclick="document.querySelectorAll(\'.clean-chk\').forEach(function(c){c.checked=false})">☐ Desmarcar todos</button></div>'
+    +'<div class="tbl-wrap" style="max-height:60vh;overflow-y:auto"><table>'
+    +'<thead><tr><th style="width:40px">✓</th><th>Nombre (antes → después)</th><th>Centro de costo (antes → después)</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table></div>'
+    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">'
+    +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalLimpieza\').remove()">Cancelar</button>'
+    +'<button class="btn btn-primary" onclick="aplicarLimpiezaEquipos()">✓ Aplicar cambios marcados</button>'
+    +'</div></div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+
+function aplicarLimpiezaEquipos(){
+  var props=S._cleanPropuestas||[];
+  var aplicados=0;
+  var m=mantData();
+  document.querySelectorAll('.clean-chk:checked').forEach(function(cb){
+    var idx=parseInt(cb.getAttribute('data-i'));
+    var p=props[idx];
+    if(!p)return;
+    var eq=m.equipos.find(function(e){return e.id===p.equipoId;});
+    if(!eq)return;
+    eq.nombre=p.nombreNuevo;
+    eq.ubicacionTipo='centro';
+    eq.ubicacionId=p.centroNuevo;
+    eq.centroId=p.centroNuevo;
+    if(!eq.estado)eq.estado='activo';
+    aplicados++;
+  });
+  if(aplicados>0){
+    saveData();
+    logAction('LIMPIAR','mant_equipo','Limpieza aplicada a '+aplicados+' equipos');
+    toast('✓ '+aplicados+' equipos actualizados');
+  } else {
+    toast('Sin cambios aplicados');
+  }
+  var modal=document.getElementById('modalLimpieza');
+  if(modal)modal.remove();
+  renderMantEquipos();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  HISTORIAL DE MOVIMIENTOS DE EQUIPOS
+// ═══════════════════════════════════════════════════════════════════
+function renderMantMovimientos(){
+  var m=mantData();
+  var movs=[].concat(m.movimientosEquipos||[]).sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+
+  function nomUbicacion(tipo,id){
+    if(!id)return '—';
+    if(tipo==='centro'){var c=S.centros.find(function(x){return x.id===id;});return c?'🍔 '+c.nombre:'(eliminado)';}
+    if(tipo==='bodega'){var b=((S.inventario&&S.inventario.bodegas)||[]).find(function(x){return x.id===id;});return b?'📦 '+b.nombre:'(eliminada)';}
+    return '—';
+  }
+
+  var rows=movs.slice(0,200).map(function(mv){
+    var eq=m.equipos.find(function(e){return e.id===mv.equipoId;});
+    var tipoLabel='';
+    var tipoColor='b-neu';
+    if(mv.tipoMov==='ingreso'){tipoLabel='📥 Ingreso';tipoColor='b-ok';}
+    else if(mv.tipoMov==='traslado'){tipoLabel='📦 Traslado';tipoColor='b-blue';}
+    else if(mv.tipoMov==='baja'){tipoLabel='✕ Baja';tipoColor='b-err';}
+    return '<tr>'
+      +'<td>'+fmtDate(mv.fecha)+'<div style="font-size:10px;color:var(--muted)">'+(mv.usuario||'')+'</div></td>'
+      +'<td><strong>'+esc(eq?eq.nombre:'(eliminado)')+'</strong></td>'
+      +'<td><span class="badge '+tipoColor+'">'+tipoLabel+'</span></td>'
+      +'<td>'+esc(nomUbicacion(mv.origenTipo,mv.origenId))+'</td>'
+      +'<td>→ '+esc(nomUbicacion(mv.destinoTipo,mv.destinoId))+'</td>'
+      +'<td style="font-size:12px;max-width:300px;white-space:normal">'+esc(mv.motivo||'')+'</td>'
+      +'</tr>';
+  }).join('');
+  if(!rows)rows='<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">Sin movimientos registrados</td></tr>';
+
+  document.getElementById('content').innerHTML=
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
+    +'<button class="btn btn-secondary btn-sm" onclick="goTab(\'mant_equipos\')">← Volver a Equipos</button>'
+    +'<div style="font-size:13px;color:var(--muted)">'+movs.length+' movimiento(s) totales (mostrando últimos 200)</div>'
+    +'</div>'
+    +'<div class="card" style="padding:0"><div class="tbl-wrap" style="border:none;border-radius:0"><table>'
+    +'<thead><tr><th>Fecha</th><th>Equipo</th><th>Tipo</th><th>Origen</th><th>Destino</th><th>Motivo</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table></div></div>';
+}
 
 function renderImportar() {
   var selMod = S._impMod || 'gastos';
