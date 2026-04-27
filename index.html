@@ -1166,11 +1166,15 @@ const S={
       {id:'mantenimiento',label:'Mantenimiento general',usadoEn:['mant']}
     ],
     categoriasArea:[
-      {id:'ac',label:'A/C'},
-      {id:'cocina',label:'Cocina'},
-      {id:'fontaneria',label:'Fontanería'},
-      {id:'civil',label:'Civil'},
-      {id:'general',label:'General'}
+      {id:'ac',label:'A/C',modulo:'mant'},
+      {id:'cocina',label:'Cocina',modulo:'mant'},
+      {id:'refrigeracion',label:'Refrigeración',modulo:'mant'},
+      {id:'fontaneria',label:'Fontanería',modulo:'mant'},
+      {id:'electrico',label:'Eléctrico',modulo:'mant'},
+      {id:'civil',label:'Civil',modulo:'mant'},
+      {id:'general',label:'General',modulo:'mant'},
+      {id:'mecanica_vehiculos',label:'Mecánica de vehículos',modulo:'taller'},
+      {id:'conduccion',label:'Conducción',modulo:'chofer'}
     ],
     frecuencias:['mensual','bimestral','trimestral','semestral','anual'],
     tiposVehiculo:['CAMION','CAMION REFRIGERADO','PANEL','PICK UP','MOTO','OTRO'],
@@ -1426,7 +1430,17 @@ var _CFG_DEFAULTS={
     {id:'civil',label:'Obra civil',usadoEn:['mant']},
     {id:'mantenimiento',label:'Mantenimiento general',usadoEn:['mant']}
   ],
-  categoriasArea:[{id:'ac',label:'A/C'},{id:'cocina',label:'Cocina'},{id:'fontaneria',label:'Fontanería'},{id:'civil',label:'Civil'},{id:'general',label:'General'}],
+  categoriasArea:[
+    {id:'ac',label:'A/C',modulo:'mant'},
+    {id:'cocina',label:'Cocina',modulo:'mant'},
+    {id:'refrigeracion',label:'Refrigeración',modulo:'mant'},
+    {id:'fontaneria',label:'Fontanería',modulo:'mant'},
+    {id:'electrico',label:'Eléctrico',modulo:'mant'},
+    {id:'civil',label:'Civil',modulo:'mant'},
+    {id:'general',label:'General',modulo:'mant'},
+    {id:'mecanica_vehiculos',label:'Mecánica de vehículos',modulo:'taller'},
+    {id:'conduccion',label:'Conducción',modulo:'chofer'}
+  ],
   frecuencias:['mensual','bimestral','trimestral','semestral','anual'],
   tiposVehiculo:['CAMION','CAMION REFRIGERADO','PANEL','PICK UP','MOTO','OTRO'],
   categoriasFallas:[{id:'mecanica',label:'Mecánica',icono:'🔧'},{id:'electrica',label:'Eléctrica',icono:'⚡'},{id:'carroceria',label:'Carrocería',icono:'🚚'},{id:'enfriamiento',label:'A/C / Enfriamiento',icono:'❄️'},{id:'otros',label:'Otros',icono:'📌'}],
@@ -1463,13 +1477,38 @@ function catAreaLabel(id){var c=getCfgCategoriasArea().find(function(x){return x
 function fallaLabel(id){var f=getCfgCategoriasFallas().find(function(x){return x.id===id;});return f?(f.icono+' '+f.label):(id||'—');}
 function otEstadoLabel(id){var e=getCfgEstadosOT().find(function(x){return x.id===id;});return e?e.label:(id||'—');}
 function otEstadoColor(id){var e=getCfgEstadosOT().find(function(x){return x.id===id;});return e?e.color:'b-neu';}
-function getTecnicosByArea(area){
+// Obtiene técnicos cuyo arreglo `roles` incluye al menos una categoría que pertenece al módulo dado.
+function getTecnicosByArea(modulo){
+  var cats=getCfgCategoriasArea().filter(function(c){return c.modulo===modulo;});
+  var idsModulo=cats.map(function(c){return c.id;});
   return ((S.mantenimiento&&S.mantenimiento.tecnicos)||[]).filter(function(t){
     if(t.activo===false)return false;
-    var tipo=getCfgTiposTecnico().find(function(x){return x.id===t.tipo;});
-    if(!tipo)return !!t.tipo;
-    return !tipo.usadoEn||tipo.usadoEn.indexOf(area)>=0;
+    var roles=t.roles||[];
+    if(roles.length===0&&t.tipo){
+      // Fallback legacy si aún no migró
+      roles=[t.tipo];
+    }
+    return roles.some(function(r){return idsModulo.indexOf(r)>=0;});
   });
+}
+// Devuelve técnicos cuyo `roles` incluye una categoría específica
+function getTecnicosByCategoria(catId){
+  return ((S.mantenimiento&&S.mantenimiento.tecnicos)||[]).filter(function(t){
+    if(t.activo===false)return false;
+    var roles=t.roles||[];
+    if(roles.length===0&&t.tipo)roles=[t.tipo];
+    return roles.indexOf(catId)>=0;
+  });
+}
+// Etiqueta legible de los roles de un técnico
+function tecRolesLabel(t){
+  var roles=t.roles||[];
+  if(roles.length===0&&t.tipo)roles=[t.tipo];
+  var cats=getCfgCategoriasArea();
+  return roles.map(function(r){
+    var c=cats.find(function(x){return x.id===r;});
+    return c?c.label:r;
+  }).join(', ')||'—';
 }
 function tallerMecanicos(){return getTecnicosByArea('taller');}
 function optsFromArray(arr,selVal){return arr.map(function(v){return '<option value="'+esc(v)+'" '+(v===selVal?'selected':'')+'>'+esc(v)+'</option>';}).join('');}
@@ -1514,6 +1553,73 @@ function migrateData(){
   // Inicializar arreglo de movimientos de equipos
   if(S.mantenimiento&&!S.mantenimiento.movimientosEquipos){
     S.mantenimiento.movimientosEquipos=[];
+  }
+
+  // ── Migración técnicos: tipo+area → roles[] (multi-especialidad) ──
+  if(S.mantenimiento&&S.mantenimiento.tecnicos){
+    var mapTipoArea={
+      'mecanica':'mecanica_vehiculos',
+      'motorista':'conduccion',
+      'chofer':'conduccion',
+      'electrico':'electrico',
+      'aire':'ac',
+      'refrigeracion':'refrigeracion',
+      'cocina':'cocina',
+      'fontaneria':'fontaneria',
+      'soldadura':'general',
+      'civil':'civil',
+      'mantenimiento':'general'
+    };
+    var mapArea={
+      'ac':'ac','aire':'ac','a/c':'ac','A/C':'ac',
+      'cocina':'cocina','Cocina':'cocina',
+      'fontaneria':'fontaneria','Fontanería':'fontaneria','Plomería':'fontaneria',
+      'civil':'civil','Civil':'civil',
+      'general':'general','General':'general',
+      'electrico':'electrico','Eléctrico':'electrico',
+      'refrigeracion':'refrigeracion','Refrigeración':'refrigeracion',
+      'mecanica':'mecanica_vehiculos','Mecánica':'mecanica_vehiculos','Mecánica de vehículos':'mecanica_vehiculos',
+      'conduccion':'conduccion','Conducción':'conduccion'
+    };
+    S.mantenimiento.tecnicos.forEach(function(t){
+      if(!t.roles||!Array.isArray(t.roles)||t.roles.length===0){
+        var roles=[];
+        // Mapear desde tipo (rol viejo) y area
+        if(t.tipo){
+          var rTipo=mapTipoArea[t.tipo];
+          if(rTipo&&roles.indexOf(rTipo)<0)roles.push(rTipo);
+        }
+        if(t.area){
+          var rArea=mapArea[t.area]||mapArea[t.area.toLowerCase()];
+          if(rArea&&roles.indexOf(rArea)<0)roles.push(rArea);
+        }
+        if(roles.length===0)roles=['general'];
+        t.roles=roles;
+      }
+    });
+  }
+
+  // ── Migrar categoriasArea para que cada item tenga modulo ──
+  if(S.config&&S.config.categoriasArea){
+    var defModulo=function(id){
+      if(['mecanica_vehiculos','mecanica'].indexOf(id)>=0)return 'taller';
+      if(['conduccion'].indexOf(id)>=0)return 'chofer';
+      return 'mant';
+    };
+    S.config.categoriasArea.forEach(function(c){
+      if(!c.modulo)c.modulo=defModulo(c.id);
+    });
+    // Asegurar que existan las nuevas categorías
+    var idsActuales=S.config.categoriasArea.map(function(c){return c.id;});
+    var nuevasNec=[
+      {id:'mecanica_vehiculos',label:'Mecánica de vehículos',modulo:'taller'},
+      {id:'conduccion',label:'Conducción',modulo:'chofer'},
+      {id:'refrigeracion',label:'Refrigeración',modulo:'mant'},
+      {id:'electrico',label:'Eléctrico',modulo:'mant'}
+    ];
+    nuevasNec.forEach(function(n){
+      if(idsActuales.indexOf(n.id)<0)S.config.categoriasArea.push(n);
+    });
   }
 
   // Normalizar emails de choferId en vehículos (case-insensitive match con currentUser.email)
@@ -9042,7 +9148,7 @@ function renderMantPanel(){
   });
   if(!resumenTecs)resumenTecs='<tr><td colspan="4" class="empty">Sin técnicos activos</td></tr>';
 
-  var genBtn=puedeVer('mant_equipos')?'<button class="btn btn-primary" onclick="mantGenerarOTs()">⚙ Generar OTs del mes</button>':'';
+  var genBtn=puedeVer('mant_equipos')?'<button class="btn btn-primary" onclick="mantGenerarOTs()">⚙ Generar OTs del mes</button> <button class="btn btn-secondary" onclick="mantReasignarOTsPendientes()" title="Reasigna las OT pendientes según especialidades actuales">🔄 Reasignar pendientes</button>':'';
 
   var el=document.getElementById('content');
   el.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">'
@@ -9066,15 +9172,31 @@ function mantGenerarOTs(){
   var mesActual=hoy.slice(0,7);
   var fechaBase=mesActual+'-01';
   var creadas=0;
+  var asignadas=0;
   var saltados={almacenado:0,baja:0,sinFreq:0,yaExiste:0,noCorresponde:0,total:0};
   var detalleNoCorresponde=[];
+
+  // Precalcular: técnicos disponibles por categoría + carga actual
+  var cargaTec={}; // tecnicoId → cantidad de OT pendientes este mes
+  m.ots.forEach(function(ot){
+    if((ot.fechaProgramada||'').slice(0,7)===mesActual&&ot.estado!=='completada'&&ot.tecnicoId){
+      cargaTec[ot.tecnicoId]=(cargaTec[ot.tecnicoId]||0)+1;
+    }
+  });
+
+  function elegirTecnico(catId){
+    var tecs=getTecnicosByCategoria(catId);
+    if(tecs.length===0)return null;
+    // round-robin: el que tenga menos OT recibe la siguiente
+    tecs.sort(function(a,b){return (cargaTec[a.id]||0)-(cargaTec[b.id]||0);});
+    return tecs[0];
+  }
+
   m.equipos.forEach(function(eq){
     saltados.total++;
-    // Solo equipos ACTIVOS (no almacenados ni dados de baja)
     if(eq.estado==='almacenado'){saltados.almacenado++;return;}
     if(eq.estado==='baja'){saltados.baja++;return;}
     if(!eq.frecuencia){saltados.sinFreq++;return;}
-    // ¿Corresponde mantenimiento este mes?
     var dias=frecDias[eq.frecuencia]||30;
     var ultimo=eq.ultimoMant||null;
     var corresponde=false;
@@ -9092,20 +9214,27 @@ function mantGenerarOTs(){
       }
       return;
     }
-    // ¿Ya existe OT para este equipo en este mes?
     var yaExiste=m.ots.find(function(ot){
       return ot.equipoId===eq.id&&(ot.fechaProgramada||'').slice(0,7)===mesActual&&ot.estado!=='completada';
     });
     if(yaExiste){saltados.yaExiste++;return;}
-    // Buscar checklist de la categoría
     var cl=m.checklists.find(function(c){return c.categoria===eq.categoria;});
-    // Determinar centroId actual del equipo
     var centroIdEq=eq.ubicacionTipo==='centro'?eq.ubicacionId:(eq.centroId||'');
+
+    // Auto-asignación
+    var tecAsig=elegirTecnico(eq.categoria);
+    var tecnicoId='';
+    if(tecAsig){
+      tecnicoId=tecAsig.id;
+      cargaTec[tecAsig.id]=(cargaTec[tecAsig.id]||0)+1;
+      asignadas++;
+    }
+
     m.ots.push({
       id:genId(),
       equipoId:eq.id,
       centroId:centroIdEq,
-      tecnicoId:'',
+      tecnicoId:tecnicoId,
       fechaProgramada:fechaBase,
       prioridad:'normal',
       estado:'pendiente',
@@ -9123,7 +9252,6 @@ function mantGenerarOTs(){
   saveData();
   renderMantPanel();
 
-  // Diagnóstico detallado SI no se generó nada
   if(creadas===0){
     var diagMsg='⚠ Ninguna OT generada. Diagnóstico de '+saltados.total+' equipo(s):\n\n';
     diagMsg+='• '+saltados.almacenado+' almacenados (en bodega)\n';
@@ -9142,25 +9270,35 @@ function mantGenerarOTs(){
     toast('0 OT(s) generadas — ver diagnóstico');
   } else {
     var msg='✓ '+creadas+' OT(s) generadas';
-    var info=[];
-    if(saltados.almacenado>0)info.push(saltados.almacenado+' almacenados');
-    if(saltados.baja>0)info.push(saltados.baja+' baja');
-    if(saltados.sinFreq>0)info.push(saltados.sinFreq+' sin freq');
-    if(saltados.yaExiste>0)info.push(saltados.yaExiste+' ya tenían OT');
-    if(saltados.noCorresponde>0)info.push(saltados.noCorresponde+' no toca aún');
-    if(info.length>0)msg+=' · Saltados: '+info.join(', ');
+    if(asignadas>0)msg+=' · '+asignadas+' auto-asignadas';
+    if(creadas-asignadas>0)msg+=' · '+(creadas-asignadas)+' sin técnico (revisar especialidades)';
     toast(msg);
   }
-  logAction('GENERAR','mant_ot',creadas+' OTs creadas para '+mesActual);
+  logAction('GENERAR','mant_ot',creadas+' OTs creadas, '+asignadas+' asignadas');
 }
 
-// Generación forzada: crea OT para TODOS los equipos activos sin OT pendiente este mes
+// Generación forzada con auto-asignación
 function mantGenerarOTsForzado(){
   var m=mantData();
   var hoy=mantHoy();
   var mesActual=hoy.slice(0,7);
   var fechaBase=mesActual+'-01';
-  var creadas=0;
+  var creadas=0,asignadas=0;
+
+  // Carga actual de cada técnico
+  var cargaTec={};
+  m.ots.forEach(function(ot){
+    if((ot.fechaProgramada||'').slice(0,7)===mesActual&&ot.estado!=='completada'&&ot.tecnicoId){
+      cargaTec[ot.tecnicoId]=(cargaTec[ot.tecnicoId]||0)+1;
+    }
+  });
+  function elegirTecnico(catId){
+    var tecs=getTecnicosByCategoria(catId);
+    if(tecs.length===0)return null;
+    tecs.sort(function(a,b){return (cargaTec[a.id]||0)-(cargaTec[b.id]||0);});
+    return tecs[0];
+  }
+
   m.equipos.forEach(function(eq){
     if(eq.estado==='almacenado'||eq.estado==='baja')return;
     var yaExiste=m.ots.find(function(ot){
@@ -9169,11 +9307,18 @@ function mantGenerarOTsForzado(){
     if(yaExiste)return;
     var cl=m.checklists.find(function(c){return c.categoria===eq.categoria;});
     var centroIdEq=eq.ubicacionTipo==='centro'?eq.ubicacionId:(eq.centroId||'');
+    var tecAsig=elegirTecnico(eq.categoria);
+    var tecnicoId='';
+    if(tecAsig){
+      tecnicoId=tecAsig.id;
+      cargaTec[tecAsig.id]=(cargaTec[tecAsig.id]||0)+1;
+      asignadas++;
+    }
     m.ots.push({
       id:genId(),
       equipoId:eq.id,
       centroId:centroIdEq,
-      tecnicoId:'',
+      tecnicoId:tecnicoId,
       fechaProgramada:fechaBase,
       prioridad:'normal',
       estado:'pendiente',
@@ -9191,7 +9336,48 @@ function mantGenerarOTsForzado(){
   saveData();
   renderMantPanel();
   logAction('GENERAR','mant_ot',creadas+' OTs forzadas para '+mesActual);
-  toast('✓ '+creadas+' OT(s) generadas (modo forzado)');
+  var msg='✓ '+creadas+' OT(s) generadas (forzado)';
+  if(asignadas>0)msg+=' · '+asignadas+' auto-asignadas';
+  if(creadas-asignadas>0)msg+=' · '+(creadas-asignadas)+' sin técnico';
+  toast(msg);
+}
+
+// ── Botón "Reasignar todas las OT pendientes" (útil tras cambiar técnicos) ──
+function mantReasignarOTsPendientes(){
+  if(!confirm('¿Reasignar todas las OT pendientes según las especialidades actuales de los técnicos?'))return;
+  var m=mantData();
+  var hoy=mantHoy();
+  var mesActual=hoy.slice(0,7);
+  var cargaTec={};
+  // Reset de asignaciones del mes
+  m.ots.forEach(function(ot){
+    if((ot.fechaProgramada||'').slice(0,7)===mesActual&&ot.estado==='pendiente'){
+      ot.tecnicoId='';
+    }
+  });
+  function elegirTecnico(catId){
+    var tecs=getTecnicosByCategoria(catId);
+    if(tecs.length===0)return null;
+    tecs.sort(function(a,b){return (cargaTec[a.id]||0)-(cargaTec[b.id]||0);});
+    return tecs[0];
+  }
+  var asignadas=0;
+  m.ots.forEach(function(ot){
+    if(ot.estado!=='pendiente')return;
+    if((ot.fechaProgramada||'').slice(0,7)!==mesActual)return;
+    var eq=m.equipos.find(function(e){return e.id===ot.equipoId;});
+    if(!eq)return;
+    var tec=elegirTecnico(eq.categoria);
+    if(tec){
+      ot.tecnicoId=tec.id;
+      cargaTec[tec.id]=(cargaTec[tec.id]||0)+1;
+      asignadas++;
+    }
+  });
+  saveData();
+  renderMantPanel();
+  toast('✓ '+asignadas+' OT(s) reasignadas');
+  logAction('REASIGNAR','mant_ot',asignadas+' OTs reasignadas');
 }
 
 // ── mant_equipos ─────────────────────────────────────────
@@ -9648,39 +9834,55 @@ function mantActualizarPunto(ci,pi,campo,val){
 function renderMantTecnicos(){
   var m=mantData();
   var filtroArea=S._tecFiltroArea||'';
+  var cats=getCfgCategoriasArea();
   var lista=m.tecnicos.filter(function(t){
     if(!filtroArea)return true;
-    var tipo=getCfgTiposTecnico().find(function(x){return x.id===t.tipo;});
-    return tipo&&tipo.usadoEn&&tipo.usadoEn.indexOf(filtroArea)>=0;
+    var roles=t.roles||[];
+    if(roles.length===0&&t.tipo)roles=[t.tipo];
+    // filtro por módulo (taller / mant / chofer)
+    var idsMod=cats.filter(function(c){return c.modulo===filtroArea;}).map(function(c){return c.id;});
+    return roles.some(function(r){return idsMod.indexOf(r)>=0;});
   });
-  var rows=lista.length===0?'<tr><td colspan="7" class="empty">Sin personal registrado'+(filtroArea?' en esta área':'')+'</td></tr>':'';
+  var rows=lista.length===0?'<tr><td colspan="6" class="empty">Sin personal registrado'+(filtroArea?' en esta área':'')+'</td></tr>':'';
   lista.forEach(function(t){
-    var tipo=getCfgTiposTecnico().find(function(x){return x.id===t.tipo;});
-    var areas=(tipo&&tipo.usadoEn||[]).map(function(a){return a==='taller'?'<span class="badge b-warn" style="font-size:9px">Taller</span>':'<span class="badge b-blue" style="font-size:9px">Mant.</span>';}).join(' ');
+    var roles=t.roles||[];
+    if(roles.length===0&&t.tipo)roles=[t.tipo];
+    var rolesBadges=roles.map(function(r){
+      var c=cats.find(function(x){return x.id===r;});
+      var modBadge='b-blue';
+      if(c){
+        if(c.modulo==='taller')modBadge='b-warn';
+        else if(c.modulo==='chofer')modBadge='b-purple';
+      }
+      return '<span class="badge '+modBadge+'" style="font-size:10px;margin:1px">'+esc(c?c.label:r)+'</span>';
+    }).join(' ');
+    var emailChofer=t.usuarioChoferEmail?'<div style="font-size:10px;color:var(--accent);margin-top:2px">🚛 '+esc(t.usuarioChoferEmail)+'</div>':'';
     rows+='<tr>'
-      +'<td><strong>'+esc(t.nombre)+'</strong>'+(t.telefono?'<div style="font-size:11px;color:var(--muted)">📞 '+esc(t.telefono)+'</div>':'')+'</td>'
-      +'<td><span class="badge b-purple">'+esc(tecTipoLabel(t.tipo))+'</span></td>'
-      +'<td>'+esc(catAreaLabel(t.especialidad)||t.especialidad||'—')+'</td>'
-      +'<td>'+areas+'</td>'
+      +'<td><strong>'+esc(t.nombre)+'</strong>'
+        +(t.telefono?'<div style="font-size:11px;color:var(--muted)">📞 '+esc(t.telefono)+'</div>':'')
+        +emailChofer
+      +'</td>'
+      +'<td style="white-space:normal">'+rolesBadges+'</td>'
       +'<td style="text-align:center">'+(t.activo!==false?'<span class="badge b-ok">Activo</span>':'<span class="badge b-err">Inactivo</span>')+'</td>'
-      +'<td style="font-size:11px;color:var(--muted)">'+esc(t.notas||'')+'</td>'
-      +'<td><div class="td-act"><button class="btn btn-secondary btn-xs" onclick="modalTecnico(\''+t.id+'\')">✏</button><button class="btn btn-danger btn-xs" onclick="delTecnico(\''+t.id+'\')">✕</button></div></td></tr>';
+      +'<td style="font-size:11px;color:var(--muted);max-width:240px;white-space:normal">'+esc(t.notas||'')+'</td>'
+      +'<td><div class="td-act"><button class="btn btn-secondary btn-xs" onclick="verOTsTecnico(\''+t.id+'\')" title="Ver sus OT">👁</button><button class="btn btn-secondary btn-xs" onclick="modalTecnico(\''+t.id+'\')">✏</button><button class="btn btn-danger btn-xs" onclick="delTecnico(\''+t.id+'\')">✕</button></div></td></tr>';
   });
   var areaFiltros=[
     {id:'',label:'Todos'},
+    {id:'mant',label:'🔧 Mantenimiento'},
     {id:'taller',label:'🚚 Taller'},
-    {id:'mant',label:'🔧 Mantenimiento'}
+    {id:'chofer',label:'🚛 Choferes'}
   ];
   var filtroHTML=areaFiltros.map(function(f){
     return '<button class="btn btn-'+(filtroArea===f.id?'primary':'secondary')+' btn-sm" onclick="S._tecFiltroArea=\''+f.id+'\';renderMantTecnicos()">'+f.label+'</button>';
   }).join('');
   document.getElementById('content').innerHTML=
-    '<div class="info-box">👷 <strong>Catálogo de todo el personal del sistema.</strong> Aquí se registran técnicos de mantenimiento, mecánicos de taller, motoristas y cualquier otro actor. El campo "Módulos" indica en qué parte del app aparece cada tipo de técnico (taller, mantenimiento, asistencia).</div>'
+    '<div class="info-box">👷 <strong>Catálogo unificado de personal.</strong> Cada persona puede tener varias especialidades. Las OT se asignan automáticamente al técnico cuya especialidad coincide con la categoría del equipo. Los marcados con "Conducción" pueden vincularse a un usuario chofer.</div>'
     +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">'
     +'<div style="display:flex;gap:6px;flex-wrap:wrap">'+filtroHTML+'</div>'
     +'<button class="btn btn-primary" onclick="modalTecnico(\'\')">+ Nuevo Personal</button></div>'
     +'<div class="card" style="padding:0"><div class="tbl-wrap" style="border:none;border-radius:0">'
-    +'<table><thead><tr><th>Nombre</th><th>Tipo</th><th>Área Especialidad</th><th>Módulos</th><th style="text-align:center">Estado</th><th>Notas</th><th>Acciones</th></tr></thead>'
+    +'<table><thead><tr><th>Nombre</th><th>Especialidades</th><th style="text-align:center">Estado</th><th>Notas</th><th>Acciones</th></tr></thead>'
     +'<tbody>'+rows+'</tbody></table></div></div>';
 }
 
@@ -9688,28 +9890,62 @@ function modalTecnico(id){
   var m=mantData();
   var t=id?m.tecnicos.find(function(x){return x.id===id;}):null;
   (function(_e){if(_e)_e.remove();})(document.getElementById('modalTecDiv'));
-  var esOtro=t&&t.tipo&&!getCfgTiposTecnico().find(function(tt){return tt.id===t.tipo;});
+
+  var rolesActuales=(t&&t.roles)||[];
+  if(rolesActuales.length===0&&t&&t.tipo)rolesActuales=[t.tipo];
+
+  var cats=getCfgCategoriasArea();
+  var grupos={mant:[],taller:[],chofer:[]};
+  cats.forEach(function(c){
+    var mod=c.modulo||'mant';
+    if(!grupos[mod])grupos[mod]=[];
+    grupos[mod].push(c);
+  });
+
+  function chkBlock(cs,label,ic){
+    if(!cs.length)return '';
+    var items=cs.map(function(c){
+      var checked=rolesActuales.indexOf(c.id)>=0?' checked':'';
+      return '<label style="display:flex;align-items:center;gap:6px;background:var(--surface2);padding:8px 12px;border-radius:8px;border:1px solid var(--border);cursor:pointer;font-size:13px">'
+        +'<input type="checkbox" class="tec-rol" data-rol="'+c.id+'"'+checked+'> '+esc(c.label)+'</label>';
+    }).join('');
+    return '<div style="margin-bottom:8px"><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:6px">'+ic+' '+label+'</div>'
+      +'<div style="display:flex;flex-wrap:wrap;gap:6px">'+items+'</div></div>';
+  }
+
+  var usuariosChofer=(S.usuarios||[]).filter(function(u){return u.rol==='chofer';});
+  var choferOpts='<option value="">— Sin vincular —</option>'
+    +usuariosChofer.map(function(u){
+      var emLow=(u.email||'').toLowerCase();
+      var sel=t&&(t.usuarioChoferEmail||'').toLowerCase()===emLow?' selected':'';
+      return '<option value="'+esc(emLow)+'"'+sel+'>'+esc(u.nombre||u.email)+' ('+esc(emLow)+')</option>';
+    }).join('');
+
+  var tieneConduccionInicial=rolesActuales.indexOf('conduccion')>=0;
+
   var html='<div id="modalTecDiv" class="modal open"><div class="modal-box md">'
-    +'<div class="modal-hdr"><div class="modal-ttl">'+(id?'✏ Editar Personal':'+ Nuevo Personal')+'</div>'
-    +'<button class="btn btn-secondary btn-sm" onclick="(function(_e){if(_e)_e.remove();})(document.getElementById(\'modalTecDiv\'))">✕</button></div>'
+    +'<div class="modal-hdr"><div class="modal-ttl">'+(id?'\u270f Editar Personal':'+ Nuevo Personal')+'</div>'
+    +'<button class="btn btn-secondary btn-sm" onclick="(function(_e){if(_e)_e.remove();})(document.getElementById(\'modalTecDiv\'))">\u2715</button></div>'
     +'<div class="row2">'
     +'<div class="fg"><label>Nombre completo *</label><input id="tecNom" value="'+esc((t&&t.nombre)||'')+'" placeholder="Nombre y apellido"></div>'
-    +'<div class="fg"><label>Teléfono</label><input id="tecTel" value="'+esc((t&&t.telefono)||'')+'" placeholder="7000-0000"></div>'
+    +'<div class="fg"><label>Tel\u00e9fono</label><input id="tecTel" value="'+esc((t&&t.telefono)||'')+'" placeholder="7000-0000"></div>'
     +'</div>'
-    +'<div class="row2">'
-    +'<div class="fg"><label>Tipo de técnico / Rol *</label>'
-    +'<select id="tecTipo" onchange="(function(){var v=this.value;document.getElementById(\'tecTipoOtroWrap\').style.display=v===\'__otro__\'?\'block\':\'none\'}).call(this)">'
-    +optsTiposTecnico(esOtro?'__otro__':(t&&t.tipo)||'')
-    +'</select></div>'
-    +'<div class="fg"><label>Área de especialización</label><select id="tecEsp">'+optsCategoriasArea(t&&t.especialidad)+'</select></div>'
+    +'<div class="fg"><label>Especialidades * (puede tener varias)</label>'
+    +'<div onchange="document.getElementById(\'wrapChoferLink\').style.display=document.querySelector(\'.tec-rol[data-rol=conduccion]:checked\')?\'block\':\'none\'" style="background:var(--surface);padding:10px;border-radius:8px;border:1px solid var(--border);max-height:280px;overflow-y:auto">'
+    +chkBlock(grupos.mant,'Mantenimiento','\ud83d\udd27')
+    +chkBlock(grupos.taller,'Taller mec\u00e1nico','\ud83d\ude9a')
+    +chkBlock(grupos.chofer,'Conducci\u00f3n (chofer)','\ud83d\ude9b')
     +'</div>'
-    +'<div class="fg" id="tecTipoOtroWrap" style="display:'+(esOtro?'block':'none')+'">'
-    +'<label>Especifica el rol</label><input id="tecTipoOtro" value="'+esc(esOtro?t.tipo:'')+'" placeholder="Ej: Pintura, Carpintería, Supervisor..."></div>'
+    +'<div style="font-size:11px;color:var(--muted);margin-top:4px">Las OT se asignan autom\u00e1ticamente seg\u00fan las especialidades marcadas.</div></div>'
+    +'<div class="fg" id="wrapChoferLink" style="display:'+(tieneConduccionInicial?'block':'none')+'">'
+    +'<label>Vincular con usuario chofer (Portal Chofer)</label>'
+    +'<select id="tecUsuarioChofer">'+choferOpts+'</select>'
+    +'<div style="font-size:11px;color:var(--muted);margin-top:4px">Si este t\u00e9cnico es chofer, vincula su cuenta para que reciba sus camiones en el Portal Chofer.</div></div>'
     +'<div class="fg"><label>Notas</label><textarea id="tecNotas" rows="2" placeholder="Observaciones, certificaciones, disponibilidad...">'+esc((t&&t.notas)||'')+'</textarea></div>'
     +'<div class="fg"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="tecActivo"'+((t&&t.activo===false)?'':' checked')+'> Activo en el sistema</label></div>'
     +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px">'
     +'<button class="btn btn-secondary" onclick="(function(_e){if(_e)_e.remove();})(document.getElementById(\'modalTecDiv\'))">Cancelar</button>'
-    +'<button class="btn btn-primary" onclick="guardarTecnico(\''+esc(id||'')+'\')">✓ Guardar</button></div></div></div>';
+    +'<button class="btn btn-primary" onclick="guardarTecnico(\''+esc(id||'')+'\')">\u2713 Guardar</button></div></div></div>';
   document.body.insertAdjacentHTML('beforeend',html);
   setTimeout(function(){var el=document.getElementById('tecNom');if(el)el.focus();},80);
 }
@@ -9717,35 +9953,93 @@ function modalTecnico(id){
 function guardarTecnico(id){
   var nombre=((document.getElementById('tecNom')||{}).value||'').trim();
   if(!nombre){toast('Nombre requerido',true);return;}
-  var tipoSel=((document.getElementById('tecTipo')||{}).value||'').trim();
-  var tipo=tipoSel;
-  if(tipoSel==='__otro__'){
-    tipo=((document.getElementById('tecTipoOtro')||{}).value||'').trim();
-    if(!tipo){toast('Especifica el rol',true);return;}
-  }
+  var roles=[];
+  document.querySelectorAll('.tec-rol:checked').forEach(function(cb){
+    roles.push(cb.getAttribute('data-rol'));
+  });
+  if(roles.length===0){toast('Marca al menos una especialidad',true);return;}
+
   var m=mantData();
   var datos={
     nombre:nombre,
     telefono:((document.getElementById('tecTel')||{}).value||'').trim(),
-    tipo:tipo,
-    especialidad:((document.getElementById('tecEsp')||{}).value||'').trim(),
+    roles:roles,
+    tipo:roles[0],
     notas:((document.getElementById('tecNotas')||{}).value||'').trim(),
-    activo:((document.getElementById('tecActivo')||{}).checked!==false)
+    activo:((document.getElementById('tecActivo')||{}).checked!==false),
+    usuarioChoferEmail:roles.indexOf('conduccion')>=0?
+      ((document.getElementById('tecUsuarioChofer')||{}).value||'').toLowerCase():''
   };
   if(id){
     var t=m.tecnicos.find(function(x){return x.id===id;});
     if(t)Object.assign(t,datos);
-    logAction('EDITAR','tecnicos','Técnico: '+nombre);
-    toast('✓ Técnico actualizado');
+    logAction('EDITAR','tecnicos','T\u00e9cnico: '+nombre);
+    toast('\u2713 T\u00e9cnico actualizado');
   } else {
     datos.id=genId();
     m.tecnicos.push(datos);
-    logAction('CREAR','tecnicos','Nuevo técnico: '+nombre+' ('+tecTipoLabel(tipo)+')');
-    toast('✓ Técnico creado');
+    logAction('CREAR','tecnicos','Nuevo t\u00e9cnico: '+nombre);
+    toast('\u2713 T\u00e9cnico creado');
   }
   saveData();
   (function(_e){if(_e)_e.remove();})(document.getElementById('modalTecDiv'));
   renderMantTecnicos();
+}
+
+
+function verOTsTecnico(tecId){
+  var m=mantData();
+  var t=m.tecnicos.find(function(x){return x.id===tecId;});
+  if(!t){toast('Técnico no encontrado',true);return;}
+
+  var hoy=mantHoy();
+  var mesActual=hoy.slice(0,7);
+  var sus=m.ots.filter(function(ot){return ot.tecnicoId===tecId;});
+  var pend=sus.filter(function(o){return o.estado==='pendiente'||o.estado==='en_proceso';});
+  var compl=sus.filter(function(o){return o.estado==='completada';});
+  var pendMes=pend.filter(function(o){return (o.fechaProgramada||'').slice(0,7)===mesActual;});
+
+  var centroMap={};S.centros.forEach(function(c){centroMap[c.id]=c.nombre;});
+
+  function rowsBuild(list){
+    if(list.length===0)return '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:14px">— Sin OT —</td></tr>';
+    return list.map(function(ot){
+      var eq=m.equipos.find(function(e){return e.id===ot.equipoId;});
+      var estLabel=ot.estado||'pendiente';
+      var estColor='b-warn';
+      if(ot.estado==='completada')estColor='b-ok';
+      else if(ot.estado==='en_proceso')estColor='b-blue';
+      return '<tr>'
+        +'<td><strong>'+esc(eq?eq.nombre:'(eliminado)')+'</strong></td>'
+        +'<td style="font-size:11px">'+esc(centroMap[ot.centroId]||'—')+'</td>'
+        +'<td>'+fmtDate(ot.fechaProgramada)+'</td>'
+        +'<td><span class="badge '+estColor+'">'+esc(estLabel)+'</span></td>'
+        +'<td><button class="btn btn-secondary btn-xs" onclick="modalVerOT(\''+ot.id+'\')">Ver</button></td>'
+        +'</tr>';
+    }).join('');
+  }
+
+  (function(_e){if(_e)_e.remove();})(document.getElementById('modalOTsTec'));
+  var html='<div id="modalOTsTec" class="modal open"><div class="modal-box lg">'
+    +'<div class="modal-hdr"><span class="modal-ttl">👁 OT de '+esc(t.nombre)+'</span>'
+    +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalOTsTec\').remove()">✕</button></div>'
+    +'<div style="background:var(--surface2);padding:10px;border-radius:8px;margin-bottom:12px;display:flex;gap:14px;flex-wrap:wrap;font-size:13px">'
+      +'<div>Total: <strong>'+sus.length+'</strong></div>'
+      +'<div>Pendientes: <strong style="color:var(--accent)">'+pend.length+'</strong></div>'
+      +'<div>Pendientes este mes: <strong style="color:var(--accent)">'+pendMes.length+'</strong></div>'
+      +'<div>Completadas: <strong style="color:var(--green)">'+compl.length+'</strong></div>'
+    +'</div>'
+    +'<div class="sec-hdr">📋 Pendientes ('+pend.length+')</div>'
+    +'<div class="tbl-wrap" style="max-height:35vh;overflow-y:auto"><table>'
+    +'<thead><tr><th>Equipo</th><th>Centro</th><th>Programada</th><th>Estado</th><th>Acción</th></tr></thead>'
+    +'<tbody>'+rowsBuild(pend)+'</tbody></table></div>'
+    +'<div class="sec-hdr" style="margin-top:14px">✓ Completadas ('+compl.length+', últimas 20)</div>'
+    +'<div class="tbl-wrap" style="max-height:35vh;overflow-y:auto"><table>'
+    +'<thead><tr><th>Equipo</th><th>Centro</th><th>Programada</th><th>Estado</th><th>Acción</th></tr></thead>'
+    +'<tbody>'+rowsBuild(compl.slice(-20).reverse())+'</tbody></table></div>'
+    +'<div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn btn-secondary" onclick="document.getElementById(\'modalOTsTec\').remove()">Cerrar</button></div>'
+    +'</div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
 }
 
 function delTecnico(id){
@@ -12243,10 +12537,9 @@ function tallerData(){
   return S.taller;
 }
 
-// Obtener mecánicos (técnicos con tipo='mecanica')
+// Obtener mecánicos del taller (técnicos con rol 'mecanica_vehiculos')
 function tallerMecanicos(){
-  return ((S.mantenimiento&&S.mantenimiento.tecnicos)||[])
-    .filter(function(t){return t.tipo==='mecanica'&&t.activo!==false;});
+  return getTecnicosByCategoria('mecanica_vehiculos').filter(function(t){return t.activo!==false;});
 }
 
 /* LEGACY TALLER_OT_ESTADOS — ahora usa getCfgEstadosOT() */
