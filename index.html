@@ -14058,6 +14058,25 @@ function choferGuardarReporte(vehId){
   var kmBase=ultimoReporte?ultimoReporte.kmOdometro:kmActual;
   var kmRecorridos=km-kmBase;
 
+  // ── VALIDACIONES DE KM ANÓMALO ──
+  // 2,000+ km/día = bloqueo total (solo admin puede meter eso por error)
+  if(kmRecorridos>2000){
+    toast('⛔ Imposible: '+kmRecorridos.toLocaleString()+' km en un día. Verifica el odómetro o pide al admin que corrija el km del vehículo.',true);
+    return;
+  }
+  // 1,000+ km/día = requiere confirmación expresa
+  if(kmRecorridos>1000){
+    if(!confirm('⚠ ATENCIÓN: Estás reportando '+kmRecorridos.toLocaleString()+' km recorridos hoy.\n\nEso es muchísimo para un día. ¿Estás seguro que el odómetro marca '+km.toLocaleString()+' km?\n\nÚltima lectura: '+kmBase.toLocaleString()+' km')){
+      return;
+    }
+  }
+  // 500+ km/día = aviso pero deja pasar
+  else if(kmRecorridos>500){
+    if(!confirm('⚠ Reportaste '+kmRecorridos+' km en un día. ¿Es correcto?')){
+      return;
+    }
+  }
+
   var rutaAsig=null;
   if(veh.rutaId&&t.rutas)rutaAsig=t.rutas.find(function(r){return r.id===veh.rutaId;});
   var precio=getPrecioGasolina();
@@ -14572,8 +14591,8 @@ function renderTallerReportesChoferes(){
       // KM
       +'<div style="background:var(--surface2);padding:12px;border-radius:8px;border-left:4px solid '+lvlKm.color+'">'
       +'<div style="font-size:11px;color:var(--muted);text-transform:uppercase">Km recorridos</div>'
-      +'<div style="font-size:18px;font-weight:700;margin-top:4px">'+fmt(sKm)+' km</div>'
-      +'<div style="font-size:11px;color:var(--muted);margin-top:2px">Esperado: '+fmt(kmEsperado)+' km</div>'
+      +'<div style="font-size:18px;font-weight:700;margin-top:4px">'+sKm.toLocaleString('en-US',{maximumFractionDigits:0})+' km</div>'
+      +'<div style="font-size:11px;color:var(--muted);margin-top:2px">Esperado: '+kmEsperado.toLocaleString('en-US',{maximumFractionDigits:0})+' km</div>'
       +'<div style="font-size:13px;color:'+lvlKm.color+';font-weight:700;margin-top:6px">'+lvlKm.ic+' '+(varKm>=0?'+':'')+varKm.toFixed(1)+'% '+lvlKm.label+'</div>'
       +'</div>'
 
@@ -14618,6 +14637,7 @@ function renderTallerReportesChoferes(){
   }
 
   // Histórico tabla
+  var esAdmin=S.currentUser&&(S.currentUser.rol==='admin'||S.currentUser.rol==='supervisor');
   var rowsHist=rep.slice().reverse().slice(0,200).map(function(r){
     var v=t.vehiculos.find(function(x){return x.id===r.vehiculoId;});
     var ruta=r.rutaId?(t.rutas||[]).find(function(rt){return rt.id===r.rutaId;}):null;
@@ -14626,18 +14646,27 @@ function renderTallerReportesChoferes(){
       var clr=r.variacionKm>0?'#e84040':'#2db87a';
       varStr=' <span style="color:'+clr+';font-size:11px">'+(r.variacionKm>0?'+':'')+r.variacionKm+'</span>';
     }
+    var kmOdomDisplay=(r.kmOdometro||0).toLocaleString('en-US');
+    var kmRecDisplay=(r.kmRecorridos||0).toLocaleString('en-US');
+    var corregidoBadge=r.corregidoPor?'<div style="font-size:9px;color:var(--accent)">✏ Corregido</div>':'';
+    var accionesAdmin=esAdmin
+      ?'<div class="td-act"><button class="btn btn-secondary btn-xs" onclick="editarReporteChofer(\''+r.id+'\')" title="Corregir reporte">✏</button>'
+       +'<button class="btn btn-danger btn-xs" onclick="eliminarReporteChofer(\''+r.id+'\')" title="Eliminar reporte">✕</button></div>'
+      :'';
     return '<tr>'
-      +'<td>'+fmtDate(r.fecha)+'</td>'
+      +'<td>'+fmtDate(r.fecha)+corregidoBadge+'</td>'
       +'<td><strong>'+esc(v?v.placa:'—')+'</strong></td>'
       +'<td>'+esc(r.choferNombre||'')+'</td>'
       +'<td>'+esc(ruta?ruta.nombre:'—')+'</td>'
-      +'<td style="text-align:right">'+(r.kmOdometro||0)+'</td>'
-      +'<td style="text-align:right">'+(r.kmRecorridos||0)+varStr+'</td>'
+      +'<td style="text-align:right">'+kmOdomDisplay+'</td>'
+      +'<td style="text-align:right">'+kmRecDisplay+varStr+'</td>'
       +'<td style="text-align:right">'+(r.galonesCargados?r.galonesCargados.toFixed(2):'—')+'</td>'
       +'<td style="text-align:right">'+(r.costoGasolina?'$'+r.costoGasolina.toFixed(2):'—')+'</td>'
+      +(esAdmin?'<td>'+accionesAdmin+'</td>':'')
       +'</tr>';
   }).join('');
-  if(!rowsHist)rowsHist='<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:16px">Sin reportes en el período</td></tr>';
+  var colspanHist=esAdmin?9:8;
+  if(!rowsHist)rowsHist='<tr><td colspan="'+colspanHist+'" style="text-align:center;color:var(--muted);padding:16px">Sin reportes en el período</td></tr>';
 
   var vehOpts='<option value="">Todos los vehículos</option>'
     +t.vehiculos.map(function(v){return '<option value="'+v.id+'"'+(S._rdcFiltroVeh===v.id?' selected':'')+'>'+esc(v.placa)+'</option>';}).join('');
@@ -14648,7 +14677,7 @@ function renderTallerReportesChoferes(){
     // KPIs período
     +'<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">'
     +'<div class="kpi"><div class="kpi-lbl">Reportes período</div><div class="kpi-val">'+rep.length+'</div></div>'
-    +'<div class="kpi"><div class="kpi-lbl">Km totales</div><div class="kpi-val" style="color:#4ea8de;font-size:18px">'+fmt(totalKm)+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Km totales</div><div class="kpi-val" style="color:#4ea8de;font-size:18px">'+totalKm.toLocaleString('en-US',{maximumFractionDigits:0})+' km</div></div>'
     +'<div class="kpi"><div class="kpi-lbl">Galones</div><div class="kpi-val" style="color:#facc15;font-size:18px">'+totalGal.toFixed(2)+'</div></div>'
     +'<div class="kpi"><div class="kpi-lbl">Rendimiento global</div><div class="kpi-val" style="color:#2db87a;font-size:18px">'+rendimiento+' km/gal</div></div>'
     +'</div>'
@@ -14677,8 +14706,185 @@ function renderTallerReportesChoferes(){
     +'<div class="sec-hdr" style="margin:18px 0 10px 0">📋 Histórico detallado de reportes</div>'
     +'<div class="card" style="padding:0">'
     +'<div class="tbl-wrap" style="border:none;border-radius:0"><table>'
-    +'<thead><tr><th>Fecha</th><th>Vehículo</th><th>Chofer</th><th>Ruta</th><th style="text-align:right">Km Odóm.</th><th style="text-align:right">Recorridos (var.)</th><th style="text-align:right">Galones</th><th style="text-align:right">Costo</th></tr></thead>'
+    +'<thead><tr><th>Fecha</th><th>Vehículo</th><th>Chofer</th><th>Ruta</th><th style="text-align:right">Km Odóm.</th><th style="text-align:right">Recorridos (var.)</th><th style="text-align:right">Galones</th><th style="text-align:right">Costo</th>'+(esAdmin?'<th>Acciones</th>':'')+'</tr></thead>'
     +'<tbody>'+rowsHist+'</tbody></table></div></div>';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ADMIN — Editar/Eliminar reporte chofer y Resetear km vehículo
+// ═══════════════════════════════════════════════════════════════════
+function editarReporteChofer(repId){
+  if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
+    toast('Solo administradores pueden corregir reportes',true);return;
+  }
+  var t=tallerData();
+  var rep=(t.reportesDiarios||[]).find(function(r){return r.id===repId;});
+  if(!rep){toast('Reporte no encontrado',true);return;}
+  var veh=t.vehiculos.find(function(v){return v.id===rep.vehiculoId;});
+
+  (function(_e){if(_e)_e.remove();})(document.getElementById('modalEditRep'));
+  var html='<div id="modalEditRep" class="modal open"><div class="modal-box md">'
+    +'<div class="modal-hdr"><span class="modal-ttl">✏ Corregir reporte de chofer</span>'
+    +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalEditRep\').remove()">✕</button></div>'
+    +'<div style="background:var(--surface2);padding:10px;border-radius:8px;margin-bottom:12px;font-size:12px">'
+      +'<div><strong>Vehículo:</strong> '+esc(veh?veh.placa:'—')+'</div>'
+      +'<div><strong>Chofer:</strong> '+esc(rep.choferNombre||'')+'</div>'
+      +'<div><strong>Fecha:</strong> '+fmtDate(rep.fecha)+'</div>'
+      +'<div><strong>Reportado:</strong> '+(rep.kmOdometro||0).toLocaleString()+' km · '+(rep.kmRecorridos||0).toLocaleString()+' km recorridos</div>'
+    +'</div>'
+    +'<div class="row2">'
+      +'<div class="fg"><label>Km del odómetro (corregido) *</label>'
+        +'<input type="number" id="editKmOdo" value="'+(rep.kmOdometro||0)+'" min="0">'
+      +'</div>'
+      +'<div class="fg"><label>Galones cargados</label>'
+        +'<input type="number" id="editGal" step="0.01" value="'+(rep.galonesCargados||0)+'" min="0">'
+      +'</div>'
+    +'</div>'
+    +'<div class="fg"><label>Motivo de la corrección *</label>'
+      +'<textarea id="editMotivo" rows="2" placeholder="Ej: Chofer escribió mal el km, error de odómetro, etc."></textarea>'
+    +'</div>'
+    +'<div style="font-size:11px;color:var(--muted);margin-top:6px">⚠ Al guardar se recalculan automáticamente los km recorridos, costo y se actualiza el km del vehículo si era el último reporte. La corrección quedará marcada en el log.</div>'
+    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">'
+      +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalEditRep\').remove()">Cancelar</button>'
+      +'<button class="btn btn-primary" onclick="guardarCorreccionReporte(\''+repId+'\')">✓ Guardar corrección</button>'
+    +'</div></div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+
+function guardarCorreccionReporte(repId){
+  var t=tallerData();
+  var rep=(t.reportesDiarios||[]).find(function(r){return r.id===repId;});
+  if(!rep)return;
+  var nuevoKm=parseInt((document.getElementById('editKmOdo')||{}).value)||0;
+  var nuevaGal=parseFloat((document.getElementById('editGal')||{}).value)||0;
+  var motivo=((document.getElementById('editMotivo')||{}).value||'').trim();
+  if(!motivo){toast('Debes indicar el motivo de la corrección',true);return;}
+  if(nuevoKm<=0){toast('Km del odómetro inválido',true);return;}
+
+  var kmOrig=rep.kmOdometro||0;
+  var galOrig=rep.galonesCargados||0;
+
+  // Recalcular km recorridos basándose en el reporte previo
+  var reps=(t.reportesDiarios||[]).filter(function(r){return r.vehiculoId===rep.vehiculoId&&r.id!==repId;}).sort(function(a,b){return (b.fecha+'').localeCompare(a.fecha+'');});
+  var ultimoPrev=reps.find(function(r){return r.fecha<rep.fecha;});
+  var kmBase=ultimoPrev?ultimoPrev.kmOdometro:0;
+  var nuevosRec=nuevoKm-kmBase;
+
+  // Recalcular costo
+  var precio=rep.precioGasolina||getPrecioGasolina();
+  var nuevoCosto=nuevaGal*precio;
+
+  // Actualizar reporte
+  rep.kmOdometro=nuevoKm;
+  rep.kmRecorridos=nuevosRec;
+  rep.galonesCargados=nuevaGal;
+  rep.costoGasolina=nuevoCosto;
+  rep.corregidoPor=S.currentUser.email;
+  rep.fechaCorreccion=Date.now();
+  rep.motivoCorreccion=motivo;
+  rep.kmOriginal=kmOrig;
+  rep.galOriginal=galOrig;
+
+  // Si este reporte es el más reciente del vehículo, actualizar km del vehículo
+  var veh=t.vehiculos.find(function(v){return v.id===rep.vehiculoId;});
+  if(veh){
+    var ultimoDeTodos=(t.reportesDiarios||[]).filter(function(r){return r.vehiculoId===rep.vehiculoId;}).sort(function(a,b){return (b.fecha+'').localeCompare(a.fecha+'');})[0];
+    if(ultimoDeTodos&&ultimoDeTodos.id===repId){
+      veh.kmActual=nuevoKm;
+      veh.kmActuales=nuevoKm;
+    }
+  }
+
+  // Si tenía registro de combustible vinculado, actualizarlo también
+  if(t.combustible){
+    var cb=t.combustible.find(function(c){return c.reporteDiarioId===repId;});
+    if(cb){
+      cb.galones=nuevaGal;
+      cb.total=nuevoCosto;
+      cb.kmOdometro=nuevoKm;
+    }
+  }
+
+  saveData();
+  logAction('CORREGIR','chofer_reporte','Reporte '+repId+': '+kmOrig+'→'+nuevoKm+' km · Motivo: '+motivo.slice(0,50));
+  document.getElementById('modalEditRep').remove();
+  toast('✓ Reporte corregido');
+  if(typeof renderTallerReportesChoferes==='function')renderTallerReportesChoferes();
+}
+
+function eliminarReporteChofer(repId){
+  if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
+    toast('Solo administradores pueden eliminar reportes',true);return;
+  }
+  var t=tallerData();
+  var rep=(t.reportesDiarios||[]).find(function(r){return r.id===repId;});
+  if(!rep)return;
+  if(!confirm('⚠ ¿Eliminar este reporte?\n\nKm odómetro: '+(rep.kmOdometro||0).toLocaleString()+'\nFecha: '+fmtDate(rep.fecha)+'\n\nEsta acción no se puede deshacer.'))return;
+
+  // Eliminar reporte
+  t.reportesDiarios=(t.reportesDiarios||[]).filter(function(r){return r.id!==repId;});
+  // Eliminar combustible vinculado si existe
+  if(t.combustible){
+    t.combustible=t.combustible.filter(function(c){return c.reporteDiarioId!==repId;});
+  }
+  // Recalcular km del vehículo si era el último
+  var veh=t.vehiculos.find(function(v){return v.id===rep.vehiculoId;});
+  if(veh){
+    var ultimo=(t.reportesDiarios||[]).filter(function(r){return r.vehiculoId===rep.vehiculoId;}).sort(function(a,b){return (b.fecha+'').localeCompare(a.fecha+'');})[0];
+    if(ultimo){veh.kmActual=ultimo.kmOdometro;veh.kmActuales=ultimo.kmOdometro;}
+  }
+  saveData();
+  logAction('ELIMINAR','chofer_reporte','Reporte '+repId+' eliminado (km original: '+(rep.kmOdometro||0)+')');
+  toast('✓ Reporte eliminado');
+  if(typeof renderTallerReportesChoferes==='function')renderTallerReportesChoferes();
+}
+
+// Resetear km del vehículo (si quedó descalibrado por reporte erróneo)
+function modalResetearKmVehiculo(vehId){
+  if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
+    toast('Solo administradores',true);return;
+  }
+  var t=tallerData();
+  var veh=t.vehiculos.find(function(v){return v.id===vehId;});
+  if(!veh){toast('Vehículo no encontrado',true);return;}
+
+  (function(_e){if(_e)_e.remove();})(document.getElementById('modalResetKm'));
+  var html='<div id="modalResetKm" class="modal open"><div class="modal-box sm">'
+    +'<div class="modal-hdr"><span class="modal-ttl">🔧 Corregir km del vehículo</span>'
+    +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalResetKm\').remove()">✕</button></div>'
+    +'<div style="background:var(--surface2);padding:10px;border-radius:8px;margin-bottom:12px;font-size:12px">'
+      +'<div><strong>Vehículo:</strong> '+esc(veh.placa)+'</div>'
+      +'<div><strong>Km actual registrado:</strong> '+(veh.kmActual||0).toLocaleString()+'</div>'
+    +'</div>'
+    +'<div class="fg"><label>Km correcto del odómetro *</label>'
+      +'<input type="number" id="resetKmVal" min="0" value="'+(veh.kmActual||0)+'">'
+    +'</div>'
+    +'<div class="fg"><label>Motivo *</label>'
+      +'<input id="resetKmMotivo" placeholder="Ej: Lectura errónea del chofer, cambio de odómetro...">'
+    +'</div>'
+    +'<div style="font-size:11px;color:var(--accent);margin-top:6px">⚠ Esto solo cambia el km del vehículo, no toca los reportes históricos.</div>'
+    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">'
+      +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalResetKm\').remove()">Cancelar</button>'
+      +'<button class="btn btn-primary" onclick="guardarResetKm(\''+vehId+'\')">✓ Guardar</button>'
+    +'</div></div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+
+function guardarResetKm(vehId){
+  var t=tallerData();
+  var veh=t.vehiculos.find(function(v){return v.id===vehId;});
+  if(!veh)return;
+  var nuevoKm=parseInt((document.getElementById('resetKmVal')||{}).value)||0;
+  var motivo=((document.getElementById('resetKmMotivo')||{}).value||'').trim();
+  if(!motivo){toast('Indica el motivo',true);return;}
+  if(nuevoKm<0){toast('Km inválido',true);return;}
+  var kmOrig=veh.kmActual||0;
+  veh.kmActual=nuevoKm;
+  veh.kmActuales=nuevoKm;
+  saveData();
+  logAction('CORREGIR','vehiculo_km',veh.placa+': '+kmOrig+'→'+nuevoKm+' km · '+motivo);
+  document.getElementById('modalResetKm').remove();
+  toast('✓ Km corregido a '+nuevoKm.toLocaleString());
 }
 
 // ═══════════════════════════════════════════════════════════════════
