@@ -13352,6 +13352,9 @@ function modalOT(id,vehIdPrefill){
   var o=id?t.ots.find(function(x){return x.id===id;}):null;
   var hoy=new Date().toISOString().slice(0,10);
 
+  // Inicializar buffer de servicios aplicados
+  S._otServiciosBuffer=(o&&o.serviciosAplicados)?o.serviciosAplicados.slice():[];
+
   var vehOpts='<option value="">— Selecciona vehículo —</option>';
   t.vehiculos.filter(function(v){return v.estado!=='baja';}).forEach(function(v){
     var sel=(o&&o.vehiculoId===v.id)||(!o&&vehIdPrefill===v.id)?' selected':'';
@@ -13364,8 +13367,22 @@ function modalOT(id,vehIdPrefill){
 
   var estOpts=optsEstadosOT((o&&o.estado)||'recibido');
 
+  // Servicios del catálogo agrupados
+  var srvOpts='<option value="">— Selecciona servicio del catálogo —</option>';
+  SRV_CATEGORIAS.forEach(function(c){
+    var srvCat=(t.servicios||[]).filter(function(s){return (s.categoria||'general')===c.id;});
+    if(srvCat.length>0){
+      srvOpts+='<optgroup label="'+esc(c.ic+' '+c.label)+'">';
+      srvCat.forEach(function(s){
+        srvOpts+='<option value="'+s.id+'">'+esc(s.nombre)+(s.precio?' ($'+s.precio.toFixed(2)+')':'')+'</option>';
+      });
+      srvOpts+='</optgroup>';
+    }
+  });
+
   var div=document.createElement('div');
   div.id='modalOTDiv';
+  div.className='modal open';
   div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:12px;overflow-y:auto';
   div.innerHTML='<div class="modal-box md" style="margin-top:auto;margin-bottom:auto">'
     +'<div class="modal-hdr"><div class="modal-ttl">'+(id?'✏ Editar OT':'+ Nueva Orden de Trabajo')+'</div>'
@@ -13385,27 +13402,103 @@ function modalOT(id,vehIdPrefill){
       +'<div class="fg"><label>Mecánico</label><select id="otMec">'+mecOpts+'</select></div>'
       +'<div class="fg"><label>Km al ingreso</label><input type="number" id="otKm" value="'+(o?o.kmIngreso||'':'')+'"></div>'
     +'</div>'
-    +'<div class="fg"><label>Descripción del problema / servicio *</label><textarea id="otDesc" rows="2" placeholder="Ej: Cambio de aceite y filtro, ruido en transmisión...">'+(o?esc(o.descripcion||''):'')+'</textarea></div>'
-    +'<div class="fg"><label>Diagnóstico / trabajo realizado</label><textarea id="otDiag" rows="2">'+(o?esc(o.diagnostico||''):'')+'</textarea></div>'
+
+    // ── SERVICIOS APLICADOS (multi) ──
+    +'<div class="sec-hdr" style="margin-top:14px;font-size:14px">🔧 Servicios aplicados</div>'
+    +'<div style="background:var(--surface2);padding:10px;border-radius:8px;margin-bottom:8px">'
+      +'<div style="display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap">'
+        +'<div style="flex:1;min-width:200px"><label style="font-size:11px;color:var(--muted);text-transform:uppercase">Agregar del catálogo</label>'
+          +'<select id="otAddSrv">'+srvOpts+'</select></div>'
+        +'<button type="button" class="btn btn-primary btn-sm" onclick="otAgregarServicio()">+ Agregar</button>'
+      +'</div>'
+    +'</div>'
+    +'<div id="otSrvList"></div>'
+    +'<div id="otSrvTotal" style="text-align:right;font-weight:700;padding:8px;background:var(--surface);border-radius:6px;margin-bottom:10px"></div>'
+
+    +'<div class="fg"><label>Notas / observaciones del trabajo</label><textarea id="otDiag" rows="2" placeholder="Notas adicionales, hallazgos, recomendaciones...">'+(o?esc(o.diagnostico||o.descripcion||''):'')+'</textarea></div>'
     +'<div class="row2">'
-      +'<div class="fg"><label>Costo mano de obra ($)</label><input type="number" id="otManoObra" step="0.01" value="'+(o?o.manoObra||0:0)+'"></div>'
+      +'<div class="fg"><label>Mano de obra adicional ($)</label><input type="number" id="otManoObra" step="0.01" value="'+(o?o.manoObraExtra||0:0)+'" placeholder="Aparte de los servicios"></div>'
       +'<div class="fg"><label>Costo repuestos ($)</label><input type="number" id="otRepuestos" step="0.01" value="'+(o?o.costoRepuestos||0:0)+'"></div>'
     +'</div>'
-    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px">'
+    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">'
     +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalOTDiv\').remove()">Cancelar</button>'
-    +'<button class="btn btn-primary" onclick="guardarOT(\''+(id||'')+'\')">Guardar</button></div></div>';
+    +'<button class="btn btn-primary" onclick="guardarOT(\''+(id||'')+'\')">✓ Guardar</button></div></div>';
   document.body.appendChild(div);
-  setTimeout(function(){_focusFirst(div);},80);
+  setTimeout(function(){_focusFirst(div);otRenderServicios();},80);
+}
+
+function otAgregarServicio(){
+  var sel=document.getElementById('otAddSrv');
+  var srvId=sel?sel.value:'';
+  if(!srvId){toast('Selecciona un servicio',true);return;}
+  var t=tallerData();
+  var s=(t.servicios||[]).find(function(x){return x.id===srvId;});
+  if(!s){toast('Servicio no encontrado',true);return;}
+  S._otServiciosBuffer=S._otServiciosBuffer||[];
+  S._otServiciosBuffer.push({
+    servicioId:srvId,
+    nombre:s.nombre,
+    categoria:s.categoria,
+    precio:s.precio||0,
+    tiempoHr:s.tiempoHr||0
+  });
+  if(sel)sel.value='';
+  otRenderServicios();
+}
+
+function otQuitarServicio(idx){
+  if(!S._otServiciosBuffer)return;
+  S._otServiciosBuffer.splice(idx,1);
+  otRenderServicios();
+}
+
+function otCambiarPrecioServicio(idx,nuevoPrecio){
+  if(!S._otServiciosBuffer||!S._otServiciosBuffer[idx])return;
+  S._otServiciosBuffer[idx].precio=parseFloat(nuevoPrecio)||0;
+  otRenderServicios();
+}
+
+function otRenderServicios(){
+  var lista=S._otServiciosBuffer||[];
+  var cont=document.getElementById('otSrvList');
+  var tot=document.getElementById('otSrvTotal');
+  if(!cont||!tot)return;
+  if(lista.length===0){
+    cont.innerHTML='<div style="text-align:center;color:var(--muted);padding:14px;font-size:12px;background:var(--surface);border-radius:6px;margin-bottom:8px">Sin servicios agregados aún. Selecciona del catálogo arriba.</div>';
+    tot.textContent='';
+    return;
+  }
+  var subtotal=0;
+  cont.innerHTML=lista.map(function(it,i){
+    subtotal+=parseFloat(it.precio)||0;
+    return '<div style="display:flex;gap:8px;align-items:center;padding:8px;background:var(--surface);border-radius:6px;margin-bottom:6px;border:1px solid var(--border)">'
+      +'<div style="flex:1;font-size:13px"><strong>'+esc(it.nombre)+'</strong>'
+      +'<div style="font-size:11px;color:var(--muted)">'+esc(srvCatLabel(it.categoria||'general'))+(it.tiempoHr?' · '+it.tiempoHr+' hr':'')+'</div></div>'
+      +'<div style="display:flex;align-items:center;gap:4px"><span style="font-size:12px;color:var(--muted)">$</span>'
+        +'<input type="number" step="0.01" value="'+(it.precio||0)+'" onchange="otCambiarPrecioServicio('+i+',this.value)" style="width:90px;padding:4px 6px;font-size:13px" title="Precio editable">'
+      +'</div>'
+      +'<button type="button" class="btn btn-danger btn-xs" onclick="otQuitarServicio('+i+')" title="Quitar">✕</button>'
+      +'</div>';
+  }).join('');
+  tot.innerHTML='Subtotal mano de obra (servicios): <span style="color:var(--accent);font-size:16px">$'+subtotal.toFixed(2)+'</span>';
 }
 
 function guardarOT(id){
   var vehId=document.getElementById('otVeh').value;
   if(!vehId){toast('Selecciona un vehículo',true);return;}
-  var desc=document.getElementById('otDesc').value.trim();
-  if(!desc){toast('Ingresa la descripción del trabajo',true);return;}
+  var serviciosAplicados=(S._otServiciosBuffer||[]).slice();
+  var diag=(document.getElementById('otDiag').value||'').trim();
+  if(serviciosAplicados.length===0&&!diag){
+    toast('Agrega al menos un servicio del catálogo o describe el trabajo en notas',true);return;
+  }
   var t=tallerData();
-  var manoObra=parseFloat(document.getElementById('otManoObra').value)||0;
+  var manoObraExtra=parseFloat(document.getElementById('otManoObra').value)||0;
   var repuestos=parseFloat(document.getElementById('otRepuestos').value)||0;
+  var manoObraServicios=serviciosAplicados.reduce(function(s,it){return s+(parseFloat(it.precio)||0);},0);
+  var manoObraTotal=manoObraServicios+manoObraExtra;
+  // Descripción auto-generada desde los servicios
+  var descAuto=serviciosAplicados.map(function(it){return it.nombre;}).join(' · ')||diag.slice(0,80);
+
   var datos={
     vehiculoId:vehId,
     tipo:document.getElementById('otTipo').value,
@@ -13414,29 +13507,31 @@ function guardarOT(id){
     fechaSalida:document.getElementById('otFechaOut').value||null,
     mecanicoId:document.getElementById('otMec').value||null,
     kmIngreso:parseInt(document.getElementById('otKm').value)||null,
-    descripcion:desc,
-    diagnostico:document.getElementById('otDiag').value.trim(),
-    manoObra:manoObra,
+    serviciosAplicados:serviciosAplicados,
+    descripcion:descAuto,
+    diagnostico:diag,
+    manoObraServicios:manoObraServicios,
+    manoObraExtra:manoObraExtra,
+    manoObra:manoObraTotal, // compat: total
     costoRepuestos:repuestos,
-    costoTotal:manoObra+repuestos
+    costoTotal:manoObraTotal+repuestos
   };
   var veh=t.vehiculos.find(function(x){return x.id===vehId;});
   if(id){
     var o=t.ots.find(function(x){return x.id===id;});
     if(o)Object.assign(o,datos);
-    logAction('EDITAR','taller','OT-'+esc(o.numero||id.slice(0,4))+' · '+(veh?veh.placa:''));
+    logAction('EDITAR','taller','OT-'+esc((o&&o.numero)||id.slice(0,4))+' · '+(veh?veh.placa:''));
   } else {
     datos.id=genId();
     datos.creadoEn=Date.now();
-    // Generar número correlativo
     var maxNum=t.ots.reduce(function(m,o){return Math.max(m,parseInt(o.numero)||0);},0);
     datos.numero=String(maxNum+1).padStart(4,'0');
     t.ots.push(datos);
-    // Si km de ingreso > km actuales del vehículo, actualizar
     if(datos.kmIngreso&&veh&&datos.kmIngreso>(veh.kmActuales||veh.kmActual||0)){veh.kmActuales=datos.kmIngreso;veh.kmActual=datos.kmIngreso;}
-    logAction('CREAR','taller','OT-'+datos.numero+' · '+(veh?veh.placa:'')+' · '+desc.slice(0,40));
+    logAction('CREAR','taller','OT-'+datos.numero+' · '+(veh?veh.placa:'')+' · '+descAuto.slice(0,40));
   }
   saveData();
+  S._otServiciosBuffer=null;
   (function(_e){if(_e)_e.remove();})(document.getElementById('modalOTDiv'));
   renderTallerOTs();
   toast('✓ OT guardada');
@@ -13455,18 +13550,134 @@ function delOT(id){
 }
 
 // ─── SERVICIOS ──────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// CATÁLOGO DE SERVICIOS (TALLER) — Fuente única para Programados, OT y Solicitudes
+// ═══════════════════════════════════════════════════════════════════
+var SRV_CATEGORIAS=[
+  {id:'motor',label:'Motor',ic:'⚙'},
+  {id:'frenos',label:'Frenos',ic:'🛑'},
+  {id:'transmision',label:'Transmisión',ic:'🔄'},
+  {id:'suspension',label:'Suspensión y dirección',ic:'🔩'},
+  {id:'llantas',label:'Llantas',ic:'🛞'},
+  {id:'electrico',label:'Eléctrico',ic:'⚡'},
+  {id:'aire',label:'A/C',ic:'❄'},
+  {id:'refrigeracion',label:'Refrigeración del motor',ic:'🌡'},
+  {id:'carroceria',label:'Carrocería',ic:'🚛'},
+  {id:'general',label:'General / Inspecciones',ic:'📋'},
+  {id:'otro',label:'Otro / Comodín',ic:'📌'}
+];
+function srvCatLabel(id){var c=SRV_CATEGORIAS.find(function(x){return x.id===id;});return c?(c.ic+' '+c.label):id;}
+
+function srvSeedCatalogo(){
+  var t=tallerData();
+  var basicos=[
+    // Motor (7)
+    {nombre:'Cambio de aceite y filtro de motor',categoria:'motor',tipo:'preventivo',frecuenciaKm:5000,frecuenciaMeses:0,precio:0,tiempoHr:1.5,descripcion:'Drenar aceite usado, reemplazar filtro de motor, rellenar con aceite nuevo según especificación.'},
+    {nombre:'Cambio de filtro de aire',categoria:'motor',tipo:'preventivo',frecuenciaKm:10000,frecuenciaMeses:0,precio:0,tiempoHr:0.5,descripcion:'Inspección y reemplazo del filtro de aire del motor.'},
+    {nombre:'Cambio de filtro de combustible',categoria:'motor',tipo:'preventivo',frecuenciaKm:20000,frecuenciaMeses:0,precio:0,tiempoHr:1,descripcion:'Reemplazo del filtro de combustible (diésel o gasolina).'},
+    {nombre:'Cambio de bujías',categoria:'motor',tipo:'preventivo',frecuenciaKm:30000,frecuenciaMeses:0,precio:0,tiempoHr:1.5,descripcion:'Reemplazo de bujías de encendido.'},
+    {nombre:'Cambio de banda de distribución',categoria:'motor',tipo:'preventivo',frecuenciaKm:80000,frecuenciaMeses:0,precio:0,tiempoHr:4,descripcion:'Reemplazo de banda/cadena de distribución, tensores y rodamientos asociados.'},
+    {nombre:'Limpieza de inyectores',categoria:'motor',tipo:'correctivo',frecuenciaKm:0,frecuenciaMeses:0,precio:0,tiempoHr:2,descripcion:'Limpieza ultrasónica o química de inyectores.'},
+    {nombre:'Reparación de motor',categoria:'motor',tipo:'correctivo',frecuenciaKm:0,frecuenciaMeses:0,precio:0,tiempoHr:8,descripcion:'Diagnóstico y reparación general del motor según falla.'},
+    // Frenos (4)
+    {nombre:'Cambio de pastillas de freno',categoria:'frenos',tipo:'preventivo',frecuenciaKm:30000,frecuenciaMeses:0,precio:0,tiempoHr:2,descripcion:'Reemplazo de pastillas delanteras y/o traseras.'},
+    {nombre:'Cambio de discos de freno',categoria:'frenos',tipo:'preventivo',frecuenciaKm:60000,frecuenciaMeses:0,precio:0,tiempoHr:3,descripcion:'Reemplazo de discos de freno y rectificación si aplica.'},
+    {nombre:'Cambio de líquido de frenos',categoria:'frenos',tipo:'preventivo',frecuenciaKm:40000,frecuenciaMeses:24,precio:0,tiempoHr:1,descripcion:'Purga y reemplazo del líquido de frenos (DOT 3/4/5).'},
+    {nombre:'Reparación de sistema de frenos',categoria:'frenos',tipo:'correctivo',frecuenciaKm:0,frecuenciaMeses:0,precio:0,tiempoHr:4,descripcion:'Diagnóstico y reparación: cilindros, mangueras, bombín, caliper.'},
+    // Transmisión (3)
+    {nombre:'Cambio de aceite de transmisión',categoria:'transmision',tipo:'preventivo',frecuenciaKm:40000,frecuenciaMeses:0,precio:0,tiempoHr:2,descripcion:'Drenaje y reemplazo del aceite de la caja de cambios.'},
+    {nombre:'Cambio de embrague',categoria:'transmision',tipo:'correctivo',frecuenciaKm:0,frecuenciaMeses:0,precio:0,tiempoHr:6,descripcion:'Reemplazo de disco de embrague, plato de presión y collarín.'},
+    {nombre:'Reparación de caja de cambios',categoria:'transmision',tipo:'correctivo',frecuenciaKm:0,frecuenciaMeses:0,precio:0,tiempoHr:10,descripcion:'Reparación general de la caja: sincronizadores, rodamientos, retenes.'},
+    // Suspensión y dirección (4)
+    {nombre:'Cambio de amortiguadores',categoria:'suspension',tipo:'preventivo',frecuenciaKm:60000,frecuenciaMeses:0,precio:0,tiempoHr:3,descripcion:'Reemplazo de amortiguadores delanteros o traseros.'},
+    {nombre:'Alineación y balanceo',categoria:'suspension',tipo:'preventivo',frecuenciaKm:10000,frecuenciaMeses:6,precio:0,tiempoHr:1.5,descripcion:'Alineación de dirección y balanceo dinámico de las 4 ruedas.'},
+    {nombre:'Cambio de rótulas y terminales',categoria:'suspension',tipo:'correctivo',frecuenciaKm:0,frecuenciaMeses:0,precio:0,tiempoHr:3,descripcion:'Reemplazo de rótulas de suspensión, terminales y axiales.'},
+    {nombre:'Reparación de dirección hidráulica',categoria:'suspension',tipo:'correctivo',frecuenciaKm:0,frecuenciaMeses:0,precio:0,tiempoHr:4,descripcion:'Diagnóstico y reparación de bomba o cremallera de dirección.'},
+    // Llantas (3)
+    {nombre:'Rotación de llantas',categoria:'llantas',tipo:'preventivo',frecuenciaKm:10000,frecuenciaMeses:0,precio:0,tiempoHr:1,descripcion:'Cambio de posición de las llantas según el patrón recomendado.'},
+    {nombre:'Cambio de llantas',categoria:'llantas',tipo:'correctivo',frecuenciaKm:0,frecuenciaMeses:0,precio:0,tiempoHr:1.5,descripcion:'Reemplazo de llantas por desgaste o daño.'},
+    {nombre:'Reparación de pinchazo',categoria:'llantas',tipo:'correctivo',frecuenciaKm:0,frecuenciaMeses:0,precio:0,tiempoHr:0.5,descripcion:'Reparación de llanta por pinchazo o pérdida lenta de aire.'},
+    // Eléctrico (4)
+    {nombre:'Cambio de batería',categoria:'electrico',tipo:'correctivo',frecuenciaKm:0,frecuenciaMeses:0,precio:0,tiempoHr:0.5,descripcion:'Reemplazo de batería 12V (o 24V para camiones grandes).'},
+    {nombre:'Revisión sistema eléctrico general',categoria:'electrico',tipo:'preventivo',frecuenciaKm:0,frecuenciaMeses:12,precio:0,tiempoHr:2,descripcion:'Inspección de cableado, fusibles, conectores, alternador, batería y luces.'},
+    {nombre:'Cambio de alternador',categoria:'electrico',tipo:'correctivo',frecuenciaKm:0,frecuenciaMeses:0,precio:0,tiempoHr:3,descripcion:'Reemplazo o rebobinado de alternador.'},
+    {nombre:'Cambio de motor de arranque',categoria:'electrico',tipo:'correctivo',frecuenciaKm:0,frecuenciaMeses:0,precio:0,tiempoHr:2.5,descripcion:'Reemplazo del motor de arranque.'},
+    // A/C (2)
+    {nombre:'Carga de gas refrigerante A/C',categoria:'aire',tipo:'preventivo',frecuenciaKm:0,frecuenciaMeses:12,precio:0,tiempoHr:1,descripcion:'Recarga de gas refrigerante (R134a o equivalente) y aceite de compresor.'},
+    {nombre:'Reparación de A/C',categoria:'aire',tipo:'correctivo',frecuenciaKm:0,frecuenciaMeses:0,precio:0,tiempoHr:3,descripcion:'Diagnóstico y reparación: compresor, condensador, evaporador, mangueras.'},
+    // Refrigeración (3)
+    {nombre:'Cambio de refrigerante (anticongelante)',categoria:'refrigeracion',tipo:'preventivo',frecuenciaKm:40000,frecuenciaMeses:24,precio:0,tiempoHr:1,descripcion:'Drenaje y reemplazo del refrigerante del motor.'},
+    {nombre:'Cambio de termostato',categoria:'refrigeracion',tipo:'correctivo',frecuenciaKm:0,frecuenciaMeses:0,precio:0,tiempoHr:1.5,descripcion:'Reemplazo del termostato del sistema de refrigeración.'},
+    {nombre:'Reparación de radiador',categoria:'refrigeracion',tipo:'correctivo',frecuenciaKm:0,frecuenciaMeses:0,precio:0,tiempoHr:4,descripcion:'Reparación o reemplazo del radiador, mangueras y tapón.'},
+    // Carrocería (2)
+    {nombre:'Reparación de carrocería / latonería',categoria:'carroceria',tipo:'correctivo',frecuenciaKm:0,frecuenciaMeses:0,precio:0,tiempoHr:0,descripcion:'Reparación de chapas, abolladuras, soldadura. Tiempo variable según daño.'},
+    {nombre:'Pintura general',categoria:'carroceria',tipo:'correctivo',frecuenciaKm:0,frecuenciaMeses:0,precio:0,tiempoHr:0,descripcion:'Pintura completa o por panel. Tiempo variable.'},
+    // General / Inspecciones (2)
+    {nombre:'Inspección general (50 puntos)',categoria:'general',tipo:'preventivo',frecuenciaKm:0,frecuenciaMeses:6,precio:0,tiempoHr:2,descripcion:'Revisión integral: motor, frenos, llantas, luces, suspensión, fluidos, batería, etc.'},
+    {nombre:'Mantenimiento preventivo completo',categoria:'general',tipo:'preventivo',frecuenciaKm:10000,frecuenciaMeses:0,precio:0,tiempoHr:4,descripcion:'Servicio completo: cambio de aceite, filtros, revisión de frenos, alineación, inspección general.'},
+    // Otro (1)
+    {nombre:'Otro servicio (especificar en notas)',categoria:'otro',tipo:'correctivo',frecuenciaKm:0,frecuenciaMeses:0,precio:0,tiempoHr:0,descripcion:'Comodín — describe el trabajo en las notas de la OT.'}
+  ];
+  var added=0;
+  basicos.forEach(function(b){
+    var existe=t.servicios.find(function(s){return (s.nombre||'').toLowerCase()===b.nombre.toLowerCase();});
+    if(!existe){
+      b.id=genId();
+      t.servicios.push(b);
+      added++;
+    }
+  });
+  // Migrar servicios viejos para que tengan los nuevos campos
+  t.servicios.forEach(function(s){
+    if(!s.categoria)s.categoria='general';
+    if(s.frecuenciaKm===undefined)s.frecuenciaKm=0;
+    if(s.frecuenciaMeses===undefined)s.frecuenciaMeses=0;
+    if(s.tiempoHr===undefined)s.tiempoHr=0;
+    if(!s.descripcion)s.descripcion='';
+  });
+  saveData();
+  if(added>0)toast('✓ '+added+' servicios cargados al catálogo');
+  else toast('Catálogo ya está completo');
+  renderTallerServicios();
+  logAction('SEED','taller_servicios',added+' servicios agregados');
+}
+
 function renderTallerServicios(){
   var t=tallerData();
+  if(!S._srvFiltroCat)S._srvFiltroCat='';
+  var lista=t.servicios.filter(function(s){
+    if(S._srvFiltroCat&&(s.categoria||'general')!==S._srvFiltroCat)return false;
+    return true;
+  });
+
+  // Migración silenciosa
+  t.servicios.forEach(function(s){
+    if(!s.categoria)s.categoria='general';
+    if(s.frecuenciaKm===undefined)s.frecuenciaKm=parseInt((s.frecuencia||'').match(/\d+/)||[0])[0]||0;
+    if(s.frecuenciaMeses===undefined)s.frecuenciaMeses=0;
+    if(s.tiempoHr===undefined)s.tiempoHr=0;
+    if(!s.descripcion)s.descripcion='';
+  });
+
   var rows='';
-  if(t.servicios.length===0){
-    rows='<tr><td colspan="5" class="empty">Sin servicios en catálogo — agrega el primero</td></tr>';
+  if(lista.length===0){
+    rows='<tr><td colspan="6" class="empty">Sin servicios en catálogo. Click "📥 Cargar 35 servicios básicos" para empezar.</td></tr>';
   } else {
-    t.servicios.forEach(function(s){
-      var tipoBadge=s.tipo==='preventivo'?'<span class="badge b-blue">Preventivo</span>':'<span class="badge b-warn">Correctivo</span>';
-      rows+='<tr><td><strong>'+esc(s.nombre)+'</strong></td>'
+    lista.forEach(function(s){
+      var tipoBadge=s.tipo==='preventivo'?'<span class="badge b-blue">Preventivo</span>':(s.tipo==='inspeccion'?'<span class="badge b-purple">Inspección</span>':'<span class="badge b-warn">Correctivo</span>');
+      var freqStr=[];
+      if(s.frecuenciaKm>0)freqStr.push(s.frecuenciaKm.toLocaleString()+' km');
+      if(s.frecuenciaMeses>0)freqStr.push(s.frecuenciaMeses+' meses');
+      var freqDisplay=freqStr.length>0?freqStr.join(' / '):'—';
+      rows+='<tr>'
+        +'<td><strong>'+esc(s.nombre)+'</strong>'
+          +(s.descripcion?'<div style="font-size:11px;color:var(--muted);margin-top:4px;max-width:400px;white-space:normal">'+esc(s.descripcion)+'</div>':'')
+        +'</td>'
+        +'<td>'+esc(srvCatLabel(s.categoria||'general'))+'</td>'
         +'<td>'+tipoBadge+'</td>'
-        +'<td>'+esc(s.frecuencia||'—')+'</td>'
-        +'<td style="text-align:right">$'+fmt(s.precio||0)+'</td>'
+        +'<td>'+esc(freqDisplay)+'</td>'
+        +'<td style="text-align:right">'+(s.tiempoHr?s.tiempoHr+' hr':'—')+'</td>'
+        +'<td style="text-align:right">$'+(s.precio||0).toFixed(2)+'</td>'
         +'<td><div class="td-act">'
           +'<button class="btn btn-secondary btn-xs" onclick="modalServicio(\''+s.id+'\')">✏</button>'
           +'<button class="btn btn-danger btn-xs" onclick="delServicio(\''+s.id+'\')">✕</button>'
@@ -13474,30 +13685,66 @@ function renderTallerServicios(){
     });
   }
 
+  var catTabs=[{id:'',label:'Todas'}].concat(SRV_CATEGORIAS).map(function(c){
+    var active=S._srvFiltroCat===c.id;
+    var label=c.id?(c.ic+' '+c.label):c.label;
+    return '<button class="btn '+(active?'btn-primary':'btn-secondary')+' btn-xs" onclick="S._srvFiltroCat=\''+c.id+'\';renderTallerServicios()">'+label+'</button>';
+  }).join(' ');
+
   document.getElementById('content').innerHTML=
-    '<div style="display:flex;gap:10px;margin-bottom:14px"><button class="btn btn-primary" onclick="modalServicio(\'\')">+ Nuevo Servicio</button></div>'
-    +'<div class="card"><div class="sec-hdr">Catálogo de servicios</div>'
-    +'<div class="tbl-wrap"><table><thead><tr><th>Servicio</th><th>Tipo</th><th>Frecuencia sugerida</th><th style="text-align:right">Precio base</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+    '<div class="info-box">🔧 <strong>Catálogo único de servicios del taller.</strong> Estos servicios alimentan los Mantenimientos Programados, Órdenes de Trabajo y Solicitudes de Revisión de los choferes.</div>'
+    +'<div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">'
+      +'<button class="btn btn-primary" onclick="modalServicio(\'\')">+ Nuevo Servicio</button>'
+      +'<button class="btn btn-secondary" onclick="srvSeedCatalogo()" style="color:var(--accent);border-color:var(--accent)">📥 Cargar 35 servicios básicos</button>'
+    +'</div>'
+    +'<div style="margin-bottom:12px;display:flex;gap:4px;flex-wrap:wrap">'+catTabs+'</div>'
+    +'<div class="card" style="padding:0"><div class="tbl-wrap" style="border:none;border-radius:0">'
+    +'<table><thead><tr><th>Servicio / Descripción</th><th>Categoría</th><th>Tipo</th><th>Frecuencia</th><th style="text-align:right">Tiempo</th><th style="text-align:right">Precio</th><th>Acciones</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table></div></div>';
 }
 
 function modalServicio(id){
   var t=tallerData();
   var s=id?t.servicios.find(function(x){return x.id===id;}):null;
+  (function(_e){if(_e)_e.remove();})(document.getElementById('modalSrvDiv'));
+
+  var catOpts=SRV_CATEGORIAS.map(function(c){
+    var sel=s&&s.categoria===c.id?' selected':'';
+    return '<option value="'+c.id+'"'+sel+'>'+esc(c.ic+' '+c.label)+'</option>';
+  }).join('');
+
   var div=document.createElement('div');
   div.id='modalSrvDiv';
-  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:center;justify-content:center;padding:12px';
-  div.innerHTML='<div class="modal-box sm">'
+  div.className='modal open';
+  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:12px;overflow-y:auto';
+  div.innerHTML='<div class="modal-box md" style="margin-top:auto;margin-bottom:auto">'
     +'<div class="modal-hdr"><div class="modal-ttl">'+(id?'✏ Editar Servicio':'+ Nuevo Servicio')+'</div>'
     +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalSrvDiv\').remove()">✕</button></div>'
-    +'<div class="fg"><label>Nombre *</label><input id="srvNom" value="'+(s?esc(s.nombre):'')+'"></div>'
-    +'<div class="fg"><label>Tipo</label><select id="srvTipo">'
-      +optsTiposOT((s&&s.tipo)||'preventivo')
-    +'</select></div>'
-    +'<div class="fg"><label>Frecuencia sugerida</label><input id="srvFrec" value="'+(s?esc(s.frecuencia||''):'')+'" placeholder="Cada 5,000 km"></div>'
-    +'<div class="fg"><label>Precio base ($)</label><input type="number" id="srvPrecio" step="0.01" value="'+(s?s.precio||0:0)+'"></div>'
-    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px">'
+    +'<div class="row2">'
+      +'<div class="fg"><label>Nombre del servicio *</label><input id="srvNom" value="'+(s?esc(s.nombre):'')+'" placeholder="Ej: Cambio de aceite y filtro"></div>'
+      +'<div class="fg"><label>Categoría *</label><select id="srvCat">'+catOpts+'</select></div>'
+    +'</div>'
+    +'<div class="fg"><label>Descripción detallada</label>'
+      +'<textarea id="srvDesc" rows="3" placeholder="Ej: Drenar aceite usado, reemplazar filtro, rellenar con aceite nuevo. Incluye revisión visual de fugas y nivel de fluidos.">'+(s?esc(s.descripcion||''):'')+'</textarea>'
+      +'<div style="font-size:11px;color:var(--muted);margin-top:4px">Útil para describir servicios compuestos como "Servicio de primer nivel" que incluyen cambio de aceite, engrase, regulación de frenos, revisión de luces, etc.</div>'
+    +'</div>'
+    +'<div class="row2">'
+      +'<div class="fg"><label>Tipo *</label><select id="srvTipo">'
+        +'<option value="preventivo"'+(s&&s.tipo==='preventivo'?' selected':'')+'>Preventivo</option>'
+        +'<option value="correctivo"'+(s&&s.tipo==='correctivo'?' selected':'')+'>Correctivo</option>'
+        +'<option value="inspeccion"'+(s&&s.tipo==='inspeccion'?' selected':'')+'>Inspección</option>'
+      +'</select></div>'
+      +'<div class="fg"><label>Tiempo estimado (horas)</label><input type="number" step="0.1" min="0" id="srvHr" value="'+(s?(s.tiempoHr||0):0)+'"></div>'
+    +'</div>'
+    +'<div class="row2">'
+      +'<div class="fg"><label>Frecuencia (km)</label><input type="number" id="srvFrecKm" min="0" value="'+(s?(s.frecuenciaKm||0):0)+'" placeholder="Ej: 5000"></div>'
+      +'<div class="fg"><label>Frecuencia (meses)</label><input type="number" id="srvFrecMes" min="0" value="'+(s?(s.frecuenciaMeses||0):0)+'" placeholder="Ej: 6"></div>'
+    +'</div>'
+    +'<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Si llenas ambos, dispara lo que ocurra primero (ej: "5000 km o 6 meses")</div>'
+    +'<div class="fg"><label>Precio base ($)</label><input type="number" step="0.01" id="srvPrecio" value="'+(s?(s.precio||0):0)+'"></div>'
+    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">'
     +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalSrvDiv\').remove()">Cancelar</button>'
-    +'<button class="btn btn-primary" onclick="guardarServicio(\''+(id||'')+'\')">Guardar</button></div></div>';
+    +'<button class="btn btn-primary" onclick="guardarServicio(\''+(id||'')+'\')">✓ Guardar</button></div></div>';
   document.body.appendChild(div);
   setTimeout(function(){_focusFirst(div);},80);
 }
@@ -13508,16 +13755,22 @@ function guardarServicio(id){
   var t=tallerData();
   var datos={
     nombre:nombre,
+    categoria:document.getElementById('srvCat').value,
+    descripcion:document.getElementById('srvDesc').value.trim(),
     tipo:document.getElementById('srvTipo').value,
-    frecuencia:document.getElementById('srvFrec').value.trim(),
+    tiempoHr:parseFloat(document.getElementById('srvHr').value)||0,
+    frecuenciaKm:parseInt(document.getElementById('srvFrecKm').value)||0,
+    frecuenciaMeses:parseInt(document.getElementById('srvFrecMes').value)||0,
     precio:parseFloat(document.getElementById('srvPrecio').value)||0
   };
   if(id){
     var s=t.servicios.find(function(x){return x.id===id;});
     if(s)Object.assign(s,datos);
+    logAction('EDITAR','taller_servicios','Servicio: '+nombre);
   } else {
     datos.id=genId();
     t.servicios.push(datos);
+    logAction('CREAR','taller_servicios','Nuevo servicio: '+nombre);
   }
   saveData();
   (function(_e){if(_e)_e.remove();})(document.getElementById('modalSrvDiv'));
@@ -13526,7 +13779,7 @@ function guardarServicio(id){
 }
 
 function delServicio(id){
-  if(!confirm('¿Eliminar este servicio?'))return;
+  if(!confirm('¿Eliminar este servicio? Los Mantenimientos Programados y OT que lo usen mantendrán su nombre pero perderán el vínculo.'))return;
   var t=tallerData();
   t.servicios=t.servicios.filter(function(x){return x.id!==id;});
   saveData();renderTallerServicios();toast('Servicio eliminado');
@@ -13675,38 +13928,84 @@ function modalProgramado(id){
   var p=id?t.programado.find(function(x){return x.id===id;}):null;
   var vehOpts='<option value="">— Selecciona vehículo —</option>';
   t.vehiculos.forEach(function(v){vehOpts+='<option value="'+v.id+'"'+(p&&p.vehiculoId===v.id?' selected':'')+'>'+esc(v.placa)+'</option>';});
+
+  // Servicios del catálogo agrupados por categoría
+  var srvOpts='<option value="">— Selecciona del catálogo —</option>';
+  SRV_CATEGORIAS.forEach(function(c){
+    var srvCat=(t.servicios||[]).filter(function(s){return (s.categoria||'general')===c.id;});
+    if(srvCat.length>0){
+      srvOpts+='<optgroup label="'+esc(c.ic+' '+c.label)+'">';
+      srvCat.forEach(function(s){
+        var sel=p&&p.servicioId===s.id?' selected':'';
+        srvOpts+='<option value="'+s.id+'"'+sel+'>'+esc(s.nombre)+'</option>';
+      });
+      srvOpts+='</optgroup>';
+    }
+  });
+
   var div=document.createElement('div');
   div.id='modalProgDiv';
-  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:center;justify-content:center;padding:12px';
-  div.innerHTML='<div class="modal-box sm">'
+  div.className='modal open';
+  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:12px;overflow-y:auto';
+  div.innerHTML='<div class="modal-box md" style="margin-top:auto;margin-bottom:auto">'
     +'<div class="modal-hdr"><div class="modal-ttl">'+(id?'✏ Editar Programación':'+ Programar Mantenimiento')+'</div>'
     +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalProgDiv\').remove()">✕</button></div>'
     +'<div class="fg"><label>Vehículo *</label><select id="prgVeh">'+vehOpts+'</select></div>'
-    +'<div class="fg"><label>Servicio *</label><input id="prgSrv" value="'+(p?esc(p.servicio||''):'')+'" placeholder="Ej: Cambio de aceite"></div>'
+    +'<div class="fg"><label>Servicio del catálogo *</label>'
+      +'<select id="prgSrvId" onchange="prgServicioChange()">'+srvOpts+'</select>'
+      +'<div style="font-size:11px;color:var(--muted);margin-top:4px">Si el servicio no está en el catálogo, agrégalo desde Catálogo de Servicios</div>'
+    +'</div>'
+    +'<div id="prgSrvInfo" style="background:var(--surface2);padding:10px;border-radius:8px;margin-bottom:10px;font-size:12px;display:none"></div>'
     +'<div class="row2"><div class="fg"><label>Cada cuántos km</label><input type="number" id="prgCada" value="'+(p?p.cadaKm||0:0)+'"></div>'
     +'<div class="fg"><label>Próximo en (km)</label><input type="number" id="prgProx" value="'+(p?p.proximoKm||0:0)+'"></div></div>'
     +'<div class="row2"><div class="fg"><label>Último realizado (fecha)</label><input type="date" id="prgUFecha" value="'+(p?p.ultimoFecha||'':'')+'"></div>'
     +'<div class="fg"><label>Km al último mantenimiento</label><input type="number" id="prgUKm" value="'+(p?p.ultimoKm||'':'')+'"></div></div>'
-    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px">'
+    +'<div class="fg"><label>Notas</label><textarea id="prgNotas" rows="2" placeholder="Notas adicionales sobre esta programación">'+(p?esc(p.notas||''):'')+'</textarea></div>'
+    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">'
     +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalProgDiv\').remove()">Cancelar</button>'
-    +'<button class="btn btn-primary" onclick="guardarProgramado(\''+(id||'')+'\')">Guardar</button></div></div>';
+    +'<button class="btn btn-primary" onclick="guardarProgramado(\''+(id||'')+'\')">✓ Guardar</button></div></div>';
   document.body.appendChild(div);
-  setTimeout(function(){_focusFirst(div);},80);
+  setTimeout(function(){_focusFirst(div);prgServicioChange();},80);
+}
+
+// Auto-llena frecuencia y muestra info del servicio seleccionado
+function prgServicioChange(){
+  var sel=document.getElementById('prgSrvId');
+  var info=document.getElementById('prgSrvInfo');
+  var freqInput=document.getElementById('prgCada');
+  if(!sel||!info)return;
+  var srvId=sel.value;
+  if(!srvId){info.style.display='none';return;}
+  var t=tallerData();
+  var s=(t.servicios||[]).find(function(x){return x.id===srvId;});
+  if(!s){info.style.display='none';return;}
+  // Auto-llena km si está vacío
+  if(freqInput&&!parseInt(freqInput.value)&&s.frecuenciaKm>0){
+    freqInput.value=s.frecuenciaKm;
+  }
+  info.style.display='block';
+  info.innerHTML='<div><strong>'+esc(srvCatLabel(s.categoria))+'</strong> · '+esc(s.tipo)+'</div>'
+    +(s.descripcion?'<div style="margin-top:4px;color:var(--muted)">'+esc(s.descripcion)+'</div>':'')
+    +'<div style="margin-top:6px;color:var(--accent)">⏱ '+(s.tiempoHr||0)+' hr · 💵 $'+(s.precio||0).toFixed(2)+' · 📅 '+(s.frecuenciaKm?s.frecuenciaKm.toLocaleString()+' km':'-')+(s.frecuenciaMeses?' / '+s.frecuenciaMeses+' meses':'')+'</div>';
 }
 
 function guardarProgramado(id){
   var vehId=document.getElementById('prgVeh').value;
   if(!vehId){toast('Selecciona un vehículo',true);return;}
-  var srv=document.getElementById('prgSrv').value.trim();
-  if(!srv){toast('Ingresa el servicio',true);return;}
+  var srvId=document.getElementById('prgSrvId').value;
+  if(!srvId){toast('Selecciona un servicio del catálogo',true);return;}
   var t=tallerData();
+  var srv=t.servicios.find(function(x){return x.id===srvId;});
+  if(!srv){toast('Servicio no encontrado',true);return;}
   var datos={
     vehiculoId:vehId,
-    servicio:srv,
+    servicioId:srvId,
+    servicio:srv.nombre, // nombre snapshot por compat
     cadaKm:parseInt(document.getElementById('prgCada').value)||0,
     proximoKm:parseInt(document.getElementById('prgProx').value)||0,
     ultimoFecha:document.getElementById('prgUFecha').value||null,
-    ultimoKm:parseInt(document.getElementById('prgUKm').value)||null
+    ultimoKm:parseInt(document.getElementById('prgUKm').value)||null,
+    notas:(document.getElementById('prgNotas').value||'').trim()
   };
   if(id){
     var p=t.programado.find(function(x){return x.id===id;});
@@ -14150,9 +14449,19 @@ function choferSeleccionarCat(catId){
 }
 
 function choferRenderSolicitar(veh){
-  var catOpts=SOL_CATEGORIAS.map(function(c){
-    return '<button type="button" onclick="choferSeleccionarCat(\''+c.id+'\')" data-cat="'+c.id+'" class="sol-cat" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:8px;cursor:pointer;font-size:13px">'+c.ic+' '+esc(c.label)+'</button>';
-  }).join('');
+  var t=tallerData();
+  // Servicios del catálogo agrupados por categoría
+  var srvOpts='<option value="">— Selecciona el servicio que crees que necesita —</option>';
+  SRV_CATEGORIAS.forEach(function(c){
+    var srvCat=(t.servicios||[]).filter(function(s){return (s.categoria||'general')===c.id;});
+    if(srvCat.length>0){
+      srvOpts+='<optgroup label="'+esc(c.ic+' '+c.label)+'">';
+      srvCat.forEach(function(s){
+        srvOpts+='<option value="'+s.id+'">'+esc(s.nombre)+'</option>';
+      });
+      srvOpts+='</optgroup>';
+    }
+  });
 
   var urgOpts=SOL_URGENCIAS.map(function(u,i){
     return '<label style="display:flex;align-items:center;gap:8px;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;cursor:pointer">'
@@ -14164,11 +14473,13 @@ function choferRenderSolicitar(veh){
     '<div class="card">'
     +'<div class="sec-hdr">🔧 Solicitar revisión del camión</div>'
     +'<div class="info-box">📌 Tu solicitud será revisada por el administrador antes de asignarse al mecánico.</div>'
-    +'<input type="hidden" id="solCatVal" value="">'
-    +'<div class="fg"><label>¿Qué tipo de problema? *</label>'
-    +'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">'+catOpts+'</div></div>'
-    +'<div class="fg" style="margin-top:14px"><label>Descripción del problema *</label>'
-    +'<textarea id="solDesc" rows="3" placeholder="Describe lo que está pasando: cuándo ocurre, qué sonidos hace, qué notaste..."></textarea></div>'
+    +'<div class="fg"><label>¿Qué servicio necesita el camión? *</label>'
+      +'<select id="solSrvId" onchange="choferSrvChange()">'+srvOpts+'</select>'
+      +'<div style="font-size:11px;color:var(--muted);margin-top:4px">Si no estás seguro, selecciona "Otro / Comodín" y describe abajo lo que pasa.</div>'
+    +'</div>'
+    +'<div id="solSrvInfo" style="background:var(--surface2);padding:10px;border-radius:8px;margin-bottom:10px;font-size:12px;display:none"></div>'
+    +'<div class="fg" style="margin-top:14px"><label>Describe el problema o lo que notaste *</label>'
+    +'<textarea id="solDesc" rows="3" placeholder="Cuándo ocurre, qué sonidos hace, qué notaste, dónde está el problema..."></textarea></div>'
     +'<div class="fg"><label>Urgencia *</label>'
     +'<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">'+urgOpts+'</div></div>'
     +'<div class="fg"><label>📷 Foto (opcional)</label>'
@@ -14179,6 +14490,20 @@ function choferRenderSolicitar(veh){
     +'<div style="display:flex;gap:10px;margin-top:14px">'
     +'<button class="btn btn-primary" onclick="choferEnviarSolicitud(\''+veh.id+'\')" style="flex:1">📤 Enviar solicitud</button>'
     +'</div></div>';
+}
+
+function choferSrvChange(){
+  var sel=document.getElementById('solSrvId');
+  var info=document.getElementById('solSrvInfo');
+  if(!sel||!info)return;
+  var srvId=sel.value;
+  if(!srvId){info.style.display='none';return;}
+  var t=tallerData();
+  var s=(t.servicios||[]).find(function(x){return x.id===srvId;});
+  if(!s){info.style.display='none';return;}
+  info.style.display='block';
+  info.innerHTML='<div style="font-weight:700">'+esc(srvCatLabel(s.categoria))+'</div>'
+    +(s.descripcion?'<div style="margin-top:4px;color:var(--muted)">'+esc(s.descripcion)+'</div>':'');
 }
 
 function choferPreviewFoto(input){
@@ -14195,17 +14520,18 @@ function choferPreviewFoto(input){
 }
 
 function choferEnviarSolicitud(vehId){
-  var cat=(document.getElementById('solCatVal')||{}).value;
+  var srvId=(document.getElementById('solSrvId')||{}).value;
   var desc=((document.getElementById('solDesc')||{}).value||'').trim();
   var urg=(document.querySelector('input[name="solUrg"]:checked')||{}).value;
   var fotoData=(document.getElementById('solFotoData')||{}).value;
 
-  if(!cat){toast('Selecciona el tipo de problema',true);return;}
+  if(!srvId){toast('Selecciona el servicio que crees que necesita',true);return;}
   if(!desc){toast('Describe el problema',true);return;}
   if(!urg){toast('Selecciona la urgencia',true);return;}
 
   var t=tallerData();
   if(!t.solicitudes)t.solicitudes=[];
+  var srv=(t.servicios||[]).find(function(x){return x.id===srvId;});
 
   var solId='sol_'+Date.now().toString(36);
   var sol={
@@ -14215,7 +14541,9 @@ function choferEnviarSolicitud(vehId){
     ts:Date.now(),
     choferId:S.currentUser?S.currentUser.email:null,
     choferNombre:S.currentUser?S.currentUser.nombre:'Chofer',
-    categoria:cat,
+    servicioId:srvId,
+    servicioNombre:srv?srv.nombre:'',
+    categoria:srv?srv.categoria:'otro', // compat con código viejo
     descripcion:desc,
     urgencia:urg,
     estado:'enviada',
@@ -14252,10 +14580,11 @@ function choferRenderMisSolicitudes(veh){
 
   var html='<div class="card"><div class="sec-hdr">📋 Tus solicitudes ('+sols.length+')</div>';
   sols.forEach(function(s){
-    var c=SOL_CATEGORIAS.find(function(x){return x.id===s.categoria;});
+    var srvLabel=s.servicioNombre||(SOL_CATEGORIAS.find(function(x){return x.id===s.categoria;})||{label:s.categoria}).label;
+    var catIc=srvCatLabel(s.categoria||'otro').split(' ')[0];
     html+='<div style="background:var(--surface2);padding:12px;border-radius:8px;margin-bottom:8px;border:1px solid var(--border)">'
       +'<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px;margin-bottom:6px">'
-        +'<div><div style="font-weight:700">'+(c?c.ic+' '+c.label:s.categoria)+'</div>'
+        +'<div><div style="font-weight:700">'+catIc+' '+esc(srvLabel)+'</div>'
         +'<div style="font-size:11px;color:var(--muted)">'+fmtDate(s.fecha)+' · '+esc(solUrgLabel(s.urgencia))+'</div></div>'
         +'<span class="badge '+solEstColor(s.estado)+'">'+esc(solEstLabel(s.estado))+'</span>'
       +'</div>'
@@ -14282,13 +14611,14 @@ function renderTallerSolicitudes(){
 
   var rows=sols.map(function(s){
     var v=t.vehiculos.find(function(x){return x.id===s.vehiculoId;});
-    var c=SOL_CATEGORIAS.find(function(x){return x.id===s.categoria;});
+    var srvLabel=s.servicioNombre||(SOL_CATEGORIAS.find(function(x){return x.id===s.categoria;})||{label:s.categoria}).label;
+    var catIc=srvCatLabel(s.categoria||'otro').split(' ')[0];
     return '<tr>'
       +'<td><div style="font-weight:600;font-size:12px">'+fmtDate(s.fecha)+'</div></td>'
       +'<td><strong>'+esc(v?v.placa:'(eliminado)')+'</strong></td>'
       +'<td>'+esc(s.choferNombre||'')+'</td>'
-      +'<td>'+(c?c.ic+' '+c.label:esc(s.categoria))+'</td>'
-      +'<td><span class="badge '+solUrgColor(s.urgencia)+'" style="font-size:10px">'+esc(s.urgencia.toUpperCase())+'</span></td>'
+      +'<td><div style="font-size:12px">'+catIc+' '+esc(srvLabel)+'</div></td>'
+      +'<td><span class="badge '+solUrgColor(s.urgencia)+'" style="font-size:10px">'+esc((s.urgencia||'').toUpperCase())+'</span></td>'
       +'<td style="font-size:12px;max-width:300px;white-space:normal">'+esc(s.descripcion)+'</td>'
       +'<td><span class="badge '+solEstColor(s.estado)+'">'+esc(solEstLabel(s.estado))+'</span></td>'
       +'<td class="td-act">'
@@ -14308,7 +14638,7 @@ function renderTallerSolicitudes(){
     (pendientes>0?'<div class="info-box" style="background:#2a1a00;color:var(--accent);border-color:#5a3a00">⚠ <strong>'+pendientes+' solicitud(es) pendiente(s) de revisión</strong></div>':'')
     +'<div style="margin-bottom:12px">'+filterBtns+'</div>'
     +'<div class="card" style="padding:0"><div class="tbl-wrap" style="border:none;border-radius:0">'
-    +'<table><thead><tr><th>Fecha</th><th>Vehículo</th><th>Chofer</th><th>Categoría</th><th>Urg.</th><th>Descripción</th><th>Estado</th><th>Acciones</th></tr></thead>'
+    +'<table><thead><tr><th>Fecha</th><th>Vehículo</th><th>Chofer</th><th>Servicio solicitado</th><th>Urg.</th><th>Descripción</th><th>Estado</th><th>Acciones</th></tr></thead>'
     +'<tbody>'+rows+'</tbody></table></div></div>';
 }
 
