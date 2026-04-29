@@ -1223,6 +1223,64 @@ const S={
 function genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function fmt(n){return'$'+(parseFloat(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
+
+// ── Helpers de ordenamiento de tablas (genéricos, reusables, sin tocar datos) ──
+// Uso: thSort('gastos','valor','Valor', {style:'text-align:right', cls:'hide-sm'})
+// Estado se guarda en S._sort[key] = {col, dir} (no persistente, no afecta Firebase)
+function thSort(tableKey, colKey, label, opts){
+  if(!S._sort)S._sort={};
+  opts=opts||{};
+  var st=S._sort[tableKey]||{col:'',dir:''};
+  var arrow='<span style="opacity:0.35;font-size:10px;margin-left:3px">↕</span>';
+  if(st.col===colKey){
+    arrow=st.dir==='asc'
+      ?'<span style="color:var(--accent);font-size:10px;margin-left:3px">▲</span>'
+      :'<span style="color:var(--accent);font-size:10px;margin-left:3px">▼</span>';
+  }
+  var styleStr='cursor:pointer;user-select:none;'+(opts.style||'');
+  var clsAttr=opts.cls?(' class="'+opts.cls+'"'):'';
+  var titleAttr=opts.title?(' title="'+opts.title+'"'):' title="Click para ordenar"';
+  return '<th'+clsAttr+' style="'+styleStr+'" onclick="thSortClick(\''+tableKey+'\',\''+colKey+'\')"'+titleAttr+'>'+label+arrow+'</th>';
+}
+
+// Click handler genérico — cicla: sin orden → asc → desc → sin orden
+function thSortClick(tableKey, colKey){
+  if(!S._sort)S._sort={};
+  var st=S._sort[tableKey]||{col:'',dir:''};
+  if(st.col!==colKey){st.col=colKey;st.dir='asc';}
+  else if(st.dir==='asc'){st.dir='desc';}
+  else {st.col='';st.dir='';} // tercer click = desordenar
+  S._sort[tableKey]=st;
+  render();
+}
+
+// Ordena un array según S._sort[tableKey] usando un getter que extrae el valor por columna
+// `getValue(item, colKey)` debe devolver el valor crudo (string o number)
+function applySort(arr, tableKey, getValue){
+  if(!S._sort||!S._sort[tableKey])return arr;
+  var st=S._sort[tableKey];
+  if(!st.col||!st.dir)return arr;
+  var sorted=arr.slice();
+  sorted.sort(function(a,b){
+    var va=getValue(a,st.col);
+    var vb=getValue(b,st.col);
+    // Manejo de null/undefined → al final
+    if(va==null&&vb==null)return 0;
+    if(va==null)return 1;
+    if(vb==null)return -1;
+    // Números
+    if(typeof va==='number'&&typeof vb==='number'){
+      return st.dir==='asc'?va-vb:vb-va;
+    }
+    // Strings (case-insensitive)
+    var sa=String(va).toLowerCase();
+    var sb=String(vb).toLowerCase();
+    if(sa<sb)return st.dir==='asc'?-1:1;
+    if(sa>sb)return st.dir==='asc'?1:-1;
+    return 0;
+  });
+  return sorted;
+}
 // ══ Cached dropdown options (rebuilt on saveData, avoids O(n) per render) ══
 var _optsCache = {};
 function _invalidateOpts(){ _optsCache = {}; }
@@ -2411,18 +2469,18 @@ async function renderSAUsuarios(){
   window._SA_buildRows=buildRows;
 
   // Event delegation — avoids onclick string escaping issues con UIDs especiales
-  setTimeout(function(){
-    var saC=document.getElementById('saContent');
-    if(!saC)return;
-    saC.addEventListener('click',function(e){
+  // Anclar al document garantiza que el listener nunca se pierda en re-renders
+  if(!window._saListenerAttached){
+    window._saListenerAttached=true;
+    document.addEventListener('click',function(e){
       var editBtn=e.target.closest('.sa-edit-btn');
       var toggleBtn=e.target.closest('.sa-toggle-btn');
       var delBtn=e.target.closest('.sa-del-btn');
       if(editBtn){editarUsuarioSA(editBtn.dataset.uid);}
       else if(toggleBtn){toggleUsuarioSA(toggleBtn.dataset.uid,toggleBtn.dataset.activo==='true');}
       else if(delBtn){eliminarUsuarioSA(delBtn.dataset.uid,delBtn.dataset.email);}
-    },{once:true});
-  },100);
+    });
+  }
 }
 
 function filtrarUsuariosSA(){
@@ -3394,6 +3452,22 @@ function renderGastos(){
            (function(){var c=S.centros.find(function(x){return x.id===g.centroId;});return c?(c.nombre||'').toLowerCase().includes(_qGastos):false;})();
   });
 
+  // ── Aplicar ordenamiento si hay (sin tocar el array original) ──
+  gastosF=applySort(gastosF,'gastos',function(g,col){
+    if(col==='factura')return g.factura||'';
+    if(col==='descripcion')return g.descripcion||'';
+    if(col==='proveedor')return g.proveedor||'';
+    if(col==='valor')return parseFloat(g.valor)||0;
+    if(col==='fecha')return g.fecha||'';
+    if(col==='proyectoCentro'){
+      var p=g.proyectoId?(S.proyectos.find(function(x){return x.id===g.proyectoId;})||{}).nombre||'':'';
+      var c=g.centroId?(S.centros.find(function(x){return x.id===g.centroId;})||{}).nombre||'':'';
+      return p||c||'';
+    }
+    if(col==='suma')return g.sumarAlProy?1:0;
+    return '';
+  });
+
   // ── Paginación: 100 filas por página ──────────────────────────────────────
   const PAGE_SIZE=100;
   const totalPags=Math.max(1,Math.ceil(gastosF.length/PAGE_SIZE));
@@ -3538,13 +3612,13 @@ function renderGastos(){
   </div>
   <div class="tbl-wrap" style="overflow-x:auto"><table style="table-layout:auto;min-width:0">
     <thead><tr>
-      <th style="min-width:80px">Factura</th>
-      <th class="hide-sm" style="min-width:100px">Descripción</th>
-      <th class="hide-sm">Proveedor</th>
-      <th style="min-width:70px">Valor</th>
-      <th class="hide-sm">Fecha</th>
-      <th>Proyecto / Centro de Costo</th>
-      <th style="text-align:center" title="Suma al presupuesto del proyecto">Suma</th>
+      ${thSort('gastos','factura','Factura',{style:'min-width:80px'})}
+      ${thSort('gastos','descripcion','Descripción',{style:'min-width:100px',cls:'hide-sm'})}
+      ${thSort('gastos','proveedor','Proveedor',{cls:'hide-sm'})}
+      ${thSort('gastos','valor','Valor',{style:'min-width:70px;text-align:right'})}
+      ${thSort('gastos','fecha','Fecha',{cls:'hide-sm'})}
+      ${thSort('gastos','proyectoCentro','Proyecto / Centro de Costo',{})}
+      ${thSort('gastos','suma','Suma',{style:'text-align:center',title:'Suma al presupuesto del proyecto'})}
       <th style="text-align:center">📎</th>
       <th></th>
     </tr></thead>
@@ -5355,6 +5429,13 @@ function renderProveedores(){
     if(!_q)return true;
     return (p.nombre||'').toLowerCase().includes(_q)||(p.tipo||'').toLowerCase().includes(_q)||(p.tel||'').toLowerCase().includes(_q);
   });
+  // Aplicar ordenamiento si hay
+  provF=applySort(provF,'proveedores',function(p,col){
+    if(col==='nombre')return p.nombre||'';
+    if(col==='tipo')return p.tipo||'';
+    if(col==='tel')return p.tel||'';
+    return '';
+  });
   var rows=provF.length===0?('<tr><td colspan="4" class="empty">'+(S.proveedores.length===0?'Sin proveedores':('Sin resultados para "'+esc(_q)+'"'))+'</td></tr>'):'';
   provF.forEach(function(p){
     rows+=`<tr><td>${esc(p.nombre)}</td><td>${esc(p.tipo||'—')}</td><td>${esc(p.tel||'—')}</td><td><button class="btn btn-danger btn-xs" onclick="delProv('${p.id}')">✕</button></td></tr>`;
@@ -5369,7 +5450,7 @@ function renderProveedores(){
       oninput="srchFiltrarTabla(this,'tblProveedores','cntProveedores')">
     <span id="cntProveedores" style="font-size:12px;color:var(--muted)">${provF.length} de ${S.proveedores.length}</span>
   </div>
-  <div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Tipo</th><th>Teléfono</th><th></th></tr></thead><tbody id="tblProveedores">${rows}</tbody></table></div>`;
+  <div class="tbl-wrap"><table><thead><tr>${thSort('proveedores','nombre','Nombre',{})}${thSort('proveedores','tipo','Tipo',{})}${thSort('proveedores','tel','Teléfono',{})}<th></th></tr></thead><tbody id="tblProveedores">${rows}</tbody></table></div>`;
 }
 function addProv(){const n=document.getElementById('pvN').value.trim();if(!n){toast('Nombre requerido',true);document.getElementById('pvN').focus();return}S.proveedores.push({id:genId(),nombre:n,tipo:document.getElementById('pvT').value.trim(),tel:document.getElementById('pvTel').value.trim()});saveData();render();toast('✓ Proveedor registrado');setTimeout(()=>_focusFirst('#content .card'),40);}
 function delProv(id){if(!confirm('¿Eliminar proveedor?'))return;S.proveedores=S.proveedores.filter(x=>x.id!==id);saveData();render()}
@@ -5383,6 +5464,16 @@ function renderCentros(){
     if(!_q)return true;
     var g=(S.gerentesZona||[]).find(function(gz){return gz.id===c.gerenteId;});
     return (c.nombre||'').toLowerCase().includes(_q)||(c.descripcion||'').toLowerCase().includes(_q)||(g?(g.nombre||'').toLowerCase().includes(_q):false);
+  });
+  // Aplicar ordenamiento si hay
+  centrosF=applySort(centrosF,'centros',function(c,col){
+    if(col==='nombre')return c.nombre||'';
+    if(col==='descripcion')return c.descripcion||'';
+    if(col==='proyecto'){var p=c.proyectoId?(S.proyectos.find(function(x){return x.id===c.proyectoId;})||{}).nombre||'':'';return p;}
+    if(col==='origen')return c.auto?'auto':'manual';
+    if(col==='codMant')return c.codigoMant||'';
+    if(col==='gerente'){var g=c.gerenteId?(S.gerentesZona||[]).find(function(x){return x.id===c.gerenteId;}):null;return g?g.nombre:'';}
+    return '';
   });
   var rows=centrosF.length===0?('<tr><td colspan="7" class="empty">'+(S.centros.length===0?'Sin centros de costo':('Sin resultados para "'+esc(_q)+'"'))+'</td></tr>'):'';
   centrosF.forEach(function(c){
@@ -5398,6 +5489,7 @@ function renderCentros(){
     rows+='<tr><td><strong>'+esc(c.nombre)+'</strong></td><td style="font-size:12px;color:var(--muted)">'+esc(c.descripcion||'—')+'</td><td>'+pBadge+'</td><td>'+origBadge+'</td><td>'+codBadge+'</td><td>'+gBadge+'</td><td>'+acciones+'</td></tr>';
   });
   var proyOpts=_proyOpts('');
+  var theadHtml='<thead><tr>'+thSort('centros','nombre','Nombre',{})+thSort('centros','descripcion','Descripción',{})+thSort('centros','proyecto','Proyecto',{})+thSort('centros','origen','Origen',{})+thSort('centros','codMant','Cód. Mant.',{})+thSort('centros','gerente','Gerente de Zona',{})+'<th></th></tr></thead>';
   document.getElementById('content').innerHTML=
     '<div class="info-box">ℹ️ Al crear un proyecto se genera su Centro de Costo automáticamente. El código de mantenimiento (4 dígitos) lo usan los encargados para confirmar OTs.</div>'
     +'<div class="card" style="margin-bottom:18px"><div class="sec-hdr">Nuevo Centro (independiente)</div>'
@@ -5408,7 +5500,7 @@ function renderCentros(){
     +'style="flex:1;max-width:400px;padding:7px 12px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)" '
     +'data-target="tblCentros" data-count="cntCentros" oninput="srchFiltrarTabla(this)">'
     +'<span id="cntCentros" style="font-size:12px;color:var(--muted)">'+centrosF.length+' de '+S.centros.length+'</span></div>'
-    +'<div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Descripción</th><th>Proyecto</th><th>Origen</th><th>Cód. Mant.</th><th>Gerente de Zona</th><th></th></tr></thead><tbody id="tblCentros">'+rows+'</tbody></table></div>'
+    +'<div class="tbl-wrap"><table>'+theadHtml+'<tbody id="tblCentros">'+rows+'</tbody></table></div>'
     +'<div id="modalEditCentro" class="modal"><div class="modal-box sm"><div class="modal-hdr"><div class="modal-ttl">✏ Editar Centro</div><button class="btn btn-secondary btn-sm" onclick="closeModal(\"modalEditCentro\")">✕</button></div><div id="modalEditCentroBody"></div></div></div>';
 }
 function addCentro(){var n=document.getElementById('ccN').value.trim();if(!n){toast('Nombre requerido',true);document.getElementById('ccN').focus();return;}S.centros.push({id:genId(),nombre:n,descripcion:document.getElementById('ccD').value.trim(),proyectoId:document.getElementById('ccP').value||null,auto:false});saveData();render();toast('✓ Centro registrado');setTimeout(function(){_focusFirst('#content .card');},40);}
@@ -7081,11 +7173,22 @@ function renderInventario(){
   const totalItems=prods.reduce((s,p)=>s+(parseFloat(p.cantidad)||0),0);
   const bajo=prods.filter(p=>p.minimo&&parseFloat(p.cantidad)<parseFloat(p.minimo)).length;
   const _qInv=(S._srchInv||'').toLowerCase();
-  const prodsFilt=(selBodega==='todas'?prods:prods.filter(p=>p.bodegaId===selBodega))
+  let prodsFilt=(selBodega==='todas'?prods:prods.filter(p=>p.bodegaId===selBodega))
     .filter(function(p){
       if(!_qInv)return true;
       return (p.nombre||'').toLowerCase().includes(_qInv)||(p.codigo||'').toLowerCase().includes(_qInv)||(p.unidad||'').toLowerCase().includes(_qInv);
     });
+
+  // Aplicar sort a productos
+  prodsFilt=applySort(prodsFilt,'invProds',function(p,col){
+    if(col==='producto')return p.nombre||'';
+    if(col==='bodega'){var b=bodegas.find(function(x){return x.id===p.bodegaId;});return b?b.nombre:'';}
+    if(col==='stock')return parseFloat(p.cantidad)||0;
+    if(col==='descripcion')return p.descripcion||'';
+    if(col==='estado')return p.estado||'';
+    return '';
+  });
+
   const bodOpts=bodegas.map(b=>`<option value="${b.id}" ${selBodega===b.id?'selected':''}>${esc(b.nombre)}</option>`).join('');
 
   let prodRows=prodsFilt.length===0?`<tr><td colspan="8" class="empty">${_qInv?'Sin resultados para "'+esc(_qInv)+'"':('Sin productos'+(selBodega!=='todas'?' en esta bodega':''))}</td></tr>`:'';
@@ -7125,8 +7228,19 @@ function renderInventario(){
     </tr>`;
   });
 
-  // Movimientos con proveedor/CC
-  let movRows=[...movs].reverse().slice(0,30).map(m=>{
+  // Movimientos con proveedor/CC (con sort opcional)
+  let movsArr=[...movs].reverse().slice(0,30);
+  movsArr=applySort(movsArr,'invMovs',function(m,col){
+    if(col==='fecha')return m.fecha||'';
+    if(col==='tipo')return m.tipo||'';
+    if(col==='producto'){var p=prods.find(function(x){return x.id===m.prodId;});return p?p.nombre:'';}
+    if(col==='bodega'){var b=bodegas.find(function(x){return x.id===m.bodegaId;});return b?b.nombre:'';}
+    if(col==='cantidad')return parseFloat(m.cantidad)||0;
+    if(col==='origen'){var prov=m.proveedorId?S.proveedores.find(function(x){return x.id===m.proveedorId;}):null;var cc=m.centroId?S.centros.find(function(x){return x.id===m.centroId;}):null;return (prov?prov.nombre:'')||(cc?cc.nombre:'');}
+    if(col==='nota')return m.nota||'';
+    return '';
+  });
+  let movRows=movsArr.map(m=>{
     const prod=prods.find(p=>p.id===m.prodId);
     const bod=bodegas.find(b=>b.id===m.bodegaId);
     const prov=m.proveedorId?S.proveedores.find(p=>p.id===m.proveedorId):null;
@@ -7178,13 +7292,13 @@ function renderInventario(){
   ${selTab==='productos'?`
   <div class="card" style="padding:0;overflow:hidden">
     <div class="tbl-wrap"><table style="table-layout:auto">
-      <thead><tr><th>Producto</th><th class="hide-sm">Bodega</th><th style="text-align:right">Stock</th><th class="hide-sm">Descripción</th><th>Estado</th><th></th></tr></thead>
+      <thead><tr>${thSort('invProds','producto','Producto',{})}${thSort('invProds','bodega','Bodega',{cls:'hide-sm'})}${thSort('invProds','stock','Stock',{style:'text-align:right'})}${thSort('invProds','descripcion','Descripción',{cls:'hide-sm'})}${thSort('invProds','estado','Estado',{})}<th></th></tr></thead>
       <tbody id="tblInventario">${prodRows}</tbody>
     </table></div>
   </div>`:`
   <div class="card" style="padding:0;overflow:hidden">
     <div class="tbl-wrap"><table style="table-layout:auto">
-      <thead><tr><th>Fecha</th><th>Tipo</th><th>Producto</th><th class="hide-sm">Bodega</th><th style="text-align:right">Cantidad</th><th>Origen / Destino</th><th class="hide-sm">Nota</th></tr></thead>
+      <thead><tr>${thSort('invMovs','fecha','Fecha',{})}${thSort('invMovs','tipo','Tipo',{})}${thSort('invMovs','producto','Producto',{})}${thSort('invMovs','bodega','Bodega',{cls:'hide-sm'})}${thSort('invMovs','cantidad','Cantidad',{style:'text-align:right'})}${thSort('invMovs','origen','Origen / Destino',{})}${thSort('invMovs','nota','Nota',{cls:'hide-sm'})}</tr></thead>
       <tbody>${movRows}</tbody>
     </table></div>
   </div>`}`;
@@ -9268,6 +9382,26 @@ function renderMantEquipos(){
     return true;
   });
 
+  // Mapas para ubicación (necesarios para el sort)
+  var centroMap={};S.centros.forEach(function(c){centroMap[c.id]=c.nombre;});
+  var bodegaMap={};((S.inventario&&S.inventario.bodegas)||[]).forEach(function(b){bodegaMap[b.id]=b.nombre;});
+
+  // Aplicar ordenamiento ANTES de paginar
+  equipos=applySort(equipos,'mantEquipos',function(eq,col){
+    if(col==='nombre')return eq.nombre||'';
+    if(col==='ubicacion'){
+      var t=eq.ubicacionTipo||'centro';
+      var id=eq.ubicacionId||eq.centroId||'';
+      return t==='centro'?(centroMap[id]||''):(bodegaMap[id]||'');
+    }
+    if(col==='categoria')return catAreaLabel(eq.categoria)||eq.categoria||'';
+    if(col==='estado')return eq.estado||'activo';
+    if(col==='frecuencia')return eq.frecuencia||'';
+    if(col==='ultimo')return eq.ultimoMant||'';
+    if(col==='proximo')return mantFechaPróximo(eq)||'';
+    return '';
+  });
+
   var centrosOpts='<option value="">Todas las ubicaciones</option>';
   centrosOpts+='<optgroup label="🍔 Restaurantes (centros de costo)">';
   S.centros.forEach(function(c){
@@ -9279,10 +9413,6 @@ function renderMantEquipos(){
     centrosOpts+='<option value="'+b.id+'"'+(filtro===b.id?' selected':'')+'>'+esc(b.nombre)+'</option>';
   });
   centrosOpts+='</optgroup>';
-
-  // Mapas para ubicación
-  var centroMap={};S.centros.forEach(function(c){centroMap[c.id]=c.nombre;});
-  var bodegaMap={};((S.inventario&&S.inventario.bodegas)||[]).forEach(function(b){bodegaMap[b.id]=b.nombre;});
 
   // Paginación 50/página
   var EQ_PAGE=50;
@@ -9297,7 +9427,7 @@ function renderMantEquipos(){
   var contAlmac=m.equipos.filter(function(e){return e.estado==='almacenado';}).length;
   var contBaja=m.equipos.filter(function(e){return e.estado==='baja';}).length;
 
-  var rows=eqSlice.length===0?'<tr><td colspan="8" class="empty">Sin equipos</td></tr>':'';
+  var rows=eqSlice.length===0?'<tr><td colspan="7" class="empty">Sin equipos</td></tr>':'';
   eqSlice.forEach(function(eq){
     // Ubicación: leer de ubicacionTipo/ubicacionId, fallback a centroId
     var ubTipo=eq.ubicacionTipo||'centro';
@@ -9342,6 +9472,15 @@ function renderMantEquipos(){
     return '<button class="btn '+(active?'btn-primary':'btn-secondary')+' btn-sm" onclick="S._mantEqEstado=\''+val+'\';S._mantEqPag=0;renderMantEquipos()">'+label+' <span style="background:rgba(255,255,255,0.2);padding:1px 6px;border-radius:10px;margin-left:4px;font-size:11px">'+count+'</span></button>';
   }
 
+  var theadEq='<thead><tr>'
+    +thSort('mantEquipos','nombre','Nombre / Ubicación',{})
+    +thSort('mantEquipos','categoria','Categoría',{})
+    +thSort('mantEquipos','estado','Estado',{style:'text-align:center'})
+    +thSort('mantEquipos','frecuencia','Frecuencia',{})
+    +thSort('mantEquipos','ultimo','Último mant.',{})
+    +thSort('mantEquipos','proximo','Próximo mant.',{})
+    +'<th>Acciones</th></tr></thead>';
+
   document.getElementById('content').innerHTML=
     '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
     +tabBtn('activo','✓ Activos',contActivo)
@@ -9354,7 +9493,7 @@ function renderMantEquipos(){
     +'<select style="max-width:340px" onchange="S._mantEqFiltro=this.value;S._mantEqPag=0;renderMantEquipos()">'+centrosOpts+'</select>'
     +'<button class="btn btn-primary" onclick="modalEquipo(\'\')">+ Nuevo equipo</button>'
     +'</div>'
-    +'<div class="tbl-wrap"><table><thead><tr><th>Nombre / Ubicación</th><th>Categoría</th><th style="text-align:center">Estado</th><th>Frecuencia</th><th>Último mant.</th><th>Próximo mant.</th><th>Acciones</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    +'<div class="tbl-wrap"><table>'+theadEq+'<tbody>'+rows+'</tbody></table></div>'
     +eqPagCtrl;
 }
 
@@ -12859,6 +12998,18 @@ function renderTallerVehiculos(){
       ||(v.noEconomico||'').toLowerCase().includes(q);
   });
 
+  // Aplicar ordenamiento
+  vehs=applySort(vehs,'tallerVeh',function(v,col){
+    if(col==='placa')return v.placa||'';
+    if(col==='marcaModelo')return (v.marca||'')+' '+(v.modelo||'');
+    if(col==='ruta')return v.ruta||'';
+    if(col==='motorista')return v.motorista||'';
+    if(col==='kmActual')return v.kmActual||v.kmActuales||0;
+    if(col==='mtto')return v.mttoFecha||'';
+    if(col==='fallas')return ((v.fallas||[]).filter(function(f){return f.estado==='pendiente'||f.estado==='en_proceso';})).length;
+    return '';
+  });
+
   var hoy=new Date();
   var rows='';
   if(vehs.length===0){
@@ -12904,8 +13055,13 @@ function renderTallerVehiculos(){
     +'<table style="table-layout:auto;min-width:900px">'
     +'<thead><tr>'
       +'<th style="width:40px;text-align:center">⚡</th>'
-      +'<th>Placa</th><th>Marca / Modelo</th><th>Ruta</th><th>Motorista</th>'
-      +'<th style="text-align:right">Km Actual</th><th style="text-align:center">Último Mtto.</th><th style="text-align:center">Fallas</th>'
+      +thSort('tallerVeh','placa','Placa',{})
+      +thSort('tallerVeh','marcaModelo','Marca / Modelo',{})
+      +thSort('tallerVeh','ruta','Ruta',{})
+      +thSort('tallerVeh','motorista','Motorista',{})
+      +thSort('tallerVeh','kmActual','Km Actual',{style:'text-align:right'})
+      +thSort('tallerVeh','mtto','Último Mtto.',{style:'text-align:center'})
+      +thSort('tallerVeh','fallas','Fallas',{style:'text-align:center'})
       +'<th style="width:140px">Acciones</th>'
     +'</tr></thead>'
     +'<tbody>'+rows+'</tbody></table></div></div>'
@@ -13386,6 +13542,18 @@ function renderTallerOTs(){
   var ots=[].concat(t.ots).sort(function(a,b){return (b.creadoEn||0)-(a.creadoEn||0);});
   if(S._tallerOTFiltro)ots=ots.filter(function(o){return o.estado===S._tallerOTFiltro;});
 
+  // Aplicar ordenamiento si hay (anula el orden por defecto solo cuando hay)
+  ots=applySort(ots,'tallerOT',function(o,col){
+    if(col==='numero')return parseInt(o.numero)||0;
+    if(col==='vehiculo'){var v=t.vehiculos.find(function(x){return x.id===o.vehiculoId;});return v?(v.placa||''):'';}
+    if(col==='tipo')return o.tipo||'';
+    if(col==='mecanico'){var m=((S.mantenimiento&&S.mantenimiento.tecnicos)||[]).find(function(x){return x.id===o.mecanicoId;});return m?m.nombre:'';}
+    if(col==='ingreso')return o.fechaIngreso||'';
+    if(col==='estado')return o.estado||'';
+    if(col==='costo')return o.costoTotal||0;
+    return '';
+  });
+
   var esAdmin=S.currentUser&&(S.currentUser.rol==='admin'||S.currentUser.rol==='supervisor');
   var estados=getCfgEstadosOT();
 
@@ -13443,7 +13611,15 @@ function renderTallerOTs(){
       +'<select onchange="S._tallerOTFiltro=this.value;renderTallerOTs()" style="max-width:220px">'+estadoOpts+'</select>'
     +'</div>'
     +'<div class="tbl-wrap"><table>'
-      +'<thead><tr><th>OT</th><th>Vehículo</th><th>Tipo</th><th>Mecánico</th><th>Ingreso</th><th>Estado</th><th style="text-align:right">Costo</th><th>Acciones</th></tr></thead>'
+      +'<thead><tr>'
+        +thSort('tallerOT','numero','OT',{})
+        +thSort('tallerOT','vehiculo','Vehículo',{})
+        +thSort('tallerOT','tipo','Tipo',{})
+        +thSort('tallerOT','mecanico','Mecánico',{})
+        +thSort('tallerOT','ingreso','Ingreso',{})
+        +thSort('tallerOT','estado','Estado',{})
+        +thSort('tallerOT','costo','Costo',{style:'text-align:right'})
+        +'<th>Acciones</th></tr></thead>'
       +'<tbody>'+rows+'</tbody>'
     +'</table></div>';
 }
@@ -14437,10 +14613,11 @@ function solEstColor(id){var e=SOL_ESTADOS.find(function(x){return x.id===id;});
 // ── Helpers de datos ──
 function getMisCamiones(){
   if(!S.currentUser||!S.taller||!S.taller.vehiculos)return [];
-  var email=(S.currentUser.email||'').toLowerCase();
+  var email=(S.currentUser.email||'').toLowerCase().trim();
+  if(!email)return [];
   return S.taller.vehiculos.filter(function(v){
     if(v.estado==='baja')return false;
-    var ch=(v.choferId||'').toLowerCase();
+    var ch=(v.choferId||'').toLowerCase().trim();
     return ch===email;
   });
 }
@@ -14458,11 +14635,48 @@ function renderChoferPortal(){
 
   // Si no es chofer y no tiene camión asignado, mensaje
   if(camiones.length===0&&S.currentUser&&S.currentUser.rol==='chofer'){
+    // ── DIAGNÓSTICO: mostrar email comparado, total de vehículos, choferIds existentes ──
+    var miEmail=(S.currentUser.email||'').toLowerCase().trim();
+    var allVehs=(S.taller&&S.taller.vehiculos)||[];
+    var totalVehs=allVehs.length;
+    var conChofer=allVehs.filter(function(v){return v.choferId;}).length;
+
+    // Buscar match exacto, parcial, o por mayúsculas para diagnosticar
+    var matchExacto=allVehs.filter(function(v){return ((v.choferId||'').toLowerCase().trim())===miEmail;});
+    var matchParcial=allVehs.filter(function(v){
+      var ch=(v.choferId||'').toLowerCase().trim();
+      return ch&&(ch.indexOf(miEmail)>=0||miEmail.indexOf(ch)>=0);
+    });
+
+    // Listar todos los choferIds para que vea el admin si hay algún typo
+    var choferIdsLista=allVehs.filter(function(v){return v.choferId;}).map(function(v){
+      return '• <strong>'+esc(v.placa||v.id)+'</strong>: <code style="background:var(--surface2);padding:2px 6px;border-radius:4px">'+esc(v.choferId)+'</code>';
+    }).slice(0,15).join('<br>');
+
+    // Si no encontramos match exacto pero sí está cargado todo, ofrecer botón para recargar
+    var btnRecargar='<button class="btn btn-primary btn-sm" onclick="window.location.reload()" style="margin-top:14px">🔄 Recargar página</button>';
+
     document.getElementById('content').innerHTML=
-      '<div class="card" style="text-align:center;padding:40px">'
-      +'<div style="font-size:48px;margin-bottom:12px">🚛</div>'
-      +'<div style="font-weight:700;font-size:18px;margin-bottom:8px">No tienes camión asignado</div>'
-      +'<div style="color:var(--muted);font-size:13px">Pide al administrador que te asigne un vehículo desde el módulo Vehículos.</div>'
+      '<div class="card" style="padding:30px">'
+      +'<div style="text-align:center;margin-bottom:20px">'
+        +'<div style="font-size:48px;margin-bottom:12px">🚛</div>'
+        +'<div style="font-weight:700;font-size:18px;margin-bottom:8px">No tienes camión asignado</div>'
+        +'<div style="color:var(--muted);font-size:13px">Pide al administrador que te asigne un vehículo desde el módulo Vehículos.</div>'
+      +'</div>'
+
+      // Diagnóstico técnico (útil para debug)
+      +'<details style="margin-top:16px;background:var(--surface2);border-radius:8px;padding:12px">'
+        +'<summary style="cursor:pointer;font-weight:600;font-size:13px;color:var(--accent)">🔍 Información técnica (para soporte)</summary>'
+        +'<div style="font-size:12px;margin-top:10px;line-height:1.6">'
+          +'<div><strong>Tu email de sesión:</strong> <code style="background:var(--surface);padding:2px 6px;border-radius:4px">'+esc(miEmail||'(vacío)')+'</code></div>'
+          +'<div style="margin-top:6px"><strong>Total vehículos cargados:</strong> '+totalVehs+'</div>'
+          +'<div><strong>Vehículos con chofer asignado:</strong> '+conChofer+'</div>'
+          +'<div><strong>Coincidencia exacta con tu email:</strong> '+matchExacto.length+'</div>'
+          +(matchParcial.length>matchExacto.length?'<div style="color:var(--yellow)"><strong>⚠ Coincidencias parciales:</strong> '+matchParcial.length+' (puede haber un typo en el email)</div>':'')
+          +(choferIdsLista?'<div style="margin-top:10px"><strong>ChoferIds asignados en vehículos:</strong><br>'+choferIdsLista+'</div>':'<div style="margin-top:10px;color:var(--red)"><strong>⚠ Ningún vehículo tiene choferId.</strong> El admin debe editar los vehículos y asignarte como chofer.</div>')
+        +'</div>'
+        +btnRecargar
+      +'</div>'
       +'</div>';
     return;
   }
