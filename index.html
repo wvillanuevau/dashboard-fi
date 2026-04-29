@@ -2527,7 +2527,7 @@ async function crearUsuarioSA(){
   }
   // Caso especial: usuario ya existe en Auth (perfil borrado de Firestore antes)
   var msgLow=(res.err||'').toLowerCase();
-  if(msgLow.indexOf('ya existe')>=0||msgLow.indexOf('already')>=0||msgLow.indexOf('email-already')>=0){
+  if(msgLow.indexOf('ya existe')>=0||msgLow.indexOf('already')>=0||msgLow.indexOf('email-already')>=0||msgLow.indexOf('registrado')>=0||msgLow.indexOf('in-use')>=0){
     errEl.style.color='var(--accent)';
     errEl.innerHTML='⚠ El email <code>'+esc(email)+'</code> ya existe en Firebase Auth (perfil fue eliminado antes). '
       +'<button class="btn btn-sm" style="margin-left:8px;background:#1a4a2a;color:#80e080;border:1px solid #2a6a3a" onclick="restaurarPerfilUsuario()">♻ Restaurar perfil</button>';
