@@ -1059,8 +1059,8 @@ input[type=date]{color-scheme:dark}
 //  DEFINICIÓN DE ROLES Y PERMISOS
 // ═══════════════════════════════════════════════════════
 const ROLES={
-  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','usuarios','config','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes','taller_solicitudes','taller_revisiones','taller_reportes_choferes','chofer_portal','importar']},
-  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes','taller_solicitudes','taller_revisiones','taller_reportes_choferes','chofer_portal']},
+  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','usuarios','config','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_reportes','taller_solicitudes','taller_revisiones','taller_reportes_choferes','chofer_portal','importar']},
+  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_reportes','taller_solicitudes','taller_revisiones','taller_reportes_choferes','chofer_portal']},
   empleado:{label:'Empleado',color:'b-ok',modulos:[]}, // permisos individuales
   viewer:{label:'Viewer',color:'b-neu',modulos:['dashboard','proyectos']},
   cliente:{label:'Cliente',color:'b-purple',modulos:['proyectos']}, // solo general, planificacion, cronograma
@@ -1120,7 +1120,7 @@ const SB_GRUPOS=[
   {id:'empresa_grp',label:'Gestión de Empresa',ic:'🏢',items:['gastos','inventario','asistencia','auditoria_herr','gz_dashboard','proveedores','centros','bodegas','gz_gerentes','reportes']},
   {id:'mant_grp',label:'Mantenimiento',ic:'🔧',items:['mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes']},
   {id:'energy_grp',label:'Energy Intelligence',ic:'⚡',items:['ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist']},
-  {id:'taller_grp',label:'Taller Mecánico',ic:'🚚',items:['taller_dashboard','taller_vehiculos','taller_ots','taller_solicitudes','taller_revisiones','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes']},
+  {id:'taller_grp',label:'Taller Mecánico',ic:'🚚',items:['taller_dashboard','taller_vehiculos','taller_ots','taller_solicitudes','taller_revisiones','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_reportes']},
   {id:'chofer_grp',label:'Portal Chofer',ic:'🚛',items:['chofer_portal','taller_reportes_choferes']},
   {id:'config_grp',label:'Configuración General',ic:'⚙',items:['log','usuarios','config','importar']},
 ];
@@ -1533,6 +1533,7 @@ function optsTecnicos(selVal,area){
 function migrateData(){
   // ── Migración de schema de equipos: ubicación tipo + estado + origen ──
   if(S.mantenimiento&&S.mantenimiento.equipos){
+    var sinCatArreglados=0;
     S.mantenimiento.equipos.forEach(function(eq){
       // Si tiene centroId pero no ubicacionTipo, migrar
       if(!eq.ubicacionTipo){
@@ -1542,7 +1543,15 @@ function migrateData(){
       }
       if(!eq.origen)eq.origen='preexistente';
       if(!eq.fechaIngreso&&eq.creadoEn)eq.fechaIngreso=new Date(eq.creadoEn).toISOString().slice(0,10);
+      // ── Fix: equipos sin categoría reciben "general" para que reciban auto-asignación de OT ──
+      if(!eq.categoria||eq.categoria==='(sin categoría)'){
+        eq.categoria='general';
+        sinCatArreglados++;
+      }
     });
+    if(sinCatArreglados>0){
+      console.log('[migrate] '+sinCatArreglados+' equipo(s) sin categoría → asignados a "general"');
+    }
   }
   // Inicializar arreglo de movimientos de equipos
   if(S.mantenimiento&&!S.mantenimiento.movimientosEquipos){
@@ -6745,6 +6754,15 @@ function renderConfig(){
       <button class="btn btn-secondary" onclick="diagRestoreLocal()" style="color:var(--accent);border-color:var(--accent)">♻ Restaurar desde respaldo local</button>
       <button class="btn btn-secondary" onclick="diagForceSave()" style="color:var(--green);border-color:var(--green)">⬆ Forzar guardado en Firebase</button>
     </div>
+  </div>
+  <div class="card" style="border-color:#e8404033;margin-top:14px">
+    <div class="sec-hdr" style="color:var(--red)">🧹 Resetear contadores del Dashboard Taller</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:12px">Borra <strong>solo</strong> los datos que generan alertas de fallas y mantenimiento del Dashboard Taller. <strong>NO toca</strong> las OT de Mantenimiento de Equipos, ni los reportes de choferes, ni los vehículos. Después de esto, los contadores quedan en 0 y solo se llenan con datos nuevos.</div>
+    <ul style="font-size:12px;color:var(--muted);margin:0 0 12px 18px">
+      <li>Borra todas las <strong>fallas</strong> registradas en cada vehículo (las 13 pendientes)</li>
+      <li>Limpia el campo <strong>mttoFecha</strong> de los vehículos (las 2 vencidas + 1 próxima)</li>
+    </ul>
+    <button class="btn btn-danger" onclick="resetearContadoresTaller()">🧹 Resetear contadores Dashboard Taller</button>
   </div>`;
 }
 
@@ -9198,6 +9216,40 @@ function mantReasignarOTsPendientes(){
 
   alert(msg);
   logAction('REASIGNAR','mant_ot',stats.asignadas+' OTs reasignadas');
+}
+
+// ── Resetear contadores de alertas huérfanas (sólo admin/supervisor) ──
+// Borra los campos `fallas` y `mttoFecha` de los vehículos que generan las alertas
+// del Dashboard del Taller que llevan a páginas vacías. NO toca OT, ni reportes,
+// ni combustible, ni equipos, ni ningún otro dato.
+function resetearContadoresAlertas(){
+  if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
+    toast('Solo administradores',true);return;
+  }
+  var t=tallerData();
+  var vehs=t.vehiculos||[];
+  // Contar lo que vamos a borrar para mostrar al usuario
+  var nFallas=0,nMtto=0;
+  vehs.forEach(function(v){
+    if(v.fallas&&v.fallas.length)nFallas+=v.fallas.length;
+    if(v.mttoFecha)nMtto++;
+  });
+  if(nFallas===0&&nMtto===0){toast('No hay datos huérfanos para limpiar');return;}
+  if(!confirm('Esto borrará SOLO los campos que generan las alertas huérfanas:\n\n'
+    +'• '+nFallas+' falla(s) registradas en vehículos\n'
+    +'• '+nMtto+' fecha(s) de último mantenimiento en vehículos\n\n'
+    +'NO se borran: OT, reportes diarios, combustible, equipos, técnicos, ni ningún otro dato.\n\n'
+    +'¿Continuar?'))return;
+  vehs.forEach(function(v){
+    if(v.fallas)delete v.fallas;
+    if(v.mttoFecha)delete v.mttoFecha;
+  });
+  saveData();
+  logAction('LIMPIAR','dashboard_alertas','Limpiadas '+nFallas+' fallas y '+nMtto+' mttoFecha de vehículos');
+  toast('✓ '+nFallas+' falla(s) y '+nMtto+' fecha(s) de mantenimiento eliminadas');
+  // Re-renderizar dashboard
+  if(typeof renderTallerDashboard==='function')renderTallerDashboard();
+  else render();
 }
 
 // ── mant_equipos ─────────────────────────────────────────
@@ -12535,8 +12587,10 @@ function renderTallerDashboard(){
   if(vehMttoVencido.length>0)alertasCriticas.push({ic:'⚠️',text:vehMttoVencido.length+' vehículo(s) con mantenimiento VENCIDO (>120 días)',color:'var(--red)',tab:'taller_programado'});
   if(vehMttoProximo.length>0)alertasCriticas.push({ic:'⏰',text:vehMttoProximo.length+' vehículo(s) próximo a mantenimiento (>90 días)',color:'var(--accent)',tab:'taller_programado'});
   if(alertasCriticas.length>0){
+    var esAdminD=S.currentUser&&(S.currentUser.rol==='admin'||S.currentUser.rol==='supervisor');
+    var btnReset=esAdminD?'<button class="btn btn-secondary btn-xs" onclick="resetearContadoresAlertas()" style="color:var(--accent);border-color:var(--accent);font-size:11px" title="Borra solo los datos huérfanos: fallas y mttoFecha de vehículos. NO borra OT ni reportes.">🧹 Limpiar alertas huérfanas</button>':'';
     html+='<div class="card" style="margin-bottom:16px;border-left:4px solid var(--red);padding:14px 18px">'
-      +'<div class="sec-hdr" style="margin-bottom:10px;color:var(--red)">🚨 Alertas Críticas</div>';
+      +'<div class="sec-hdr" style="margin-bottom:10px;color:var(--red);display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">🚨 Alertas Críticas'+btnReset+'</div>';
     alertasCriticas.forEach(function(a){
       var clickable=a.tab?'cursor:pointer;transition:all 0.2s" onclick="goTab(\''+a.tab+'\')" onmouseover="this.style.background=\'rgba(232,160,32,0.1)\'" onmouseout="this.style.background=\'transparent\'':'';
       html+='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 8px;border-bottom:1px solid var(--border);font-size:13px;border-radius:6px;'+clickable+'">'
@@ -13808,30 +13862,43 @@ function renderTallerServicios(){
     if(!s.descripcion)s.descripcion='';
   });
 
-  var rows='';
+  // Cards en lugar de tabla — adapta a mobile y desktop
+  var cardsHtml='';
   if(lista.length===0){
-    rows='<tr><td colspan="6" class="empty">Sin servicios en catálogo. Click "📥 Cargar 35 servicios básicos" para empezar.</td></tr>';
+    cardsHtml='<div style="text-align:center;color:var(--muted);padding:40px;background:var(--surface);border-radius:8px">Sin servicios en el catálogo. Click <strong>"📥 Cargar 35 servicios básicos"</strong> para empezar.</div>';
   } else {
+    cardsHtml='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px">';
     lista.forEach(function(s){
-      var tipoBadge=s.tipo==='preventivo'?'<span class="badge b-blue">Preventivo</span>':(s.tipo==='inspeccion'?'<span class="badge b-purple">Inspección</span>':'<span class="badge b-warn">Correctivo</span>');
+      var tipoBadge=s.tipo==='preventivo'?'<span class="badge b-blue" style="font-size:10px">Preventivo</span>':(s.tipo==='inspeccion'?'<span class="badge b-purple" style="font-size:10px">Inspección</span>':'<span class="badge b-warn" style="font-size:10px">Correctivo</span>');
       var freqStr=[];
       if(s.frecuenciaKm>0)freqStr.push(s.frecuenciaKm.toLocaleString()+' km');
       if(s.frecuenciaMeses>0)freqStr.push(s.frecuenciaMeses+' meses');
       var freqDisplay=freqStr.length>0?freqStr.join(' / '):'—';
-      rows+='<tr>'
-        +'<td><strong>'+esc(s.nombre)+'</strong>'
-          +(s.descripcion?'<div style="font-size:11px;color:var(--muted);margin-top:4px;max-width:400px;white-space:normal">'+esc(s.descripcion)+'</div>':'')
-        +'</td>'
-        +'<td>'+esc(srvCatLabel(s.categoria||'general'))+'</td>'
-        +'<td>'+tipoBadge+'</td>'
-        +'<td>'+esc(freqDisplay)+'</td>'
-        +'<td style="text-align:right">'+(s.tiempoHr?s.tiempoHr+' hr':'—')+'</td>'
-        +'<td style="text-align:right">$'+(s.precio||0).toFixed(2)+'</td>'
-        +'<td><div class="td-act">'
-          +'<button class="btn btn-secondary btn-xs" onclick="modalServicio(\''+s.id+'\')">✏</button>'
-          +'<button class="btn btn-danger btn-xs" onclick="delServicio(\''+s.id+'\')">✕</button>'
-        +'</div></td></tr>';
+      cardsHtml+='<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px">'
+        // Header: nombre + acciones
+        +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">'
+          +'<div style="flex:1"><strong style="font-size:14px;line-height:1.3">'+esc(s.nombre)+'</strong></div>'
+          +'<div style="display:flex;gap:4px">'
+            +'<button class="btn btn-secondary btn-xs" onclick="modalServicio(\''+s.id+'\')" title="Editar">✏</button>'
+            +'<button class="btn btn-danger btn-xs" onclick="delServicio(\''+s.id+'\')" title="Eliminar">✕</button>'
+          +'</div>'
+        +'</div>'
+        // Categoría + tipo en una línea
+        +'<div style="display:flex;flex-wrap:wrap;gap:6px;font-size:11px">'
+          +'<span style="background:var(--surface2);padding:2px 8px;border-radius:8px">'+esc(srvCatLabel(s.categoria||'general'))+'</span>'
+          +tipoBadge
+        +'</div>'
+        // Descripción
+        +(s.descripcion?'<div style="font-size:12px;color:var(--muted);line-height:1.4;margin-top:4px">'+esc(s.descripcion)+'</div>':'')
+        // Pie con datos numéricos
+        +'<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">'
+          +'<span style="color:var(--muted)">📅 '+esc(freqDisplay)+'</span>'
+          +'<span style="color:var(--muted)">⏱ '+(s.tiempoHr?s.tiempoHr+' hr':'—')+'</span>'
+          +'<span style="font-weight:700;color:var(--green)">$'+(s.precio||0).toFixed(2)+'</span>'
+        +'</div>'
+      +'</div>';
     });
+    cardsHtml+='</div>';
   }
 
   var catTabs=[{id:'',label:'Todas'}].concat(SRV_CATEGORIAS).map(function(c){
@@ -13841,15 +13908,13 @@ function renderTallerServicios(){
   }).join(' ');
 
   document.getElementById('content').innerHTML=
-    '<div class="info-box">🔧 <strong>Catálogo único de servicios del taller.</strong> Estos servicios alimentan los Mantenimientos Programados, Órdenes de Trabajo y Solicitudes de Revisión de los choferes.</div>'
-    +'<div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">'
-      +'<button class="btn btn-primary" onclick="modalServicio(\'\')">+ Nuevo Servicio</button>'
-      +'<button class="btn btn-secondary" onclick="srvSeedCatalogo()" style="color:var(--accent);border-color:var(--accent)">📥 Cargar 35 servicios básicos</button>'
+    '<div class="info-box">🔧 <strong>Catálogo único de servicios del taller.</strong> Alimentan Mantenimientos Programados, OT y Solicitudes de Revisión de choferes.</div>'
+    +'<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">'
+      +'<button class="btn btn-primary btn-sm" onclick="modalServicio(\'\')">+ Nuevo Servicio</button>'
+      +'<button class="btn btn-secondary btn-sm" onclick="srvSeedCatalogo()" style="color:var(--accent);border-color:var(--accent)">📥 Cargar 35 básicos</button>'
     +'</div>'
     +'<div style="margin-bottom:12px;display:flex;gap:4px;flex-wrap:wrap">'+catTabs+'</div>'
-    +'<div class="card" style="padding:0"><div class="tbl-wrap" style="border:none;border-radius:0">'
-    +'<table><thead><tr><th>Servicio / Descripción</th><th>Categoría</th><th>Tipo</th><th>Frecuencia</th><th style="text-align:right">Tiempo</th><th style="text-align:right">Precio</th><th>Acciones</th></tr></thead>'
-    +'<tbody>'+rows+'</tbody></table></div></div>';
+    +cardsHtml;
 }
 
 function modalServicio(id){
@@ -15590,13 +15655,14 @@ function renderTallerReportesChoferes(){
     +t.vehiculos.map(function(v){return '<option value="'+v.id+'"'+(S._rdcFiltroVeh===v.id?' selected':'')+'>'+esc(v.placa)+'</option>';}).join('');
 
   document.getElementById('content').innerHTML=
-    '<div class="info-box">📊 <strong>Análisis de consumo de combustible.</strong> Compara km y galones reales vs los estimados de cada ruta para detectar desvíos, fallas mecánicas o trasiego de combustible.</div>'
+    '<div class="info-box">📊 <strong>Reportes Diarios y Combustible.</strong> Aquí ves los reportes de km y galones que registran los choferes desde su Portal. Compara con los estimados de cada ruta para detectar desvíos, fallas mecánicas o trasiego.</div>'
 
-    // KPIs período
-    +'<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">'
+    // KPIs período (5 indicadores - responsivo)
+    +'<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:16px">'
     +'<div class="kpi"><div class="kpi-lbl">Reportes período</div><div class="kpi-val">'+rep.length+'</div></div>'
     +'<div class="kpi"><div class="kpi-lbl">Km totales</div><div class="kpi-val" style="color:#4ea8de;font-size:18px">'+totalKm.toLocaleString('en-US',{maximumFractionDigits:0})+' km</div></div>'
     +'<div class="kpi"><div class="kpi-lbl">Galones</div><div class="kpi-val" style="color:#facc15;font-size:18px">'+totalGal.toFixed(2)+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Costo combustible</div><div class="kpi-val" style="color:#e84040;font-size:18px">$'+totalCost.toFixed(2)+'</div></div>'
     +'<div class="kpi"><div class="kpi-lbl">Rendimiento global</div><div class="kpi-val" style="color:#2db87a;font-size:18px">'+rendimiento+' km/gal</div></div>'
     +'</div>'
 
