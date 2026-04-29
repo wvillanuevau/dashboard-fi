@@ -2476,10 +2476,14 @@ async function renderSAUsuarios(){
       var editBtn=e.target.closest('.sa-edit-btn');
       var toggleBtn=e.target.closest('.sa-toggle-btn');
       var delBtn=e.target.closest('.sa-del-btn');
-      if(editBtn){editarUsuarioSA(editBtn.dataset.uid);}
+      if(editBtn){
+        console.log('[SA-listener] CLICK on sa-edit-btn, uid:',editBtn.dataset.uid);
+        editarUsuarioSA(editBtn.dataset.uid);
+      }
       else if(toggleBtn){toggleUsuarioSA(toggleBtn.dataset.uid,toggleBtn.dataset.activo==='true');}
       else if(delBtn){eliminarUsuarioSA(delBtn.dataset.uid,delBtn.dataset.email);}
     });
+    console.log('[SA] listener anclado al document');
   }
 }
 
@@ -2527,37 +2531,47 @@ async function crearUsuarioSA(){
 }
 
 async function editarUsuarioSA(uid){
-  // Buscar en caché local primero, si no recargar de Firebase
-  var u=(window._SA_USUARIOS||[]).find(x=>x.id===uid);
-  if(!u){
-    try{
-      const todos=await window.FB.getAllUsuarios();
-      window._SA_USUARIOS=todos;
-      u=todos.find(x=>x.id===uid);
-    }catch(e){}
+  console.log('[SA] editarUsuarioSA called with uid:', uid);
+  try {
+    // Buscar en caché local primero, si no recargar de Firebase
+    var u=(window._SA_USUARIOS||[]).find(x=>x.id===uid);
+    console.log('[SA] usuario encontrado en cache?:', !!u, u);
+    if(!u){
+      try{
+        const todos=await window.FB.getAllUsuarios();
+        window._SA_USUARIOS=todos;
+        u=todos.find(x=>x.id===uid);
+        console.log('[SA] usuario después de recargar Firebase?:', !!u);
+      }catch(e){console.error('[SA] error cargando usuarios:',e);}
+    }
+    if(!u){toast('No se encontró el usuario',true);return;}
+    const empresas=await window.FB.getAllEmpresas();
+    console.log('[SA] empresas cargadas:', empresas.length);
+    const empOpts=empresas.map(e=>`<option value="${e.id}" ${u.empresa===e.id?'selected':''}>${esc(e.id)} — ${esc(e.nombre||e.id)}</option>`).join('');
+    const html=`<div style="position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:600;display:flex;align-items:center;justify-content:center;padding:20px" id="editUModal">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:520px">
+        <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:16px;color:#c084fc">Editar: ${esc(u.email)}</div>
+        <div class="fg"><label>Nombre</label><input id="euNombre" value="${esc(u.nombre||'')}"></div>
+        <div class="row2">
+          <div class="fg"><label>Empresa</label><select id="euEmpresa"><option value="">—</option>${empOpts}</select></div>
+          <div class="fg"><label>Rol</label><select id="euRol" onchange="toggleEUPermisos()"><option value="admin" ${u.rol==='admin'?'selected':''}>Admin</option><option value="supervisor" ${u.rol==='supervisor'?'selected':''}>Supervisor</option><option value="empleado" ${u.rol==='empleado'?'selected':''}>Empleado</option><option value="viewer" ${u.rol==='viewer'?'selected':''}>Viewer</option><option value="cliente" ${u.rol==='cliente'?'selected':''}>Cliente</option><option value="contratista" ${u.rol==='contratista'?'selected':''}>Contratista</option><option value="chofer" ${u.rol==='chofer'?'selected':''}>🚛 Chofer</option></select></div>
+        </div>
+        <div id="euPermisosUI" style="${u.rol==='empleado'?'':'display:none'}">
+          <div class="sec-hdr">Módulos</div>
+          <div class="perm-grid">${MODULOS.map(m=>`<label class="perm-item ${(u.permisos&&u.permisos[m.id])?'on':''}"><input type="checkbox" id="eu_${m.id}" ${(u.permisos&&u.permisos[m.id])?'checked':''}> ${m.ic} ${m.label}</label>`).join('')}</div>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+          <button class="btn btn-secondary" onclick="(function(_e){if(_e)_e.remove();})(document.getElementById('editUModal'))">Cancelar</button>
+          <button class="btn" style="background:#1a0a2a;color:#c084fc;border:1px solid #3a1a5a" onclick="guardarUsuarioSA('${uid}')">✓ Guardar</button>
+        </div>
+      </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend',html);
+    console.log('[SA] modal insertado');
+  } catch(err) {
+    console.error('[SA] ERROR en editarUsuarioSA:', err);
+    toast('Error al abrir editor: '+(err.message||err),true);
   }
-  if(!u){toast('No se encontró el usuario',true);return;}
-  const empresas=await window.FB.getAllEmpresas();
-  const empOpts=empresas.map(e=>`<option value="${e.id}" ${u.empresa===e.id?'selected':''}>${esc(e.id)} — ${esc(e.nombre||e.id)}</option>`).join('');
-  const html=`<div style="position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:600;display:flex;align-items:center;justify-content:center;padding:20px" id="editUModal">
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:520px">
-      <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:16px;color:#c084fc">Editar: ${esc(u.email)}</div>
-      <div class="fg"><label>Nombre</label><input id="euNombre" value="${esc(u.nombre||'')}"></div>
-      <div class="row2">
-        <div class="fg"><label>Empresa</label><select id="euEmpresa"><option value="">—</option>${empOpts}</select></div>
-        <div class="fg"><label>Rol</label><select id="euRol" onchange="toggleEUPermisos()"><option value="admin" ${u.rol==='admin'?'selected':''}>Admin</option><option value="supervisor" ${u.rol==='supervisor'?'selected':''}>Supervisor</option><option value="empleado" ${u.rol==='empleado'?'selected':''}>Empleado</option><option value="viewer" ${u.rol==='viewer'?'selected':''}>Viewer</option><option value="cliente" ${u.rol==='cliente'?'selected':''}>Cliente</option><option value="contratista" ${u.rol==='contratista'?'selected':''}>Contratista</option><option value="chofer" ${u.rol==='chofer'?'selected':''}>🚛 Chofer</option></select></div>
-      </div>
-      <div id="euPermisosUI" style="${u.rol==='empleado'?'':'display:none'}">
-        <div class="sec-hdr">Módulos</div>
-        <div class="perm-grid">${MODULOS.map(m=>`<label class="perm-item ${(u.permisos&&u.permisos[m.id])?'on':''}"><input type="checkbox" id="eu_${m.id}" ${(u.permisos&&u.permisos[m.id])?'checked':''}> ${m.ic} ${m.label}</label>`).join('')}</div>
-      </div>
-      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
-        <button class="btn btn-secondary" onclick="(function(_e){if(_e)_e.remove();})(document.getElementById('editUModal'))">Cancelar</button>
-        <button class="btn" style="background:#1a0a2a;color:#c084fc;border:1px solid #3a1a5a" onclick="guardarUsuarioSA('${uid}')">✓ Guardar</button>
-      </div>
-    </div>
-  </div>`;
-  document.body.insertAdjacentHTML('beforeend',html);
 }
 
 function toggleEUPermisos(){
