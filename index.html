@@ -2523,7 +2523,87 @@ async function crearUsuarioSA(){
     errEl.style.color='var(--green)';errEl.textContent='✓ Usuario creado: '+email;
     toast('✓ Usuario creado');
     renderSAUsuarios();
-  } else {errEl.style.color='var(--red)';errEl.textContent='Error: '+res.err;}
+    return;
+  }
+  // Caso especial: usuario ya existe en Auth (perfil borrado de Firestore antes)
+  var msgLow=(res.err||'').toLowerCase();
+  if(msgLow.indexOf('ya existe')>=0||msgLow.indexOf('already')>=0||msgLow.indexOf('email-already')>=0){
+    errEl.style.color='var(--accent)';
+    errEl.innerHTML='⚠ El email <code>'+esc(email)+'</code> ya existe en Firebase Auth (perfil fue eliminado antes). '
+      +'<button class="btn btn-sm" style="margin-left:8px;background:#1a4a2a;color:#80e080;border:1px solid #2a6a3a" onclick="restaurarPerfilUsuario()">♻ Restaurar perfil</button>';
+    return;
+  }
+  errEl.style.color='var(--red)';errEl.textContent='Error: '+res.err;
+}
+
+// Restaurar perfil de usuario huérfano: intenta login para obtener UID y recrea doc en Firestore
+async function restaurarPerfilUsuario(){
+  const nombre=document.getElementById('saUNombre').value.trim();
+  const email=document.getElementById('saUEmail').value.trim().toLowerCase();
+  const pass=document.getElementById('saUPass').value;
+  const empresaSelect=document.getElementById('saUEmpresa').value;
+  const empresaManual=(document.getElementById('saUEmpresaManual')||{}).value.trim().toUpperCase();
+  const empresa=empresaManual||empresaSelect;
+  const rol=document.getElementById('saURol').value;
+  const errEl=document.getElementById('saUErr');
+  const permisos={};
+  if(rol==='empleado'){MODULOS.forEach(m=>{const ck=document.getElementById('ck_'+m.id);if(ck&&ck.checked)permisos[m.id]=true;});}
+
+  if(!confirm(
+    'RESTAURAR PERFIL para: '+email+'\n\n'
+    +'Intentaré iniciar sesión con la contraseña que ingresaste para obtener el UID del usuario en Firebase Auth, y luego crearé el perfil en Firestore.\n\n'
+    +'Importante: la contraseña debe ser la MISMA que el usuario tenía antes (Firebase Auth la conserva).\n'
+    +'Si no recuerdas la contraseña anterior, primero envía un reset de contraseña al usuario.\n\n'
+    +'¿Continuar?'
+  ))return;
+
+  errEl.style.color='var(--muted)';errEl.textContent='Restaurando perfil...';
+  try {
+    // Intentar login para obtener UID
+    const userCred=await firebase.auth().signInWithEmailAndPassword(email,pass);
+    const uid=userCred.user.uid;
+    // Recrear documento en Firestore
+    await firebase.firestore().collection('usuariosApp').doc(uid).set({
+      email:email,
+      nombre:nombre||email.split('@')[0],
+      rol:rol,
+      empresa:empresa,
+      permisos:permisos,
+      creadoEn:Date.now(),
+      activo:true,
+      _restaurado:true,
+      _restauradoEn:Date.now()
+    });
+    // Cerrar sesión recién iniciada (estamos como SA)
+    await firebase.auth().signOut();
+    await window.FB.logSA('RESTAURAR_USUARIO',`${email} perfil restaurado en ${empresa} como ${rol}`);
+    errEl.style.color='var(--green)';errEl.textContent='✓ Perfil restaurado: '+email;
+    toast('✓ Perfil restaurado correctamente');
+    renderSAUsuarios();
+  } catch(err) {
+    var msg=err.message||String(err);
+    if((err.code||'').indexOf('wrong-password')>=0||msg.indexOf('password')>=0){
+      errEl.style.color='var(--red)';
+      errEl.innerHTML='❌ Contraseña incorrecta. La contraseña actual del usuario en Firebase Auth no coincide. '
+        +'<button class="btn btn-sm" style="margin-left:8px;background:#1a2a4a;color:#80b0e0;border:1px solid #2a3a6a" onclick="enviarResetPassUsuario(\''+email+'\')">📧 Enviar reset</button>';
+    } else if((err.code||'').indexOf('user-not-found')>=0) {
+      errEl.style.color='var(--red)';errEl.textContent='❌ El usuario NO existe en Firebase Auth. Usa "Crear usuario" normal.';
+    } else {
+      errEl.style.color='var(--red)';errEl.textContent='❌ Error: '+msg;
+    }
+  }
+}
+
+// Helper: enviar reset de contraseña a un email específico
+async function enviarResetPassUsuario(email){
+  try {
+    await firebase.auth().sendPasswordResetEmail(email);
+    toast('✓ Email de reset enviado a: '+email);
+    var errEl=document.getElementById('saUErr');
+    if(errEl){errEl.style.color='var(--accent)';errEl.textContent='📧 Reset enviado. El usuario debe cambiar la contraseña, luego intenta restaurar de nuevo con la nueva.';}
+  } catch(err) {
+    toast('Error: '+(err.message||err),true);
+  }
 }
 
 async function editarUsuarioSA(uid){
@@ -2592,15 +2672,22 @@ async function guardarUsuarioSA(uid){
 }
 
 async function eliminarUsuarioSA(uid,email){
-  if(!confirm(`¿ELIMINAR PERMANENTEMENTE el usuario:\n${email}\n\nEsta acción NO se puede deshacer.\nSe eliminará el acceso y el perfil del usuario.`))return;
+  if(!confirm(
+    'ELIMINAR USUARIO: '+email+'\n\n'
+    +'⚠ IMPORTANTE: Este botón borra el PERFIL del usuario en Firestore (permisos, rol, datos), '
+    +'pero por seguridad NO puede borrar el registro de Firebase Auth desde aquí.\n\n'
+    +'Si después intentas crear de nuevo el mismo email, Firebase dirá "usuario ya existe". '
+    +'En ese caso, usa "♻ Restaurar perfil" que aparecerá automáticamente.\n\n'
+    +'Para borrar también el acceso de Auth definitivamente, hazlo desde la consola de Firebase.\n\n'
+    +'¿Continuar?'
+  ))return;
   const r=await window.FB.deleteUserDoc(uid);
   if(r.ok){
-    toast('✓ Usuario eliminado: '+email);
-    await window.FB.logSA('ELIMINAR_USUARIO',`${email} eliminado permanentemente`);
+    toast('✓ Perfil eliminado. Si recreas el mismo email, usa "Restaurar".');
+    await window.FB.logSA('ELIMINAR_USUARIO',`${email} eliminado de Firestore (Auth permanece)`);
     renderSAUsuarios();
   } else {
-    // El doc de Firestore puede fallar si ya fue borrado — intentar continuar
-    toast('⚠ Perfil eliminado. Para revocar acceso de Firebase Auth, elimínalo desde la consola de Firebase.',true);
+    toast('⚠ '+(r.err||'Error eliminando perfil'),true);
     renderSAUsuarios();
   }
 }
@@ -13053,6 +13140,7 @@ function renderTallerVehiculos(){
     '<div class="info-box">🚚 <strong>Gestión de Flota Vehicular.</strong> Haz clic en cualquier fila para ver la ficha completa del vehículo con historial de fallas, mantenimientos y observaciones. El semáforo indica el estado: 🟢 al día · 🟡 atención · 🔴 crítico · ⚫ de baja.</div>'
     +'<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center">'
       +'<button class="btn btn-primary" onclick="modalVehiculo(\'\')">+ Nuevo Vehículo</button>'
+      +'<button class="btn btn-secondary btn-sm" onclick="autoVincularChoferes()" title="Busca usuarios chofer cuyo nombre coincida con el campo motorista del vehículo y rellena choferId automáticamente" style="color:var(--accent);border-color:var(--accent)">🔗 Auto-vincular choferes</button>'
       +'<input type="text" placeholder="🔍 Buscar por placa, marca, modelo, motorista, ruta..." value="'+esc(q)+'" oninput="S._tallerVehSrch=this.value;clearTimeout(S._tvtm);S._tvtm=setTimeout(renderTallerVehiculos,300)" style="flex:1;min-width:240px;max-width:500px">'
       +'<div style="font-size:12px;color:var(--muted)">Total: <strong>'+vehs.length+'</strong>'+(q&&vehs.length!==t.vehiculos.length?' de '+t.vehiculos.length:'')+'</div>'
     +'</div>'
@@ -13449,6 +13537,67 @@ async function modalVehiculo(id){
   (function(_e){if(_e)_e.remove();})(document.getElementById('modalVehDiv'));
   document.body.insertAdjacentHTML('beforeend',html);
   setTimeout(function(){var el=document.getElementById('vhPlaca');if(el)el.focus();},80);
+}
+
+// Auto-vincular: para vehículos con campo `motorista` (texto) pero sin `choferId`,
+// busca un usuario chofer cuyo nombre coincida y rellena el choferId automáticamente.
+async function autoVincularChoferes(){
+  // Refrescar usuarios desde Firebase para tener el listado completo
+  if(window.FB&&window.FB.getUsuariosEmpresa&&S.empresa){
+    try{
+      var usuariosFresh=await window.FB.getUsuariosEmpresa(S.empresa);
+      if(usuariosFresh&&usuariosFresh.length>0)S.usuarios=usuariosFresh;
+    }catch(e){console.warn('[AutoVincular] No se pudo refrescar usuarios:',e);}
+  }
+  var t=tallerData();
+  var choferes=(S.usuarios||[]).filter(function(u){return u.rol==='chofer';});
+  if(choferes.length===0){toast('No hay usuarios con rol chofer creados',true);return;}
+
+  // Función auxiliar de matching: normaliza para comparar
+  function norm(s){return (s||'').toLowerCase().replace(/[^a-z0-9]/g,'');}
+
+  var vinculados=0;
+  var sinMatch=[];
+  var yaTenian=0;
+
+  t.vehiculos.forEach(function(v){
+    if(v.choferId&&v.choferId.trim()){yaTenian++;return;}
+    if(!v.motorista||!v.motorista.trim()){sinMatch.push(v.placa+' (sin motorista)');return;}
+    var motNorm=norm(v.motorista);
+    // Buscar chofer cuyo nombre o email coincida (al menos parcialmente)
+    var match=choferes.find(function(c){
+      var nNorm=norm(c.nombre);
+      var eNorm=norm((c.email||'').split('@')[0]); // antes del @
+      return motNorm===nNorm || motNorm.indexOf(nNorm)>=0 || nNorm.indexOf(motNorm)>=0
+        || motNorm===eNorm || motNorm.indexOf(eNorm)>=0;
+    });
+    if(match){
+      v.choferId=(match.email||'').toLowerCase().trim();
+      vinculados++;
+    } else {
+      sinMatch.push(v.placa+' ('+(v.motorista||'sin motorista')+')');
+    }
+  });
+
+  if(vinculados>0)saveData();
+
+  var msg='AUTO-VINCULACIÓN DE CHOFERES\n';
+  msg+='═══════════════════════════\n\n';
+  msg+='Vehículos analizados: '+t.vehiculos.length+'\n';
+  msg+='Ya tenían choferId: '+yaTenian+'\n';
+  msg+='✓ Vinculados ahora: '+vinculados+'\n';
+  msg+='✗ Sin match: '+sinMatch.length+'\n\n';
+  if(sinMatch.length>0&&sinMatch.length<=15){
+    msg+='Sin coincidencia (asígnalos manualmente):\n';
+    sinMatch.forEach(function(s){msg+='  • '+s+'\n';});
+  } else if(sinMatch.length>15){
+    msg+='Sin coincidencia (primeros 15 — el resto asígnalos manualmente):\n';
+    sinMatch.slice(0,15).forEach(function(s){msg+='  • '+s+'\n';});
+    msg+='  ... y '+(sinMatch.length-15)+' más\n';
+  }
+  alert(msg);
+  if(vinculados>0)logAction('AUTO_VINCULAR','taller_vehiculos',vinculados+' vehículos vinculados a chofer');
+  renderTallerVehiculos();
 }
 
 function guardarVehiculo(id){
