@@ -1059,8 +1059,8 @@ input[type=date]{color-scheme:dark}
 //  DEFINICIÓN DE ROLES Y PERMISOS
 // ═══════════════════════════════════════════════════════
 const ROLES={
-  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','usuarios','config','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes','taller_solicitudes','taller_reportes_choferes','chofer_portal','importar']},
-  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes','taller_solicitudes','taller_reportes_choferes','chofer_portal']},
+  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','usuarios','config','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes','taller_solicitudes','taller_revisiones','taller_reportes_choferes','chofer_portal','importar']},
+  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes','taller_solicitudes','taller_revisiones','taller_reportes_choferes','chofer_portal']},
   empleado:{label:'Empleado',color:'b-ok',modulos:[]}, // permisos individuales
   viewer:{label:'Viewer',color:'b-neu',modulos:['dashboard','proyectos']},
   cliente:{label:'Cliente',color:'b-purple',modulos:['proyectos']}, // solo general, planificacion, cronograma
@@ -1109,6 +1109,7 @@ const MODULOS=[
   {id:'taller_combustible',label:'Combustible',ic:'⛽'},
   {id:'taller_reportes',label:'Reportes Taller',ic:'📈'},
   {id:'taller_solicitudes',label:'Solicitudes de revisión',ic:'📥'},
+  {id:'taller_revisiones',label:'Revisión fotográfica',ic:'📷'},
   {id:'taller_reportes_choferes',label:'Reportes Diarios Choferes',ic:'📅'},
   {id:'chofer_portal',label:'Mi Camión (Chofer)',ic:'🚛'},
 ];
@@ -1119,14 +1120,14 @@ const SB_GRUPOS=[
   {id:'empresa_grp',label:'Gestión de Empresa',ic:'🏢',items:['gastos','inventario','asistencia','auditoria_herr','gz_dashboard','proveedores','centros','bodegas','gz_gerentes','reportes']},
   {id:'mant_grp',label:'Mantenimiento',ic:'🔧',items:['mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes']},
   {id:'energy_grp',label:'Energy Intelligence',ic:'⚡',items:['ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist']},
-  {id:'taller_grp',label:'Taller Mecánico',ic:'🚚',items:['taller_dashboard','taller_vehiculos','taller_ots','taller_solicitudes','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes']},
+  {id:'taller_grp',label:'Taller Mecánico',ic:'🚚',items:['taller_dashboard','taller_vehiculos','taller_ots','taller_solicitudes','taller_revisiones','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_combustible','taller_reportes']},
   {id:'chofer_grp',label:'Portal Chofer',ic:'🚛',items:['chofer_portal','taller_reportes_choferes']},
   {id:'config_grp',label:'Configuración General',ic:'⚙',items:['log','usuarios','config','importar']},
 ];
 // Estado de grupos colapsados (persistir en sessionStorage)
 function getSBCollapsed(){try{return JSON.parse(sessionStorage.getItem('sb_collapsed')||'{}');}catch(e){return{};}}
 function setSBCollapsed(id,v){const c=getSBCollapsed();c[id]=v;sessionStorage.setItem('sb_collapsed',JSON.stringify(c));}
-function toggleSBGrupo(id){const c=getSBCollapsed();setSBCollapsed(id,!c[id]);render();}
+function toggleSBGrupo(id){const c=getSBCollapsed();setSBCollapsed(id,!c[id]);S._sbKeepOpen=true;render();}
 
 function puedeVer(modulo){
   if(!S.currentUser)return false;
@@ -1308,7 +1309,7 @@ function setSyncUI(state,txt){const dot=document.getElementById('syncDot'),stxt=
 // ═══════════════════════════════════════════════════════
 //  SYNC
 // ═══════════════════════════════════════════════════════
-function serializeState(){return{_v:4,_ts:Date.now(),proyectos:S.proyectos,gastos:S.gastos,proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios,config:S.config,inventario:S.inventario||{bodegas:[],productos:[],movimientos:[]},cajachica:S.cajachica||{reintegros:[]},mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[],movimientosEquipos:[]},energy:S.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12},gerentesZona:S.gerentesZona||[],asistencia:S.asistencia||{registros:[]},auditorias:S.auditorias||{registros:[]},taller:S.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[],solicitudes:[],reportesDiarios:[]}}}
+function serializeState(){return{_v:4,_ts:Date.now(),proyectos:S.proyectos,gastos:S.gastos,proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios,config:S.config,inventario:S.inventario||{bodegas:[],productos:[],movimientos:[]},cajachica:S.cajachica||{reintegros:[]},mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[],movimientosEquipos:[]},energy:S.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12},gerentesZona:S.gerentesZona||[],asistencia:S.asistencia||{registros:[]},auditorias:S.auditorias||{registros:[]},taller:S.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[],solicitudes:[],reportesDiarios:[],revisiones:[]}}}
 
 // Versión limpia para Firestore — elimina base64 pesados que van en colección separada
 function serializeForFirestore(){
@@ -1368,7 +1369,7 @@ function serializeForFirestore(){
     cajachica:S.cajachica||{reintegros:[]},
     asistencia:S.asistencia||{registros:[]},
     auditorias:auditorias,
-    taller:S.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[],solicitudes:[],reportesDiarios:[]}
+    taller:S.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[],solicitudes:[],reportesDiarios:[],revisiones:[]}
   };
 }
 function applyData(d,fromRemote=false){
@@ -1401,9 +1402,10 @@ function applyData(d,fromRemote=false){
   } else {
     S.auditorias=d.auditorias||{registros:[]};
   }
-  S.taller=d.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[],solicitudes:[],reportesDiarios:[]};
+  S.taller=d.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[],solicitudes:[],reportesDiarios:[],revisiones:[]};
   if(!S.taller.solicitudes)S.taller.solicitudes=[];
   if(!S.taller.reportesDiarios)S.taller.reportesDiarios=[];
+  if(!S.taller.revisiones)S.taller.revisiones=[];
   migrateData();applyBranding();
 }
 // ════════════════════════════════════════════════════════════
@@ -8209,7 +8211,9 @@ function openThemePanel(){
 }
 
 function render(){
-  if(window.innerWidth<=800)closeSB();
+  // Solo cerrar sidebar al renderizar si la última acción fue navegar a una vista (no toggle de grupo)
+  if(window.innerWidth<=800&&!S._sbKeepOpen)closeSB();
+  S._sbKeepOpen=false; // reset para próximo render
   // Sidebar — solo módulos permitidos
   const navIcColors={dashboard:'#e8a020',proyectos:'#4ea8de',gastos:'#e84040',proveedores:'#2db87a',centros:'#c084fc',reportes:'#f0a040',inventario:'#a0e060',bodegas:'#f0a060',log:'#888',usuarios:'#c084fc',config:'#777',mant_panel:'#f0a040',mant_equipos:'#60c8f0',mant_checklists:'#2db87a',mant_tecnicos:'#c084fc',mant_reportes:'#e8a020',ei_dashboard:'#facc15',ei_modelo:'#38bdf8',ei_alertas:'#f87171',ei_ranking:'#a78bfa',ei_prediccion:'#34d399',ei_checklist:'#fb923c',gz_gerentes:'#818cf8',gz_dashboard:'#38bdf8',importar:'#34d399',asistencia:'#60d394',auditoria_herr:'#ffa552',taller_dashboard:'#e8a020',taller_vehiculos:'#4ea8de',taller_ots:'#f0a040',taller_servicios:'#2db87a',taller_repuestos:'#a0e060',taller_programado:'#c084fc',taller_rutas:'#fb923c',taller_combustible:'#facc15',taller_reportes:'#38bdf8'};
   const collapsed=getSBCollapsed();
@@ -8287,6 +8291,7 @@ function render(){
   else if(S.activeTab==='taller_combustible')renderTallerCombustible();
   else if(S.activeTab==='taller_reportes')renderTallerReportes();
   else if(S.activeTab==='taller_solicitudes')renderTallerSolicitudes();
+  else if(S.activeTab==='taller_revisiones')renderTallerRevisiones();
   else if(S.activeTab==='taller_reportes_choferes')renderTallerReportesChoferes();
   else if(S.activeTab==='chofer_portal')renderChoferPortal();
   else if(S.activeTab==='importar')renderImportar();
@@ -9123,15 +9128,18 @@ function mantReasignarOTsPendientes(){
     mesesEncontrados:{}
   };
 
+  // OTs "asignables" = pendiente O vencida (las vencidas son pendientes con fecha pasada)
+  function _esAsignable(ot){return ot.estado==='pendiente'||ot.estado==='vencida';}
+
   m.ots.forEach(function(ot){
     var mesOT=(ot.fechaProgramada||'').slice(0,7);
     if(mesOT)stats.mesesEncontrados[mesOT]=(stats.mesesEncontrados[mesOT]||0)+1;
-    if(ot.estado==='pendiente')stats.pendientes++;
+    if(_esAsignable(ot))stats.pendientes++;
   });
 
-  // Reset de asignaciones del mes
+  // Reset de asignaciones del mes (incluye vencidas)
   m.ots.forEach(function(ot){
-    if((ot.fechaProgramada||'').slice(0,7)===mesActual&&ot.estado==='pendiente'){
+    if((ot.fechaProgramada||'').slice(0,7)===mesActual&&_esAsignable(ot)){
       ot.tecnicoId='';
     }
   });
@@ -9144,7 +9152,7 @@ function mantReasignarOTsPendientes(){
   }
 
   m.ots.forEach(function(ot){
-    if(ot.estado!=='pendiente')return;
+    if(!_esAsignable(ot))return;
     if((ot.fechaProgramada||'').slice(0,7)!==mesActual)return;
     stats.pendientesEsteMes++;
     var eq=m.equipos.find(function(e){return e.id===ot.equipoId;});
@@ -12486,7 +12494,7 @@ function renderTallerDashboard(){
   // Construcción de HTML
   var html='';
 
-  // Banner de alertas críticas
+  // Banner de alertas críticas (con tab destino para hacer clickeables)
   var alertasCriticas=[];
 
   // Alerta: choferes que no reportaron km hoy
@@ -12499,27 +12507,44 @@ function renderTallerDashboard(){
     return !rep;
   });
   if(sinReportar.length>0&&ahoraStr>=deadlineKm){
-    alertasCriticas.push({ic:'🚛',text:sinReportar.length+' chofer(es) NO han reportado el km de hoy (deadline: '+deadlineKm+')',color:'var(--red)'});
+    alertasCriticas.push({ic:'🚛',text:sinReportar.length+' chofer(es) NO han reportado el km de hoy (deadline: '+deadlineKm+')',color:'var(--red)',tab:'taller_reportes_choferes'});
   } else if(sinReportar.length>0){
-    alertasCriticas.push({ic:'⏳',text:sinReportar.length+' chofer(es) pendientes de reportar km hoy',color:'var(--accent)'});
+    alertasCriticas.push({ic:'⏳',text:sinReportar.length+' chofer(es) pendientes de reportar km hoy',color:'var(--accent)',tab:'taller_reportes_choferes'});
   }
 
   // Alerta: solicitudes pendientes
   var solPend=((S.taller&&S.taller.solicitudes)||[]).filter(function(s){return s.estado==='enviada';}).length;
   if(solPend>0){
-    alertasCriticas.push({ic:'📥',text:solPend+' solicitud(es) de revisión pendiente(s) de aprobar',color:'var(--accent)'});
+    alertasCriticas.push({ic:'📥',text:solPend+' solicitud(es) de revisión pendiente(s) de aprobar',color:'var(--accent)',tab:'taller_solicitudes'});
   }
 
-  if(fallasPend>0)alertasCriticas.push({ic:'🔴',text:fallasPend+' falla(s) pendiente(s) sin reparar',color:'var(--red)'});
-  if(vehMttoVencido.length>0)alertasCriticas.push({ic:'⚠️',text:vehMttoVencido.length+' vehículo(s) con mantenimiento VENCIDO (>120 días)',color:'var(--red)'});
-  if(vehMttoProximo.length>0)alertasCriticas.push({ic:'⏰',text:vehMttoProximo.length+' vehículo(s) próximo a mantenimiento (>90 días)',color:'var(--accent)'});
+  // Alerta: revisiones fotográficas vencidas (>2 días)
+  var revVencidas=0,revNunca=0;
+  vehs.forEach(function(v){
+    if(v.estado==='baja')return;
+    var d=_diasSinRevision(v.id);
+    if(d===null)revNunca++;
+    else if(d>=2)revVencidas++;
+  });
+  if(revVencidas>0||revNunca>0){
+    var totalRev=revVencidas+revNunca;
+    alertasCriticas.push({ic:'📷',text:totalRev+' vehículo(s) sin revisión fotográfica al día'+(revNunca>0?' ('+revNunca+' nunca revisados)':''),color:'var(--accent)',tab:'taller_revisiones'});
+  }
+
+  if(fallasPend>0)alertasCriticas.push({ic:'🔴',text:fallasPend+' falla(s) pendiente(s) sin reparar',color:'var(--red)',tab:'taller_ots'});
+  if(vehMttoVencido.length>0)alertasCriticas.push({ic:'⚠️',text:vehMttoVencido.length+' vehículo(s) con mantenimiento VENCIDO (>120 días)',color:'var(--red)',tab:'taller_programado'});
+  if(vehMttoProximo.length>0)alertasCriticas.push({ic:'⏰',text:vehMttoProximo.length+' vehículo(s) próximo a mantenimiento (>90 días)',color:'var(--accent)',tab:'taller_programado'});
   if(alertasCriticas.length>0){
     html+='<div class="card" style="margin-bottom:16px;border-left:4px solid var(--red);padding:14px 18px">'
       +'<div class="sec-hdr" style="margin-bottom:10px;color:var(--red)">🚨 Alertas Críticas</div>';
     alertasCriticas.forEach(function(a){
-      html+='<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">'
-        +'<span style="font-size:16px">'+a.ic+'</span>'
-        +'<span style="color:'+a.color+';font-weight:600">'+esc(a.text)+'</span>'
+      var clickable=a.tab?'cursor:pointer;transition:all 0.2s" onclick="goTab(\''+a.tab+'\')" onmouseover="this.style.background=\'rgba(232,160,32,0.1)\'" onmouseout="this.style.background=\'transparent\'':'';
+      html+='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 8px;border-bottom:1px solid var(--border);font-size:13px;border-radius:6px;'+clickable+'">'
+        +'<div style="display:flex;align-items:center;gap:10px;flex:1">'
+          +'<span style="font-size:16px">'+a.ic+'</span>'
+          +'<span style="color:'+a.color+';font-weight:600">'+esc(a.text)+'</span>'
+        +'</div>'
+        +(a.tab?'<span style="color:var(--accent);font-size:12px;font-weight:700">Ver →</span>':'')
       +'</div>';
     });
     html+='</div>';
@@ -13307,6 +13332,9 @@ function renderTallerOTs(){
   var ots=[].concat(t.ots).sort(function(a,b){return (b.creadoEn||0)-(a.creadoEn||0);});
   if(S._tallerOTFiltro)ots=ots.filter(function(o){return o.estado===S._tallerOTFiltro;});
 
+  var esAdmin=S.currentUser&&(S.currentUser.rol==='admin'||S.currentUser.rol==='supervisor');
+  var estados=getCfgEstadosOT();
+
   var rows='';
   if(ots.length===0){
     rows='<tr><td colspan="8" class="empty">Sin órdenes de trabajo</td></tr>';
@@ -13315,37 +13343,155 @@ function renderTallerOTs(){
       var v=t.vehiculos.find(function(x){return x.id===o.vehiculoId;});
       var mec=((S.mantenimiento&&S.mantenimiento.tecnicos)||[]).find(function(x){return x.id===o.mecanicoId;});
       var tipoBadge=o.tipo==='preventivo'?'<span class="badge b-blue">Preventivo</span>':'<span class="badge b-warn">Correctivo</span>';
+
+      // Selector rápido de estado con lógica de permisos
+      var estActual=o.estado||'recibido';
+      var idxActual=estados.findIndex(function(e){return e.id===estActual;});
+      var stateSelector='';
+      if(esAdmin){
+        // Admin: cualquier estado
+        var opts=estados.map(function(e){return '<option value="'+e.id+'"'+(e.id===estActual?' selected':'')+'>'+esc(e.label)+'</option>';}).join('');
+        stateSelector='<select class="ot-state-sel" onchange="cambiarEstadoOT(\''+o.id+'\',this.value)" style="padding:4px 8px;font-size:12px;font-weight:700;border:2px solid var(--border);border-radius:6px;cursor:pointer">'+opts+'</select>';
+      } else {
+        // Mecánico: solo puede avanzar (estados >= idx actual)
+        var opts2=estados.map(function(e,i){
+          var disabled=i<idxActual?' disabled':'';
+          return '<option value="'+e.id+'"'+(e.id===estActual?' selected':'')+disabled+'>'+esc(e.label)+(i<idxActual?' (no disponible)':'')+'</option>';
+        }).join('');
+        stateSelector='<select class="ot-state-sel" onchange="cambiarEstadoOT(\''+o.id+'\',this.value)" style="padding:4px 8px;font-size:12px;font-weight:700;border:2px solid var(--border);border-radius:6px;cursor:pointer">'+opts2+'</select>';
+      }
+      // Color del selector según estado
+      var colorMap={'recibido':'#a78bfa','diagnostico':'#4ea8de','reparacion':'#facc15','listo':'#2db87a','entregado':'#9ca3af','cancelado':'#ef4444'};
+      var bgColor=colorMap[estActual]||'#9ca3af';
+
       rows+='<tr>'
         +'<td><strong>OT-'+esc(o.numero||o.id.slice(0,4))+'</strong></td>'
         +'<td><div>'+esc(v?(v.marca+' '+v.modelo):'(eliminado)')+'</div><div style="font-size:11px;color:var(--muted)">'+esc(v?v.placa:'')+'</div></td>'
         +'<td>'+tipoBadge+'</td>'
         +'<td>'+esc(mec?mec.nombre:'Sin asignar')+'</td>'
         +'<td>'+fmtDate(o.fechaIngreso)+'</td>'
-        +'<td><span class="badge '+tallerEstadoColor(o.estado)+'">'+esc(tallerEstadoLabel(o.estado).toUpperCase())+'</span></td>'
+        +'<td><div style="border-left:4px solid '+bgColor+';padding-left:6px">'+stateSelector+'</div></td>'
         +'<td style="text-align:right">'+(o.costoTotal?'$'+fmt(o.costoTotal):'—')+'</td>'
         +'<td><div class="td-act">'
-          +'<button class="btn btn-secondary btn-xs" onclick="modalOT(\''+o.id+'\')">✏</button>'
-          +'<button class="btn btn-danger btn-xs" onclick="delOT(\''+o.id+'\')">✕</button>'
+          +'<button class="btn btn-secondary btn-xs" onclick="modalOT(\''+o.id+'\')" title="Editar / Ver detalle">✏</button>'
+          +(esAdmin?'<button class="btn btn-danger btn-xs" onclick="delOT(\''+o.id+'\')" title="Eliminar (admin)">✕</button>':'')
         +'</div></td>'
       +'</tr>';
     });
   }
 
-  var estadoOpts='<option value="">Todos los estados</option>';
   var estadoOpts='<option value="">Todos los estados</option>'+optsEstadosOT(S._tallerOTFiltro);
 
   document.getElementById('content').innerHTML=
-    '<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">'
+    '<div class="info-box">💡 <strong>Cambio rápido de estado:</strong> selecciona el nuevo estado en cada OT directamente desde la tabla. '+(esAdmin?'<strong style="color:var(--accent)">Admin:</strong> puedes mover libremente entre estados.':'Como mecánico, solo puedes avanzar (no devolverte). Pide al admin si necesitas corregir.')+'</div>'
+    +'<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">'
       +'<button class="btn btn-primary" onclick="modalNuevaOT(\'\')">+ Nueva OT</button>'
       +'<select onchange="S._tallerOTFiltro=this.value;renderTallerOTs()" style="max-width:220px">'+estadoOpts+'</select>'
     +'</div>'
     +'<div class="tbl-wrap"><table>'
-      +'<thead><tr><th>OT</th><th>Vehículo</th><th>Tipo</th><th>Mecánico</th><th>Ingreso</th><th>Estado</th><th style="text-align:right">Costo</th><th></th></tr></thead>'
+      +'<thead><tr><th>OT</th><th>Vehículo</th><th>Tipo</th><th>Mecánico</th><th>Ingreso</th><th>Estado</th><th style="text-align:right">Costo</th><th>Acciones</th></tr></thead>'
       +'<tbody>'+rows+'</tbody>'
     +'</table></div>';
 }
 
+// ── Cambio rápido de estado de OT (con permisos diferenciados) ──
+function cambiarEstadoOT(otId,nuevoEstado){
+  var t=tallerData();
+  var o=t.ots.find(function(x){return x.id===otId;});
+  if(!o){toast('OT no encontrada',true);return;}
+  var esAdmin=S.currentUser&&(S.currentUser.rol==='admin'||S.currentUser.rol==='supervisor');
+  var estados=getCfgEstadosOT();
+  var idxActual=estados.findIndex(function(e){return e.id===(o.estado||'recibido');});
+  var idxNuevo=estados.findIndex(function(e){return e.id===nuevoEstado;});
+
+  // Mecánico no puede retroceder
+  if(!esAdmin&&idxNuevo<idxActual){
+    toast('Solo el administrador puede devolver el estado de una OT',true);
+    renderTallerOTs(); // re-render para resetear el dropdown
+    return;
+  }
+
+  // Confirmación al pasar a "Entregado" (último real) sin ser admin
+  var nuevoLabel=(estados[idxNuevo]||{}).label||nuevoEstado;
+  if(!esAdmin&&(nuevoEstado==='entregado'||nuevoEstado==='listo')){
+    if(!confirm('¿Confirmas marcar la OT como "'+nuevoLabel+'"? Como mecánico, después no podrás devolverla.')){
+      renderTallerOTs();
+      return;
+    }
+  }
+
+  var estadoAnterior=o.estado;
+  o.estado=nuevoEstado;
+
+  // Si se marca como "listo" o "entregado", auto-llenar fecha de salida si está vacía
+  if((nuevoEstado==='listo'||nuevoEstado==='entregado')&&!o.fechaSalida){
+    o.fechaSalida=new Date().toISOString().slice(0,10);
+  }
+
+  // Log
+  o.cambiosEstado=o.cambiosEstado||[];
+  o.cambiosEstado.push({
+    de:estadoAnterior,
+    a:nuevoEstado,
+    usuario:S.currentUser?S.currentUser.email:'desconocido',
+    fecha:Date.now()
+  });
+
+  saveData();
+  logAction('CAMBIAR_ESTADO','taller_ot','OT-'+(o.numero||otId.slice(0,4))+': '+estadoAnterior+' → '+nuevoEstado);
+  toast('✓ Estado actualizado a "'+nuevoLabel+'"');
+  renderTallerOTs();
+}
+
 function modalNuevaOT(vehIdPrefill){modalOT('',vehIdPrefill);}
+
+// ── Caja informativa: ¿De qué trata esta OT? ──
+function _otOrigenBox(o,t){
+  if(!o)return '';
+  var v=t.vehiculos.find(function(x){return x.id===o.vehiculoId;});
+  var vehLabel=v?(v.placa+' · '+(v.marca||'')+' '+(v.modelo||'')):'(vehículo eliminado)';
+
+  // Si viene de una solicitud del chofer, mostrar info completa
+  var sol=null;
+  if(o.solicitudId){
+    sol=(t.solicitudes||[]).find(function(x){return x.id===o.solicitudId;});
+  }
+
+  var serviciosResumen='';
+  if(o.serviciosAplicados&&o.serviciosAplicados.length){
+    serviciosResumen=o.serviciosAplicados.map(function(s){return '• '+s.nombre;}).join('<br>');
+  } else if(o.descripcion){
+    serviciosResumen=esc(o.descripcion);
+  }
+
+  var html='<div style="background:linear-gradient(135deg,rgba(74,168,222,0.12),rgba(74,168,222,0.04));border:1px solid rgba(74,168,222,0.4);border-left:4px solid #4ea8de;padding:12px;border-radius:8px;margin-bottom:14px">';
+  html+='<div style="font-size:11px;color:#4ea8de;font-weight:700;text-transform:uppercase;margin-bottom:6px">📋 ¿De qué trata esta OT?</div>';
+  html+='<div style="font-size:13px;font-weight:600;margin-bottom:4px">🚛 '+esc(vehLabel)+'</div>';
+
+  if(serviciosResumen){
+    html+='<div style="font-size:12px;color:var(--text);margin-top:6px;line-height:1.5">'+serviciosResumen+'</div>';
+  }
+
+  if(sol){
+    var urgColor={baja:'#9ca3af',media:'#facc15',alta:'#fb923c',critica:'#ef4444'}[sol.urgencia]||'#9ca3af';
+    html+='<div style="margin-top:10px;padding:10px;background:rgba(0,0,0,0.2);border-radius:6px;border-left:3px solid '+urgColor+'">';
+    html+='<div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700;margin-bottom:4px">📲 Solicitud original del chofer</div>';
+    html+='<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;font-size:12px;margin-bottom:6px">';
+    html+='<div><strong>'+esc(sol.choferNombre||'Chofer')+'</strong> · '+fmtDate(sol.fecha)+'</div>';
+    html+='<span class="badge" style="background:'+urgColor+';color:#000;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700">URGENCIA: '+esc((sol.urgencia||'').toUpperCase())+'</span>';
+    html+='</div>';
+    if(sol.servicioNombre){
+      html+='<div style="font-size:12px;margin-bottom:6px"><strong>Servicio solicitado:</strong> '+esc(sol.servicioNombre)+'</div>';
+    }
+    html+='<div style="font-size:13px;background:var(--surface);padding:8px;border-radius:4px;margin-top:6px;font-style:italic">"'+esc(sol.descripcion||'')+'"</div>';
+    if(sol.foto){
+      html+='<div style="margin-top:8px"><button type="button" class="btn btn-secondary btn-xs" onclick="solVerFoto(\''+sol.id+'\')" style="font-size:11px">📷 Ver foto adjunta del chofer</button></div>';
+    }
+    html+='</div>';
+  }
+  html+='</div>';
+  return html;
+}
 
 function modalOT(id,vehIdPrefill){
   var t=tallerData();
@@ -13385,8 +13531,11 @@ function modalOT(id,vehIdPrefill){
   div.className='modal open';
   div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:12px;overflow-y:auto';
   div.innerHTML='<div class="modal-box md" style="margin-top:auto;margin-bottom:auto">'
-    +'<div class="modal-hdr"><div class="modal-ttl">'+(id?'✏ Editar OT':'+ Nueva Orden de Trabajo')+'</div>'
+    +'<div class="modal-hdr"><div class="modal-ttl">'+(id?'✏ Editar OT-'+esc((o&&o.numero)||id.slice(0,4)):'+ Nueva Orden de Trabajo')+'</div>'
     +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalOTDiv\').remove()">✕</button></div>'
+    +(id?'<div style="background:var(--surface2);padding:10px;border-radius:8px;margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><strong style="font-size:13px">Cambio rápido de estado:</strong> <button type="button" class="btn btn-secondary btn-xs" onclick="cambiarEstadoOT(\''+id+'\',\'recibido\');document.getElementById(\'modalOTDiv\').remove()">Recibido</button> <button type="button" class="btn btn-secondary btn-xs" onclick="cambiarEstadoOT(\''+id+'\',\'diagnostico\');document.getElementById(\'modalOTDiv\').remove()">Diagnóstico</button> <button type="button" class="btn btn-secondary btn-xs" onclick="cambiarEstadoOT(\''+id+'\',\'reparacion\');document.getElementById(\'modalOTDiv\').remove()">En Reparación</button> <button type="button" class="btn btn-secondary btn-xs" onclick="cambiarEstadoOT(\''+id+'\',\'listo\');document.getElementById(\'modalOTDiv\').remove()" style="color:var(--green);border-color:var(--green)">Listo</button> <button type="button" class="btn btn-secondary btn-xs" onclick="cambiarEstadoOT(\''+id+'\',\'entregado\');document.getElementById(\'modalOTDiv\').remove()">Entregado</button></div>':'')
+    // ── Caja de "ORIGEN DE LA OT" — siempre visible cuando se edita ──
+    +(o?_otOrigenBox(o,t):'')
     +'<div class="fg"><label>Vehículo *</label><select id="otVeh">'+vehOpts+'</select></div>'
     +'<div class="row2">'
       +'<div class="fg"><label>Tipo *</label><select id="otTipo">'
@@ -13926,6 +14075,10 @@ function renderTallerProgramado(){
 function modalProgramado(id){
   var t=tallerData();
   var p=id?t.programado.find(function(x){return x.id===id;}):null;
+
+  // Inicializar buffer de servicios programados
+  S._prgServiciosBuffer=(p&&p.servicios)?p.servicios.slice():(p&&p.servicioId?[{servicioId:p.servicioId,nombre:p.servicio||'',cadaKm:p.cadaKm||0,cadaMeses:p.cadaMeses||0}]:[]);
+
   var vehOpts='<option value="">— Selecciona vehículo —</option>';
   t.vehiculos.forEach(function(v){vehOpts+='<option value="'+v.id+'"'+(p&&p.vehiculoId===v.id?' selected':'')+'>'+esc(v.placa)+'</option>';});
 
@@ -13936,8 +14089,7 @@ function modalProgramado(id){
     if(srvCat.length>0){
       srvOpts+='<optgroup label="'+esc(c.ic+' '+c.label)+'">';
       srvCat.forEach(function(s){
-        var sel=p&&p.servicioId===s.id?' selected':'';
-        srvOpts+='<option value="'+s.id+'"'+sel+'>'+esc(s.nombre)+'</option>';
+        srvOpts+='<option value="'+s.id+'">'+esc(s.nombre)+(s.frecuenciaKm?' ('+s.frecuenciaKm.toLocaleString()+' km)':'')+'</option>';
       });
       srvOpts+='</optgroup>';
     }
@@ -13951,58 +14103,104 @@ function modalProgramado(id){
     +'<div class="modal-hdr"><div class="modal-ttl">'+(id?'✏ Editar Programación':'+ Programar Mantenimiento')+'</div>'
     +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalProgDiv\').remove()">✕</button></div>'
     +'<div class="fg"><label>Vehículo *</label><select id="prgVeh">'+vehOpts+'</select></div>'
-    +'<div class="fg"><label>Servicio del catálogo *</label>'
-      +'<select id="prgSrvId" onchange="prgServicioChange()">'+srvOpts+'</select>'
-      +'<div style="font-size:11px;color:var(--muted);margin-top:4px">Si el servicio no está en el catálogo, agrégalo desde Catálogo de Servicios</div>'
+
+    // ── MULTI-SERVICIOS PROGRAMADOS ──
+    +'<div class="sec-hdr" style="margin-top:14px;font-size:14px">🔧 Servicios programados</div>'
+    +'<div style="background:var(--surface2);padding:10px;border-radius:8px;margin-bottom:8px">'
+      +'<div style="display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap">'
+        +'<div style="flex:1;min-width:200px"><label style="font-size:11px;color:var(--muted);text-transform:uppercase">Agregar del catálogo</label>'
+          +'<select id="prgAddSrv">'+srvOpts+'</select></div>'
+        +'<button type="button" class="btn btn-primary btn-sm" onclick="prgAgregarServicio()">+ Agregar</button>'
+      +'</div>'
+      +'<div style="font-size:11px;color:var(--muted);margin-top:4px">Puedes programar varios servicios juntos. Cada uno se controla por su propia frecuencia (km/meses).</div>'
     +'</div>'
-    +'<div id="prgSrvInfo" style="background:var(--surface2);padding:10px;border-radius:8px;margin-bottom:10px;font-size:12px;display:none"></div>'
-    +'<div class="row2"><div class="fg"><label>Cada cuántos km</label><input type="number" id="prgCada" value="'+(p?p.cadaKm||0:0)+'"></div>'
-    +'<div class="fg"><label>Próximo en (km)</label><input type="number" id="prgProx" value="'+(p?p.proximoKm||0:0)+'"></div></div>'
-    +'<div class="row2"><div class="fg"><label>Último realizado (fecha)</label><input type="date" id="prgUFecha" value="'+(p?p.ultimoFecha||'':'')+'"></div>'
+    +'<div id="prgSrvList"></div>'
+
+    +'<div class="row2" style="margin-top:10px"><div class="fg"><label>Último realizado (fecha)</label><input type="date" id="prgUFecha" value="'+(p?p.ultimoFecha||'':'')+'"></div>'
     +'<div class="fg"><label>Km al último mantenimiento</label><input type="number" id="prgUKm" value="'+(p?p.ultimoKm||'':'')+'"></div></div>'
-    +'<div class="fg"><label>Notas</label><textarea id="prgNotas" rows="2" placeholder="Notas adicionales sobre esta programación">'+(p?esc(p.notas||''):'')+'</textarea></div>'
+    +'<div class="fg"><label>Notas generales</label><textarea id="prgNotas" rows="2" placeholder="Notas sobre esta programación">'+(p?esc(p.notas||''):'')+'</textarea></div>'
     +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">'
     +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalProgDiv\').remove()">Cancelar</button>'
     +'<button class="btn btn-primary" onclick="guardarProgramado(\''+(id||'')+'\')">✓ Guardar</button></div></div>';
   document.body.appendChild(div);
-  setTimeout(function(){_focusFirst(div);prgServicioChange();},80);
+  setTimeout(function(){_focusFirst(div);prgRenderServicios();},80);
 }
 
-// Auto-llena frecuencia y muestra info del servicio seleccionado
-function prgServicioChange(){
-  var sel=document.getElementById('prgSrvId');
-  var info=document.getElementById('prgSrvInfo');
-  var freqInput=document.getElementById('prgCada');
-  if(!sel||!info)return;
-  var srvId=sel.value;
-  if(!srvId){info.style.display='none';return;}
+function prgAgregarServicio(){
+  var sel=document.getElementById('prgAddSrv');
+  var srvId=sel?sel.value:'';
+  if(!srvId){toast('Selecciona un servicio del catálogo',true);return;}
   var t=tallerData();
   var s=(t.servicios||[]).find(function(x){return x.id===srvId;});
-  if(!s){info.style.display='none';return;}
-  // Auto-llena km si está vacío
-  if(freqInput&&!parseInt(freqInput.value)&&s.frecuenciaKm>0){
-    freqInput.value=s.frecuenciaKm;
+  if(!s){toast('Servicio no encontrado',true);return;}
+  S._prgServiciosBuffer=S._prgServiciosBuffer||[];
+  // Evitar duplicado
+  if(S._prgServiciosBuffer.find(function(it){return it.servicioId===srvId;})){
+    toast('Este servicio ya está agregado',true);return;
   }
-  info.style.display='block';
-  info.innerHTML='<div><strong>'+esc(srvCatLabel(s.categoria))+'</strong> · '+esc(s.tipo)+'</div>'
-    +(s.descripcion?'<div style="margin-top:4px;color:var(--muted)">'+esc(s.descripcion)+'</div>':'')
-    +'<div style="margin-top:6px;color:var(--accent)">⏱ '+(s.tiempoHr||0)+' hr · 💵 $'+(s.precio||0).toFixed(2)+' · 📅 '+(s.frecuenciaKm?s.frecuenciaKm.toLocaleString()+' km':'-')+(s.frecuenciaMeses?' / '+s.frecuenciaMeses+' meses':'')+'</div>';
+  S._prgServiciosBuffer.push({
+    servicioId:srvId,
+    nombre:s.nombre,
+    categoria:s.categoria,
+    cadaKm:s.frecuenciaKm||0,
+    cadaMeses:s.frecuenciaMeses||0
+  });
+  if(sel)sel.value='';
+  prgRenderServicios();
+}
+
+function prgQuitarServicio(idx){
+  if(!S._prgServiciosBuffer)return;
+  S._prgServiciosBuffer.splice(idx,1);
+  prgRenderServicios();
+}
+
+function prgCambiarKmServicio(idx,nuevoKm){
+  if(!S._prgServiciosBuffer||!S._prgServiciosBuffer[idx])return;
+  S._prgServiciosBuffer[idx].cadaKm=parseInt(nuevoKm)||0;
+}
+function prgCambiarMesesServicio(idx,nuevosMeses){
+  if(!S._prgServiciosBuffer||!S._prgServiciosBuffer[idx])return;
+  S._prgServiciosBuffer[idx].cadaMeses=parseInt(nuevosMeses)||0;
+}
+
+function prgRenderServicios(){
+  var lista=S._prgServiciosBuffer||[];
+  var cont=document.getElementById('prgSrvList');
+  if(!cont)return;
+  if(lista.length===0){
+    cont.innerHTML='<div style="text-align:center;color:var(--muted);padding:14px;font-size:12px;background:var(--surface);border-radius:6px;margin-bottom:8px">Sin servicios. Agrega del catálogo arriba.</div>';
+    return;
+  }
+  cont.innerHTML=lista.map(function(it,i){
+    return '<div style="padding:10px;background:var(--surface);border-radius:6px;margin-bottom:6px;border:1px solid var(--border)">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+        +'<div style="font-weight:600;font-size:13px">'+esc(it.nombre)+'</div>'
+        +'<button type="button" class="btn btn-danger btn-xs" onclick="prgQuitarServicio('+i+')" title="Quitar">✕</button>'
+      +'</div>'
+      +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px">'
+        +'<label>Cada</label>'
+        +'<input type="number" min="0" value="'+(it.cadaKm||0)+'" onchange="prgCambiarKmServicio('+i+',this.value)" style="width:80px;padding:4px 6px"> km'
+        +' &nbsp;<strong style="color:var(--muted)">o</strong>&nbsp; '
+        +'<input type="number" min="0" value="'+(it.cadaMeses||0)+'" onchange="prgCambiarMesesServicio('+i+',this.value)" style="width:60px;padding:4px 6px"> meses'
+      +'</div></div>';
+  }).join('');
 }
 
 function guardarProgramado(id){
   var vehId=document.getElementById('prgVeh').value;
   if(!vehId){toast('Selecciona un vehículo',true);return;}
-  var srvId=document.getElementById('prgSrvId').value;
-  if(!srvId){toast('Selecciona un servicio del catálogo',true);return;}
+  var servicios=(S._prgServiciosBuffer||[]).slice();
+  if(servicios.length===0){toast('Agrega al menos un servicio del catálogo',true);return;}
   var t=tallerData();
-  var srv=t.servicios.find(function(x){return x.id===srvId;});
-  if(!srv){toast('Servicio no encontrado',true);return;}
   var datos={
     vehiculoId:vehId,
-    servicioId:srvId,
-    servicio:srv.nombre, // nombre snapshot por compat
-    cadaKm:parseInt(document.getElementById('prgCada').value)||0,
-    proximoKm:parseInt(document.getElementById('prgProx').value)||0,
+    servicios:servicios,
+    // Compat con versión anterior (campo plano del primer servicio):
+    servicioId:servicios[0].servicioId,
+    servicio:servicios[0].nombre,
+    cadaKm:servicios[0].cadaKm,
+    proximoKm:0,
     ultimoFecha:document.getElementById('prgUFecha').value||null,
     ultimoKm:parseInt(document.getElementById('prgUKm').value)||null,
     notas:(document.getElementById('prgNotas').value||'').trim()
@@ -14015,9 +14213,10 @@ function guardarProgramado(id){
     t.programado.push(datos);
   }
   saveData();
+  S._prgServiciosBuffer=null;
   (function(_e){if(_e)_e.remove();})(document.getElementById('modalProgDiv'));
   renderTallerProgramado();
-  toast('✓ Mantenimiento programado');
+  toast('✓ Programación guardada con '+servicios.length+' servicio(s)');
 }
 
 function delProgramado(id){
@@ -14120,7 +14319,7 @@ function _comprimirImagenChofer(file,callback){
   reader.onload=function(e){
     var img=new Image();
     img.onload=function(){
-      var maxW=800;
+      var maxW=600;
       var w=img.width,h=img.height;
       if(w>maxW){h=h*(maxW/w);w=maxW;}
       var canvas=document.createElement('canvas');
@@ -14520,14 +14719,40 @@ function choferPreviewFoto(input){
 }
 
 function choferEnviarSolicitud(vehId){
+  // ── ANTI-DOBLE-CLICK: bloquear si ya está procesando ──
+  if(S._solEnviando){
+    console.log('[Chofer] Solicitud ya en proceso, ignorando click');
+    return;
+  }
+  S._solEnviando=true;
+
+  // Deshabilitar el botón visualmente
+  var btn=document.querySelector('button[onclick*="choferEnviarSolicitud"]');
+  if(btn){
+    btn.disabled=true;
+    btn.style.opacity='0.5';
+    btn.style.pointerEvents='none';
+    btn.textContent='⏳ Enviando...';
+  }
+
+  function unlock(){
+    S._solEnviando=false;
+    if(btn){
+      btn.disabled=false;
+      btn.style.opacity='';
+      btn.style.pointerEvents='';
+      btn.textContent='📤 Enviar solicitud';
+    }
+  }
+
   var srvId=(document.getElementById('solSrvId')||{}).value;
   var desc=((document.getElementById('solDesc')||{}).value||'').trim();
   var urg=(document.querySelector('input[name="solUrg"]:checked')||{}).value;
   var fotoData=(document.getElementById('solFotoData')||{}).value;
 
-  if(!srvId){toast('Selecciona el servicio que crees que necesita',true);return;}
-  if(!desc){toast('Describe el problema',true);return;}
-  if(!urg){toast('Selecciona la urgencia',true);return;}
+  if(!srvId){toast('Selecciona el servicio que crees que necesita',true);unlock();return;}
+  if(!desc){toast('Describe el problema',true);unlock();return;}
+  if(!urg){toast('Selecciona la urgencia',true);unlock();return;}
 
   var t=tallerData();
   if(!t.solicitudes)t.solicitudes=[];
@@ -14543,11 +14768,11 @@ function choferEnviarSolicitud(vehId){
     choferNombre:S.currentUser?S.currentUser.nombre:'Chofer',
     servicioId:srvId,
     servicioNombre:srv?srv.nombre:'',
-    categoria:srv?srv.categoria:'otro', // compat con código viejo
+    categoria:srv?srv.categoria:'otro',
     descripcion:desc,
     urgencia:urg,
     estado:'enviada',
-    foto:null  // se sube después a Storage
+    foto:null
   };
 
   // Guardar foto en Firebase Storage si existe
@@ -14560,10 +14785,23 @@ function choferEnviarSolicitud(vehId){
 
   t.solicitudes.push(sol);
   saveData();
-  logAction('CREAR','chofer_solicitud','Solicitud: '+solCatLabel(cat)+' · '+desc.slice(0,40));
+  logAction('CREAR','chofer_solicitud','Solicitud: '+(srv?srv.nombre:srvId)+' · '+desc.slice(0,40));
   toast('✓ Solicitud enviada al administrador');
+
+  // Limpiar buffer de foto
+  var fotoInput=document.getElementById('solFoto');
+  if(fotoInput)fotoInput.value='';
+  var fotoDataInput=document.getElementById('solFotoData');
+  if(fotoDataInput)fotoDataInput.value='';
+
+  // Cambiar a la vista de "Mis solicitudes" automáticamente
   S._choferTab='mis_solicitudes';
-  renderChoferPortal();
+
+  // Pequeño delay para asegurar que el DOM se actualice antes de re-renderizar
+  setTimeout(function(){
+    unlock();
+    renderChoferPortal();
+  },300);
 }
 
 // ── Mis solicitudes ──
@@ -14608,6 +14846,7 @@ function renderTallerSolicitudes(){
   if(S._solFiltro)sols=sols.filter(function(s){return s.estado===S._solFiltro;});
 
   var pendientes=t.solicitudes.filter(function(s){return s.estado==='enviada';}).length;
+  var esAdmin=S.currentUser&&(S.currentUser.rol==='admin'||S.currentUser.rol==='supervisor');
 
   var rows=sols.map(function(s){
     var v=t.vehiculos.find(function(x){return x.id===s.vehiculoId;});
@@ -14624,6 +14863,7 @@ function renderTallerSolicitudes(){
       +'<td class="td-act">'
       +(s.foto?'<button class="btn btn-secondary btn-xs" onclick="solVerFoto(\''+s.id+'\')">📷</button>':'')
       +'<button class="btn btn-primary btn-xs" onclick="solDetalle(\''+s.id+'\')">Ver</button>'
+      +(esAdmin?'<button class="btn btn-danger btn-xs" onclick="solEliminar(\''+s.id+'\')" title="Eliminar (admin)">✕</button>':'')
       +'</td></tr>';
   }).join('');
   if(!rows)rows='<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">Sin solicitudes</td></tr>';
@@ -14634,9 +14874,14 @@ function renderTallerSolicitudes(){
     return '<button class="btn '+(active?'btn-primary':'btn-secondary')+' btn-xs" onclick="S._solFiltro=\''+id+'\';renderTallerSolicitudes()">'+label+'</button>';
   }).join(' ');
 
+  // Botón borrar todas (solo admin) si hay solicitudes
+  var botonBorrarTodas=esAdmin&&t.solicitudes.length>0
+    ?'<button class="btn btn-danger btn-sm" onclick="solBorrarTodas()" style="margin-left:auto" title="Eliminar TODAS las solicitudes">🗑 Borrar todas ('+t.solicitudes.length+')</button>'
+    :'';
+
   document.getElementById('content').innerHTML=
     (pendientes>0?'<div class="info-box" style="background:#2a1a00;color:var(--accent);border-color:#5a3a00">⚠ <strong>'+pendientes+' solicitud(es) pendiente(s) de revisión</strong></div>':'')
-    +'<div style="margin-bottom:12px">'+filterBtns+'</div>'
+    +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+filterBtns+botonBorrarTodas+'</div>'
     +'<div class="card" style="padding:0"><div class="tbl-wrap" style="border:none;border-radius:0">'
     +'<table><thead><tr><th>Fecha</th><th>Vehículo</th><th>Chofer</th><th>Servicio solicitado</th><th>Urg.</th><th>Descripción</th><th>Estado</th><th>Acciones</th></tr></thead>'
     +'<tbody>'+rows+'</tbody></table></div></div>';
@@ -14739,9 +14984,26 @@ function solAprobarYCrearOT(solId){
   if(!s)return;
   var mecId=((document.getElementById('solMecanico')||{}).value||'');
 
+  // Pre-cargar el servicio solicitado del catálogo
+  var serviciosAplicados=[];
+  if(s.servicioId){
+    var srv=(t.servicios||[]).find(function(x){return x.id===s.servicioId;});
+    if(srv){
+      serviciosAplicados.push({
+        servicioId:srv.id,
+        nombre:srv.nombre,
+        categoria:srv.categoria,
+        precio:srv.precio||0,
+        tiempoHr:srv.tiempoHr||0
+      });
+    }
+  }
+
   // Crear OT vinculada
   if(!t.ots)t.ots=[];
   var maxNum=t.ots.reduce(function(m,o){return Math.max(m,parseInt(o.numero)||0);},0);
+  var manoObra=serviciosAplicados.reduce(function(sum,it){return sum+(it.precio||0);},0);
+  var descAuto=serviciosAplicados.length?serviciosAplicados.map(function(it){return it.nombre;}).join(' · '):('[Solicitud chofer] '+s.descripcion);
   var ot={
     id:'ot_'+Date.now().toString(36),
     numero:String(maxNum+1).padStart(4,'0'),
@@ -14750,9 +15012,14 @@ function solAprobarYCrearOT(solId){
     estado:'recibido',
     fechaIngreso:new Date().toISOString().slice(0,10),
     mecanicoId:mecId||null,
-    descripcion:'[Solicitud chofer] '+s.descripcion,
+    serviciosAplicados:serviciosAplicados,
+    descripcion:descAuto,
     diagnostico:'',
-    manoObra:0,costoRepuestos:0,costoTotal:0,
+    manoObraServicios:manoObra,
+    manoObraExtra:0,
+    manoObra:manoObra,
+    costoRepuestos:0,
+    costoTotal:manoObra,
     creadoEn:Date.now(),
     solicitudId:solId
   };
@@ -14768,7 +15035,7 @@ function solAprobarYCrearOT(solId){
   logAction('APROBAR','chofer_solicitud','Solicitud aprobada → OT-'+ot.numero);
   document.getElementById('modalSolDet').remove();
   renderTallerSolicitudes();
-  toast('✓ Solicitud aprobada y OT-'+ot.numero+' creada');
+  toast('✓ Solicitud aprobada y OT-'+ot.numero+' creada con servicio pre-cargado');
 }
 
 function solMarcarResuelta(solId){
@@ -14784,6 +15051,327 @@ function solMarcarResuelta(solId){
   document.getElementById('modalSolDet').remove();
   renderTallerSolicitudes();
   toast('✓ Solicitud resuelta');
+}
+
+// ── Eliminar solicitud individual (admin) ──
+function solEliminar(solId){
+  if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
+    toast('Solo administradores',true);return;
+  }
+  if(!confirm('¿Eliminar permanentemente esta solicitud?\n\nEsta acción no se puede deshacer.'))return;
+  var t=tallerData();
+  t.solicitudes=(t.solicitudes||[]).filter(function(s){return s.id!==solId;});
+  saveData();
+  logAction('ELIMINAR','chofer_solicitud','Solicitud '+solId.slice(0,8)+' eliminada');
+  toast('✓ Solicitud eliminada');
+  renderTallerSolicitudes();
+}
+
+// ── Borrar TODAS las solicitudes (admin) — para limpiar duplicadas ──
+function solBorrarTodas(){
+  if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
+    toast('Solo administradores',true);return;
+  }
+  var t=tallerData();
+  var total=(t.solicitudes||[]).length;
+  if(total===0){toast('No hay solicitudes para borrar');return;}
+  if(!confirm('⚠ ELIMINAR PERMANENTEMENTE las '+total+' solicitudes?\n\nNo se puede deshacer. Las OT que ya se hayan creado NO se eliminan, solo las solicitudes.\n\n¿Continuar?'))return;
+  if(!confirm('Confirma una vez más: ¿Eliminar las '+total+' solicitudes?'))return;
+  t.solicitudes=[];
+  saveData();
+  logAction('ELIMINAR_MASIVO','chofer_solicitud',total+' solicitudes eliminadas');
+  toast('✓ '+total+' solicitudes eliminadas');
+  renderTallerSolicitudes();
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// REVISIÓN FOTOGRÁFICA — el mecánico revisa cada vehículo cada 2 días
+// Las fotos se comprimen a 600px y se guardan en Firebase Storage como refs
+// ═══════════════════════════════════════════════════════════════════
+function _comprimirRevision(file,callback){
+  if(!file){callback(null);return;}
+  var reader=new FileReader();
+  reader.onload=function(e){
+    var img=new Image();
+    img.onload=function(){
+      var maxW=600;
+      var w=img.width,h=img.height;
+      if(w>maxW){h=h*(maxW/w);w=maxW;}
+      var canvas=document.createElement('canvas');
+      canvas.width=w;canvas.height=h;
+      var ctx=canvas.getContext('2d');
+      ctx.drawImage(img,0,0,w,h);
+      callback(canvas.toDataURL('image/jpeg',0.6));
+    };
+    img.onerror=function(){callback(null);};
+    img.src=e.target.result;
+  };
+  reader.onerror=function(){callback(null);};
+  reader.readAsDataURL(file);
+}
+
+// Días desde la última revisión de un vehículo
+function _diasSinRevision(vehId){
+  var t=tallerData();
+  if(!t.revisiones)return null;
+  var ult=t.revisiones.filter(function(r){return r.vehiculoId===vehId;}).sort(function(a,b){return (b.ts||0)-(a.ts||0);})[0];
+  if(!ult)return null;
+  return Math.floor((Date.now()-ult.ts)/(1000*60*60*24));
+}
+
+function renderTallerRevisiones(){
+  var t=tallerData();
+  if(!t.revisiones)t.revisiones=[];
+  var vehs=(t.vehiculos||[]).filter(function(v){return v.estado!=='baja';});
+
+  // Estadísticas globales
+  var hoyTs=Date.now();
+  var conRev=0,sinRev=0,vencidas=0;
+  vehs.forEach(function(v){
+    var d=_diasSinRevision(v.id);
+    if(d===null)sinRev++;
+    else if(d>=2){vencidas++;conRev++;}
+    else conRev++;
+  });
+
+  // Tabla de vehículos con su estado de revisión
+  var rows=vehs.map(function(v){
+    var d=_diasSinRevision(v.id);
+    var ult=(t.revisiones||[]).filter(function(r){return r.vehiculoId===v.id;}).sort(function(a,b){return (b.ts||0)-(a.ts||0);})[0];
+    var estado='',color='',accion='';
+    if(d===null){
+      estado='<span class="badge b-err">Nunca revisado</span>';
+      color='var(--red)';
+    } else if(d>=2){
+      estado='<span class="badge b-warn">⏰ Hace '+d+' días — vencida</span>';
+      color='var(--yellow)';
+    } else {
+      estado='<span class="badge b-ok">✓ Hace '+d+(d===1?' día':' días')+'</span>';
+      color='var(--green)';
+    }
+    var totalRevs=(t.revisiones||[]).filter(function(r){return r.vehiculoId===v.id;}).length;
+    return '<tr style="border-left:3px solid '+color+'">'
+      +'<td><strong>'+esc(v.placa)+'</strong><div style="font-size:11px;color:var(--muted)">'+esc(v.marca||'')+' '+esc(v.modelo||'')+'</div></td>'
+      +'<td>'+(ult?fmtDate(ult.fecha):'—')+'</td>'
+      +'<td>'+estado+'</td>'
+      +'<td style="text-align:center">'+totalRevs+'</td>'
+      +'<td><div class="td-act">'
+        +'<button class="btn btn-primary btn-xs" onclick="modalNuevaRevision(\''+v.id+'\')" title="Nueva revisión">📷 Revisar</button>'
+        +(totalRevs>0?'<button class="btn btn-secondary btn-xs" onclick="verHistorialRevisiones(\''+v.id+'\')" title="Ver histórico">📋 Histórico</button>':'')
+      +'</div></td>'
+    +'</tr>';
+  }).join('');
+
+  document.getElementById('content').innerHTML=
+    '<div class="info-box">📷 <strong>Revisión fotográfica del mecánico cada 2 días.</strong> El mecánico sube fotos libres del estado del camión para llevar bitácora visual. Cada foto se comprime automáticamente a 600px para optimizar el almacenamiento.</div>'
+    +'<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">'
+      +'<div class="kpi"><div class="kpi-lbl">Total flota</div><div class="kpi-val">'+vehs.length+'</div></div>'
+      +'<div class="kpi"><div class="kpi-lbl">Al día</div><div class="kpi-val" style="color:var(--green)">'+(conRev-vencidas)+'</div></div>'
+      +'<div class="kpi"><div class="kpi-lbl">Vencidas (>2 días)</div><div class="kpi-val" style="color:var(--yellow)">'+vencidas+'</div></div>'
+      +'<div class="kpi"><div class="kpi-lbl">Nunca revisado</div><div class="kpi-val" style="color:var(--red)">'+sinRev+'</div></div>'
+    +'</div>'
+    +'<div class="card" style="padding:0"><div class="tbl-wrap" style="border:none;border-radius:0">'
+    +'<table><thead><tr><th>Vehículo</th><th>Última revisión</th><th>Estado</th><th style="text-align:center">Total revisiones</th><th>Acciones</th></tr></thead>'
+    +'<tbody>'+(rows||'<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">Sin vehículos</td></tr>')+'</tbody></table></div></div>';
+}
+
+// ── Modal: Nueva revisión fotográfica ──
+function modalNuevaRevision(vehId){
+  var t=tallerData();
+  var v=(t.vehiculos||[]).find(function(x){return x.id===vehId;});
+  if(!v){toast('Vehículo no encontrado',true);return;}
+
+  S._revFotos=[]; // buffer de fotos comprimidas (data URLs)
+
+  (function(_e){if(_e)_e.remove();})(document.getElementById('modalRevDiv'));
+  var html='<div id="modalRevDiv" class="modal open"><div class="modal-box md">'
+    +'<div class="modal-hdr"><span class="modal-ttl">📷 Nueva revisión: '+esc(v.placa)+'</span>'
+    +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalRevDiv\').remove()">✕</button></div>'
+    +'<div style="background:var(--surface2);padding:10px;border-radius:8px;margin-bottom:12px;font-size:12px">'
+      +'<div><strong>Vehículo:</strong> '+esc(v.placa)+' · '+esc(v.marca||'')+' '+esc(v.modelo||'')+'</div>'
+      +'<div><strong>Mecánico:</strong> '+esc(S.currentUser?S.currentUser.nombre||S.currentUser.email:'—')+'</div>'
+      +'<div><strong>Fecha:</strong> '+fmtDate(new Date().toISOString().slice(0,10))+'</div>'
+    +'</div>'
+    +'<div class="fg"><label>📸 Subir fotos (libre — frontal, motor, llantas, lo que quieras documentar)</label>'
+      +'<input type="file" id="revFotoInput" accept="image/*" capture="environment" multiple onchange="revAgregarFotos(this)">'
+      +'<div style="font-size:11px;color:var(--muted);margin-top:4px">Las fotos se comprimen a 600px automáticamente. Puedes agregar varias.</div>'
+    +'</div>'
+    +'<div id="revFotosPreview" style="display:flex;flex-wrap:wrap;gap:6px;margin:10px 0"></div>'
+    +'<div class="fg"><label>Observaciones / Notas del mecánico</label>'
+      +'<textarea id="revObs" rows="3" placeholder="Estado general, hallazgos, recomendaciones, llamadas de atención..."></textarea>'
+    +'</div>'
+    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">'
+      +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalRevDiv\').remove()">Cancelar</button>'
+      +'<button id="revBtnGuardar" class="btn btn-primary" onclick="guardarRevision(\''+vehId+'\')">✓ Guardar revisión</button>'
+    +'</div></div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+
+function revAgregarFotos(input){
+  if(!input.files||input.files.length===0)return;
+  var preview=document.getElementById('revFotosPreview');
+  if(!preview)return;
+  Array.from(input.files).forEach(function(file){
+    _comprimirRevision(file,function(dataUrl){
+      if(!dataUrl)return;
+      S._revFotos=S._revFotos||[];
+      var idx=S._revFotos.length;
+      S._revFotos.push(dataUrl);
+      var div=document.createElement('div');
+      div.style.cssText='position:relative;width:80px;height:80px';
+      div.innerHTML='<img src="'+dataUrl+'" style="width:100%;height:100%;object-fit:cover;border-radius:6px;border:2px solid var(--border)">'
+        +'<button class="btn btn-danger btn-xs" onclick="revQuitarFoto('+idx+',this)" style="position:absolute;top:-6px;right:-6px;width:22px;height:22px;padding:0;border-radius:50%;font-size:10px">✕</button>';
+      div.setAttribute('data-idx',idx);
+      preview.appendChild(div);
+    });
+  });
+  input.value=''; // limpiar para permitir volver a seleccionar las mismas
+}
+
+function revQuitarFoto(idx,btn){
+  S._revFotos=S._revFotos||[];
+  S._revFotos[idx]=null; // marca como removida (no usar splice para no desordenar índices)
+  var wrap=btn.parentNode;
+  if(wrap&&wrap.parentNode)wrap.parentNode.removeChild(wrap);
+}
+
+function guardarRevision(vehId){
+  // Anti-doble-click
+  if(S._revGuardando){return;}
+  S._revGuardando=true;
+  var btn=document.getElementById('revBtnGuardar');
+  if(btn){
+    btn.disabled=true;
+    btn.style.opacity='0.5';
+    btn.textContent='⏳ Guardando...';
+  }
+  function unlock(){
+    S._revGuardando=false;
+    if(btn){btn.disabled=false;btn.style.opacity='';btn.textContent='✓ Guardar revisión';}
+  }
+
+  var fotos=(S._revFotos||[]).filter(function(f){return f;}); // quitar removidas
+  var obs=((document.getElementById('revObs')||{}).value||'').trim();
+  if(fotos.length===0){toast('Sube al menos una foto',true);unlock();return;}
+
+  var t=tallerData();
+  if(!t.revisiones)t.revisiones=[];
+  var revId='rev_'+Date.now().toString(36);
+  var fotoRefs=[];
+
+  // Subir cada foto a Firebase Storage como ref
+  if(window.FB&&window.FB.saveComprobante){
+    fotos.forEach(function(dataUrl,i){
+      var refId='revision_'+revId+'_'+i;
+      fotoRefs.push('ref:'+refId);
+      window.FB.saveComprobante(S.empresa,refId,dataUrl).catch(function(e){
+        console.error('[Revisión] Error subiendo foto '+i+':',e);
+      });
+    });
+  } else {
+    // Fallback (improbable): guardar inline (bloated)
+    fotoRefs=fotos;
+  }
+
+  var rev={
+    id:revId,
+    vehiculoId:vehId,
+    fecha:new Date().toISOString().slice(0,10),
+    ts:Date.now(),
+    mecanicoEmail:S.currentUser?S.currentUser.email:null,
+    mecanicoNombre:S.currentUser?S.currentUser.nombre||S.currentUser.email:'',
+    fotos:fotoRefs,
+    observaciones:obs
+  };
+  t.revisiones.push(rev);
+  saveData();
+  logAction('CREAR','revision_foto','Revisión '+fotos.length+' fotos · veh '+vehId.slice(0,6));
+
+  S._revFotos=null;
+  setTimeout(function(){
+    unlock();
+    document.getElementById('modalRevDiv').remove();
+    renderTallerRevisiones();
+    toast('✓ Revisión guardada con '+fotos.length+' foto(s)');
+  },300);
+}
+
+// ── Histórico de revisiones de un vehículo ──
+function verHistorialRevisiones(vehId){
+  var t=tallerData();
+  var v=(t.vehiculos||[]).find(function(x){return x.id===vehId;});
+  if(!v)return;
+  var revs=((t.revisiones||[]).filter(function(r){return r.vehiculoId===vehId;})).sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+
+  (function(_e){if(_e)_e.remove();})(document.getElementById('modalHistRev'));
+  var html='<div id="modalHistRev" class="modal open"><div class="modal-box lg">'
+    +'<div class="modal-hdr"><span class="modal-ttl">📋 Histórico de revisiones — '+esc(v.placa)+'</span>'
+    +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalHistRev\').remove()">✕</button></div>'
+    +'<div style="font-size:13px;color:var(--muted);margin-bottom:12px">'+revs.length+' revisión(es) registradas</div>';
+
+  if(revs.length===0){
+    html+='<div style="text-align:center;color:var(--muted);padding:40px">Sin revisiones aún</div>';
+  } else {
+    html+='<div style="max-height:65vh;overflow-y:auto">';
+    revs.forEach(function(r){
+      var fotosHtml=(r.fotos||[]).map(function(f,i){
+        var src=f;
+        if(typeof f==='string'&&f.indexOf('ref:')===0){
+          // Cargar desde Firebase Storage al click
+          var refId=f.substring(4);
+          src='';
+          return '<div class="rev-foto-thumb" data-ref="'+esc(refId)+'" onclick="verFotoRevision(\''+esc(refId)+'\')" style="width:90px;height:90px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:24px;color:var(--muted)" title="Click para ver">📷</div>';
+        }
+        return '<img src="'+src+'" onclick="window.open(this.src)" style="width:90px;height:90px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer">';
+      }).join('');
+      html+='<div style="background:var(--surface2);padding:12px;border-radius:8px;margin-bottom:10px;border:1px solid var(--border)">'
+        +'<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px;margin-bottom:8px">'
+          +'<div><strong>'+fmtDate(r.fecha)+'</strong> · <span style="color:var(--muted);font-size:12px">'+esc(r.mecanicoNombre||r.mecanicoEmail||'')+'</span></div>'
+          +'<div style="font-size:11px;color:var(--muted)">📷 '+(r.fotos||[]).length+' foto(s)</div>'
+        +'</div>'
+        +(r.observaciones?'<div style="font-size:13px;background:var(--surface);padding:8px;border-radius:6px;margin-bottom:8px">'+esc(r.observaciones)+'</div>':'')
+        +'<div style="display:flex;flex-wrap:wrap;gap:6px">'+fotosHtml+'</div>'
+      +'</div>';
+    });
+    html+='</div>';
+  }
+
+  html+='<div style="display:flex;justify-content:space-between;margin-top:12px">'
+    +'<button class="btn btn-primary btn-sm" onclick="document.getElementById(\'modalHistRev\').remove();modalNuevaRevision(\''+vehId+'\')">📷 Nueva revisión</button>'
+    +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalHistRev\').remove()">Cerrar</button>'
+  +'</div></div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+
+  // Cargar fotos desde Firebase Storage
+  setTimeout(function(){
+    document.querySelectorAll('.rev-foto-thumb[data-ref]').forEach(function(el){
+      var refId=el.getAttribute('data-ref');
+      if(window.FB&&window.FB.loadComprobante){
+        window.FB.loadComprobante(S.empresa,refId).then(function(dataUrl){
+          if(dataUrl){
+            el.style.background='url('+dataUrl+') center/cover';
+            el.innerHTML='';
+          }
+        }).catch(function(){});
+      }
+    });
+  },100);
+}
+
+// Ver foto individual a tamaño completo
+function verFotoRevision(refId){
+  if(!window.FB||!window.FB.loadComprobante){toast('No se puede cargar la foto',true);return;}
+  window.FB.loadComprobante(S.empresa,refId).then(function(dataUrl){
+    if(dataUrl){
+      var w=window.open();
+      if(w)w.document.write('<img src="'+dataUrl+'" style="max-width:100%">');
+    } else {
+      toast('Foto no encontrada',true);
+    }
+  }).catch(function(e){
+    toast('Error cargando foto: '+e.message,true);
+  });
 }
 
 
