@@ -809,6 +809,7 @@ input[type=date]{color-scheme:dark}
 
   .row2,.row3,.row4{grid-template-columns:1fr}
   .kpi-grid{grid-template-columns:1fr 1fr}
+  .proy-row{grid-template-columns:1fr!important}
   .content-scroll{padding:14px}
   .login-bg{display:none}
   .login-panel{width:100%;border-left:none;padding:0;background:linear-gradient(160deg,#0c0a06 0%,#161208 50%,#0a0c10 100%)}
@@ -8119,61 +8120,82 @@ function renderDashboard(){
       var gasMes=S.gastos.filter(function(g){return g.proyectoId===p.id&&(g.fecha||'').slice(0,7)===mesActual;})
         .reduce(function(s,g){return s+(parseFloat(g.valor)||0);},0);
 
-      proyCards+='<div onclick="verProy(\''+p.id+'\')" style="cursor:pointer;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:10px;transition:all .15s;position:relative;overflow:hidden" onmouseover="this.style.borderColor=\''+color+'\';this.style.transform=\'translateY(-1px)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.transform=\'none\'">'
-        // Acento de color a la izquierda
-        +'<div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:'+color+';border-radius:12px 0 0 12px"></div>'
-        +'<div style="padding-left:8px">'
+      // Color de la dona según % de Gasto vs OC
+      var donaColor='#2db87a'; // verde por defecto
+      var donaSemaforo='Sano';
+      if(pctGasto>100){donaColor='#e84040';donaSemaforo='Sobregasto';}
+      else if(pctGasto>=90){donaColor='#f56e1f';donaSemaforo='Crítico';}
+      else if(pctGasto>=70){donaColor='#e8a020';donaSemaforo='Atención';}
+      // % visual cap a 100 para dibujar la dona aunque haya sobregasto
+      var pctVisual=Math.min(pctGasto,100);
+      // SVG dona: circunferencia 2π·r ≈ 251.3 con r=40
+      var circ=251.327;
+      var dashOffset=circ-(circ*pctVisual/100);
 
-        // Header fila: letra + nombre + estado + total
-        +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">'
-        +'<div style="width:26px;height:26px;border-radius:7px;background:'+color+'22;border:1px solid '+color+'55;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:'+color+';flex-shrink:0">'+letra+'</div>'
-        +'<div style="flex:1;min-width:0">'
-        +'<div style="font-family:\'Syne\',sans-serif;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(p.nombre)+'</div>'
-        +'<div style="font-size:11px;color:var(--muted)">'+esc(p.marca||'')+(p.ubicacion?' · '+esc(p.ubicacion):'')+'</div>'
-        +'</div>'
-        +'<span class="badge" style="background:'+ec+'18;color:'+ec+';border:1px solid '+ec+'40;font-size:10.5px">'+p.estado+'</span>'
-        +(!_esC?'<span style="font-family:\'Syne\',sans-serif;font-size:15px;font-weight:800;color:'+color+'">'+fmt(total)+'</span>':'')
-        +'</div>'
+      // ── Tarjeta 1: info principal (70%) ──
+      proyCards+='<div class="proy-row" style="display:grid;grid-template-columns:7fr 3fr;gap:10px;margin-bottom:10px">'
 
-        // Barras
-        +(!_esC?
-          // Barra OC
-          '<div style="display:grid;grid-template-columns:52px 1fr;align-items:center;gap:8px;margin-bottom:5px">'
-          +'<span style="font-size:10px;color:var(--muted);text-align:right">OC</span>'
-          +'<div style="height:10px;background:'+color+'18;border-radius:4px;overflow:hidden;position:relative;border:1px solid '+color+'30">'
-          +'<div style="height:100%;width:'+pctOC+'%;background:'+color+'90;border-radius:4px;transition:width .5s"></div>'
-          +(oc>0?'<span style="position:absolute;right:6px;top:50%;transform:translateY(-50%);font-size:9.5px;color:#ccc;white-space:nowrap">'+fmt(oc)+'</span>':'')
+        // Tarjeta INFO
+        +'<div onclick="verProy(\''+p.id+'\')" style="cursor:pointer;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;transition:all .15s;position:relative;overflow:hidden" onmouseover="this.style.borderColor=\''+color+'\';this.style.transform=\'translateY(-1px)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.transform=\'none\'">'
+          // Acento de color a la izquierda
+          +'<div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:'+color+';border-radius:12px 0 0 12px"></div>'
+          +'<div style="padding-left:8px">'
+            // Header fila: letra + nombre + estado + total
+            +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">'
+              +'<div style="width:26px;height:26px;border-radius:7px;background:'+color+'22;border:1px solid '+color+'55;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:'+color+';flex-shrink:0">'+letra+'</div>'
+              +'<div style="flex:1;min-width:0">'
+                +'<div style="font-family:\'Syne\',sans-serif;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(p.nombre)+'</div>'
+                +'<div style="font-size:11px;color:var(--muted)">'+esc(p.marca||'')+(p.ubicacion?' · '+esc(p.ubicacion):'')+'</div>'
+              +'</div>'
+              +'<span class="badge" style="background:'+ec+'18;color:'+ec+';border:1px solid '+ec+'40;font-size:10.5px">'+p.estado+'</span>'
+              +(!_esC?'<span style="font-family:\'Syne\',sans-serif;font-size:15px;font-weight:800;color:'+color+'">'+fmt(total)+'</span>':'')
+            +'</div>'
+
+            // Barra avance (única barra que queda, las de OC/Gast. se eliminaron)
+            +'<div style="display:grid;grid-template-columns:52px 1fr 36px;align-items:center;gap:8px;margin-top:14px;margin-bottom:10px">'
+              +'<span style="font-size:10px;color:var(--muted);text-align:right">Avance</span>'
+              +'<div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden">'
+                +'<div style="height:100%;width:'+pctAv+'%;background:linear-gradient(90deg,'+color+'88,'+color+');border-radius:4px;transition:width .6s"></div>'
+              +'</div>'
+              +'<span style="font-size:11px;font-weight:700;color:'+color+';text-align:right">'+pctAv+'%</span>'
+            +'</div>'
+
+            // Footer stats row (sin Gasto/OC porque ahora va en la dona)
+            +'<div style="display:flex;flex-wrap:wrap;gap:12px;border-top:1px solid var(--border);padding-top:9px">'
+              +(!_esC&&gasMes>0?'<span style="font-size:11px;color:var(--muted)">🗓 Gasto este mes: <strong style="color:var(--red)">'+fmt(gasMes)+'</strong></span>':'')
+              +(diasRestTxt?'<span style="font-size:11px;color:var(--muted)">⏱ <strong style="color:var(--accent)">'+esc(diasRestTxt)+'</strong></span>':'')
+              +'<span style="font-size:11px;color:var(--muted);margin-left:auto">Ver detalle →</span>'
+            +'</div>'
           +'</div>'
-          +'</div>'
-          // Barra Gastos (solo si hay)
-          +(gp>0?
-            '<div style="display:grid;grid-template-columns:52px 1fr;align-items:center;gap:8px;margin-bottom:5px">'
-            +'<span style="font-size:10px;color:var(--red);text-align:right">Gast.</span>'
-            +'<div style="height:8px;background:rgba(232,64,64,.08);border-radius:4px;overflow:hidden;position:relative;border:1px solid rgba(232,64,64,.2)">'
-            +'<div style="height:100%;width:'+pctGP+'%;background:rgba(232,64,64,.5);border-radius:4px;transition:width .5s"></div>'
-            +'<span style="position:absolute;right:6px;top:50%;transform:translateY(-50%);font-size:9.5px;color:#e84040;white-space:nowrap">'+fmt(gp)+'</span>'
-            +'</div></div>'
-          :'')
-        :'')
-
-        // Barra avance
-        +'<div style="display:grid;grid-template-columns:52px 1fr 36px;align-items:center;gap:8px;margin-bottom:10px">'
-        +'<span style="font-size:10px;color:var(--muted);text-align:right">Avance</span>'
-        +'<div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">'
-        +'<div style="height:100%;width:'+pctAv+'%;background:'+color+';border-radius:3px;transition:width .6s"></div>'
-        +'</div>'
-        +'<span style="font-size:11px;font-weight:700;color:'+color+';text-align:right">'+pctAv+'%</span>'
         +'</div>'
 
-        // Footer stats row
-        +'<div style="display:flex;flex-wrap:wrap;gap:12px;border-top:1px solid var(--border);padding-top:9px">'
-        +(!_esC&&gasMes>0?'<span style="font-size:11px;color:var(--muted)">🗓 Gasto este mes: <strong style="color:var(--red)">'+fmt(gasMes)+'</strong></span>':'')
-        +(!_esC&&pctGasto>0?'<span style="font-size:11px;color:var(--muted)">📊 Gasto/OC: <strong style="color:'+(pctGasto>80?'var(--red)':'var(--text)')+'">'+pctGasto+'%</strong></span>':'')
-        +(diasRestTxt?'<span style="font-size:11px;color:var(--muted)">⏱ <strong style="color:var(--accent)">'+esc(diasRestTxt)+'</strong></span>':'')
-        +'<span style="font-size:11px;color:var(--muted);margin-left:auto">Ver detalle →</span>'
+        // Tarjeta DONA (30%)
+        +'<div onclick="verProy(\''+p.id+'\')" style="cursor:pointer;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;transition:all .15s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px" onmouseover="this.style.borderColor=\''+donaColor+'\';this.style.transform=\'translateY(-1px)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.transform=\'none\'">'
+          +'<div style="font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.7px;font-weight:700">Gasto vs OC</div>'
+          // SVG dona
+          +(!_esC&&oc>0?
+            '<div style="position:relative;width:88px;height:88px">'
+              +'<svg width="88" height="88" viewBox="0 0 88 88" style="transform:rotate(-90deg)">'
+                +'<circle cx="44" cy="44" r="40" fill="none" stroke="'+donaColor+'15" stroke-width="8"/>'
+                +'<circle cx="44" cy="44" r="40" fill="none" stroke="'+donaColor+'" stroke-width="8" stroke-linecap="round" stroke-dasharray="'+circ+'" stroke-dashoffset="'+dashOffset+'" style="transition:stroke-dashoffset .6s"/>'
+              +'</svg>'
+              +'<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">'
+                +'<div style="font-family:\'Syne\',sans-serif;font-size:18px;font-weight:800;color:'+donaColor+';line-height:1">'+pctGasto+'%</div>'
+                +'<div style="font-size:8.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-top:1px">'+donaSemaforo+'</div>'
+              +'</div>'
+            +'</div>'
+            +'<div style="font-size:10.5px;color:var(--muted);text-align:center;line-height:1.3">'
+              +'<div><span style="color:var(--red);font-weight:600">'+fmt(gp)+'</span></div>'
+              +'<div style="font-size:9px;opacity:0.7">de '+fmt(oc)+'</div>'
+            +'</div>'
+          :
+            '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:88px;color:var(--muted);font-size:11px;text-align:center">'
+              +(_esC?'—':'Sin OC<br><span style="font-size:9px">configurada</span>')
+            +'</div>'
+          )
         +'</div>'
 
-        +'</div></div>';
+      +'</div>'; // cierre proy-row
     });
   }
 
@@ -8181,6 +8203,10 @@ function renderDashboard(){
     '<div class="kpi-grid" style="margin-bottom:14px">'+kpis+'</div>'
     +banner
     +'<div style="font-family:\'Syne\',sans-serif;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:10px">'+np+' Proyecto'+(np!==1?'s':'')+'</div>'
+    // CSS responsivo: en desktop 70/30, en mobile (<700px) ambas 100% apiladas
+    +'<style>'
+    +'@media(max-width:700px){.proy-row{grid-template-columns:1fr !important}}'
+    +'</style>'
     +proyCards;
 }
 
