@@ -15325,9 +15325,9 @@ function solVerFoto(solId){
   var s=(t.solicitudes||[]).find(function(x){return x.id===solId;});
   if(!s||!s.foto)return;
   if(s.foto.indexOf('ref:')===0){
-    if(!window.FB||!window.FB.loadComprobante){toast('Storage no disponible',true);return;}
+    if(!window.FB||!window.FB.getComprobante){toast('Storage no disponible',true);return;}
     toast('Cargando foto...');
-    window.FB.loadComprobante(S.empresa,s.foto.replace('ref:','')).then(function(data){
+    window.FB.getComprobante(S.empresa,s.foto.replace('ref:','')).then(function(data){
       if(data&&typeof verImagen==='function')verImagen(data,'Foto de solicitud');
       else toast('No se pudo cargar la foto',true);
     }).catch(function(){toast('Foto no disponible',true);});
@@ -15738,34 +15738,26 @@ function verHistorialRevisiones(vehId){
   var revs=((t.revisiones||[]).filter(function(r){return r.vehiculoId===vehId;})).sort(function(a,b){return (b.ts||0)-(a.ts||0);});
 
   (function(_e){if(_e)_e.remove();})(document.getElementById('modalHistRev'));
+
+  // Esta es la vista por defecto (lista colapsable). Iniciamos con todas colapsadas.
+  if(!S._revExpanded)S._revExpanded={};
+  // Reset expansiones al abrir el modal
+  S._revExpanded={};
+
   var html='<div id="modalHistRev" class="modal open"><div class="modal-box lg">'
     +'<div class="modal-hdr"><span class="modal-ttl">📋 Histórico de revisiones — '+esc(v.placa)+'</span>'
     +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalHistRev\').remove()">✕</button></div>'
-    +'<div style="font-size:13px;color:var(--muted);margin-bottom:12px">'+revs.length+' revisión(es) registradas</div>';
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:13px">'
+      +'<div style="color:var(--muted)">'+revs.length+' revisión(es) registradas</div>'
+      +(revs.length>1?'<div style="display:flex;gap:6px"><button class="btn btn-secondary btn-xs" onclick="revToggleTodas(\''+vehId+'\',true)">Expandir todas</button><button class="btn btn-secondary btn-xs" onclick="revToggleTodas(\''+vehId+'\',false)">Colapsar todas</button></div>':'')
+    +'</div>';
 
   if(revs.length===0){
     html+='<div style="text-align:center;color:var(--muted);padding:40px">Sin revisiones aún</div>';
   } else {
-    html+='<div style="max-height:65vh;overflow-y:auto">';
-    revs.forEach(function(r){
-      var fotosHtml=(r.fotos||[]).map(function(f,i){
-        var src=f;
-        if(typeof f==='string'&&f.indexOf('ref:')===0){
-          // Cargar desde Firebase Storage al click
-          var refId=f.substring(4);
-          src='';
-          return '<div class="rev-foto-thumb" data-ref="'+esc(refId)+'" onclick="verFotoRevision(\''+esc(refId)+'\')" style="width:90px;height:90px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:24px;color:var(--muted)" title="Click para ver">📷</div>';
-        }
-        return '<img src="'+src+'" onclick="window.open(this.src)" style="width:90px;height:90px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer">';
-      }).join('');
-      html+='<div style="background:var(--surface2);padding:12px;border-radius:8px;margin-bottom:10px;border:1px solid var(--border)">'
-        +'<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px;margin-bottom:8px">'
-          +'<div><strong>'+fmtDate(r.fecha)+'</strong> · <span style="color:var(--muted);font-size:12px">'+esc(r.mecanicoNombre||r.mecanicoEmail||'')+'</span></div>'
-          +'<div style="font-size:11px;color:var(--muted)">📷 '+(r.fotos||[]).length+' foto(s)</div>'
-        +'</div>'
-        +(r.observaciones?'<div style="font-size:13px;background:var(--surface);padding:8px;border-radius:6px;margin-bottom:8px">'+esc(r.observaciones)+'</div>':'')
-        +'<div style="display:flex;flex-wrap:wrap;gap:6px">'+fotosHtml+'</div>'
-      +'</div>';
+    html+='<div id="revHistList" style="max-height:65vh;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:var(--surface)">';
+    revs.forEach(function(r,idx){
+      html+=_revHistEntry(r,vehId,idx===0); // primera expandida por defecto
     });
     html+='</div>';
   }
@@ -15776,26 +15768,129 @@ function verHistorialRevisiones(vehId){
   +'</div></div></div>';
   document.body.insertAdjacentHTML('beforeend',html);
 
-  // Cargar fotos desde Firebase Storage
-  setTimeout(function(){
-    document.querySelectorAll('.rev-foto-thumb[data-ref]').forEach(function(el){
-      var refId=el.getAttribute('data-ref');
-      if(window.FB&&window.FB.loadComprobante){
-        window.FB.loadComprobante(S.empresa,refId).then(function(dataUrl){
-          if(dataUrl){
-            el.style.background='url('+dataUrl+') center/cover';
-            el.innerHTML='';
-          }
-        }).catch(function(){});
+  // Marcar la primera como expandida si hay
+  if(revs.length>0){
+    S._revExpanded[revs[0].id]=true;
+    setTimeout(function(){_revLoadFotos(revs[0].id);},100);
+  }
+}
+
+// Helper: renderizar una entrada del histórico (fila + área expandible)
+function _revHistEntry(r,vehId,startExpanded){
+  var expanded=startExpanded||(S._revExpanded&&S._revExpanded[r.id]);
+  var nFotos=(r.fotos||[]).length;
+  var hasObs=!!(r.observaciones&&r.observaciones.trim());
+
+  // Fila colapsable
+  var headerHtml='<div onclick="revToggleEntry(\''+r.id+'\')" style="cursor:pointer;display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border);background:var(--surface);transition:background 0.15s" onmouseover="this.style.background=\'var(--surface2)\'" onmouseout="this.style.background=\'var(--surface)\'">'
+    +'<span style="font-size:14px;color:var(--accent);min-width:14px">'+(expanded?'▼':'▶')+'</span>'
+    +'<div style="flex:1;min-width:0">'
+      +'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+        +'<strong style="font-size:14px">'+fmtDate(r.fecha)+'</strong>'
+        +'<span style="font-size:12px;color:var(--muted)">· '+esc(r.mecanicoNombre||r.mecanicoEmail||'(desconocido)')+'</span>'
+      +'</div>'
+      +(hasObs?'<div style="font-size:12px;color:var(--muted);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">💬 '+esc(r.observaciones.substring(0,80))+(r.observaciones.length>80?'...':'')+'</div>':'')
+    +'</div>'
+    +'<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)">'
+      +'<span>📷 '+nFotos+'</span>'
+    +'</div>'
+  +'</div>';
+
+  // Área expandible (oculta cuando no expanded)
+  var fotosHtml=(r.fotos||[]).map(function(f,i){
+    if(typeof f==='string'&&f.indexOf('ref:')===0){
+      var refId=f.substring(4);
+      return '<div class="rev-foto-thumb" data-ref="'+esc(refId)+'" data-rev="'+esc(r.id)+'" onclick="verFotoRevision(\''+esc(refId)+'\')" style="width:120px;height:120px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:32px;color:var(--muted);background-size:cover;background-position:center" title="Click para ver completa">📷</div>';
+    }
+    return '<img src="'+f+'" onclick="window.open(this.src)" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer">';
+  }).join('');
+
+  var bodyHtml='<div id="revBody-'+r.id+'" style="padding:'+(expanded?'12px 14px':'0 14px')+';background:var(--bg);border-bottom:1px solid var(--border);max-height:'+(expanded?'600px':'0')+';overflow:hidden;transition:all 0.25s ease">'
+    +(hasObs?'<div style="font-size:13px;background:var(--surface);padding:10px;border-radius:6px;margin-bottom:10px;border-left:3px solid var(--accent)"><strong style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Observaciones</strong><div style="margin-top:4px">'+esc(r.observaciones)+'</div></div>':'')
+    +(nFotos>0?'<div style="display:flex;flex-wrap:wrap;gap:8px">'+fotosHtml+'</div>':'<div style="font-size:12px;color:var(--muted);font-style:italic">Sin fotos</div>')
+  +'</div>';
+
+  return headerHtml+bodyHtml;
+}
+
+// Toggle de una entrada (expandir/colapsar)
+function revToggleEntry(revId){
+  if(!S._revExpanded)S._revExpanded={};
+  S._revExpanded[revId]=!S._revExpanded[revId];
+
+  // Actualizar la UI directamente sin re-render completo
+  var body=document.getElementById('revBody-'+revId);
+  if(body){
+    if(S._revExpanded[revId]){
+      body.style.maxHeight='600px';
+      body.style.padding='12px 14px';
+      _revLoadFotos(revId);
+    } else {
+      body.style.maxHeight='0';
+      body.style.padding='0 14px';
+    }
+  }
+
+  // Actualizar la flecha en el header
+  var header=body?body.previousElementSibling:null;
+  if(header){
+    var arrow=header.querySelector('span:first-child');
+    if(arrow)arrow.textContent=S._revExpanded[revId]?'▼':'▶';
+  }
+}
+
+// Toggle todas (expandir o colapsar todas)
+function revToggleTodas(vehId,expand){
+  var t=tallerData();
+  var revs=(t.revisiones||[]).filter(function(r){return r.vehiculoId===vehId;});
+  if(!S._revExpanded)S._revExpanded={};
+  revs.forEach(function(r){
+    S._revExpanded[r.id]=!!expand;
+    var body=document.getElementById('revBody-'+r.id);
+    if(body){
+      if(expand){
+        body.style.maxHeight='600px';
+        body.style.padding='12px 14px';
+        _revLoadFotos(r.id);
+      } else {
+        body.style.maxHeight='0';
+        body.style.padding='0 14px';
       }
-    });
-  },100);
+    }
+    var header=body?body.previousElementSibling:null;
+    if(header){
+      var arrow=header.querySelector('span:first-child');
+      if(arrow)arrow.textContent=expand?'▼':'▶';
+    }
+  });
+}
+
+// Cargar las fotos desde Firebase Storage para una revisión específica
+function _revLoadFotos(revId){
+  var body=document.getElementById('revBody-'+revId);
+  if(!body)return;
+  var thumbs=body.querySelectorAll('.rev-foto-thumb[data-ref]');
+  thumbs.forEach(function(el){
+    if(el._loaded)return; // ya cargada
+    var refId=el.getAttribute('data-ref');
+    if(window.FB&&window.FB.getComprobante){
+      window.FB.getComprobante(S.empresa,refId).then(function(dataUrl){
+        if(dataUrl){
+          el.style.backgroundImage='url('+dataUrl+')';
+          el.innerHTML='';
+          el._loaded=true;
+        }
+      }).catch(function(e){
+        console.warn('[Revisión] No se pudo cargar foto:',refId,e);
+      });
+    }
+  });
 }
 
 // Ver foto individual a tamaño completo
 function verFotoRevision(refId){
-  if(!window.FB||!window.FB.loadComprobante){toast('No se puede cargar la foto',true);return;}
-  window.FB.loadComprobante(S.empresa,refId).then(function(dataUrl){
+  if(!window.FB||!window.FB.getComprobante){toast('No se puede cargar la foto',true);return;}
+  window.FB.getComprobante(S.empresa,refId).then(function(dataUrl){
     if(dataUrl){
       var w=window.open();
       if(w)w.document.write('<img src="'+dataUrl+'" style="max-width:100%">');
