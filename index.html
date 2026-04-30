@@ -8169,25 +8169,60 @@ function renderDashboard(){
           +'</div>'
         +'</div>'
 
-        // Tarjeta DONA (30%)
-        +'<div onclick="verProy(\''+p.id+'\')" style="cursor:pointer;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;transition:all .15s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px" onmouseover="this.style.borderColor=\''+donaColor+'\';this.style.transform=\'translateY(-1px)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.transform=\'none\'">'
+        // Tarjeta DONA (30%) — Pie chart Gasto vs OC con semáforo abajo
+        +'<div onclick="verProy(\''+p.id+'\')" style="cursor:pointer;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;transition:all .15s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px" onmouseover="this.style.borderColor=\''+donaColor+'\';this.style.transform=\'translateY(-1px)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.transform=\'none\'">'
           +'<div style="font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.7px;font-weight:700">Gasto vs OC</div>'
-          // SVG dona
-          +(!_esC&&oc>0?
-            '<div style="position:relative;width:88px;height:88px">'
-              +'<svg width="88" height="88" viewBox="0 0 88 88" style="transform:rotate(-90deg)">'
-                +'<circle cx="44" cy="44" r="40" fill="none" stroke="'+donaColor+'15" stroke-width="8"/>'
-                +'<circle cx="44" cy="44" r="40" fill="none" stroke="'+donaColor+'" stroke-width="8" stroke-linecap="round" stroke-dasharray="'+circ+'" stroke-dashoffset="'+dashOffset+'" style="transition:stroke-dashoffset .6s"/>'
-              +'</svg>'
-              +'<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">'
-                +'<div style="font-family:\'Syne\',sans-serif;font-size:18px;font-weight:800;color:'+donaColor+';line-height:1">'+pctGasto+'%</div>'
-                +'<div style="font-size:8.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-top:1px">'+donaSemaforo+'</div>'
-              +'</div>'
-            +'</div>'
-            +'<div style="font-size:10.5px;color:var(--muted);text-align:center;line-height:1.3">'
-              +'<div><span style="color:var(--red);font-weight:600">'+fmt(gp)+'</span></div>'
-              +'<div style="font-size:9px;opacity:0.7">de '+fmt(oc)+'</div>'
-            +'</div>'
+          +(!_esC&&(oc>0||gp>0)?
+            (function(){
+              // ── Pie chart con 2 secciones proporcionales: gasto (rojo) vs OC restante (verde) ──
+              // Si gasto >= OC, el círculo es 100% rojo (sobregasto)
+              // Si gasto < OC, gasto = sección roja, (OC-gasto) = sección verde
+              var COLOR_GASTO='#e84040';   // rojo
+              var COLOR_OC='#2db87a';      // verde (lo que queda disponible del OC)
+              var COLOR_SOBRE='#c81818';   // rojo intenso para sobregasto
+
+              var pieSvg='';
+              var radio=40, cx=44, cy=44, sw=18; // dona ancho 18 = se ve gruesa
+              var circumferencia=2*Math.PI*radio;
+
+              if(gp>=oc&&oc>0){
+                // CASO SOBREGASTO: dona toda en rojo intenso
+                pieSvg='<circle cx="'+cx+'" cy="'+cy+'" r="'+radio+'" fill="none" stroke="'+COLOR_SOBRE+'" stroke-width="'+sw+'"/>';
+              } else if(oc===0&&gp>0){
+                // Sin OC pero hay gasto → todo rojo
+                pieSvg='<circle cx="'+cx+'" cy="'+cy+'" r="'+radio+'" fill="none" stroke="'+COLOR_GASTO+'" stroke-width="'+sw+'"/>';
+              } else {
+                // CASO NORMAL: gasto<OC → dos secciones proporcionales
+                var pctG=oc>0?(gp/oc):0; // proporción del gasto sobre el OC (0..1)
+                var arcG=circumferencia*pctG;
+                var arcRest=circumferencia*(1-pctG);
+                // Capa base verde completa
+                pieSvg=
+                  '<circle cx="'+cx+'" cy="'+cy+'" r="'+radio+'" fill="none" stroke="'+COLOR_OC+'" stroke-width="'+sw+'"/>'
+                  // Encima, arco rojo proporcional al gasto
+                  +'<circle cx="'+cx+'" cy="'+cy+'" r="'+radio+'" fill="none" stroke="'+COLOR_GASTO+'" stroke-width="'+sw+'" '
+                  +'stroke-dasharray="'+arcG.toFixed(2)+' '+arcRest.toFixed(2)+'" '
+                  +'style="transition:stroke-dasharray .6s"/>';
+              }
+
+              // ── Mapeo de semáforo ──
+              var semIc='🟢',semLbl='Sano',semColor='#2db87a';
+              if(pctGasto>=100){semIc='🔴';semLbl='Sobregasto';semColor='#e84040';}
+              else if(pctGasto>=90){semIc='🟠';semLbl='Crítico';semColor='#fb923c';}
+              else if(pctGasto>=70){semIc='🟡';semLbl='Atención';semColor='#e8a020';}
+
+              return '<svg width="100" height="100" viewBox="0 0 88 88" style="transform:rotate(-90deg)">'+pieSvg+'</svg>'
+                // ── Etiquetas claras debajo de la dona ──
+                +'<div style="font-size:11px;line-height:1.5;text-align:center">'
+                  +'<div style="display:flex;align-items:center;gap:6px;justify-content:center"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+COLOR_GASTO+'"></span><span style="color:var(--muted)">Gasto:</span> <strong style="color:'+COLOR_GASTO+'">'+fmt(gp)+'</strong></div>'
+                  +'<div style="display:flex;align-items:center;gap:6px;justify-content:center;margin-top:2px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+COLOR_OC+'"></span><span style="color:var(--muted)">OC:</span> <strong style="color:'+COLOR_OC+'">'+fmt(oc)+'</strong></div>'
+                +'</div>'
+                // ── Indicador semáforo abajo ──
+                +'<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;background:'+semColor+'15;border:1px solid '+semColor+'40;border-radius:20px;margin-top:2px">'
+                  +'<span style="font-size:13px">'+semIc+'</span>'
+                  +'<span style="font-size:10.5px;font-weight:700;color:'+semColor+';text-transform:uppercase;letter-spacing:0.5px">'+semLbl+' · '+pctGasto+'%</span>'
+                +'</div>';
+            })()
           :
             '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:88px;color:var(--muted);font-size:11px;text-align:center">'
               +(_esC?'—':'Sin OC<br><span style="font-size:9px">configurada</span>')
