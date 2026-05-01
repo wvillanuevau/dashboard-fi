@@ -1014,7 +1014,8 @@ input[type=date]{color-scheme:dark}
   <div class="main-area">
     <div class="topbar">
       <button class="hamburger" id="hmbBtn" onclick="toggleSB()" title="Menú" style="display:flex;align-items:center;justify-content:center;width:38px;height:38px;padding:0;flex-shrink:0">☰</button>
-      <div class="page-ttl" id="pageTitle" style="flex:1">Dashboard</div>
+      <button id="homeBtn" onclick="goTab('home')" title="Volver a Inicio" style="display:none;align-items:center;justify-content:center;width:38px;height:38px;padding:0;flex-shrink:0;border:1px solid var(--border);border-radius:8px;background:var(--surface2);cursor:pointer;font-size:16px;transition:all .15s;margin-left:6px" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='';this.style.borderColor='var(--border)'">🏠</button>
+      <div class="page-ttl" id="pageTitle" style="flex:1">Inicio</div>
       <div class="topbar-right">
         <div class="sync-badge" id="syncBadge" onclick="forceReloadFromFirebase()" title="Clic para recargar datos desde Firebase" style="cursor:pointer"><div class="sync-dot" id="syncDot"></div><span id="syncTxt">—</span></div>
         <button onclick="openThemePanel()" title="Personalizar apariencia" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);cursor:pointer;font-size:14px;color:var(--muted);display:flex;align-items:center;gap:5px;transition:all .15s" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">🎨 <span style="font-size:12px;font-family:'Karla',sans-serif;font-weight:600">Tema</span></button>
@@ -1132,6 +1133,8 @@ function toggleSBGrupo(id){const c=getSBCollapsed();setSBCollapsed(id,!c[id]);S.
 
 function puedeVer(modulo){
   if(!S.currentUser)return false;
+  // 'home' es accesible para cualquier usuario autenticado (es la pantalla de inicio)
+  if(modulo==='home')return true;
   const rol=S.currentUser.rol;
   if(rol==='admin')return true;
   if(ROLES[rol]&&ROLES[rol].modulos.includes(modulo))return true;
@@ -1563,7 +1566,6 @@ function tecRolesLabel(t){
     return c?c.label:r;
   }).join(', ')||'—';
 }
-function tallerMecanicos(){return getTecnicosByArea('taller');}
 function optsFromArray(arr,selVal){return arr.map(function(v){return '<option value="'+esc(v)+'" '+(v===selVal?'selected':'')+'>'+esc(v)+'</option>';}).join('');}
 function optsFromObjArray(arr,valKey,labelKey,selVal){return arr.map(function(o){return '<option value="'+esc(o[valKey])+'" '+(o[valKey]===selVal?'selected':'')+'>'+esc(o[labelKey])+'</option>';}).join('');}
 function optsTiposTecnico(selVal,filtroArea){
@@ -2048,8 +2050,12 @@ function enterApp(email,rol,nombre,permisos,proyectosPermitidos){
   document.getElementById('sbEmpName').textContent=S.empresa;
   applyBranding();refreshMarcaSel();startListening();initTheme();
   startSessionTimer(); // iniciar timer de inactividad
-  const primerModulo=MODULOS.find(m=>puedeVer(m.id));
-  S.activeTab=primerModulo?primerModulo.id:'dashboard';
+  // Página por defecto: home, excepto chofer que va directo al formulario
+  if(rol==='chofer'){
+    S.activeTab='chofer_portal';
+  } else {
+    S.activeTab='home';
+  }
   render();toast('Bienvenido, '+nombre);
 }
 
@@ -6947,7 +6953,7 @@ function renderConfig(){
       <li>Borra todas las <strong>fallas</strong> registradas en cada vehículo (las 13 pendientes)</li>
       <li>Limpia el campo <strong>mttoFecha</strong> de los vehículos (las 2 vencidas + 1 próxima)</li>
     </ul>
-    <button class="btn btn-danger" onclick="resetearContadoresTaller()">🧹 Resetear contadores Dashboard Taller</button>
+    <button class="btn btn-danger" onclick="resetearContadoresAlertas()">🧹 Resetear contadores Dashboard Taller</button>
   </div>`;
 }
 
@@ -8041,6 +8047,124 @@ function ganttHTML(p){
   </div>`;
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// PÁGINA HOME — Cuadrícula 3x3 de grupos del menú
+// ═══════════════════════════════════════════════════════════════════
+
+// Catálogo de tarjetas de la home con icono grande, color y descripción.
+// Mapea cada SB_GRUPOS a su tarjeta visual.
+var HOME_GRUPO_INFO={
+  proyectos_grp:{ic:'🏗',label:'Proyectos',desc:'Obras y avance de portafolio',color:'#4ea8de'},
+  empresa_grp:{ic:'💼',label:'Empresa',desc:'Gastos, gerentes, asistencia',color:'#a78bfa'},
+  mant_grp:{ic:'🔧',label:'Mantenimiento',desc:'OTs, equipos, técnicos',color:'#fb923c'},
+  energy_grp:{ic:'⚡',label:'Energía',desc:'Consumo, alertas, ranking',color:'#facc15'},
+  taller_grp:{ic:'🚚',label:'Taller Mecánico',desc:'Vehículos, OTs, choferes',color:'#2db87a'},
+  chofer_grp:{ic:'🚛',label:'Mi Camión',desc:'Reporte diario y solicitudes',color:'#3b82f6'},
+  config_grp:{ic:'⚙',label:'Configuración',desc:'Usuarios, branding, logs',color:'#9ca3af'}
+};
+
+function renderHome(){
+  // Filtrar solo grupos con al menos 1 módulo accesible
+  var nombre=(S.currentUser&&(S.currentUser.nombre||S.currentUser.email))||'';
+  var primerNombre=nombre.split(' ')[0]||nombre.split('@')[0]||'';
+
+  var gruposDisponibles=SB_GRUPOS.filter(function(g){
+    return g.items.some(function(modId){return puedeVer(modId);});
+  });
+
+  var cards='';
+  gruposDisponibles.forEach(function(g){
+    var info=HOME_GRUPO_INFO[g.id]||{ic:'📁',label:g.label,desc:'',color:'#888'};
+    cards+='<div class="home-card" onclick="abrirGrupoOverlay(\''+g.id+'\')" '
+      +'style="aspect-ratio:1/1;background:var(--surface);border:1px solid var(--border);border-radius:16px;'
+      +'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;'
+      +'cursor:pointer;padding:20px;transition:all .2s;text-align:center;position:relative;overflow:hidden" '
+      +'onmouseover="this.style.borderColor=\''+info.color+'\';this.style.transform=\'translateY(-3px)\';this.style.boxShadow=\'0 8px 24px '+info.color+'30\'" '
+      +'onmouseout="this.style.borderColor=\'var(--border)\';this.style.transform=\'none\';this.style.boxShadow=\'none\'">'
+      // Acento de color arriba
+      +'<div style="position:absolute;top:0;left:0;right:0;height:4px;background:'+info.color+'"></div>'
+      // Icono grande
+      +'<div style="font-size:64px;line-height:1;filter:drop-shadow(0 4px 8px '+info.color+'40)">'+info.ic+'</div>'
+      // Nombre del grupo
+      +'<div style="font-family:\'Syne\',sans-serif;font-weight:700;font-size:18px;color:var(--text)">'+esc(info.label||g.label)+'</div>'
+      // Descripción opcional
+      +(info.desc?'<div style="font-size:12px;color:var(--muted);max-width:200px">'+esc(info.desc)+'</div>':'')
+      +'</div>';
+  });
+
+  if(gruposDisponibles.length===0){
+    cards='<div style="grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--muted)"><div style="font-size:48px;margin-bottom:14px">🔒</div><div style="font-weight:700;font-size:16px">Sin módulos disponibles</div><div style="font-size:13px;margin-top:6px">Pide al administrador que te asigne acceso a algún módulo.</div></div>';
+  }
+
+  document.getElementById('content').innerHTML=
+    '<div style="margin-bottom:20px">'
+      +'<div style="font-family:\'Syne\',sans-serif;font-weight:700;font-size:24px">Hola, '+esc(primerNombre)+' 👋</div>'
+      +'<div style="font-size:13px;color:var(--muted);margin-top:4px">Selecciona un módulo para empezar</div>'
+    +'</div>'
+    +'<div class="home-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">'
+      +cards
+    +'</div>'
+    +'<style>'
+      +'@media(max-width:900px){.home-grid{grid-template-columns:repeat(2,1fr) !important}}'
+      +'@media(max-width:560px){.home-grid{grid-template-columns:1fr !important}}'
+    +'</style>';
+}
+
+// Abrir overlay con los submódulos de un grupo
+function abrirGrupoOverlay(grupoId){
+  var grupo=SB_GRUPOS.find(function(g){return g.id===grupoId;});
+  if(!grupo)return;
+  var info=HOME_GRUPO_INFO[grupoId]||{ic:'📁',label:grupo.label,color:'#888'};
+  var modulosPermitidos=grupo.items.filter(function(modId){return puedeVer(modId);});
+
+  // Si solo hay 1 módulo en el grupo, ir directo
+  if(modulosPermitidos.length===1){
+    goTab(modulosPermitidos[0]);
+    return;
+  }
+
+  // Construir tarjetas de submódulos
+  var subCards='';
+  modulosPermitidos.forEach(function(modId){
+    var mod=MODULOS.find(function(m){return m.id===modId;});
+    if(!mod)return;
+    subCards+='<div onclick="cerrarGrupoOverlay();goTab(\''+modId+'\')" '
+      +'style="aspect-ratio:1/1;background:var(--surface);border:1px solid var(--border);border-radius:12px;'
+      +'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;'
+      +'cursor:pointer;padding:14px;transition:all .15s;text-align:center" '
+      +'onmouseover="this.style.borderColor=\''+info.color+'\';this.style.background=\''+info.color+'15\'" '
+      +'onmouseout="this.style.borderColor=\'var(--border)\';this.style.background=\'var(--surface)\'">'
+      +'<div style="font-size:36px;line-height:1">'+(mod.ic||'📄')+'</div>'
+      +'<div style="font-size:12px;font-weight:600;color:var(--text);line-height:1.3">'+esc(mod.label)+'</div>'
+      +'</div>';
+  });
+
+  var html='<div id="grupoOverlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:550;display:flex;align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)cerrarGrupoOverlay()">'
+    +'<div style="background:var(--bg);border:1px solid var(--border);border-radius:16px;max-width:720px;width:100%;max-height:85vh;overflow-y:auto;padding:24px">'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:14px">'
+        +'<div style="display:flex;align-items:center;gap:12px">'
+          +'<span style="font-size:36px">'+info.ic+'</span>'
+          +'<div>'
+            +'<div style="font-family:\'Syne\',sans-serif;font-weight:700;font-size:20px;color:'+info.color+'">'+esc(info.label||grupo.label)+'</div>'
+            +'<div style="font-size:12px;color:var(--muted)">'+modulosPermitidos.length+' módulo(s) disponibles</div>'
+          +'</div>'
+        +'</div>'
+        +'<button onclick="cerrarGrupoOverlay()" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;width:36px;height:36px;font-size:16px;cursor:pointer;color:var(--muted)">✕</button>'
+      +'</div>'
+      +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px">'
+        +subCards
+      +'</div>'
+    +'</div>'
+  +'</div>';
+  (function(_e){if(_e)_e.remove();})(document.getElementById('grupoOverlay'));
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+
+function cerrarGrupoOverlay(){
+  var ov=document.getElementById('grupoOverlay');
+  if(ov)ov.remove();
+}
+
 function renderDashboard(){
   var _esC=S.currentUser&&S.currentUser.rol==='contratista';
   var _proy=proyectosVisibles();
@@ -8133,7 +8257,7 @@ function renderDashboard(){
       var dashOffset=circ-(circ*pctVisual/100);
 
       // ── Tarjeta 1: info principal (70%) ──
-      proyCards+='<div class="proy-row" style="display:grid;grid-template-columns:7fr 3fr;gap:10px;margin-bottom:10px">'
+      proyCards+='<div class="proy-row" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
 
         // Tarjeta INFO
         +'<div onclick="verProy(\''+p.id+'\')" style="cursor:pointer;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;transition:all .15s;position:relative;overflow:hidden" onmouseover="this.style.borderColor=\''+color+'\';this.style.transform=\'translateY(-1px)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.transform=\'none\'">'
@@ -8151,32 +8275,30 @@ function renderDashboard(){
               +(!_esC?'<span style="font-family:\'Syne\',sans-serif;font-size:15px;font-weight:800;color:'+color+'">'+fmt(total)+'</span>':'')
             +'</div>'
 
-            // Barra avance (única barra que queda, las de OC/Gast. se eliminaron)
-            +'<div style="display:grid;grid-template-columns:52px 1fr 36px;align-items:center;gap:8px;margin-top:14px;margin-bottom:10px">'
-              +'<span style="font-size:10px;color:var(--muted);text-align:right">Avance</span>'
-              +'<div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden">'
-                +'<div style="height:100%;width:'+pctAv+'%;background:linear-gradient(90deg,'+color+'88,'+color+');border-radius:4px;transition:width .6s"></div>'
+            // Barra avance (3x más gruesa que antes, sin envolver a 2 líneas)
+            +'<div style="display:grid;grid-template-columns:52px minmax(0,1fr) 44px;align-items:center;gap:8px;margin-top:14px;margin-bottom:10px;min-width:0">'
+              +'<span style="font-size:10px;color:var(--muted);text-align:right;white-space:nowrap">Avance</span>'
+              +'<div style="height:24px;background:var(--border);border-radius:6px;overflow:hidden;min-width:0">'
+                +'<div style="height:100%;width:'+pctAv+'%;background:linear-gradient(90deg,'+color+'88,'+color+');border-radius:6px;transition:width .6s"></div>'
               +'</div>'
-              +'<span style="font-size:11px;font-weight:700;color:'+color+';text-align:right">'+pctAv+'%</span>'
+              +'<span style="font-size:12px;font-weight:700;color:'+color+';text-align:right;white-space:nowrap">'+pctAv+'%</span>'
             +'</div>'
 
-            // Footer stats row (sin Gasto/OC porque ahora va en la dona)
+            // Footer stats row (Gasto TOTAL del proyecto, no del mes)
             +'<div style="display:flex;flex-wrap:wrap;gap:12px;border-top:1px solid var(--border);padding-top:9px">'
-              +(!_esC&&gasMes>0?'<span style="font-size:11px;color:var(--muted)">🗓 Gasto este mes: <strong style="color:var(--red)">'+fmt(gasMes)+'</strong></span>':'')
+              +(!_esC&&gp>0?'<span style="font-size:11px;color:var(--muted)">💰 Gasto total proyecto: <strong style="color:var(--red)">'+fmt(gp)+'</strong></span>':'')
               +(diasRestTxt?'<span style="font-size:11px;color:var(--muted)">⏱ <strong style="color:var(--accent)">'+esc(diasRestTxt)+'</strong></span>':'')
               +'<span style="font-size:11px;color:var(--muted);margin-left:auto">Ver detalle →</span>'
             +'</div>'
           +'</div>'
         +'</div>'
 
-        // Tarjeta DONA (30%) — Pie chart Gasto vs OC con semáforo abajo
-        +'<div onclick="verProy(\''+p.id+'\')" style="cursor:pointer;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;transition:all .15s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px" onmouseover="this.style.borderColor=\''+donaColor+'\';this.style.transform=\'translateY(-1px)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.transform=\'none\'">'
+        // Tarjeta DONA (50%) — Pie chart Gasto vs OC con info al lado y semáforo abajo
+        +'<div onclick="verProy(\''+p.id+'\')" style="cursor:pointer;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;transition:all .15s;display:flex;flex-direction:column;gap:10px" onmouseover="this.style.borderColor=\''+donaColor+'\';this.style.transform=\'translateY(-1px)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.transform=\'none\'">'
           +'<div style="font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.7px;font-weight:700">Gasto vs OC</div>'
           +(!_esC&&(oc>0||gp>0)?
             (function(){
               // ── Pie chart con 2 secciones proporcionales: gasto (rojo) vs OC restante (verde) ──
-              // Si gasto >= OC, el círculo es 100% rojo (sobregasto)
-              // Si gasto < OC, gasto = sección roja, (OC-gasto) = sección verde
               var COLOR_GASTO='#e84040';   // rojo
               var COLOR_OC='#2db87a';      // verde (lo que queda disponible del OC)
               var COLOR_SOBRE='#c81818';   // rojo intenso para sobregasto
@@ -8193,13 +8315,11 @@ function renderDashboard(){
                 pieSvg='<circle cx="'+cx+'" cy="'+cy+'" r="'+radio+'" fill="none" stroke="'+COLOR_GASTO+'" stroke-width="'+sw+'"/>';
               } else {
                 // CASO NORMAL: gasto<OC → dos secciones proporcionales
-                var pctG=oc>0?(gp/oc):0; // proporción del gasto sobre el OC (0..1)
+                var pctG=oc>0?(gp/oc):0;
                 var arcG=circumferencia*pctG;
                 var arcRest=circumferencia*(1-pctG);
-                // Capa base verde completa
                 pieSvg=
                   '<circle cx="'+cx+'" cy="'+cy+'" r="'+radio+'" fill="none" stroke="'+COLOR_OC+'" stroke-width="'+sw+'"/>'
-                  // Encima, arco rojo proporcional al gasto
                   +'<circle cx="'+cx+'" cy="'+cy+'" r="'+radio+'" fill="none" stroke="'+COLOR_GASTO+'" stroke-width="'+sw+'" '
                   +'stroke-dasharray="'+arcG.toFixed(2)+' '+arcRest.toFixed(2)+'" '
                   +'style="transition:stroke-dasharray .6s"/>';
@@ -8211,21 +8331,36 @@ function renderDashboard(){
               else if(pctGasto>=90){semIc='🟠';semLbl='Crítico';semColor='#fb923c';}
               else if(pctGasto>=70){semIc='🟡';semLbl='Atención';semColor='#e8a020';}
 
-              return '<svg width="100" height="100" viewBox="0 0 88 88" style="transform:rotate(-90deg)">'+pieSvg+'</svg>'
-                // ── Etiquetas claras debajo de la dona ──
-                +'<div style="font-size:11px;line-height:1.5;text-align:center">'
-                  +'<div style="display:flex;align-items:center;gap:6px;justify-content:center"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+COLOR_GASTO+'"></span><span style="color:var(--muted)">Gasto:</span> <strong style="color:'+COLOR_GASTO+'">'+fmt(gp)+'</strong></div>'
-                  +'<div style="display:flex;align-items:center;gap:6px;justify-content:center;margin-top:2px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+COLOR_OC+'"></span><span style="color:var(--muted)">OC:</span> <strong style="color:'+COLOR_OC+'">'+fmt(oc)+'</strong></div>'
+              return '<div style="display:flex;align-items:center;gap:14px">'
+                  // Dona a la izquierda (más grande)
+                  +'<svg width="120" height="120" viewBox="0 0 88 88" style="transform:rotate(-90deg);flex-shrink:0">'+pieSvg+'</svg>'
+                  // Info a la derecha (etiquetas más grandes y separadas)
+                  +'<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px">'
+                    +'<div style="display:flex;align-items:center;gap:8px">'
+                      +'<span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:'+COLOR_GASTO+';flex-shrink:0"></span>'
+                      +'<div style="min-width:0">'
+                        +'<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Gasto</div>'
+                        +'<div style="font-family:\'Syne\',sans-serif;font-size:14px;font-weight:700;color:'+COLOR_GASTO+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+fmt(gp)+'</div>'
+                      +'</div>'
+                    +'</div>'
+                    +'<div style="display:flex;align-items:center;gap:8px">'
+                      +'<span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:'+COLOR_OC+';flex-shrink:0"></span>'
+                      +'<div style="min-width:0">'
+                        +'<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">OC</div>'
+                        +'<div style="font-family:\'Syne\',sans-serif;font-size:14px;font-weight:700;color:'+COLOR_OC+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+fmt(oc)+'</div>'
+                      +'</div>'
+                    +'</div>'
+                  +'</div>'
                 +'</div>'
-                // ── Indicador semáforo abajo ──
-                +'<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;background:'+semColor+'15;border:1px solid '+semColor+'40;border-radius:20px;margin-top:2px">'
-                  +'<span style="font-size:13px">'+semIc+'</span>'
-                  +'<span style="font-size:10.5px;font-weight:700;color:'+semColor+';text-transform:uppercase;letter-spacing:0.5px">'+semLbl+' · '+pctGasto+'%</span>'
+                // Semáforo abajo (full width)
+                +'<div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 12px;background:'+semColor+'15;border:1px solid '+semColor+'40;border-radius:20px;margin-top:2px">'
+                  +'<span style="font-size:14px">'+semIc+'</span>'
+                  +'<span style="font-size:11px;font-weight:700;color:'+semColor+';text-transform:uppercase;letter-spacing:0.5px">'+semLbl+' · '+pctGasto+'%</span>'
                 +'</div>';
             })()
           :
-            '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:88px;color:var(--muted);font-size:11px;text-align:center">'
-              +(_esC?'—':'Sin OC<br><span style="font-size:9px">configurada</span>')
+            '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;color:var(--muted);font-size:11px;text-align:center;padding:30px 0">'
+              +(_esC?'—':'<span style="font-size:32px;display:block;margin-bottom:6px">📊</span>Sin OC<br><span style="font-size:9px">configurada</span>')
             +'</div>'
           )
         +'</div>'
@@ -8527,8 +8662,15 @@ function render(){
     navHtml+='</div>';
   });
   document.getElementById('nav').innerHTML=navHtml;
-  const titles={dashboard:'Dashboard',proyectos:'Proyectos',gastos:'Gastos',proveedores:'Proveedores',centros:'Centros de Costo',reportes:'Reportes',inventario:'Inventario',bodegas:'Gestión de Bodegas',cajachica:'Caja Chica',log:'Registro de Actividad',usuarios:'Usuarios',config:'Configuración',mant_panel:'Panel de OTs',mant_equipos:'Equipos',mant_checklists:'Checklists',mant_tecnicos:'Técnicos',mant_reportes:'Reportes Mantenimiento',ei_dashboard:'⚡ Energy Intelligence',ei_modelo:'Modelo de Consumo',ei_alertas:'Alertas Energéticas',ei_ranking:'Ranking de Tiendas',ei_prediccion:'Predicción de Factura',ei_checklist:'Checklist Operativo',gz_gerentes:'Gerentes de Zona',gz_dashboard:'Dashboard Gerentes de Zona',asistencia:'📋 Asistencia',auditoria_herr:'🔍 Auditoría de Herramientas',taller_dashboard:'🚚 Dashboard Taller',taller_vehiculos:'🚚 Vehículos',taller_ots:'📋 Órdenes de Trabajo',taller_servicios:'🔧 Catálogo de Servicios',taller_repuestos:'📦 Repuestos del Taller',taller_programado:'⏰ Mantenimiento Programado',taller_rutas:'🗺️ Rutas',taller_combustible:'⛽ Combustible',taller_reportes:'📈 Reportes Taller',importar:'📥 Importar Datos'};
+  const titles={home:'🏠 Inicio',dashboard:'Dashboard',proyectos:'Proyectos',gastos:'Gastos',proveedores:'Proveedores',centros:'Centros de Costo',reportes:'Reportes',inventario:'Inventario',bodegas:'Gestión de Bodegas',cajachica:'Caja Chica',log:'Registro de Actividad',usuarios:'Usuarios',config:'Configuración',mant_panel:'Panel de OTs',mant_equipos:'Equipos',mant_checklists:'Checklists',mant_tecnicos:'Técnicos',mant_reportes:'Reportes Mantenimiento',ei_dashboard:'⚡ Energy Intelligence',ei_modelo:'Modelo de Consumo',ei_alertas:'Alertas Energéticas',ei_ranking:'Ranking de Tiendas',ei_prediccion:'Predicción de Factura',ei_checklist:'Checklist Operativo',gz_gerentes:'Gerentes de Zona',gz_dashboard:'Dashboard Gerentes de Zona',asistencia:'📋 Asistencia',auditoria_herr:'🔍 Auditoría de Herramientas',taller_dashboard:'🚚 Dashboard Taller',taller_vehiculos:'🚚 Vehículos',taller_ots:'📋 Órdenes de Trabajo',taller_servicios:'🔧 Catálogo de Servicios',taller_repuestos:'📦 Repuestos del Taller',taller_programado:'⏰ Mantenimiento Programado',taller_rutas:'🗺️ Rutas',taller_combustible:'⛽ Combustible',taller_reportes:'📈 Reportes Taller',importar:'📥 Importar Datos'};
   document.getElementById('pageTitle').textContent=titles[S.activeTab]||S.activeTab;
+  // Mostrar botón Home solo cuando no estás en home (y no eres chofer — ellos no tienen home)
+  var homeBtnEl=document.getElementById('homeBtn');
+  if(homeBtnEl){
+    var rolActual=S.currentUser&&S.currentUser.rol;
+    var mostrarHome=S.activeTab!=='home'&&rolActual!=='chofer';
+    homeBtnEl.style.display=mostrarHome?'flex':'none';
+  }
   const ha=document.getElementById('headerActions');
   var haHtml='';
   if((S.activeTab==='proyectos'||S.activeTab==='dashboard')&&puedeVer('proyectos')){
@@ -8539,7 +8681,8 @@ function render(){
     haHtml+=`<button class="btn btn-secondary btn-sm" onclick="goTab('importar')" title="Importar datos desde Excel/CSV" style="${impActive?'color:var(--green);border-color:var(--green)':''}">📥</button>`;
   }
   ha.innerHTML=haHtml;
-  if(S.activeTab==='dashboard')renderDashboard();
+  if(S.activeTab==='home')renderHome();
+  else if(S.activeTab==='dashboard')renderDashboard();
   else if(S.activeTab==='proyectos')renderProyectos();
   else if(S.activeTab==='gastos')renderGastos();
   else if(S.activeTab==='proveedores')renderProveedores();
