@@ -28,6 +28,20 @@ const _fbStorage=firebase.storage();
 _fbDb.settings({ignoreUndefinedProperties:true,experimentalForceLongPolling:true});
 _fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(console.error);
 
+// ── PERSISTENCIA OFFLINE (IndexedDB) ──
+// Si falla, no es crítico — la app sigue funcionando online
+_fbDb.enablePersistence({synchronizeTabs:true}).then(function(){
+  console.log('[Offline] Persistencia IndexedDB activada');
+}).catch(function(err){
+  if(err.code==='failed-precondition'){
+    console.warn('[Offline] No se activó: hay otra pestaña abierta con la app');
+  } else if(err.code==='unimplemented'){
+    console.warn('[Offline] El navegador no soporta IndexedDB persistence');
+  } else {
+    console.warn('[Offline] Error activando persistencia:',err);
+  }
+});
+
 // ── SUPERADMIN CREDENTIALS (hardcoded, no en Firebase Auth) ──
 const SUPERADMIN={email:'superadmin@pf.local',pin:'SA2024'};
 
@@ -170,14 +184,45 @@ window.FB={
           console.warn('[FB] Limpiadas fotos base64 grandes de auditorías');
         }
 
-        // 4. Re-medir
+        // 4. Truncar registros de asistencia viejos (mantener últimos 90 días)
+        if(mainDoc.asistencia&&mainDoc.asistencia.registros&&mainDoc.asistencia.registros.length>500){
+          var hace90dias=new Date();
+          hace90dias.setDate(hace90dias.getDate()-90);
+          var cutoff=hace90dias.toISOString().slice(0,10);
+          var antes=mainDoc.asistencia.registros.length;
+          mainDoc.asistencia={...mainDoc.asistencia,registros:mainDoc.asistencia.registros.filter(function(r){return (r.fecha||'')>=cutoff;})};
+          console.warn('[FB] Truncados registros asistencia: '+antes+' → '+mainDoc.asistencia.registros.length+' (mantenidos últimos 90 días)');
+        }
+
+        // 5. Truncar reportes diarios de choferes (mantener últimos 90 días)
+        if(mainDoc.taller&&mainDoc.taller.reportesDiarios&&mainDoc.taller.reportesDiarios.length>500){
+          var hace90b=new Date();
+          hace90b.setDate(hace90b.getDate()-90);
+          var cutoff2=hace90b.toISOString().slice(0,10);
+          var antes2=mainDoc.taller.reportesDiarios.length;
+          mainDoc.taller={...mainDoc.taller,reportesDiarios:mainDoc.taller.reportesDiarios.filter(function(r){return (r.fecha||'')>=cutoff2;})};
+          console.warn('[FB] Truncados reportes diarios: '+antes2+' → '+mainDoc.taller.reportesDiarios.length);
+        }
+
+        // 6. Re-medir
         docStr=JSON.stringify(mainDoc);
         console.warn('[FB] Tamaño tras truncación:',docStr.length,'bytes');
 
-        // 5. Si aún es muy grande, abortar para no perder datos críticos
+        // 7. Si aún es muy grande, abortar con mensaje útil
         if(docStr.length>1000000){
           console.error('[FB] Doc supera 1MB tras truncación — RECHAZANDO save para evitar pérdida de datos');
-          return false;
+          // Diagnóstico: identificar qué sección es la más pesada
+          var tamPorSeccion={};
+          Object.keys(mainDoc).forEach(function(k){
+            try{tamPorSeccion[k]=JSON.stringify(mainDoc[k]||{}).length;}catch(e){tamPorSeccion[k]='?';}
+          });
+          // Ordenar de mayor a menor
+          var ordenado=Object.entries(tamPorSeccion).sort(function(a,b){return (b[1]||0)-(a[1]||0);});
+          console.error('[FB] Tamaño por sección (mayor a menor):');
+          ordenado.slice(0,8).forEach(function(p){console.error('  '+p[0]+': '+(p[1]/1024).toFixed(0)+' KB');});
+          // Top 3 visible para el usuario
+          var top3=ordenado.slice(0,3).map(function(p){return p[0]+'='+(p[1]/1024).toFixed(0)+'KB';}).join(', ');
+          return {ok:false,err:'Doc '+(docStr.length/1024).toFixed(0)+'KB supera 1MB. Mayores: '+top3};
         }
       }
       await _fbDb.collection('empresas').doc(empresa).set(mainDoc);
@@ -1017,6 +1062,7 @@ input[type=date]{color-scheme:dark}
       <button id="homeBtn" onclick="goTab('home')" title="Volver a Inicio" style="display:none;align-items:center;justify-content:center;width:38px;height:38px;padding:0;flex-shrink:0;border:1px solid var(--border);border-radius:8px;background:var(--surface2);cursor:pointer;font-size:16px;transition:all .15s;margin-left:6px" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='';this.style.borderColor='var(--border)'">🏠</button>
       <div class="page-ttl" id="pageTitle" style="flex:1">Inicio</div>
       <div class="topbar-right">
+        <button onclick="abrirBusquedaGlobal()" title="Búsqueda global (Ctrl+K)" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);cursor:pointer;font-size:14px;color:var(--muted);display:flex;align-items:center;gap:5px;transition:all .15s" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">🔍 <span style="font-size:12px;font-family:'Karla',sans-serif;font-weight:600">Buscar</span></button>
         <div class="sync-badge" id="syncBadge" onclick="forceReloadFromFirebase()" title="Clic para recargar datos desde Firebase" style="cursor:pointer"><div class="sync-dot" id="syncDot"></div><span id="syncTxt">—</span></div>
         <button onclick="openThemePanel()" title="Personalizar apariencia" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);cursor:pointer;font-size:14px;color:var(--muted);display:flex;align-items:center;gap:5px;transition:all .15s" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">🎨 <span style="font-size:12px;font-family:'Karla',sans-serif;font-weight:600">Tema</span></button>
         <div id="headerActions"></div>
@@ -1361,7 +1407,15 @@ function fmtTs(ts){if(!ts)return'—';const d=new Date(ts);return d.toLocaleDate
 function addDias(ds,dias){if(!ds||!dias)return'';const d=new Date(ds+'T12:00:00');d.setDate(d.getDate()+parseInt(dias));return d.toISOString().slice(0,10)}
 function toast(msg,err=false){const t=document.getElementById('toast');t.textContent=msg;t.style.borderLeftColor=err?'var(--red)':'var(--green)';t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',3200)}
 function openModal(id){const m=document.getElementById(id);if(!m)return;m.classList.add('open');setTimeout(()=>_focusFirst(m),80);}
-function closeModal(id){document.getElementById(id).classList.remove('open')}
+function closeModal(id){
+  document.getElementById(id).classList.remove('open');
+  // Si se cierra el modal de detalle de proyecto y hubo cambios en cronograma/presupuesto/gastos,
+  // re-renderizar la vista actual para que se reflejen los nuevos montos/avances
+  if(id==='modalDP'&&S._dashDirty){
+    S._dashDirty=false;
+    if(S.activeTab==='dashboard'||S.activeTab==='proyectos')render();
+  }
+}
 function toggleSB(){const s=document.getElementById('sidebar'),o=document.getElementById('overlay'),b=document.getElementById('hmbBtn');const op=s.classList.contains('open');if(!op){sessionStorage.removeItem('sb_collapsed');}s.classList.toggle('open');o.classList.toggle('on');b.textContent=op?'☰':'✕'}
 function closeSB(){document.getElementById('sidebar').classList.remove('open');document.getElementById('overlay').classList.remove('on');const b=document.getElementById('hmbBtn');if(b)b.textContent='☰'}
 function badgeEst(e){const m={'Sin iniciar':'b-neu','En ejecución':'b-warn','Retrasado':'b-err','Finalizado':'b-ok'};return`<span class="badge ${m[e]||'b-neu'}">${e}</span>`}
@@ -1881,6 +1935,12 @@ document.addEventListener('visibilitychange', function(){
 async function saveData(){
   _invalidateOpts();
   _invalidateGastosCache();
+  // Marcar dashboard como sucio si hay un modal de proyecto abierto
+  // para que al cerrarlo se re-renderice con los datos actualizados
+  var dpModal=document.getElementById('modalDP');
+  if(dpModal&&dpModal.classList.contains('open')){
+    S._dashDirty=true;
+  }
   clearTimeout(S._syncTimer);
   setSyncUI('saving','Guardando...');
   // Guardar siempre en localStorage inmediatamente
@@ -1904,17 +1964,28 @@ async function _doSaveFirebase(){
     // Log doc size for debugging
     const sz=JSON.stringify(dataToSave).length;
     console.log('[PP] Saving to Firebase — gastos:'+S.gastos.length+' sz:'+(sz/1024).toFixed(0)+'KB');
-    const ok=await window.FB.save(S.empresa,dataToSave);
+    const result=await window.FB.save(S.empresa,dataToSave);
     S._saving=false;
     S._dirty=false;
+    // result puede ser true (éxito), false (error genérico), o {ok:false,err:'...'} (error con detalle)
+    var ok=(result===true)||(result&&result.ok===true);
+    var errMsg=(result&&result.err)?result.err:null;
     if(ok){
       setSyncUI('ok','Sincronizado');
     } else {
       setSyncUI('err','Error al guardar');
-      console.error('[PP] Firebase save returned false — sz:'+(sz/1024).toFixed(0)+'KB');
+      console.error('[PP] Firebase save failed — sz:'+(sz/1024).toFixed(0)+'KB',errMsg||'');
       // Keep dirty so next saveData retries
       S._dirty=true;
-      toast('⚠ Error al sincronizar con Firebase',true);
+      // Mensaje específico con tamaño del doc para diagnóstico
+      var szKB=(sz/1024).toFixed(0);
+      if(errMsg){
+        toast('⚠ '+errMsg+' (doc: '+szKB+'KB)',true);
+      } else if(sz>1000000){
+        toast('⚠ Documento supera 1MB ('+szKB+'KB). Contacta al admin.',true);
+      } else {
+        toast('⚠ Error al sincronizar con Firebase ('+szKB+'KB). Reintentando...',true);
+      }
     }
   }catch(e){
     S._saving=false;
@@ -1947,7 +2018,7 @@ window.addEventListener('fb-ready',(e)=>{
     const dl=document.getElementById('empresasList');
     const sugg=document.getElementById('empSuggestions');
     if(dl){
-      dl.innerHTML=empresas.map(e=>`<option value="${e.id}">${e.id}${e.nombre?' — '+e.nombre:''}</option>`).join('');
+      dl.innerHTML=empresas.map(e=>`<option value="${esc(e.id)}">${esc(e.id)}${e.nombre?' — '+esc(e.nombre):''}</option>`).join('');
     }
     if(sugg&&empresas.length>0){
       sugg.innerHTML=empresas.map(e=>`<span style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:6px;padding:5px 12px;font-size:12px;color:rgba(255,255,255,.7);cursor:pointer;font-weight:600;letter-spacing:1px" onclick="document.getElementById('empCode').value='${e.id}';document.getElementById('empSuggestions').style.display='none'">${e.id}</span>`).join('');
@@ -2895,6 +2966,73 @@ function todosGastosDeProyecto(pid){
 }
 function totalGastosProyecto(pid){return gastosDeProyecto(pid).reduce((s,g)=>s+(parseFloat(g.valor)||0),0)}
 
+// ═══════════════════════════════════════════════════════════════════
+// ANÁLISIS DE COSTO POR M² — Compara cada proyecto contra el promedio
+// histórico de proyectos finalizados de la misma marca + mismo tipo
+// ═══════════════════════════════════════════════════════════════════
+
+// Calcula el costo total de un proyecto: OC sumadas + Gastos
+function calcCostoTotalProyecto(p){
+  // OC = montoObraCivil del proyecto (lo emitido a contratistas)
+  var oc=parseFloat(p.montoObraCivil)||0;
+  var gastos=totalGastosProyecto(p.id);
+  return oc+gastos;
+}
+
+// Calcula el costo por m² de un proyecto. Retorna null si no tiene m² configurado.
+function costoPorM2(p){
+  var m2=parseFloat(p.metrosCuadrados)||0;
+  if(m2<=0)return null;
+  return calcCostoTotalProyecto(p)/m2;
+}
+
+// Calcula el promedio de costo/m² de proyectos FINALIZADOS de la misma marca+tipo
+// Retorna un objeto {promedio, n} donde n es el número de proyectos base, o null si insuficientes
+function promedioCostoM2Marca(marca,tipo){
+  if(!marca||!tipo)return null;
+  // Filtrar proyectos finalizados de la misma marca + mismo tipo, con m² configurado
+  var finalizadosBase=(S.proyectos||[]).filter(function(p){
+    return p.estado==='Finalizado'
+      && p.marca===marca
+      && p.tipo===tipo
+      && parseFloat(p.metrosCuadrados)>0;
+  });
+  if(finalizadosBase.length<3)return null; // mínimo 3 para promedio confiable
+  var costos=finalizadosBase.map(function(p){return costoPorM2(p);}).filter(function(c){return c!==null && c>0;});
+  if(costos.length<3)return null;
+  var sum=costos.reduce(function(a,b){return a+b;},0);
+  return {promedio:sum/costos.length, n:costos.length};
+}
+
+// Devuelve el indicador del semáforo para un proyecto comparado con su grupo base
+// Retorna: {nivel, label, color, ic, deltaPct, costoPropio, promedio, n}
+//          o {nivel:'sin_datos', motivo: '...'}
+function analizarCostoProyecto(p){
+  var costoPropio=costoPorM2(p);
+  if(costoPropio===null){
+    return {nivel:'sin_datos',motivo:'Sin m² configurados'};
+  }
+  var prom=promedioCostoM2Marca(p.marca,p.tipo);
+  if(!prom){
+    return {nivel:'sin_datos',motivo:'Histórico insuficiente (mín. 3 proyectos finalizados de '+(p.marca||'?')+' · '+(p.tipo||'?')+')'};
+  }
+  // Calcular delta porcentual respecto al promedio histórico
+  var deltaPct=Math.round(((costoPropio-prom.promedio)/prom.promedio)*100);
+  var nivel,label,color,ic;
+  if(deltaPct<=-30){
+    nivel='eficiente';label='Eficiente';color='#3b82f6';ic='🔵';  // azul: ahorró >30%
+  } else if(deltaPct<=-10){
+    nivel='eficiente_leve';label='Por debajo';color='#3b82f6';ic='🔵';
+  } else if(deltaPct<10){ // -10 a +10 (incl. 9)
+    nivel='normal';label='Dentro del promedio';color='#2db87a';ic='🟢';
+  } else if(deltaPct<30){ // +10 a +29
+    nivel='atencion';label='Atención';color='#e8a020';ic='🟡';
+  } else { // +30 o más
+    nivel='sobrecosto';label='Sobrecosto';color='#e84040';ic='🔴';
+  }
+  return {nivel:nivel,label:label,color:color,ic:ic,deltaPct:deltaPct,costoPropio:costoPropio,promedio:prom.promedio,n:prom.n};
+}
+
 // ═══════════════════════════════════════════════════════
 //  PROYECTOS
 // ═══════════════════════════════════════════════════════
@@ -2989,7 +3127,7 @@ function tplGen(p){return`
   <div class="row2"><div class="fg"><label>Nombre</label><input value="${esc(p.nombre)}" onchange="updP('${p.id}','nombre',this.value)"></div><div class="fg"><label>Marca</label><select onchange="updP('${p.id}','marca',this.value)">${S.marcas.map(m=>`<option ${p.marca===m?'selected':''}>${m}</option>`).join('')}</select></div></div>
   <div class="row2"><div class="fg"><label>Tipo</label><select onchange="updP('${p.id}','tipo',this.value)">${optsTiposProyecto(p.tipo)}</select></div><div class="fg"><label>Ubicación</label><input value="${esc(p.ubicacion||'')}" onchange="updP('${p.id}','ubicacion',this.value)"></div></div>
   <div class="row2"><div class="fg"><label>Estado</label><select onchange="updP('${p.id}','estado',this.value)">${optsEstadosProyecto(p.estado)}</select></div><div class="fg"><label>Monto Obra Civil ($)</label><input type="number" min="0" value="${p.montoObraCivil||0}" onchange="updP('${p.id}','montoObraCivil',Math.max(0,parseFloat(this.value)||0))"></div></div>
-  <div class="fg"><label>Avance Físico — <strong id="avlbl">${p.avanceFisico}%</strong></label><input type="range" min="0" max="100" value="${p.avanceFisico}" oninput="document.getElementById('avlbl').textContent=this.value+'%'" onchange="updP('${p.id}','avanceFisico',parseInt(this.value))"><div class="prog" style="margin-top:4px"><div class="prog-fill" style="width:${p.avanceFisico}%"></div></div></div>
+  <div class="row2"><div class="fg"><label>📐 Metros cuadrados (m²)</label><input type="number" min="0" step="0.01" value="${p.metrosCuadrados||''}" placeholder="Ej: 250" onchange="updP('${p.id}','metrosCuadrados',Math.max(0,parseFloat(this.value)||0));render()" title="Necesario para calcular el costo por m² y comparar con el promedio histórico de la marca"></div><div class="fg"><label>Avance Físico — <strong id="avlbl">${p.avanceFisico}%</strong></label><input type="range" min="0" max="100" value="${p.avanceFisico}" oninput="document.getElementById('avlbl').textContent=this.value+'%'" onchange="updP('${p.id}','avanceFisico',parseInt(this.value))"><div class="prog" style="margin-top:4px"><div class="prog-fill" style="width:${p.avanceFisico}%"></div></div></div></div>
   <div class="row2"><div class="fg"><label>Contratista</label><select onchange="updP('${p.id}','contratista',this.value)"><option value="">— Seleccionar proveedor —</option>${S.proveedores.filter(pv=>!pv.tipo||pv.tipo==='Subcontrato'||pv.tipo==='Servicios'||pv.tipo==='').map(pv=>`<option value="${esc(pv.nombre)}" ${p.contratista===pv.nombre?'selected':''} >${esc(pv.nombre)}</option>`).join('')}${S.proveedores.filter(pv=>pv.tipo&&pv.tipo!=='Subcontrato'&&pv.tipo!=='Servicios').map(pv=>`<option value="${esc(pv.nombre)}" ${p.contratista===pv.nombre?'selected':''}>${esc(pv.nombre)}</option>`).join('')}</select></div><div class="fg"><label>Supervisor</label><input value="${esc(p.supervisor||'')}" onchange="updP('${p.id}','supervisor',this.value)"></div></div>
   <div class="row2"><div class="fg"><label>Fecha Inicio</label>${inputFecha(p.fechaInicio||'',`updP('${p.id}','fechaInicio',v)`)}</div><div class="fg"><label>Fecha Fin Estimada</label>${inputFecha(p.fechaFin||'',`updP('${p.id}','fechaFin',v)`)}</div></div>
   <div class="fg"><label>Observaciones</label><textarea rows="3" onchange="updP('${p.id}','observaciones',this.value)">${esc(p.observaciones||'')}</textarea></div>
@@ -4302,7 +4440,7 @@ function imprimirCronograma(pid){
 
   const win=window.open('','_blank','width=960,height=800');
   win.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
-  <title>Contrato — ${p.nombre}</title>
+  <title>Contrato — ${esc(p.nombre)}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:'Arial',sans-serif;font-size:12px;color:#1a1a1a;background:#fff;padding:0}
@@ -4449,531 +4587,6 @@ function imprimirCronograma(pid){
   win.document.close();
 }
 
-
-// ═══ TAB: PLANIFICACIÓN INICIAL ═══
-function archHtmlItem(a,i,pid,soloLectura){
-  const isImg=a.tipo&&a.tipo.startsWith('image/');
-  const isPDF=a.tipo==='application/pdf';
-  const src=a.url||a.data||''; // URL de Storage o base64
-  const gdrive=a.gdrive||'';
-  const icono=a.gdrive?'📂':isImg?'🖼':isPDF?'📄':'📎';
-  const badge=a.gdrive
-    ?`<span style="font-size:10px;background:#1a3a6a;color:#60a0e0;padding:2px 6px;border-radius:4px;margin-left:6px">Drive</span>`
-    :src?'':`<span style="font-size:10px;color:var(--red);margin-left:6px">sin enlace</span>`;
-  return`<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
-    <div style="font-size:22px;flex-shrink:0">${icono}</div>
-    <div style="flex:1;min-width:0">
-      <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-        ${esc(a.nombre)}${badge}
-      </div>
-      <div style="font-size:11px;color:var(--muted)">${a.tipo||'Archivo'} · ${a.tamaño||'?'}</div>
-    </div>
-    ${isImg&&src?`<img src="${src}" style="width:50px;height:38px;object-fit:cover;border-radius:5px;cursor:pointer;flex-shrink:0" onclick="verImagen('${src}','${esc(a.nombre)}')">`:''}
-    ${(src&&!isImg)?`<a href="${src}" target="_blank" class="btn btn-secondary btn-xs" style="flex-shrink:0">⬇ Abrir</a>`:''}
-    ${gdrive?`<a href="${gdrive}" target="_blank" class="btn btn-secondary btn-xs" style="flex-shrink:0;background:#1a3a6a;color:#60a0e0">📂 Drive</a>`:''}
-    ${!soloLectura?`<button class="btn btn-danger btn-xs" style="flex-shrink:0" onclick="delArchPlan('${pid}',${i})">✕</button>`:''}
-  </div>`;
-}
-
-function tplPlan(p){
-  if(!p.planificacion)p.planificacion={archivos:[]};
-  const arch=p.planificacion.archivos||[];
-  const isMobile=/Android|iPhone|iPad/i.test(navigator.userAgent);
-  const esContratistaP=S.currentUser&&S.currentUser.rol==='contratista';
-
-  let archHtml=arch.length===0
-    ?'<div class="empty" style="padding:20px">Sin archivos — sube planos, renders u otros documentos</div>'
-    :arch.map((a,i)=>archHtmlItem(a,i,p.id,esContratistaP)).join('');
-
-  return`
-  ${esContratistaP
-    ?'<div class="info-box">📁 Documentos del proyecto — solo lectura.</div>'
-    :'<div class="info-box">📁 Sube planos, renders, fotos e imágenes. Para archivos grandes (DWG, planos completos) usa el enlace de Google Drive.</div>'}
-  ${!esContratistaP?`
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
-    <!-- Subir archivo directo -->
-    <div class="logo-upload-area" onclick="document.getElementById('planFI').click()" style="padding:20px;cursor:pointer">
-      <div style="font-size:28px;margin-bottom:6px">📤</div>
-      <div style="font-size:13px;font-weight:600">Subir archivo</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:3px">JPG, PNG, PDF — hasta 10MB</div>
-      ${isMobile?`<div style="margin-top:8px"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();abrirCamaraPlan('${p.id}','planCam')">📷 Cámara</button></div>`:''}
-    </div>
-    <!-- Enlace Google Drive -->
-    <div style="background:var(--surface2);border:1px solid #1a3a6a;border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:8px">
-      <div style="font-size:13px;font-weight:600;color:#60a0e0">📂 Enlace externo (Drive, OneDrive...)</div>
-      <div style="font-size:11px;color:var(--muted)">OneDrive, Google Drive, Dropbox — cualquier enlace web</div>
-      <input id="gdNombre_${p.id}" placeholder="Nombre del archivo/carpeta" style="font-size:12px">
-      <input id="gdUrl_${p.id}" placeholder="Pega el enlace de OneDrive, Drive, Dropbox..." style="font-size:12px">
-      <button class="btn btn-secondary btn-sm" style="background:#1a3a6a;color:#60a0e0;border-color:#1a5a9a" onclick="agregarDrive('${p.id}')">+ Agregar enlace</button>
-    </div>
-  </div>
-  <input type="file" id="planFI" multiple accept=".dwg,.pdf,.jpg,.jpeg,.png,.gif,.webp,.dxf,.zip" style="display:none" onchange="subirArchPlan('${p.id}',this)">
-  ${isMobile?`<input type="file" id="planCam" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
-  `:''}
-  <div id="archList_${p.id}">${archHtml}</div>`;
-}
-
-function agregarDrive(pid){
-  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
-  const nombre=document.getElementById(('gdNombre_'+pid)||{}).value.trim();
-  const url=document.getElementById(('gdUrl_'+pid)||{}).value.trim();
-  if(!nombre){toast('Escribe un nombre para el enlace',true);return;}
-  if(!url||!url.startsWith('http')){
-    toast('Pega un enlace web válido (OneDrive, Google Drive, Dropbox, etc.)',true);return;
-  }
-  if(!p.planificacion)p.planificacion={archivos:[]};
-  p.planificacion.archivos.push({
-    nombre,tipo:'application/gdrive',tamaño:'Drive',
-    gdrive:url,url:null,data:null,ts:Date.now()
-  });
-  saveData();
-  renderPlanArchivos(pid);
-  document.getElementById('gdNombre_'+pid).value='';
-  document.getElementById('gdUrl_'+pid).value='';
-  toast('✓ Enlace de Drive agregado');
-}
-
-function verImagen(data,nombre){
-  const div=document.createElement('div');
-  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px';
-  div.innerHTML=`<img src="${data}" style="max-width:95vw;max-height:85vh;object-fit:contain;border-radius:8px"><div style="color:#fff;font-size:13px">${esc(nombre)}</div><button onclick="this.parentElement.remove()" style="background:rgba(255,255,255,.15);border:none;color:#fff;padding:8px 20px;border-radius:8px;cursor:pointer;font-size:14px">✕ Cerrar</button>`;
-  div.onclick=e=>{if(e.target===div)div.remove()};
-  document.body.appendChild(div);
-}
-
-function subirArchPlan(pid,input){
-  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
-  if(!p.planificacion)p.planificacion={archivos:[]};
-  const files=Array.from(input.files);
-  if(files.length===0)return;
-  toast('⏳ Subiendo archivo(s)...');
-  let pendientes=files.length;
-  files.forEach(file=>{
-    leerArchivoBase64(file,async(b64,f)=>{
-      const ts=Date.now();
-      const refId=`plan_${pid}_${ts}`;
-      const kb=Math.round(f.size/1024);
-      // Subir a Firebase Storage
-      const r=await window.FB.uploadFile(`archivos/${S.empresa}/${refId}`,b64);
-      if(r.ok){
-        // Guardar solo URL y metadata en el proyecto (no el base64)
-        p.planificacion.archivos.push({nombre:f.name,tipo:f.type,tamaño:kb+'KB',url:r.url,refId,ts});
-      } else {
-        // Fallback: guardar base64 si Storage falla y el archivo es pequeño
-        if(b64.length<500000){
-          p.planificacion.archivos.push({nombre:f.name,tipo:f.type,tamaño:kb+'KB',data:b64,ts});
-        } else {
-          toast(`"${f.name}" demasiado grande para guardar`,true);
-        }
-      }
-      pendientes--;
-      if(!pendientes){saveData();renderPlanArchivos(pid);logAction('CREAR','proyectos',`Archivo subido: ${f.name}`);}
-    },50);
-  });
-  input.value='';
-}
-
-function renderPlanArchivos(pid){
-  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
-  const contenedor=document.getElementById('archList_'+pid);
-  if(!contenedor){reloadTab('plan',pid);return;}
-  const arch=(p.planificacion&&p.planificacion.archivos)||[];
-  const esC=S.currentUser&&S.currentUser.rol==='contratista';
-  const html=arch.length===0
-    ?'<div class="empty" style="padding:20px">Sin archivos</div>'
-    :arch.map((a,i)=>archHtmlItem(a,i,pid,esC)).join('');
-  contenedor.innerHTML=html;
-}
-
-function delArchPlan(pid,idx){
-  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
-  if(!confirm('¿Eliminar este archivo?'))return;
-  p.planificacion.archivos.splice(idx,1);
-  saveData();renderPlanArchivos(pid);toast('✓ Archivo eliminado');
-}
-
-// ═══ TAB: GASTOS Y PAGOS UNIFICADO ═══
-function tplPagosYGastos(p){
-  const oc=parseFloat(p.montoObraCivil)||0;
-  const imp=parseFloat(((p.pagos&&p.pagos.imp)||{}).monto)||0,impPaid=((p.pagos&&p.pagos.imp)||{}).paid||false;
-  const lista=gastosDeProyecto(p.id),gp=lista.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
-  const tramos=(p.pagos&&p.pagos.tramos)||[{pct:65,paid:false},{pct:25,paid:false},{pct:10,paid:false}];
-  const isAdmin=(S.currentUser&&S.currentUser.rol)==='admin';
-  const pagadoOC=tramos.reduce((s,t)=>s+(t.paid?oc*(t.pct/100):0),0);
-  const isMobile=/Android|iPhone|iPad/i.test(navigator.userAgent);
-  const impRef=((p.pagos&&p.pagos.imp)||{}).comprobante||null;
-  const impIsRef=impRef&&impRef.startsWith('ref:');
-
-  // Gastos con comprobante
-  let gastoRows=lista.length===0?`<tr><td colspan="6" class="empty">Sin gastos vinculados</td></tr>`:'';
-  lista.forEach(g=>{
-    const gIsImg=g.comprobante&&!g.comprobante.startsWith('ref:')&&g.comprobante.startsWith('data:image');
-    const gIsRef=g.comprobante&&g.comprobante.startsWith('ref:');
-    gastoRows+=`<tr>
-      <td><strong>${esc(g.factura)}</strong>
-        <div class="show-sm" style="font-size:11px;color:var(--muted)">${esc(g.proveedor)}</div>
-      </td>
-      <td class="hide-sm">${esc(g.descripcion||'—')}</td>
-      <td class="hide-sm">${esc(g.proveedor)}</td>
-      <td style="text-align:right;color:var(--red);font-weight:600">${fmt(g.valor)}</td>
-      <td class="hide-sm">${fmtDate(g.fecha)}</td>
-      <td style="text-align:center">${gIsImg
-        ?`<img src="${g.comprobante}" style="height:30px;width:38px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="verImagen('${g.comprobante}','${esc(g.factura)}')">`
-        :gIsRef
-          ?`<button class="btn btn-secondary btn-xs" onclick="verComprobanteGasto('${g.id}','${esc(g.factura)}')">📎</button>`
-          :'—'
-      }</td>
-    </tr>`;
-  });
-
-  return`
-  <!-- KPIs -->
-  <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin-bottom:16px">
-    <div class="kpi"><div class="kpi-lbl">Obra Civil</div><div class="kpi-val" style="font-size:18px">${fmt(oc)}</div><div class="kpi-sub">Pagado: ${fmt(pagadoOC)}</div></div>
-    <div class="kpi"><div class="kpi-lbl">Imprevistos</div><div class="kpi-val" style="font-size:18px;color:var(--accent)">${fmt(imp)}</div><div class="kpi-sub">${impPaid?'✓ Pagado':'Pendiente'}</div></div>
-    <div class="kpi"><div class="kpi-lbl">Gastos</div><div class="kpi-val" style="font-size:18px;color:var(--red)">${fmt(gp)}</div><div class="kpi-sub">${lista.length} factura(s)</div></div>
-    <div class="kpi" style="border-color:var(--accent)"><div class="kpi-lbl">Total proyecto</div><div class="kpi-val" style="font-size:18px;color:var(--accent)">${fmt(oc+imp+gp)}</div></div>
-  </div>
-
-  <!-- 1. MONTO OBRA CIVIL Y CONFIRMACIÓN (primero) -->
-  <div class="card" style="margin-bottom:14px">
-    <div class="sec-hdr">💰 Monto de Obra Civil</div>
-    <div class="row2" style="align-items:flex-end">
-      <div class="fg" style="margin-bottom:0">
-        <label>Monto Obra Civil ($)</label>
-        <input type="number" min="0" id="ocInput_${p.id}" value="${oc}" placeholder="0.00"
-          style="font-size:18px;font-weight:700;color:var(--accent)">
-      </div>
-      <div>
-        <button class="btn btn-primary" onclick="confirmarOC('${p.id}')">✓ Confirmar monto</button>
-      </div>
-    </div>
-    ${oc>0?`<div style="font-size:12px;color:var(--muted);margin-top:8px">
-      Los tramos se calculan sobre: <strong style="color:var(--accent)">${fmt(oc)}</strong>
-    </div>`:'<div style="font-size:12px;color:var(--muted);margin-top:8px">Ingresa el monto y presiona Confirmar para calcular los tramos.</div>'}
-  </div>
-
-  <!-- 2. TRAMOS + IMPREVISTOS (tabla unificada) -->
-  <div class="sec-hdr">Tramos de pago y gastos adicionales</div>
-  <div class="tbl-wrap" style="margin-bottom:12px"><table style="table-layout:auto">
-    <thead><tr><th>Concepto</th><th>%</th><th style="text-align:right">Monto</th><th style="text-align:center">✓ Aplicado</th><th>Comprobante</th></tr></thead>
-    <tbody>
-    ${tramos.map((t,i)=>{
-      const monto=oc*(t.pct/100);
-      const comp=t.comprobante;
-      const isImg=comp&&comp.startsWith('data:image');
-      return`<tr>
-        <td><strong>Tramo ${i+1}</strong></td>
-        <td><span class="badge b-warn">${t.pct}%</span></td>
-        <td style="text-align:right"><strong>${fmt(monto)}</strong></td>
-        <td style="text-align:center">
-          <div style="display:flex;align-items:center;gap:8px;justify-content:center">
-            <input type="checkbox" ${t.paid?'checked':''} onchange="updTramoOC('${p.id}',${i},'paid',this.checked)" style="width:18px;height:18px;cursor:pointer">
-            <span class="badge ${t.paid?'b-ok':'b-neu'}">${t.paid?'✓ Pagado':'Pendiente'}</span>
-          </div>
-        </td>
-        <td>
-          ${comp
-            ?(comp.startsWith('ref:')
-              ?`<div style="display:flex;gap:5px">
-                  <button class="btn btn-secondary btn-xs" onclick="verComprobanteTramo('${p.id}',${i},'Tramo ${i+1}')">📎 Ver</button>
-                  <button class="btn btn-danger btn-xs" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button>
-                </div>`
-              :(isImg
-                ?`<div style="display:flex;align-items:center;gap:5px">
-                    <img src="${comp}" style="height:32px;width:40px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="verImagen('${comp}','Comprobante Tramo ${i+1}')">
-                    <button class="btn btn-danger btn-xs" onclick="updTramoOC('${p.id}',${i},'comprobante',null)">✕</button>
-                  </div>`
-                :`<a href="${comp}" download="comprobante_tramo${i+1}.pdf" class="btn btn-secondary btn-xs">📄</a>`))
-            :`<div style="display:flex;gap:5px;flex-wrap:wrap">
-                <button class="btn btn-secondary btn-xs" onclick="document.getElementById('compFI_${i}').click()">📎 Subir</button>
-                ${isMobile?`<button class="btn btn-secondary btn-xs" onclick="abrirCamaraComprobante('${p.id}',${i},'compCam_${i}')">📷</button>`:''}
-              </div>
-              <input type="file" id="compFI_${i}" accept="image/*,.pdf" style="display:none" onchange="subirComprobante('${p.id}',${i},this)">
-              ${isMobile?`<input type="file" id="compCam_${i}" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
-            `}
-        </td>
-      </tr>`;
-    }).join('')}
-    <!-- IMPREVISTOS como fila adicional -->
-    <tr style="background:var(--surface2)">
-      <td><strong style="color:var(--accent)">⚠ Imprevistos</strong></td>
-      <td><span class="badge b-warn">Adicional</span></td>
-      <td style="text-align:right">
-        <input type="number" min="0" id="impInput_${p.id}" value="${imp}" style="width:110px;text-align:right;font-weight:600;color:var(--accent)"
-          onblur="updImpMonto('${p.id}',this.value)" onkeydown="if(event.key==='Enter'){updImpMonto('${p.id}',this.value);this.blur()}">
-      </td>
-      <td style="text-align:center">
-        <div style="display:flex;align-items:center;gap:8px;justify-content:center">
-          <input type="checkbox" ${impPaid?'checked':''} onchange="updImpPaid('${p.id}',this.checked)" style="width:18px;height:18px;cursor:pointer">
-          <span class="badge ${impPaid?'b-ok':'b-neu'}">${impPaid?'✓ Pagado':'Pendiente'}</span>
-        </div>
-      </td>
-      <td>
-        ${impRef
-          ?(impIsRef
-            ?`<div style="display:flex;gap:5px">
-                <button class="btn btn-secondary btn-xs" onclick="verComprobanteImp('${p.id}')">📎 Ver</button>
-                <button class="btn btn-danger btn-xs" onclick="updImpComp('${p.id}',null)">✕</button>
-              </div>`
-            :`<img src="${impRef}" style="height:32px;width:40px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="verImagen('${impRef}','Comprobante Imprevistos')">`)
-          :`<div style="display:flex;gap:5px;flex-wrap:wrap">
-              <button class="btn btn-secondary btn-xs" onclick="document.getElementById('compFI_imp').click()">📎 Subir</button>
-              ${isMobile?`<button class="btn btn-secondary btn-xs" onclick="abrirCamaraComprobante('${p.id}','imp','compCam_imp')">📷</button>`:''}
-            </div>
-            <input type="file" id="compFI_imp" accept="image/*,.pdf" style="display:none" onchange="subirComprobanteImp('${p.id}',this)">
-            ${isMobile?`<input type="file" id="compCam_imp" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">`:''}
-          `}
-      </td>
-    </tr>
-    <!-- Totales -->
-    <tr style="background:var(--surface2);border-top:2px solid var(--border)">
-      <td colspan="2" style="text-align:right;font-size:11px;color:var(--muted)">PENDIENTE OC:</td>
-      <td style="text-align:right"><strong style="color:var(--accent)">${fmt(oc-pagadoOC)}</strong></td>
-      <td colspan="2"></td>
-    </tr>
-    </tbody>
-  </table></div>
-
-  <!-- Config porcentajes (admin) -->
-  ${isAdmin?`<div class="card" style="margin-bottom:14px;border-color:#2a2010">
-    <div class="sec-hdr">⚙ Configurar porcentajes (Solo Admin)</div>
-    <div class="row3">
-      <div class="fg"><label>Tramo 1 (%)</label><input type="number" id="tp0" min="0" max="100" value="${(tramos[0]&&tramos[0].pct)||65}"></div>
-      <div class="fg"><label>Tramo 2 (%)</label><input type="number" id="tp1" min="0" max="100" value="${(tramos[1]&&tramos[1].pct)||25}"></div>
-      <div class="fg"><label>Tramo 3 (%)</label><input type="number" id="tp2" min="0" max="100" value="${(tramos[2]&&tramos[2].pct)||10}"></div>
-    </div>
-    <div style="display:flex;gap:10px;align-items:center">
-      <button class="btn btn-primary btn-sm" onclick="updTramosPct('${p.id}')">✓ Aplicar</button>
-      <span style="font-size:11px;color:var(--muted)">Deben sumar 100%</span>
-    </div>
-  </div>`:''}
-
-  <!-- Gastos vinculados -->
-  <div class="divider"></div>
-  <div class="sec-hdr">Gastos vinculados al proyecto</div>
-  <div class="tbl-wrap" style="margin-bottom:12px"><table style="table-layout:auto">
-    <thead><tr>
-      <th>Factura</th>
-      <th class="hide-sm">Descripción</th>
-      <th class="hide-sm">Proveedor</th>
-      <th style="text-align:right">Valor</th>
-      <th class="hide-sm">Fecha</th>
-      <th style="text-align:center">📎</th>
-    </tr></thead>
-    <tbody>${gastoRows}${lista.length>0?`<tr style="background:var(--surface2)">
-      <td colspan="3" style="text-align:right;font-size:11px;color:var(--muted)">SUBTOTAL:</td>
-      <td style="text-align:right"><strong style="color:var(--red)">${fmt(gp)}</strong></td>
-      <td colspan="2"></td>
-    </tr>`:''}</tbody>
-  </table></div>
-  <div style="font-size:12px;color:var(--muted)">ℹ Para agregar gastos ve al módulo <strong>Gastos</strong> y selecciona este proyecto.</div>`;
-}
-function subirComprobante(pid,tramoIdx,input){
-  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
-  const file=input.files[0];if(!file)return;
-  if(file.size>2*1024*1024){toast('Comprobante supera 2MB',true);return;}
-  leerArchivoBase64(file,(b64)=>{
-    if(!p.pagos.tramos)p.pagos.tramos=[{pct:65,paid:false},{pct:25,paid:false},{pct:10,paid:false}];
-    const refId=`tramo_${pid}_${tramoIdx}`;
-    p.pagos.tramos[tramoIdx].comprobante='ref:'+refId;
-    // Guardar imagen en colección separada
-    window.FB.saveComprobante(S.empresa,refId,b64).then(r=>{
-      if(r.ok){saveData();reloadTab('pagosygastos',pid);toast('✓ Comprobante guardado');}
-      else toast('Error al guardar comprobante',true);
-    });
-  });
-  input.value='';
-}
-
-// ═══ IMPRIMIR CRONOGRAMA ═══
-function imprimirCronograma(pid){
-  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
-  // Leer condiciones del textarea si está visible (puede no haberse guardado aún)
-  const taEl=document.getElementById('condOferta_'+pid);
-  if(taEl&&taEl.value!==undefined){p.cronograma.condiciones=taEl.value;}
-  const cr=p.cronograma;
-  const cfg=S.config||{};
-  const totalDias=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+(parseInt(x.dias)||0),0),0);
-  const grand=cr.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0),0);
-  const duracionReal=calcDuracionReal(cr); const fechaFin=addDias(cr.fechaInicio,duracionReal);
-  const hoy=new Date().toLocaleDateString('es-SV',{year:'numeric',month:'long',day:'numeric'});
-
-  let partRows='';
-  cr.partidas.forEach((m,mi)=>{
-    const tp=m.sub.reduce((s,x)=>s+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0);
-    const dp=m.sub.reduce((s,x)=>s+(parseInt(x.dias)||0),0);
-    const pFecha=m.fechaInicio?`<span style="color:#888;font-size:10px;margin-left:8px">Inicio: ${fmtDate(m.fechaInicio)}</span>`:'';
-    partRows+=`<tr style="background:#f5f3ee;page-break-inside:avoid">
-      <td colspan="6" style="padding:8px 10px;font-weight:700;font-size:13px;border-bottom:1px solid #ddd">
-        ${mi+1}. ${m.nombre} ${pFecha}
-      </td>
-      <td style="text-align:right;padding:8px 10px;font-weight:700">$${tp.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
-    </tr>`;
-    m.sub.forEach((sub,si)=>{
-      const t=(parseFloat(sub.cantidad)||0)*(parseFloat(sub.precio)||0);
-      partRows+=`<tr style="page-break-inside:avoid">
-        <td style="padding:5px 10px 5px 24px;color:#555;font-size:11px">${mi+1}.${si+1}</td>
-        <td style="padding:5px 10px;font-size:12px">${sub.desc||'—'}</td>
-        <td style="text-align:center;padding:5px 10px;font-size:12px">${sub.unidad||'—'}</td>
-        <td style="text-align:right;padding:5px 10px;font-size:12px">${sub.cantidad||0}</td>
-        <td style="text-align:right;padding:5px 10px;font-size:12px">$${parseFloat(sub.precio||0).toFixed(2)}</td>
-        <td style="text-align:center;padding:5px 10px;font-size:12px">${sub.dias||1}</td>
-        <td style="text-align:right;padding:5px 10px;font-size:12px;font-weight:600">$${t.toFixed(2)}</td>
-      </tr>`;
-    });
-  });
-
-  const logoHTML=cfg.logoUrl?`<img src="${cfg.logoUrl}" style="width:60px;height:60px;object-fit:cover;border-radius:10px">`:`<div style="width:60px;height:60px;background:#c8a030;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:28px">📊</div>`;
-
-  const win=window.open('','_blank','width=960,height=800');
-  win.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
-  <title>Contrato — ${p.nombre}</title>
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'Arial',sans-serif;font-size:12px;color:#1a1a1a;background:#fff;padding:0}
-    .page{max-width:870px;margin:0 auto;padding:30px 40px}
-    /* ENCABEZADO */
-    .hdr{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:16px;border-bottom:3px solid #c8a030;margin-bottom:20px}
-    .hdr-left{display:flex;align-items:center;gap:14px}
-    .co-name{font-size:22px;font-weight:700;color:#c8a030;line-height:1}
-    .co-sub{font-size:11px;color:#888;margin-top:3px}
-    .doc-ref{text-align:right}
-    .doc-ref .doc-tipo{font-size:18px;font-weight:700;color:#333;text-transform:uppercase;letter-spacing:1px}
-    .doc-ref .doc-fecha{font-size:11px;color:#888;margin-top:4px}
-    /* INFO PROYECTO */
-    .section{margin-bottom:20px}
-    .section-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#c8a030;border-bottom:1px solid #e8d898;padding-bottom:4px;margin-bottom:10px}
-    .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 30px}
-    .info-row{display:flex;gap:6px;font-size:12px}
-    .info-lbl{font-weight:700;color:#555;min-width:110px;flex-shrink:0}
-    /* CONDICIONES */
-    .condiciones-box{background:#faf8f4;border:1px solid #e8d898;border-radius:8px;padding:14px;font-size:12px;line-height:1.8;color:#333;white-space:pre-wrap}
-    /* TABLA */
-    table{width:100%;border-collapse:collapse;font-size:11px}
-    th{background:#1a1a10;color:#c8a030;padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;border:1px solid #333}
-    td{border:1px solid #ddd;vertical-align:top}
-    tr:nth-child(even) td{background:#fafaf8}
-    .total-row td{background:#1a1a10!important;color:#c8a030;font-weight:700;font-size:14px;padding:10px;border:1px solid #333}
-    /* FIRMAS */
-    .firmas{display:grid;grid-template-columns:1fr 1fr;gap:50px;margin-top:50px;page-break-inside:avoid}
-    .firma-box{border-top:2px solid #333;padding-top:8px}
-    .firma-rol{font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
-    .firma-nombre{font-size:11px;color:#555;margin-bottom:30px}
-    .firma-linea{border-top:1px solid #555;margin-top:50px;padding-top:5px;font-size:10px;color:#888;text-align:center}
-    /* FOOTER */
-    .footer-doc{text-align:center;font-size:10px;color:#aaa;margin-top:30px;padding-top:10px;border-top:1px solid #eee}
-    /* SELLADO */
-    .estado-sello{display:inline-block;padding:4px 12px;border:2px solid ${cr.cerrado?'#2a8a4a':'#aaa'};color:${cr.cerrado?'#2a8a4a':'#aaa'};font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:1px;border-radius:4px;margin-left:10px;transform:rotate(-2deg);display:inline-block}
-    @media print{
-      body{padding:0}
-      .page{padding:20px 30px}
-      .no-print{display:none!important}
-      @page{margin:0;size:letter}
-    }
-  </style></head><body>
-  <div class="no-print" style="background:#1a1810;padding:12px 20px;display:flex;gap:12px;align-items:center;position:sticky;top:0;z-index:10">
-    <button onclick="window.print()" style="background:#c8a030;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px">🖨 Imprimir / Guardar PDF</button>
-    <button onclick="window.close()" style="background:rgba(255,255,255,.1);border:none;color:#fff;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px">✕ Cerrar</button>
-    <span style="color:#888;font-size:12px">Para guardar como PDF: Imprimir → Guardar como PDF</span>
-  </div>
-  <div class="page">
-    <!-- ENCABEZADO -->
-    <div class="hdr">
-      <div class="hdr-left">
-        ${logoHTML}
-        <div>
-          <div class="co-name">${esc(cfg.appName||'Proyectos Pro')}</div>
-          <div class="co-sub">Empresa: ${esc(S.empresa)}</div>
-        </div>
-      </div>
-      <div class="doc-ref">
-        <div class="doc-tipo">Contrato de Obra
-          <span class="estado-sello">${cr.cerrado?'ACEPTADO':'BORRADOR'}</span>
-        </div>
-        <div class="doc-fecha">Fecha de elaboración: <strong>${hoy}</strong></div>
-        ${cr.fechaCierre?`<div class="doc-fecha">Fecha de aceptación: <strong>${new Date(cr.fechaCierre).toLocaleDateString('es-SV',{year:'numeric',month:'long',day:'numeric'})}</strong></div>`:''}
-      </div>
-    </div>
-
-    <!-- DATOS DEL PROYECTO -->
-    <div class="section">
-      <div class="section-title">Datos del Proyecto</div>
-      <div class="info-grid">
-        <div class="info-row"><span class="info-lbl">Proyecto:</span><strong>${esc(p.nombre)}</strong></div>
-        <div class="info-row"><span class="info-lbl">Marca / Cliente:</span>${esc(p.marca||'—')}</div>
-        <div class="info-row"><span class="info-lbl">Ubicación:</span>${esc(p.ubicacion||'—')}</div>
-        <div class="info-row"><span class="info-lbl">Tipo de obra:</span>${esc(p.tipo||'—')}</div>
-        <div class="info-row"><span class="info-lbl">Fecha de inicio:</span><strong>${fmtDate(cr.fechaInicio||'')}</strong></div>
-        <div class="info-row"><span class="info-lbl">Fecha fin est.:</span><strong>${fechaFin?fmtDate(fechaFin):'—'}</strong></div>
-        <div class="info-row"><span class="info-lbl">Duración total:</span>${totalDias} días</div>
-        <div class="info-row"><span class="info-lbl">Estado:</span>${p.estado}</div>
-      </div>
-    </div>
-
-    <!-- DATOS DEL CONTRATISTA -->
-    <div class="section">
-      <div class="section-title">Contratista Aceptado</div>
-      <div class="info-grid">
-        <div class="info-row"><span class="info-lbl">Contratista:</span><strong>${esc(p.contratista||'Por definir')}</strong></div>
-        <div class="info-row"><span class="info-lbl">Supervisor:</span>${esc(p.supervisor||'—')}</div>
-      </div>
-    </div>
-
-    <!-- PRESUPUESTO -->
-    <div class="section">
-      <div class="section-title">Presupuesto Detallado</div>
-      <table>
-        <thead><tr>
-          <th style="width:40px">#</th>
-          <th>Descripción</th>
-          <th style="width:60px;text-align:center">Unidad</th>
-          <th style="width:60px;text-align:right">Cant.</th>
-          <th style="width:80px;text-align:right">P.Unit.</th>
-          <th style="width:50px;text-align:center">Días</th>
-          <th style="width:90px;text-align:right">Total</th>
-        </tr></thead>
-        <tbody>
-          ${partRows}
-          <tr><td colspan="5" style="text-align:right;padding:10px;font-weight:700;background:#f5f3ee">TOTAL GENERAL DE LA OBRA:</td>
-          <td colspan="2" style="text-align:right;padding:10px;font-weight:700;font-size:15px;background:#f5f3ee;color:#1a1a10">$${grand.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <!-- CONDICIONES ANTES DE FIRMAS -->
-    ${cr.condiciones?`<div class="section" style="page-break-inside:avoid;margin-top:20px"><div class="section-title">Condiciones de la Oferta</div><div class="condiciones-box">${esc(cr.condiciones)}</div></div>`:`<div style="margin-top:20px;background:#faf8f4;border:1px dashed #ccc;border-radius:8px;padding:12px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#c8a030;margin-bottom:6px">Condiciones de la Oferta</div><div style="font-size:12px;color:#aaa;font-style:italic">Sin condiciones definidas.</div></div>`}
-
-    <!-- FIRMAS -->
-    <div class="firmas" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:40px;margin-top:50px">
-      <div class="firma-box">
-        <div class="firma-rol">Gerente General</div>
-        <div class="firma-nombre">_______________________________</div>
-        <div class="firma-linea">Firma y sello</div>
-        <div style="font-size:10px;color:#aaa;margin-top:6px">Fecha: _____ / _____ / _______</div>
-      </div>
-      <div class="firma-box">
-        <div class="firma-rol">Gerente de Proyectos</div>
-        <div class="firma-nombre">${esc(p.supervisor||'_______________________________')}</div>
-        <div class="firma-linea">Firma y sello</div>
-        <div style="font-size:10px;color:#aaa;margin-top:6px">Fecha: _____ / _____ / _______</div>
-      </div>
-      <div class="firma-box">
-        <div class="firma-rol">Contratista</div>
-        <div class="firma-nombre">${esc(p.contratista||'_______________________________')}</div>
-        <div class="firma-linea">Firma y sello</div>
-        <div style="font-size:10px;color:#aaa;margin-top:6px">Fecha: _____ / _____ / _______</div>
-      </div>
-    </div>
-
-    <div class="footer-doc">
-      Documento generado por ${esc(cfg.appName||'Proyectos Pro')} · Empresa: ${esc(S.empresa)} · ${hoy}
-      ${cr.cerrado?'· <strong>CONTRATO ACEPTADO Y FIRMADO</strong>':'· BORRADOR — pendiente de aceptación'}
-    </div>
-  </div>
-  </body></html>`);
-  win.document.close();
-}
 
 
 // ═══ TAB: PLANIFICACIÓN INICIAL ═══
@@ -5339,7 +4952,7 @@ function imprimirCronograma(pid){
 
   const win=window.open('','_blank','width=960,height=800');
   win.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
-  <title>Contrato — ${p.nombre}</title>
+  <title>Contrato — ${esc(p.nombre)}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:'Arial',sans-serif;font-size:12px;color:#1a1a1a;background:#fff;padding:0}
@@ -6954,7 +6567,68 @@ function renderConfig(){
       <li>Limpia el campo <strong>mttoFecha</strong> de los vehículos (las 2 vencidas + 1 próxima)</li>
     </ul>
     <button class="btn btn-danger" onclick="resetearContadoresAlertas()">🧹 Resetear contadores Dashboard Taller</button>
-  </div>`;
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- 🛠 HERRAMIENTAS ADMIN — operaciones poco frecuentes         -->
+  <!-- (importaciones, seeds, limpiezas masivas, vinculaciones)    -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  ${(S.currentUser&&(S.currentUser.rol==='admin'||S.currentUser.rol==='supervisor'))?`
+  <div class="card" style="border-color:var(--accent);margin-top:20px;background:linear-gradient(180deg,var(--surface),var(--surface2))">
+    <div class="sec-hdr" style="display:flex;align-items:center;gap:10px;font-size:16px;color:var(--accent)">
+      🛠 Herramientas de Administrador
+      <span style="font-size:10px;background:var(--accent);color:#000;padding:2px 8px;border-radius:10px;font-weight:700">ADMIN</span>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Operaciones que se usan rara vez (instalación inicial, importaciones masivas, limpieza de datos). Solo administradores y supervisores ven esta sección.</div>
+
+    <!-- 📦 Datos iniciales / Seeds -->
+    <div class="ha-block" style="margin-bottom:14px">
+      <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:8px">📦 Datos iniciales</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <button class="btn btn-secondary btn-sm" onclick="srvSeedCatalogo()" title="Carga 35 servicios básicos del taller con descripciones">📥 Cargar 35 servicios básicos del taller</button>
+      </div>
+    </div>
+
+    <!-- 📥 Importaciones desde Excel -->
+    <div class="ha-block" style="margin-bottom:14px">
+      <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:8px">📥 Importar desde Excel/CSV</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <button class="btn btn-secondary btn-sm" onclick="goTab('importar')" title="Importar Gastos, Proveedores y Centros desde CSV">📊 Importar Gastos / Proveedores / Centros (CSV)</button>
+        <button class="btn btn-secondary btn-sm" onclick="abrirImportadorFlota()" title="Importar la flota completa desde el formato de levantamiento">🚚 Importar Flota Vehicular (Excel)</button>
+      </div>
+    </div>
+
+    <!-- 🔗 Vinculaciones masivas -->
+    <div class="ha-block" style="margin-bottom:14px">
+      <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:8px">🔗 Vinculaciones automáticas</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <button class="btn btn-secondary btn-sm" onclick="autoVincularChoferes()" title="Recorre todos los vehículos y rellena choferId con base en el nombre del motorista">🔗 Auto-vincular choferes a vehículos</button>
+      </div>
+    </div>
+
+    <!-- 🚚 Operaciones de Taller -->
+    <div class="ha-block" style="margin-bottom:14px">
+      <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:8px">🚚 Operaciones de Taller</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <button class="btn btn-secondary btn-sm" onclick="modalCorregirKmVehiculo()" title="Corregir el kilometraje actual de un vehículo (errores de captura, cambio de odómetro, etc.)">🔢 Corregir kilometraje de vehículo</button>
+      </div>
+    </div>
+
+    <!-- 🧹 Limpieza de datos -->
+    <div class="ha-block" style="margin-bottom:14px">
+      <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:8px">🧹 Limpieza de datos</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <button class="btn btn-secondary btn-sm" onclick="modalLimpiezaEquipos()" title="Corregir nombres de equipos con typos">🧹 Limpiar nombres de equipos</button>
+        <button class="btn btn-secondary btn-sm" onclick="resetearContadoresAlertas()" title="Borrar las alertas huérfanas del dashboard taller">🧹 Limpiar alertas huérfanas del taller</button>
+        <button class="btn btn-danger btn-sm" onclick="solBorrarTodas()" title="Eliminar TODAS las solicitudes de chofer">🗑 Borrar todas las solicitudes de chofer</button>
+      </div>
+    </div>
+
+    <!-- 📋 Información sobre la sección -->
+    <div style="font-size:11px;color:var(--muted);margin-top:14px;padding:8px 12px;background:var(--surface);border-radius:6px;border-left:3px solid var(--accent)">
+      💡 Estas operaciones también están disponibles desde algunos módulos (Mantenimiento, Vehículos), pero aquí están centralizadas para fácil acceso.
+    </div>
+  </div>`:''}`;
 }
 
 function renderCatalogosHTML(){
@@ -8063,6 +7737,240 @@ var HOME_GRUPO_INFO={
   config_grp:{ic:'⚙',label:'Configuración',desc:'Usuarios, branding, logs',color:'#9ca3af'}
 };
 
+// ═══════════════════════════════════════════════════════════════════
+// BÚSQUEDA GLOBAL — Encuentra cualquier cosa con un solo cuadro
+// Busca en: gastos, proveedores, centros, vehículos, equipos, OTs,
+// usuarios, proyectos. Click en resultado → te lleva al módulo.
+// Atajo: Ctrl/Cmd + K
+// ═══════════════════════════════════════════════════════════════════
+function abrirBusquedaGlobal(){
+  if(document.getElementById('modalBuscarGlobal'))return;
+  var html='<div id="modalBuscarGlobal" style="position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:600;display:flex;align-items:flex-start;justify-content:center;padding:60px 20px 20px" onclick="if(event.target===this)cerrarBusquedaGlobal()">'
+    +'<div style="background:var(--bg);border:1px solid var(--border);border-radius:14px;width:100%;max-width:680px;max-height:80vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.5)">'
+      +'<div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">'
+        +'<span style="font-size:20px">🔍</span>'
+        +'<input id="bgInput" placeholder="Buscar facturas, proveedores, vehículos, equipos, usuarios..." '
+          +'style="flex:1;border:none;outline:none;background:transparent;color:var(--text);font-size:15px;font-family:\'Karla\',sans-serif" '
+          +'oninput="ejecutarBusquedaGlobal(this.value)">'
+        +'<button onclick="cerrarBusquedaGlobal()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:4px 8px">✕</button>'
+      +'</div>'
+      +'<div id="bgResultados" style="overflow-y:auto;flex:1;padding:8px">'
+        +'<div style="padding:30px 20px;text-align:center;color:var(--muted);font-size:13px">'
+          +'<div style="font-size:32px;margin-bottom:10px">⌨</div>'
+          +'Empieza a escribir para buscar en toda la app<br>'
+          +'<span style="font-size:11px;opacity:0.7">Atajo: <kbd style="background:var(--surface2);padding:2px 6px;border-radius:4px;border:1px solid var(--border)">Ctrl+K</kbd></span>'
+        +'</div>'
+      +'</div>'
+      +'<div style="padding:10px 14px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);background:var(--surface)">'
+        +'Tip: presiona <kbd style="background:var(--surface2);padding:1px 5px;border-radius:3px;border:1px solid var(--border);font-size:10px">Esc</kbd> para cerrar'
+      +'</div>'
+    +'</div>'
+  +'</div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+  setTimeout(function(){
+    var input=document.getElementById('bgInput');
+    if(input)input.focus();
+  },50);
+}
+
+function cerrarBusquedaGlobal(){
+  var m=document.getElementById('modalBuscarGlobal');
+  if(m)m.remove();
+}
+
+function ejecutarBusquedaGlobal(query){
+  var q=(query||'').trim().toLowerCase();
+  var cont=document.getElementById('bgResultados');
+  if(!cont)return;
+  if(!q||q.length<2){
+    cont.innerHTML='<div style="padding:30px 20px;text-align:center;color:var(--muted);font-size:13px">'
+      +'<div style="font-size:32px;margin-bottom:10px">⌨</div>'
+      +'Escribe al menos 2 caracteres'
+    +'</div>';
+    return;
+  }
+  var resultados=[];
+
+  // Buscar en GASTOS
+  if(puedeVer('gastos')){
+    (S.gastos||[]).forEach(function(g){
+      var hay=(g.factura||'').toLowerCase().includes(q)
+        ||(g.descripcion||'').toLowerCase().includes(q)
+        ||(g.proveedor||'').toLowerCase().includes(q);
+      if(hay){
+        resultados.push({
+          tipo:'gasto',ic:'💵',label:g.factura||'(sin factura)',
+          sub:(g.descripcion||'')+' · '+(g.proveedor||''),
+          extra:fmt(g.valor),tab:'gastos'
+        });
+      }
+    });
+  }
+
+  // Buscar en PROVEEDORES
+  if(puedeVer('proveedores')){
+    (S.proveedores||[]).forEach(function(p){
+      if((p.nombre||'').toLowerCase().includes(q)||(p.tipo||'').toLowerCase().includes(q)){
+        resultados.push({
+          tipo:'proveedor',ic:'🏪',label:p.nombre||'(sin nombre)',
+          sub:p.tipo||'—',extra:p.tel||'',tab:'proveedores'
+        });
+      }
+    });
+  }
+
+  // Buscar en CENTROS
+  if(puedeVer('centros')){
+    (S.centros||[]).forEach(function(c){
+      if((c.nombre||'').toLowerCase().includes(q)||(c.descripcion||'').toLowerCase().includes(q)){
+        resultados.push({
+          tipo:'centro',ic:'🍔',label:c.nombre||'(sin nombre)',
+          sub:c.descripcion||'—',extra:c.codigoMant||'',tab:'centros'
+        });
+      }
+    });
+  }
+
+  // Buscar en PROYECTOS
+  if(puedeVer('proyectos')){
+    (S.proyectos||[]).forEach(function(p){
+      if((p.nombre||'').toLowerCase().includes(q)||(p.marca||'').toLowerCase().includes(q)||(p.ubicacion||'').toLowerCase().includes(q)){
+        resultados.push({
+          tipo:'proyecto',ic:'🏗',label:p.nombre||'(sin nombre)',
+          sub:p.marca+' · '+(p.ubicacion||'sin ubicación'),
+          extra:p.estado||'',tab:'proyectos',action:"verProy('"+p.id+"')"
+        });
+      }
+    });
+  }
+
+  // Buscar en VEHÍCULOS
+  if(puedeVer('taller_vehiculos')){
+    var vs=(S.taller&&S.taller.vehiculos)||[];
+    vs.forEach(function(v){
+      if(v.estado==='baja')return;
+      if((v.placa||'').toLowerCase().includes(q)
+        ||(v.marca||'').toLowerCase().includes(q)
+        ||(v.modelo||'').toLowerCase().includes(q)
+        ||(v.motorista||'').toLowerCase().includes(q)){
+        resultados.push({
+          tipo:'vehículo',ic:'🚚',label:v.placa||'(sin placa)',
+          sub:(v.marca||'')+' '+(v.modelo||'')+' · '+(v.motorista||''),
+          extra:v.ruta||'',tab:'taller_vehiculos',action:"verFichaVehiculo('"+v.id+"')"
+        });
+      }
+    });
+  }
+
+  // Buscar en EQUIPOS DE MANTENIMIENTO
+  if(puedeVer('mant_equipos')){
+    var eqs=(S.mantenimiento&&S.mantenimiento.equipos)||[];
+    eqs.forEach(function(e){
+      if(e.estado==='baja')return;
+      if((e.nombre||'').toLowerCase().includes(q)
+        ||(e.serie||'').toLowerCase().includes(q)
+        ||(e.modelo||'').toLowerCase().includes(q)){
+        resultados.push({
+          tipo:'equipo',ic:'🔧',label:e.nombre||'(sin nombre)',
+          sub:(e.categoria||'sin categoría')+' · '+(e.estado||'activo'),
+          extra:e.frecuencia||'',tab:'mant_equipos'
+        });
+      }
+    });
+  }
+
+  // Buscar en OT del taller
+  if(puedeVer('taller_ots')){
+    var ots=(S.taller&&S.taller.ots)||[];
+    ots.forEach(function(o){
+      if((''+o.numero||'').toLowerCase().includes(q)
+        ||(o.descripcion||'').toLowerCase().includes(q)){
+        var v=(S.taller.vehiculos||[]).find(function(x){return x.id===o.vehiculoId;});
+        resultados.push({
+          tipo:'OT taller',ic:'📋',label:'OT-'+(o.numero||'?'),
+          sub:(v?v.placa+' · ':'')+(o.descripcion||'').slice(0,60),
+          extra:o.estado||'',tab:'taller_ots'
+        });
+      }
+    });
+  }
+
+  // Buscar en USUARIOS (admin only)
+  if(puedeVer('usuarios')){
+    (S.usuarios||[]).forEach(function(u){
+      if((u.nombre||'').toLowerCase().includes(q)||(u.email||'').toLowerCase().includes(q)){
+        resultados.push({
+          tipo:'usuario',ic:'👤',label:u.nombre||u.email,
+          sub:u.email||'',extra:u.rol||'',tab:'usuarios'
+        });
+      }
+    });
+  }
+
+  // Renderizar resultados (limitar a 50 para performance)
+  if(resultados.length===0){
+    cont.innerHTML='<div style="padding:30px 20px;text-align:center;color:var(--muted);font-size:13px">'
+      +'<div style="font-size:32px;margin-bottom:10px">🔎</div>'
+      +'Sin resultados para <strong>"'+esc(q)+'"</strong><br>'
+      +'<span style="font-size:11px">Prueba con menos caracteres o un término distinto</span>'
+    +'</div>';
+    return;
+  }
+
+  // Agrupar por tipo
+  var grupos={};
+  resultados.slice(0,80).forEach(function(r){
+    if(!grupos[r.tipo])grupos[r.tipo]=[];
+    grupos[r.tipo].push(r);
+  });
+
+  var html='<div style="font-size:11px;color:var(--muted);padding:6px 14px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700">'
+    +resultados.length+' resultado(s) encontrado(s)'+(resultados.length>80?' (mostrando primeros 80)':'')+'</div>';
+
+  Object.keys(grupos).forEach(function(tipo){
+    html+='<div style="font-size:10px;color:var(--accent);padding:8px 14px 4px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;border-top:1px solid var(--border)">'
+      +tipo.toUpperCase()+' ('+grupos[tipo].length+')</div>';
+    grupos[tipo].forEach(function(r){
+      var clickAction=r.action?r.action:"goTab('"+r.tab+"')";
+      html+='<div onclick="cerrarBusquedaGlobal();'+clickAction+'" '
+        +'style="padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;transition:background 0.15s" '
+        +'onmouseover="this.style.background=\'var(--surface2)\'" onmouseout="this.style.background=\'transparent\'">'
+        +'<span style="font-size:18px;flex-shrink:0">'+r.ic+'</span>'
+        +'<div style="flex:1;min-width:0">'
+          +'<div style="font-weight:600;font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(r.label)+'</div>'
+          +(r.sub?'<div style="font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(r.sub)+'</div>':'')
+        +'</div>'
+        +(r.extra?'<div style="font-size:11px;color:var(--muted);flex-shrink:0;font-family:monospace">'+esc(r.extra)+'</div>':'')
+      +'</div>';
+    });
+  });
+  cont.innerHTML=html;
+}
+
+// Atajo Ctrl+K / Cmd+K para abrir búsqueda
+document.addEventListener('keydown',function(e){
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){
+    e.preventDefault();
+    if(S.currentUser){
+      abrirBusquedaGlobal();
+    }
+  }
+  // Esc cierra el modal de búsqueda o el overlay de grupo
+  if(e.key==='Escape'){
+    var m=document.getElementById('modalBuscarGlobal');
+    if(m){
+      e.preventDefault();
+      cerrarBusquedaGlobal();
+      return;
+    }
+    var ov=document.getElementById('grupoOverlay');
+    if(ov){
+      e.preventDefault();
+      cerrarGrupoOverlay();
+    }
+  }
+});
+
 function renderHome(){
   // Filtrar solo grupos con al menos 1 módulo accesible
   var nombre=(S.currentUser&&(S.currentUser.nombre||S.currentUser.email))||'';
@@ -8076,19 +7984,19 @@ function renderHome(){
   gruposDisponibles.forEach(function(g){
     var info=HOME_GRUPO_INFO[g.id]||{ic:'📁',label:g.label,desc:'',color:'#888'};
     cards+='<div class="home-card" onclick="abrirGrupoOverlay(\''+g.id+'\')" '
-      +'style="aspect-ratio:1/1;background:var(--surface);border:1px solid var(--border);border-radius:16px;'
-      +'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;'
-      +'cursor:pointer;padding:20px;transition:all .2s;text-align:center;position:relative;overflow:hidden" '
-      +'onmouseover="this.style.borderColor=\''+info.color+'\';this.style.transform=\'translateY(-3px)\';this.style.boxShadow=\'0 8px 24px '+info.color+'30\'" '
+      +'style="aspect-ratio:1/1;background:var(--surface);border:1px solid var(--border);border-radius:14px;'
+      +'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;'
+      +'cursor:pointer;padding:14px;transition:all .2s;text-align:center;position:relative;overflow:hidden" '
+      +'onmouseover="this.style.borderColor=\''+info.color+'\';this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 6px 18px '+info.color+'30\'" '
       +'onmouseout="this.style.borderColor=\'var(--border)\';this.style.transform=\'none\';this.style.boxShadow=\'none\'">'
       // Acento de color arriba
-      +'<div style="position:absolute;top:0;left:0;right:0;height:4px;background:'+info.color+'"></div>'
+      +'<div style="position:absolute;top:0;left:0;right:0;height:3px;background:'+info.color+'"></div>'
       // Icono grande
-      +'<div style="font-size:64px;line-height:1;filter:drop-shadow(0 4px 8px '+info.color+'40)">'+info.ic+'</div>'
+      +'<div style="font-size:42px;line-height:1;filter:drop-shadow(0 3px 6px '+info.color+'40)">'+info.ic+'</div>'
       // Nombre del grupo
-      +'<div style="font-family:\'Syne\',sans-serif;font-weight:700;font-size:18px;color:var(--text)">'+esc(info.label||g.label)+'</div>'
+      +'<div style="font-family:\'Syne\',sans-serif;font-weight:700;font-size:14px;color:var(--text);line-height:1.2">'+esc(info.label||g.label)+'</div>'
       // Descripción opcional
-      +(info.desc?'<div style="font-size:12px;color:var(--muted);max-width:200px">'+esc(info.desc)+'</div>':'')
+      +(info.desc?'<div style="font-size:10.5px;color:var(--muted);max-width:160px;line-height:1.3">'+esc(info.desc)+'</div>':'')
       +'</div>';
   });
 
@@ -8097,16 +8005,17 @@ function renderHome(){
   }
 
   document.getElementById('content').innerHTML=
-    '<div style="margin-bottom:20px">'
+    '<div style="margin-bottom:18px">'
       +'<div style="font-family:\'Syne\',sans-serif;font-weight:700;font-size:24px">Hola, '+esc(primerNombre)+' 👋</div>'
       +'<div style="font-size:13px;color:var(--muted);margin-top:4px">Selecciona un módulo para empezar</div>'
     +'</div>'
-    +'<div class="home-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">'
+    +'<div class="home-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">'
       +cards
     +'</div>'
     +'<style>'
-      +'@media(max-width:900px){.home-grid{grid-template-columns:repeat(2,1fr) !important}}'
-      +'@media(max-width:560px){.home-grid{grid-template-columns:1fr !important}}'
+      +'@media(max-width:1100px){.home-grid{grid-template-columns:repeat(3,1fr) !important}}'
+      +'@media(max-width:780px){.home-grid{grid-template-columns:repeat(2,1fr) !important}}'
+      +'@media(max-width:480px){.home-grid{grid-template-columns:1fr !important}}'
     +'</style>';
 }
 
@@ -8223,7 +8132,6 @@ function renderDashboard(){
       var pctOC=maxVal>0?(oc/maxVal)*100:0;
       var pctGP=maxVal>0?(gp/maxVal)*100:0;
       var pctAv=p.avanceFisico||0;
-      var pctGasto=oc>0?Math.round(gp/oc*100):0;
       // Calcular días restantes si tiene fecha fin
       var diasRestTxt='';
       if(p.cronograma&&p.cronograma.fechaInicio&&p.estado!=='Finalizado'){
@@ -8244,20 +8152,8 @@ function renderDashboard(){
       var gasMes=S.gastos.filter(function(g){return g.proyectoId===p.id&&(g.fecha||'').slice(0,7)===mesActual;})
         .reduce(function(s,g){return s+(parseFloat(g.valor)||0);},0);
 
-      // Color de la dona según % de Gasto vs OC
-      var donaColor='#2db87a'; // verde por defecto
-      var donaSemaforo='Sano';
-      if(pctGasto>100){donaColor='#e84040';donaSemaforo='Sobregasto';}
-      else if(pctGasto>=90){donaColor='#f56e1f';donaSemaforo='Crítico';}
-      else if(pctGasto>=70){donaColor='#e8a020';donaSemaforo='Atención';}
-      // % visual cap a 100 para dibujar la dona aunque haya sobregasto
-      var pctVisual=Math.min(pctGasto,100);
-      // SVG dona: circunferencia 2π·r ≈ 251.3 con r=40
-      var circ=251.327;
-      var dashOffset=circ-(circ*pctVisual/100);
-
-      // ── Tarjeta 1: info principal (70%) ──
-      proyCards+='<div class="proy-row" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
+      // ── Layout 50/50: tarjeta info + tarjeta dona ──
+      proyCards+='<div class="proy-row" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">'
 
         // Tarjeta INFO
         +'<div onclick="verProy(\''+p.id+'\')" style="cursor:pointer;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;transition:all .15s;position:relative;overflow:hidden" onmouseover="this.style.borderColor=\''+color+'\';this.style.transform=\'translateY(-1px)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.transform=\'none\'">'
@@ -8293,77 +8189,131 @@ function renderDashboard(){
           +'</div>'
         +'</div>'
 
-        // Tarjeta DONA (50%) — Pie chart Gasto vs OC con info al lado y semáforo abajo
-        +'<div onclick="verProy(\''+p.id+'\')" style="cursor:pointer;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;transition:all .15s;display:flex;flex-direction:column;gap:10px" onmouseover="this.style.borderColor=\''+donaColor+'\';this.style.transform=\'translateY(-1px)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.transform=\'none\'">'
-          +'<div style="font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.7px;font-weight:700">Gasto vs OC</div>'
+        // Tarjeta DONA (50%) — Pie chart proporcional Gasto+OC=100%
+        +'<div onclick="verProy(\''+p.id+'\')" style="cursor:pointer;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;transition:all .15s;display:flex;flex-direction:column;gap:10px" onmouseover="this.style.borderColor=\'#e8a020\';this.style.transform=\'translateY(-1px)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.transform=\'none\'">'
+          +'<div style="font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.7px;font-weight:700">Distribución Gasto + OC</div>'
           +(!_esC&&(oc>0||gp>0)?
             (function(){
-              // ── Pie chart con 2 secciones proporcionales: gasto (rojo) vs OC restante (verde) ──
-              var COLOR_GASTO='#e84040';   // rojo
-              var COLOR_OC='#2db87a';      // verde (lo que queda disponible del OC)
-              var COLOR_SOBRE='#c81818';   // rojo intenso para sobregasto
+              // ── Colores: amarillo=Gasto, verde=OC ──
+              var COLOR_GASTO='#e8a020';   // amarillo
+              var COLOR_OC='#2db87a';      // verde
 
+              // Total = Gasto + OC. Cada parte es proporcional al total (suman 100%)
+              var total=gp+oc;
+              var pctGastoDelTotal=total>0?Math.round((gp/total)*100):0;
+              var pctOCDelTotal=total>0?Math.round((oc/total)*100):0;
+
+              // Construcción del pie SVG con 2 arcos proporcionales
               var pieSvg='';
-              var radio=40, cx=44, cy=44, sw=18; // dona ancho 18 = se ve gruesa
+              var radio=40, cx=44, cy=44, sw=18;
               var circumferencia=2*Math.PI*radio;
 
-              if(gp>=oc&&oc>0){
-                // CASO SOBREGASTO: dona toda en rojo intenso
-                pieSvg='<circle cx="'+cx+'" cy="'+cy+'" r="'+radio+'" fill="none" stroke="'+COLOR_SOBRE+'" stroke-width="'+sw+'"/>';
-              } else if(oc===0&&gp>0){
-                // Sin OC pero hay gasto → todo rojo
+              if(total===0){
+                // Sin datos: dona en gris
+                pieSvg='<circle cx="'+cx+'" cy="'+cy+'" r="'+radio+'" fill="none" stroke="var(--border)" stroke-width="'+sw+'"/>';
+              } else if(gp===0){
+                // Solo OC: dona toda verde
+                pieSvg='<circle cx="'+cx+'" cy="'+cy+'" r="'+radio+'" fill="none" stroke="'+COLOR_OC+'" stroke-width="'+sw+'"/>';
+              } else if(oc===0){
+                // Solo Gasto: dona toda amarilla
                 pieSvg='<circle cx="'+cx+'" cy="'+cy+'" r="'+radio+'" fill="none" stroke="'+COLOR_GASTO+'" stroke-width="'+sw+'"/>';
               } else {
-                // CASO NORMAL: gasto<OC → dos secciones proporcionales
-                var pctG=oc>0?(gp/oc):0;
-                var arcG=circumferencia*pctG;
-                var arcRest=circumferencia*(1-pctG);
+                // Caso normal: dos secciones proporcionales que suman 100%
+                var fracGasto=gp/total;
+                var arcGasto=circumferencia*fracGasto;
+                var arcOC=circumferencia*(1-fracGasto);
                 pieSvg=
+                  // Capa base verde (representa OC = 100% del círculo)
                   '<circle cx="'+cx+'" cy="'+cy+'" r="'+radio+'" fill="none" stroke="'+COLOR_OC+'" stroke-width="'+sw+'"/>'
+                  // Encima, arco amarillo proporcional al Gasto
                   +'<circle cx="'+cx+'" cy="'+cy+'" r="'+radio+'" fill="none" stroke="'+COLOR_GASTO+'" stroke-width="'+sw+'" '
-                  +'stroke-dasharray="'+arcG.toFixed(2)+' '+arcRest.toFixed(2)+'" '
+                  +'stroke-dasharray="'+arcGasto.toFixed(2)+' '+arcOC.toFixed(2)+'" '
                   +'style="transition:stroke-dasharray .6s"/>';
               }
 
-              // ── Mapeo de semáforo ──
-              var semIc='🟢',semLbl='Sano',semColor='#2db87a';
-              if(pctGasto>=100){semIc='🔴';semLbl='Sobregasto';semColor='#e84040';}
-              else if(pctGasto>=90){semIc='🟠';semLbl='Crítico';semColor='#fb923c';}
-              else if(pctGasto>=70){semIc='🟡';semLbl='Atención';semColor='#e8a020';}
-
               return '<div style="display:flex;align-items:center;gap:14px">'
-                  // Dona a la izquierda (más grande)
-                  +'<svg width="120" height="120" viewBox="0 0 88 88" style="transform:rotate(-90deg);flex-shrink:0">'+pieSvg+'</svg>'
-                  // Info a la derecha (etiquetas más grandes y separadas)
-                  +'<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px">'
-                    +'<div style="display:flex;align-items:center;gap:8px">'
-                      +'<span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:'+COLOR_GASTO+';flex-shrink:0"></span>'
-                      +'<div style="min-width:0">'
-                        +'<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Gasto</div>'
+                  // Dona a la izquierda
+                  +'<svg width="120" height="120" viewBox="-5 -5 98 98" style="transform:rotate(-90deg);flex-shrink:0;overflow:visible">'+pieSvg+'</svg>'
+                  // Info a la derecha (Gasto y OC con su % del total)
+                  +'<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:10px">'
+                    // Gasto (amarillo)
+                    +'<div style="display:flex;align-items:flex-start;gap:8px">'
+                      +'<span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:'+COLOR_GASTO+';flex-shrink:0;margin-top:3px"></span>'
+                      +'<div style="min-width:0;flex:1">'
+                        +'<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Gasto · '+pctGastoDelTotal+'%</div>'
                         +'<div style="font-family:\'Syne\',sans-serif;font-size:14px;font-weight:700;color:'+COLOR_GASTO+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+fmt(gp)+'</div>'
                       +'</div>'
                     +'</div>'
-                    +'<div style="display:flex;align-items:center;gap:8px">'
-                      +'<span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:'+COLOR_OC+';flex-shrink:0"></span>'
-                      +'<div style="min-width:0">'
-                        +'<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">OC</div>'
+                    // OC (verde)
+                    +'<div style="display:flex;align-items:flex-start;gap:8px">'
+                      +'<span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:'+COLOR_OC+';flex-shrink:0;margin-top:3px"></span>'
+                      +'<div style="min-width:0;flex:1">'
+                        +'<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">OC · '+pctOCDelTotal+'%</div>'
                         +'<div style="font-family:\'Syne\',sans-serif;font-size:14px;font-weight:700;color:'+COLOR_OC+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+fmt(oc)+'</div>'
                       +'</div>'
                     +'</div>'
                   +'</div>'
                 +'</div>'
-                // Semáforo abajo (full width)
-                +'<div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 12px;background:'+semColor+'15;border:1px solid '+semColor+'40;border-radius:20px;margin-top:2px">'
-                  +'<span style="font-size:14px">'+semIc+'</span>'
-                  +'<span style="font-size:11px;font-weight:700;color:'+semColor+';text-transform:uppercase;letter-spacing:0.5px">'+semLbl+' · '+pctGasto+'%</span>'
+                // Total destacado abajo
+                +'<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-top:2px">'
+                  +'<span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:700">Total</span>'
+                  +'<span style="font-family:\'Syne\',sans-serif;font-size:16px;font-weight:800;color:var(--text)">'+fmt(total)+'</span>'
                 +'</div>';
             })()
           :
             '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;color:var(--muted);font-size:11px;text-align:center;padding:30px 0">'
-              +(_esC?'—':'<span style="font-size:32px;display:block;margin-bottom:6px">📊</span>Sin OC<br><span style="font-size:9px">configurada</span>')
+              +(_esC?'—':'<span style="font-size:32px;display:block;margin-bottom:6px">📊</span>Sin datos<br><span style="font-size:9px">configurados</span>')
             +'</div>'
           )
         +'</div>'
+
+        // ════ TARJETA 3 (33%): SEMÁFORO COSTO/m² vs PROMEDIO HISTÓRICO ════
+        +(!_esC?(function(){
+          var analisis=analizarCostoProyecto(p);
+          var cardBg='var(--surface)';
+          var borderHover=analisis.color||'var(--accent)';
+          var html='<div onclick="verProy(\''+p.id+'\')" style="cursor:pointer;background:'+cardBg+';border:1px solid var(--border);border-radius:12px;padding:14px 16px;transition:all .15s;display:flex;flex-direction:column;gap:10px" onmouseover="this.style.borderColor=\''+borderHover+'\';this.style.transform=\'translateY(-1px)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.transform=\'none\'">'
+            +'<div style="font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.7px;font-weight:700">Costo por m² · vs Histórico</div>';
+
+          if(analisis.nivel==='sin_datos'){
+            // Sin datos: muestra mensaje y CTA opcional
+            html+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:14px 6px;gap:8px">'
+              +'<span style="font-size:32px;opacity:0.6">📐</span>'
+              +'<div style="font-size:11px;color:var(--muted);line-height:1.4">'+esc(analisis.motivo)+'</div>'
+              +'<div style="font-size:10px;color:var(--accent);font-weight:600">Configura los m² en Identificación</div>'
+            +'</div>';
+          } else {
+            // Con análisis válido: mostrar semáforo + datos
+            var costoStr=fmt(Math.round(analisis.costoPropio));
+            var promStr=fmt(Math.round(analisis.promedio));
+            var deltaSign=analisis.deltaPct>=0?'+':'';
+            html+='<div style="display:flex;align-items:center;gap:14px;flex:1">'
+                // Indicador grande visual a la izquierda
+                +'<div style="flex-shrink:0;width:90px;height:90px;border-radius:50%;background:'+analisis.color+'15;border:3px solid '+analisis.color+';display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px">'
+                  +'<div style="font-size:24px;line-height:1">'+analisis.ic+'</div>'
+                  +'<div style="font-family:\'Syne\',sans-serif;font-size:14px;font-weight:800;color:'+analisis.color+';line-height:1">'+deltaSign+analisis.deltaPct+'%</div>'
+                +'</div>'
+                // Info a la derecha: costo propio + promedio
+                +'<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px">'
+                  +'<div>'
+                    +'<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Este proyecto</div>'
+                    +'<div style="font-family:\'Syne\',sans-serif;font-size:14px;font-weight:700;color:var(--text)">$'+costoStr+'<span style="font-size:10px;color:var(--muted);font-weight:500"> /m²</span></div>'
+                  +'</div>'
+                  +'<div>'
+                    +'<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Promedio histórico</div>'
+                    +'<div style="font-family:\'Syne\',sans-serif;font-size:13px;font-weight:600;color:var(--muted)">$'+promStr+'<span style="font-size:10px;font-weight:500"> /m²</span></div>'
+                    +'<div style="font-size:9.5px;color:var(--muted);margin-top:2px">Base: '+analisis.n+' proy. finalizados</div>'
+                  +'</div>'
+                +'</div>'
+              +'</div>'
+              // Pill semáforo abajo
+              +'<div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 12px;background:'+analisis.color+'15;border:1px solid '+analisis.color+'40;border-radius:20px;margin-top:2px">'
+                +'<span style="font-size:11px;font-weight:700;color:'+analisis.color+';text-transform:uppercase;letter-spacing:0.5px">'+analisis.ic+' '+analisis.label+'</span>'
+              +'</div>';
+          }
+          html+='</div>';
+          return html;
+        })():'<div></div>')
 
       +'</div>'; // cierre proy-row
     });
@@ -8375,6 +8325,7 @@ function renderDashboard(){
     +'<div style="font-family:\'Syne\',sans-serif;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:10px">'+np+' Proyecto'+(np!==1?'s':'')+'</div>'
     // CSS responsivo: en desktop 70/30, en mobile (<700px) ambas 100% apiladas
     +'<style>'
+    +'@media(max-width:1100px){.proy-row{grid-template-columns:1fr 1fr !important}}'
     +'@media(max-width:700px){.proy-row{grid-template-columns:1fr !important}}'
     +'</style>'
     +proyCards;
@@ -8676,10 +8627,7 @@ function render(){
   if((S.activeTab==='proyectos'||S.activeTab==='dashboard')&&puedeVer('proyectos')){
     haHtml+=`<button class="btn btn-primary" onclick="abrirModalNuevoProyecto()">+ Nuevo Proyecto</button>`;
   }
-  if(puedeVer('importar')){
-    var impActive=S.activeTab==='importar';
-    haHtml+=`<button class="btn btn-secondary btn-sm" onclick="goTab('importar')" title="Importar datos desde Excel/CSV" style="${impActive?'color:var(--green);border-color:var(--green)':''}">📥</button>`;
-  }
+  // El botón Importar se quitó del topbar — ahora vive en Configuración → Herramientas Admin
   ha.innerHTML=haHtml;
   if(S.activeTab==='home')renderHome();
   else if(S.activeTab==='dashboard')renderDashboard();
@@ -9782,8 +9730,7 @@ function renderMantEquipos(){
     +tabBtn('activo','✓ Activos',contActivo)
     +tabBtn('almacenado','📦 Almacenados',contAlmac)
     +tabBtn('baja','✕ Dados de baja',contBaja)
-    +'<button class="btn btn-secondary btn-sm" onclick="modalLimpiezaEquipos()" style="color:var(--accent);border-color:var(--accent);margin-left:auto">🧹 Limpiar nombres</button>'
-    +'<button class="btn btn-secondary btn-sm" onclick="renderMantMovimientos()">📋 Historial movimientos</button>'
+    +'<button class="btn btn-secondary btn-sm" onclick="renderMantMovimientos()" style="margin-left:auto">📋 Historial movimientos</button>'
     +'</div>'
     +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">'
     +'<select style="max-width:340px" onchange="S._mantEqFiltro=this.value;S._mantEqPag=0;renderMantEquipos()">'+centrosOpts+'</select>'
@@ -12284,7 +12231,10 @@ function asistRenderRegistro(tecnicos){
   var sinRegistrar=tecnicos.filter(function(t){return!registros.find(function(r){return r.tecnicoId===t.id;});});
   if(sinRegistrar.length>0){
     listaHTML+='<div style="margin-top:8px;padding:12px 14px;background:#2a0a0a;border-radius:8px;border:1px solid #5a1a1a">'
-      +'<div style="font-size:12px;color:#e84040;font-weight:700;margin-bottom:8px">⚠ '+sinRegistrar.length+' empleado(s) sin registrar — marca como falta o registra:</div>'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px;flex-wrap:wrap">'
+        +'<div style="font-size:12px;color:#e84040;font-weight:700">⚠ '+sinRegistrar.length+' empleado(s) sin registrar — marca como falta o registra:</div>'
+        +(sinRegistrar.length>=3?'<button onclick="asistMarcarFaltaTodos(\''+fechaSel+'\')" class="btn btn-danger btn-sm" title="Marcar a todos los empleados sin registrar como falta (X) en una sola operación">✗ Marcar TODOS como falta</button>':'')
+      +'</div>'
       +'<div style="display:flex;flex-direction:column;gap:6px">';
     sinRegistrar.forEach(function(t){
       listaHTML+='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 10px;background:var(--surface);border-radius:6px">'
@@ -12402,6 +12352,33 @@ function asistMarcarFalta(tecId,fecha){
   });
   saveData();
   toast('✓ Marcado como falta');
+  renderAsistencia();
+}
+
+// Marcar TODOS los empleados sin registrar como falta en UNA SOLA operación
+// Esto evita race conditions y evita superar el límite de 1MB de Firestore
+async function asistMarcarFaltaTodos(fecha){
+  var datos=asistData();
+  // Obtener lista de técnicos activos
+  var tecnicos=(S.usuarios||[]).filter(function(u){return u.activo!==false;});
+  // Encontrar quiénes no tienen registro hoy
+  var sinRegistrar=tecnicos.filter(function(t){
+    return !datos.registros.find(function(r){return r.tecnicoId===t.id&&r.fecha===fecha;});
+  });
+  if(sinRegistrar.length===0){toast('Todos ya tienen registro');return;}
+  if(!confirm('¿Marcar a '+sinRegistrar.length+' empleado(s) como falta (X) para el '+fecha+'?\n\nEsto se guardará en una sola operación.'))return;
+  // Agregar todos los registros en memoria SIN guardar todavía
+  sinRegistrar.forEach(function(t){
+    datos.registros.push({
+      id:genId(),tecnicoId:t.id,fecha:fecha,horaEntrada:'',
+      estado:'X',rutaNombre:'',observacion:'No reportó',minutosTarde:0
+    });
+  });
+  // UN SOLO saveData() para todos
+  toast('⏳ Guardando '+sinRegistrar.length+' registros...');
+  await saveData();
+  toast('✓ '+sinRegistrar.length+' empleados marcados como falta');
+  logAction('ASIST_FALTA_BATCH','asistencia',sinRegistrar.length+' empleados marcados como falta el '+fecha);
   renderAsistencia();
 }
 
@@ -13344,7 +13321,6 @@ function renderTallerVehiculos(){
     '<div class="info-box">🚚 <strong>Gestión de Flota Vehicular.</strong> Haz clic en cualquier fila para ver la ficha completa del vehículo con historial de fallas, mantenimientos y observaciones. El semáforo indica el estado: 🟢 al día · 🟡 atención · 🔴 crítico · ⚫ de baja.</div>'
     +'<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center">'
       +'<button class="btn btn-primary" onclick="modalVehiculo(\'\')">+ Nuevo Vehículo</button>'
-      +'<button class="btn btn-secondary btn-sm" onclick="autoVincularChoferes()" title="Busca usuarios chofer cuyo nombre coincida con el campo motorista del vehículo y rellena choferId automáticamente" style="color:var(--accent);border-color:var(--accent)">🔗 Auto-vincular choferes</button>'
       +'<input type="text" placeholder="🔍 Buscar por placa, marca, modelo, motorista, ruta..." value="'+esc(q)+'" oninput="S._tallerVehSrch=this.value;clearTimeout(S._tvtm);S._tvtm=setTimeout(renderTallerVehiculos,300)" style="flex:1;min-width:240px;max-width:500px">'
       +'<div style="font-size:12px;color:var(--muted)">Total: <strong>'+vehs.length+'</strong>'+(q&&vehs.length!==t.vehiculos.length?' de '+t.vehiculos.length:'')+'</div>'
     +'</div>'
@@ -13802,6 +13778,186 @@ async function autoVincularChoferes(){
   alert(msg);
   if(vinculados>0)logAction('AUTO_VINCULAR','taller_vehiculos',vinculados+' vehículos vinculados a chofer');
   renderTallerVehiculos();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CORREGIR KILOMETRAJE DE VEHÍCULO — para errores de captura,
+// cambio de odómetro, o resets. Solo afecta v.km (km actual),
+// no toca el historial de combustible ni reportes diarios para
+// preservar trazabilidad.
+// ═══════════════════════════════════════════════════════════════════
+function modalCorregirKmVehiculo(){
+  // Solo admin/supervisor
+  var rol=(S.currentUser&&S.currentUser.rol)||'';
+  if(rol!=='admin'&&rol!=='supervisor'){
+    toast('Solo administradores y supervisores pueden corregir kilometrajes',true);
+    return;
+  }
+  var t=tallerData();
+  var vehs=(t.vehiculos||[]).filter(function(v){return v.estado!=='baja';})
+    .sort(function(a,b){return (a.placa||'').localeCompare(b.placa||'');});
+  if(vehs.length===0){
+    toast('No hay vehículos activos',true);
+    return;
+  }
+  var opts='<option value="">— Seleccionar vehículo —</option>'
+    +vehs.map(function(v){
+      return '<option value="'+esc(v.id)+'" data-km="'+(v.km||0)+'">'
+        +esc(v.placa||'(sin placa)')+' · '+esc(v.marca||'')+' '+esc(v.modelo||'')
+      +'</option>';
+    }).join('');
+
+  (function(_e){if(_e)_e.remove();})(document.getElementById('modalCorrKm'));
+  var html='<div id="modalCorrKm" class="modal open"><div class="modal-box" style="max-width:520px">'
+    +'<div class="modal-hdr">'
+      +'<span class="modal-ttl">🔢 Corregir kilometraje de vehículo</span>'
+      +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalCorrKm\').remove()">✕</button>'
+    +'</div>'
+    +'<div style="font-size:12px;color:var(--muted);background:var(--surface2);padding:10px 12px;border-radius:8px;margin-bottom:14px;border-left:3px solid var(--accent)">'
+      +'⚠ Esta acción modifica solo el <strong>km actual</strong> del vehículo. El historial de combustible y reportes diarios <strong>NO se modifican</strong> para preservar la trazabilidad.'
+    +'</div>'
+
+    +'<div class="fg">'
+      +'<label>Vehículo *</label>'
+      +'<select id="ckVehiculo" onchange="ckVehiculoChange()">'+opts+'</select>'
+    +'</div>'
+
+    +'<div id="ckInfo" style="display:none;background:var(--surface2);padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:13px"></div>'
+
+    +'<div class="row2">'
+      +'<div class="fg">'
+        +'<label>Km actual registrado</label>'
+        +'<input id="ckKmActual" type="text" disabled style="opacity:0.7" placeholder="Selecciona vehículo primero">'
+      +'</div>'
+      +'<div class="fg">'
+        +'<label>Nuevo km correcto *</label>'
+        +'<input id="ckKmNuevo" type="number" min="0" step="1" placeholder="Ej: 125400">'
+      +'</div>'
+    +'</div>'
+
+    +'<div class="fg">'
+      +'<label>Razón / Motivo *</label>'
+      +'<textarea id="ckRazon" rows="3" placeholder="Ej: error de captura del chofer (puso 12500 en lugar de 125000), cambio de odómetro físico, etc."></textarea>'
+    +'</div>'
+
+    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;border-top:1px solid var(--border);padding-top:14px">'
+      +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalCorrKm\').remove()">Cancelar</button>'
+      +'<button class="btn btn-primary" onclick="aplicarCorreccionKm()" style="background:var(--accent);color:#000">✓ Aplicar corrección</button>'
+    +'</div>'
+  +'</div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+
+// Cuando cambia el vehículo seleccionado, mostrar info actual
+function ckVehiculoChange(){
+  var sel=document.getElementById('ckVehiculo');
+  var info=document.getElementById('ckInfo');
+  var kmActualInput=document.getElementById('ckKmActual');
+  var kmNuevoInput=document.getElementById('ckKmNuevo');
+  if(!sel||!info||!kmActualInput)return;
+
+  var vehId=sel.value;
+  if(!vehId){
+    info.style.display='none';
+    kmActualInput.value='';
+    kmNuevoInput.value='';
+    return;
+  }
+
+  var t=tallerData();
+  var v=(t.vehiculos||[]).find(function(x){return x.id===vehId;});
+  if(!v)return;
+
+  // Mostrar info contextual del vehículo
+  var kmInicial=parseFloat(v.kmInicial)||0;
+  var kmActual=parseFloat(v.km)||0;
+  var totalReportes=((v.reportesDiarios||[]).length)||0;
+  var ultimoReporte=(v.reportesDiarios&&v.reportesDiarios.length>0)
+    ?v.reportesDiarios[v.reportesDiarios.length-1]:null;
+
+  var infoHtml='<div style="font-size:12px;line-height:1.6">'
+    +'<div><strong>'+esc(v.placa||'')+'</strong> · '+esc(v.marca||'')+' '+esc(v.modelo||'')+'</div>'
+    +'<div style="color:var(--muted)">Km inicial (registro): '+kmInicial.toLocaleString()+' km</div>'
+    +'<div style="color:var(--muted)">Total reportes diarios: '+totalReportes+'</div>'
+    +(ultimoReporte?'<div style="color:var(--muted)">Último reporte: '+esc(ultimoReporte.fecha||'')+' · '+(parseFloat(ultimoReporte.km)||0).toLocaleString()+' km</div>':'')
+  +'</div>';
+  info.innerHTML=infoHtml;
+  info.style.display='block';
+
+  kmActualInput.value=kmActual.toLocaleString()+' km';
+  kmNuevoInput.value=kmActual; // pre-llenar con el actual para que solo edite la diferencia
+  kmNuevoInput.focus();
+  kmNuevoInput.select();
+}
+
+async function aplicarCorreccionKm(){
+  var vehId=(document.getElementById('ckVehiculo')||{}).value;
+  var kmNuevoStr=(document.getElementById('ckKmNuevo')||{}).value;
+  var razon=((document.getElementById('ckRazon')||{}).value||'').trim();
+
+  if(!vehId){toast('Selecciona un vehículo',true);return;}
+  if(!kmNuevoStr){toast('Ingresa el nuevo km',true);return;}
+  if(!razon){toast('La razón / motivo es obligatoria',true);return;}
+  if(razon.length<5){toast('La razón debe tener al menos 5 caracteres',true);return;}
+
+  var kmNuevo=Math.round(parseFloat(kmNuevoStr)||0);
+  if(kmNuevo<0){toast('El km no puede ser negativo',true);return;}
+
+  var t=tallerData();
+  var v=(t.vehiculos||[]).find(function(x){return x.id===vehId;});
+  if(!v){toast('Vehículo no encontrado',true);return;}
+
+  var kmAntes=parseFloat(v.km)||0;
+  if(kmAntes===kmNuevo){
+    toast('El km nuevo es igual al actual, no hay nada que corregir',true);
+    return;
+  }
+
+  // Confirmar la operación
+  var diff=kmNuevo-kmAntes;
+  var diffStr=(diff>=0?'+':'')+diff.toLocaleString();
+  if(!confirm(
+    'CONFIRMAR CORRECCIÓN DE KILOMETRAJE\n'
+    +'═══════════════════════════════════\n\n'
+    +'Vehículo: '+(v.placa||'')+' · '+(v.marca||'')+' '+(v.modelo||'')+'\n\n'
+    +'Km actual:   '+kmAntes.toLocaleString()+' km\n'
+    +'Km nuevo:    '+kmNuevo.toLocaleString()+' km\n'
+    +'Diferencia:  '+diffStr+' km\n\n'
+    +'Razón: '+razon+'\n\n'
+    +'⚠ Esta acción se registrará en el log de actividad con tu nombre y la razón. ¿Continuar?'
+  ))return;
+
+  // Aplicar el cambio
+  v.km=kmNuevo;
+
+  // Inicializar el array de correcciones del vehículo si no existe
+  if(!v.correccionesKm)v.correccionesKm=[];
+  v.correccionesKm.push({
+    fecha:new Date().toISOString(),
+    usuario:(S.currentUser&&(S.currentUser.email||S.currentUser.nombre))||'(desconocido)',
+    kmAntes:kmAntes,
+    kmDespues:kmNuevo,
+    diferencia:diff,
+    razon:razon
+  });
+
+  // Limitar a las últimas 50 correcciones por vehículo (para no saturar el doc)
+  if(v.correccionesKm.length>50)v.correccionesKm=v.correccionesKm.slice(-50);
+
+  await saveData();
+
+  // Registrar al log de actividad del sistema
+  logAction(
+    'CORREGIR_KM',
+    'taller_vehiculos',
+    'Vehículo '+(v.placa||v.id)+' · '+kmAntes.toLocaleString()+' → '+kmNuevo.toLocaleString()+' km · Razón: '+razon
+  );
+
+  toast('✓ Kilometraje corregido para '+(v.placa||'vehículo'));
+  document.getElementById('modalCorrKm').remove();
+
+  // Refrescar dashboard del taller si está abierto
+  if(S.activeTab==='taller_vehiculos'||S.activeTab==='taller_dashboard')render();
 }
 
 function guardarVehiculo(id){
@@ -14445,7 +14601,6 @@ function renderTallerServicios(){
     '<div class="info-box">🔧 <strong>Catálogo único de servicios del taller.</strong> Alimentan Mantenimientos Programados, OT y Solicitudes de Revisión de choferes.</div>'
     +'<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">'
       +'<button class="btn btn-primary btn-sm" onclick="modalServicio(\'\')">+ Nuevo Servicio</button>'
-      +'<button class="btn btn-secondary btn-sm" onclick="srvSeedCatalogo()" style="color:var(--accent);border-color:var(--accent)">📥 Cargar 35 básicos</button>'
     +'</div>'
     +'<div style="margin-bottom:12px;display:flex;gap:4px;flex-wrap:wrap">'+catTabs+'</div>'
     +cardsHtml;
