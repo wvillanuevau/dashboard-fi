@@ -6614,6 +6614,18 @@ function renderConfig(){
       </div>
     </div>
 
+    <!-- 🚀 Migración / Optimización -->
+    <div class="ha-block" style="margin-bottom:14px">
+      <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:8px">🚀 Optimización de almacenamiento</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <button class="btn btn-secondary btn-sm" onclick="diagnosticarTamañoDoc()" title="Mostrar el tamaño del documento de Firestore y desglose por sección">📊 Diagnóstico de tamaño</button>
+        <button class="btn btn-secondary btn-sm" onclick="migrarArchivosBase64()" title="Mueve archivos base64 (PDFs, imágenes) inline a Firebase Storage. Reduce el tamaño del documento principal.">🔄 Migrar archivos base64 a Storage</button>
+      </div>
+      <div style="font-size:10.5px;color:var(--muted);margin-top:6px;line-height:1.4">
+        💡 La migración mueve archivos pesados (imágenes, PDFs) que están guardados directamente en el documento principal hacia Firebase Storage, reemplazándolos por enlaces. Esto puede reducir el tamaño del documento en cientos de KB.
+      </div>
+    </div>
+
     <!-- 🧹 Limpieza de datos -->
     <div class="ha-block" style="margin-bottom:14px">
       <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:8px">🧹 Limpieza de datos</div>
@@ -13786,6 +13798,266 @@ async function autoVincularChoferes(){
 // no toca el historial de combustible ni reportes diarios para
 // preservar trazabilidad.
 // ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// DIAGNÓSTICO DE TAMAÑO DEL DOCUMENTO FIRESTORE
+// Muestra al admin qué pesa qué, para decidir qué migrar/limpiar
+// ═══════════════════════════════════════════════════════════════════
+function diagnosticarTamañoDoc(){
+  var rol=(S.currentUser&&S.currentUser.rol)||'';
+  if(rol!=='admin'&&rol!=='supervisor'){
+    toast('Solo administradores y supervisores',true);
+    return;
+  }
+
+  // Calcular tamaños de cada sección
+  var secciones=[];
+  Object.keys(S).forEach(function(k){
+    if(k.startsWith('_')||k==='currentUser'||k==='empresa')return; // saltar internos
+    try{
+      var sz=JSON.stringify(S[k]||null).length;
+      var cnt=Array.isArray(S[k])?S[k].length:'-';
+      secciones.push({nombre:k,tamaño:sz,items:cnt});
+    }catch(e){}
+  });
+  secciones.sort(function(a,b){return b.tamaño-a.tamaño;});
+  var total=secciones.reduce(function(s,x){return s+x.tamaño;},0);
+
+  // Analizar archivos base64 en proyectos
+  var archivosBase64=[];
+  (S.proyectos||[]).forEach(function(p){
+    var arch=(p.planificacion&&p.planificacion.archivos)||[];
+    arch.forEach(function(a){
+      if(a.data&&!a.url){
+        archivosBase64.push({proyecto:p.nombre,archivo:a.nombre||'(sin nombre)',tamaño:JSON.stringify(a).length,tipo:a.tipo||'?'});
+      }
+    });
+  });
+  archivosBase64.sort(function(a,b){return b.tamaño-a.tamaño;});
+  var totalBase64=archivosBase64.reduce(function(s,x){return s+x.tamaño;},0);
+
+  // Construir HTML del modal
+  var html='<div id="modalDiagTam" class="modal open"><div class="modal-box" style="max-width:680px">'
+    +'<div class="modal-hdr">'
+      +'<span class="modal-ttl">📊 Diagnóstico de Tamaño del Documento</span>'
+      +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalDiagTam\').remove()">✕</button>'
+    +'</div>'
+
+    +'<div style="background:'+(total>900000?'#3a1f0a':'#0f2920')+';padding:12px 14px;border-radius:8px;margin-bottom:14px;border-left:3px solid '+(total>900000?'#e8a020':'#2db87a')+'">'
+      +'<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;margin-bottom:4px">Tamaño total del documento</div>'
+      +'<div style="font-family:\'Syne\',sans-serif;font-size:22px;font-weight:800;color:'+(total>900000?'#e8a020':'#2db87a')+'">'+(total/1024).toFixed(0)+' KB <span style="font-size:13px;color:var(--muted);font-weight:500"> de 1024 KB máximo</span></div>'
+      +'<div style="font-size:11px;color:var(--muted);margin-top:4px">Firestore tiene un límite de 1 MB (1024 KB) por documento</div>'
+    +'</div>'
+
+    +'<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;margin-bottom:6px">Top 8 secciones por tamaño</div>'
+    +'<div style="background:var(--surface2);border-radius:8px;padding:8px 10px;margin-bottom:14px">';
+
+  secciones.slice(0,8).forEach(function(s){
+    var pct=(s.tamaño/total*100).toFixed(0);
+    var barColor=s.tamaño>200000?'#e8a020':s.tamaño>100000?'#3b82f6':'#2db87a';
+    html+='<div style="display:flex;align-items:center;gap:10px;padding:5px 0;font-size:12px">'
+      +'<div style="flex:0 0 130px;font-weight:600">'+esc(s.nombre)+'</div>'
+      +'<div style="flex:1;background:var(--bg);height:14px;border-radius:7px;overflow:hidden;position:relative">'
+        +'<div style="width:'+pct+'%;height:100%;background:'+barColor+'"></div>'
+      +'</div>'
+      +'<div style="flex:0 0 65px;text-align:right;font-family:monospace">'+(s.tamaño/1024).toFixed(0)+' KB</div>'
+      +'<div style="flex:0 0 38px;text-align:right;color:var(--muted);font-size:11px">'+pct+'%</div>'
+    +'</div>';
+  });
+  html+='</div>';
+
+  // Sección de archivos base64
+  if(archivosBase64.length>0){
+    html+='<div style="background:#3a1f0a;border:1px solid #5a3a1a;border-radius:8px;padding:12px 14px;margin-bottom:14px">'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">'
+        +'<div style="font-weight:700;color:#e8a020;font-size:13px">⚠ Archivos base64 inline detectados</div>'
+        +'<div style="font-size:13px;font-weight:700;color:#e8a020">'+(totalBase64/1024).toFixed(0)+' KB</div>'
+      +'</div>'
+      +'<div style="font-size:11.5px;color:var(--muted);margin-bottom:10px;line-height:1.5">Estos archivos están guardados <strong>directamente</strong> en el documento principal en lugar de Firebase Storage. Ocupan espacio innecesario y pueden hacer que el documento supere 1 MB.</div>'
+      +'<div style="max-height:180px;overflow-y:auto;border-top:1px solid #5a3a1a;padding-top:8px">';
+    archivosBase64.slice(0,15).forEach(function(a){
+      var icono=a.tipo&&a.tipo.indexOf('pdf')>=0?'📄':a.tipo&&a.tipo.indexOf('image')>=0?'🖼':'📎';
+      html+='<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:11.5px">'
+        +'<span>'+icono+'</span>'
+        +'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(a.archivo)+'</span>'
+        +'<span style="color:var(--muted);font-size:10.5px">'+esc(a.proyecto)+'</span>'
+        +'<span style="font-family:monospace;font-size:11px;color:#e8a020">'+(a.tamaño/1024).toFixed(0)+' KB</span>'
+      +'</div>';
+    });
+    if(archivosBase64.length>15){
+      html+='<div style="font-size:10.5px;color:var(--muted);text-align:center;margin-top:6px">...y '+(archivosBase64.length-15)+' archivos más</div>';
+    }
+    html+='</div>'
+      +'<button class="btn btn-primary btn-sm" onclick="document.getElementById(\'modalDiagTam\').remove();migrarArchivosBase64()" style="margin-top:10px;width:100%">🔄 Migrar todos a Firebase Storage ('+archivosBase64.length+' archivos)</button>'
+    +'</div>';
+  } else {
+    html+='<div style="background:#0f2920;border:1px solid #1f4a3a;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:#2db87a">'
+      +'✓ No hay archivos base64 inline. Todos los archivos están en Firebase Storage.'
+    +'</div>';
+  }
+
+  html+='<div style="display:flex;justify-content:flex-end;border-top:1px solid var(--border);padding-top:12px;margin-top:8px">'
+      +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalDiagTam\').remove()">Cerrar</button>'
+    +'</div>'
+  +'</div></div>';
+
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MIGRACIÓN DE ARCHIVOS BASE64 A FIREBASE STORAGE
+// Recorre todos los proyectos, identifica archivos guardados en base64
+// inline, los sube a Firebase Storage y reemplaza data por url.
+// ═══════════════════════════════════════════════════════════════════
+async function migrarArchivosBase64(){
+  var rol=(S.currentUser&&S.currentUser.rol)||'';
+  if(rol!=='admin'&&rol!=='supervisor'){
+    toast('Solo administradores y supervisores',true);
+    return;
+  }
+  if(!window.FB||!window.FB.uploadFile){
+    toast('Firebase Storage no disponible',true);
+    return;
+  }
+
+  // Identificar archivos a migrar
+  var pendientes=[];
+  (S.proyectos||[]).forEach(function(p){
+    var arch=(p.planificacion&&p.planificacion.archivos)||[];
+    arch.forEach(function(a,idx){
+      if(a.data&&!a.url){
+        pendientes.push({proyectoId:p.id,proyectoNombre:p.nombre,archivoIdx:idx,archivo:a});
+      }
+    });
+  });
+
+  if(pendientes.length===0){
+    toast('✓ No hay archivos base64 para migrar');
+    return;
+  }
+
+  // Calcular tamaño total a liberar
+  var sizeTotalKB=Math.round(pendientes.reduce(function(s,p){return s+JSON.stringify(p.archivo).length;},0)/1024);
+
+  if(!confirm(
+    'MIGRAR ARCHIVOS BASE64 A FIREBASE STORAGE\n'
+    +'═══════════════════════════════════════════\n\n'
+    +'Archivos a migrar: '+pendientes.length+'\n'
+    +'Espacio a liberar: ~'+sizeTotalKB+' KB del documento\n\n'
+    +'Cada archivo se subirá a Firebase Storage y luego se reemplazará el base64 por un enlace.\n\n'
+    +'Este proceso puede tardar varios minutos según la cantidad y tamaño de los archivos. NO cierres la pestaña hasta que termine.\n\n'
+    +'¿Continuar?'
+  ))return;
+
+  // Crear modal de progreso
+  (function(_e){if(_e)_e.remove();})(document.getElementById('modalMigProg'));
+  var modal='<div id="modalMigProg" class="modal open"><div class="modal-box" style="max-width:480px">'
+    +'<div class="modal-hdr"><span class="modal-ttl">🔄 Migrando archivos…</span></div>'
+    +'<div id="migProgBody" style="padding:6px 0">'
+      +'<div style="font-size:13px;margin-bottom:10px"><span id="migProgN">0</span> de '+pendientes.length+' archivos migrados</div>'
+      +'<div style="background:var(--bg);height:18px;border-radius:9px;overflow:hidden;margin-bottom:10px">'
+        +'<div id="migProgBar" style="width:0%;height:100%;background:var(--accent);transition:width 0.3s"></div>'
+      +'</div>'
+      +'<div id="migProgLog" style="font-size:11px;color:var(--muted);max-height:140px;overflow-y:auto;background:var(--surface2);padding:8px 10px;border-radius:6px;font-family:monospace"></div>'
+    +'</div>'
+  +'</div></div>';
+  document.body.insertAdjacentHTML('beforeend',modal);
+
+  function logMigracion(msg){
+    var log=document.getElementById('migProgLog');
+    if(log){
+      log.innerHTML+=msg+'<br>';
+      log.scrollTop=log.scrollHeight;
+    }
+  }
+  function updateProg(n){
+    var pct=Math.round(n/pendientes.length*100);
+    var bar=document.getElementById('migProgBar');
+    var num=document.getElementById('migProgN');
+    if(bar)bar.style.width=pct+'%';
+    if(num)num.textContent=n;
+  }
+
+  // Procesar uno por uno (no en paralelo para no saturar Storage)
+  var ok=0,fallidos=0,errores=[];
+  for(var i=0;i<pendientes.length;i++){
+    var item=pendientes[i];
+    var p=(S.proyectos||[]).find(function(x){return x.id===item.proyectoId;});
+    if(!p||!p.planificacion||!p.planificacion.archivos[item.archivoIdx]){
+      logMigracion('⚠ Archivo no encontrado: '+item.archivo.nombre);
+      fallidos++;
+      continue;
+    }
+    var arch=p.planificacion.archivos[item.archivoIdx];
+    if(arch.url||!arch.data){
+      logMigracion('— Ya migrado: '+arch.nombre);
+      ok++;
+      updateProg(i+1);
+      continue;
+    }
+    var ts=arch.ts||Date.now();
+    var refId='plan_'+p.id+'_'+ts+'_'+i;
+    try{
+      logMigracion('⏳ Subiendo: '+arch.nombre+' ('+Math.round(arch.data.length/1024)+' KB)');
+      var r=await window.FB.uploadFile('archivos/'+S.empresa+'/'+refId,arch.data);
+      if(r.ok){
+        // Reemplazar base64 por URL — ELIMINAR data
+        arch.url=r.url;
+        arch.refId=refId;
+        delete arch.data;
+        ok++;
+        logMigracion('✓ '+arch.nombre);
+      } else {
+        fallidos++;
+        errores.push(arch.nombre+': '+(r.err||'error desconocido'));
+        logMigracion('✗ Error: '+arch.nombre+' — '+(r.err||'?'));
+      }
+    } catch(e){
+      fallidos++;
+      errores.push(arch.nombre+': '+e.message);
+      logMigracion('✗ Excepción: '+arch.nombre+' — '+e.message);
+    }
+    updateProg(i+1);
+
+    // Guardar progreso cada 5 archivos para no perder lo que ya se migró
+    if((i+1)%5===0){
+      try{await saveData();}catch(e){}
+    }
+  }
+
+  // Guardar el estado final
+  logMigracion('💾 Guardando cambios...');
+  try{
+    await saveData();
+    logMigracion('✓ Cambios guardados en Firebase');
+  }catch(e){
+    logMigracion('✗ Error guardando: '+e.message);
+  }
+
+  // Registrar en log de actividad
+  logAction('MIGRAR_BASE64','proyectos',ok+' archivos migrados a Storage, '+fallidos+' fallidos');
+
+  // Mostrar resumen
+  var resumen='\n'
+    +'═══════════════════════════════════════════\n'
+    +'MIGRACIÓN COMPLETADA\n'
+    +'═══════════════════════════════════════════\n'
+    +'Migrados con éxito: '+ok+'\n'
+    +'Fallidos: '+fallidos+'\n';
+  if(errores.length>0){
+    resumen+='\nErrores:\n'+errores.slice(0,10).join('\n');
+    if(errores.length>10)resumen+='\n...y '+(errores.length-10)+' más';
+  }
+  alert(resumen);
+
+  // Cerrar modal después de 1s
+  setTimeout(function(){
+    var m=document.getElementById('modalMigProg');
+    if(m)m.remove();
+  },1000);
+
+  toast('✓ Migración: '+ok+' archivos migrados ('+fallidos+' fallidos)');
+}
+
 function modalCorregirKmVehiculo(){
   // Solo admin/supervisor
   var rol=(S.currentUser&&S.currentUser.rol)||'';
