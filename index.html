@@ -102,10 +102,30 @@ window.FB={
           main.gastos=allGastos;
         }
       }catch(e2){/* gastos chunkeados no disponibles, usar gastos del doc principal */}
+      // Inicializar hash de gastos para que el primer save NO reescriba chunks innecesariamente
+      this._lastGastosHash=this._hashGastos(main.gastos||[]);
       return main;
     }catch(e){console.error('[FB] load:',e.code);return null}
   },
   // ── Guardado inteligente: separa gastos en chunks de 500 ──────────────
+  // Optimización: solo reescribe chunks si los gastos cambiaron (hash check).
+  // Esto evita saturar el "write stream" de Firestore cuando se hacen muchos
+  // cambios pequeños (asistencia, edits) que NO tocan los gastos.
+  _lastGastosHash: null, // hash del último estado de gastos guardado en chunks
+
+  // Hash simple djb2 (rápido, suficiente para detectar cambios)
+  _hashGastos(gastos){
+    if(!gastos||!gastos.length)return '0';
+    var h=5381;
+    // Usamos el id+valor+fecha+_ts como huella, evita serializar todo
+    for(var i=0;i<gastos.length;i++){
+      var g=gastos[i];
+      var s=(g.id||'')+'|'+(g.valor||0)+'|'+(g.fecha||'')+'|'+(g.proyectoId||'')+'|'+(g.factura||'');
+      for(var j=0;j<s.length;j++){h=((h<<5)+h)+s.charCodeAt(j);h=h&h;}
+    }
+    return gastos.length+'_'+h;
+  },
+
   async save(empresa,data){
     try{
       const CHUNK_SIZE=500; // 500 gastos por chunk ≈ 200KB
@@ -116,24 +136,39 @@ window.FB={
         mainDoc.gastos=[]; // doc principal sin gastos
         mainDoc._gastosChunked=true;
         mainDoc._gastosTotal=gastos.length;
-        // Guardar chunks en subcolección
-        const ref=_fbDb.collection('empresas').doc(empresa);
-        const batch=_fbDb.batch();
-        // Calcular cuántos chunks necesitamos
-        const numChunks=Math.ceil(gastos.length/CHUNK_SIZE);
-        for(let i=0;i<numChunks;i++){
-          const chunkRef=ref.collection('gastos_chunks').doc('chunk_'+i);
-          batch.set(chunkRef,{items:gastos.slice(i*CHUNK_SIZE,(i+1)*CHUNK_SIZE),_i:i,_ts:Date.now()});
+
+        // ═══════════════════════════════════════════════════════════════════
+        // OPTIMIZACIÓN: Solo reescribir chunks si los gastos cambiaron
+        // Esto evita 11 escrituras innecesarias por cada save sin cambios en gastos.
+        // ═══════════════════════════════════════════════════════════════════
+        const hashActual=this._hashGastos(gastos);
+        const sinCambios=(this._lastGastosHash===hashActual);
+
+        if(sinCambios){
+          // Gastos no cambiaron: saltar reescritura de chunks (ahorra ~11 escrituras y ~1.6 MB de tráfico)
+          console.log('[FB] Gastos sin cambios — omitiendo reescritura de chunks');
+        } else {
+          // Gastos cambiaron: reescribir chunks como antes
+          const ref=_fbDb.collection('empresas').doc(empresa);
+          const batch=_fbDb.batch();
+          const numChunks=Math.ceil(gastos.length/CHUNK_SIZE);
+          for(let i=0;i<numChunks;i++){
+            const chunkRef=ref.collection('gastos_chunks').doc('chunk_'+i);
+            batch.set(chunkRef,{items:gastos.slice(i*CHUNK_SIZE,(i+1)*CHUNK_SIZE),_i:i,_ts:Date.now()});
+          }
+          // Limpiar chunks sobrantes si hay menos que antes
+          try{
+            const existing=await ref.collection('gastos_chunks').get();
+            existing.docs.forEach(d=>{
+              const idx=parseInt(d.id.split('_')[1]||0);
+              if(idx>=numChunks)batch.delete(d.ref);
+            });
+          }catch(e2){}
+          await batch.commit();
+          // Actualizar hash SOLO después de commit exitoso
+          this._lastGastosHash=hashActual;
+          console.log('[FB] Chunks de gastos reescritos: '+numChunks+' chunks, '+gastos.length+' gastos');
         }
-        // Limpiar chunks sobrantes si hay menos que antes
-        try{
-          const existing=await ref.collection('gastos_chunks').get();
-          existing.docs.forEach(d=>{
-            const idx=parseInt(d.id.split('_')[1]||0);
-            if(idx>=numChunks)batch.delete(d.ref);
-          });
-        }catch(e2){}
-        await batch.commit();
       } else {
         // Pocos gastos: guardar en doc principal, limpiar chunks si existían
         mainDoc._gastosChunked=false;
@@ -146,6 +181,8 @@ window.FB={
             await batch2.commit();
           }
         }catch(e2){}
+        // Resetear hash porque ya no se usa chunking
+        this._lastGastosHash=null;
       }
       // Verificar tamaño del doc principal (límite Firestore 1MB = 1048576 bytes)
       var docStr=JSON.stringify(mainDoc);
