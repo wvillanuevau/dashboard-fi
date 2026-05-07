@@ -1116,6 +1116,18 @@ input[type=date]{color-scheme:dark}
 </div>
 
 <!-- PORTAL PÚBLICO MANTENIMIENTO -->
+<!-- PORTAL PÚBLICO TÉCNICOS -->
+<div id="portalTecnicoDiv" style="display:none;min-height:100vh;background:#0a0f0a;color:#e4e2dd;font-family:'Inter',sans-serif">
+  <div style="max-width:580px;margin:0 auto;padding:24px 16px 60px">
+    <div style="text-align:center;margin-bottom:24px">
+      <div style="font-size:28px;margin-bottom:6px">🔧</div>
+      <div id="portalTecEmpLogo" style="font-size:22px;font-weight:700;margin-bottom:4px">FISDC</div>
+      <div style="font-size:13px;color:#888;margin-bottom:16px">Portal de técnicos — Órdenes de trabajo</div>
+      <div style="height:2px;background:linear-gradient(90deg,transparent,#2db87a,transparent)"></div>
+    </div>
+    <div id="portalTecArea"></div>
+  </div>
+</div>
 <!-- SUPERADMIN PANEL -->
 <div id="saPanel">
   <div class="sa-layout">
@@ -1205,14 +1217,26 @@ input[type=date]{color-scheme:dark}
 var _portalModeActive = (function(){
   var params = new URLSearchParams(window.location.search);
   var empresa = params.get('portal');
-  if (!empresa) return false;
-  var lp = document.getElementById('loginPage');
-  if (lp) lp.style.display = 'none';
-  var pd = document.getElementById('portalMantDiv');
-  if (pd) pd.style.display = 'block';
-  var lbl = document.getElementById('portalEmpLogo');
-  if (lbl) lbl.textContent = empresa;
-  return true;
+  if (empresa) {
+    var lp = document.getElementById('loginPage');
+    if (lp) lp.style.display = 'none';
+    var pd = document.getElementById('portalMantDiv');
+    if (pd) pd.style.display = 'block';
+    var lbl = document.getElementById('portalEmpLogo');
+    if (lbl) lbl.textContent = empresa;
+    return 'mant';
+  }
+  var tecnico = params.get('tecnico');
+  if (tecnico) {
+    var lp2 = document.getElementById('loginPage');
+    if (lp2) lp2.style.display = 'none';
+    var pd2 = document.getElementById('portalTecnicoDiv');
+    if (pd2) pd2.style.display = 'block';
+    var lbl2 = document.getElementById('portalTecEmpLogo');
+    if (lbl2) lbl2.textContent = tecnico;
+    return 'tec';
+  }
+  return false;
 })();
 
 // ═══════════════════════════════════════════════════════
@@ -1225,7 +1249,7 @@ const ROLES={
   viewer:{label:'Viewer',color:'b-neu',modulos:['dashboard','proyectos']},
   cliente:{label:'Cliente',color:'b-purple',modulos:['proyectos']}, // solo general, planificacion, cronograma
   contratista:{label:'Contratista',color:'b-blue',modulos:['proyectos']}, // solo cronograma: precio, fechas, checks, gantt, imprimir
-  chofer:{label:'Chofer',color:'b-blue',modulos:['chofer_portal']} // portal del chofer únicamente
+  chofer:{label:'Chofer',color:'b-blue',modulos:['chofer_portal']}, // portal del chofer únicamente
 };
 
 // Unidades de medida para cronograma
@@ -2176,10 +2200,31 @@ function _syncPortalPublico(){
     .filter(function(e){return !e.estado||e.estado==='activo';})
     .map(function(e){return{id:e.id,nombre:e.nombre,ubicacionId:e.ubicacionId||e.centroId||'',ubicacionTipo:e.ubicacionTipo||'centro',categoria:e.categoria||''};});
   var centrosPublicos=(S.centros||[]).map(function(c){return{id:c.id,nombre:c.nombre};});
+  var tecnicosPublicos=((S.mantenimiento&&S.mantenimiento.tecnicos)||[])
+    .filter(function(t){return t.activo!==false;})
+    .map(function(t){return{id:t.id,nombre:t.nombre};});
+  // OTs activas con info mínima para el portal del técnico
+  var otsPublicas=((S.mantenimiento&&S.mantenimiento.ots)||[])
+    .filter(function(o){return o.estado!=='baja';})
+    .map(function(o){
+      var eq=((S.mantenimiento&&S.mantenimiento.equipos)||[]).find(function(e){return e.id===o.equipoId;})||{};
+      return{
+        id:o.id,tecnicoId:o.tecnicoId||'',centroId:o.centroId||'',
+        equipoNombre:eq.nombre||o.equipoId||'—',
+        descripcion:(o.descripcion||'').substring(0,200),
+        estado:o.estado||'pendiente',
+        fechaProgramada:o.fechaProgramada||'',
+        solicitanteNombre:o.solicitanteNombre||'',
+        solicitanteTel:o.solicitanteTel||'',
+        origenSolicitud:o.origenSolicitud||''
+      };
+    });
   db.collection('portalesPublicos').doc(S.empresa).set({
     empresa:S.empresa,
     centros:centrosPublicos,
     equipos:equiposPublicos,
+    tecnicos:tecnicosPublicos,
+    ots:otsPublicas,
     _ts:Date.now()
   },{merge:true}).catch(function(e){console.warn('[Portal] Sync error:',e.message);});
 }
@@ -10826,6 +10871,7 @@ function _renderSolicitudesList(docs, m) {
   }
 
   var portalUrl = window.location.href.split('?')[0]+'?portal='+encodeURIComponent(S.empresa);
+  var tecPortalUrl = window.location.href.split('?')[0]+'?tecnico='+encodeURIComponent(S.empresa);
   content.innerHTML =
     '<div class="kpi-grid" style="margin-bottom:14px">'
     +'<div class="kpi"><div class="kpi-lbl" style="color:var(--accent)">Nuevas</div><div class="kpi-val" style="color:var(--accent)">'+cNueva+'</div></div>'
@@ -10833,10 +10879,16 @@ function _renderSolicitudesList(docs, m) {
     +'<div class="kpi"><div class="kpi-lbl" style="color:#8B5CF6">En proceso</div><div class="kpi-val" style="color:#8B5CF6">'+cEnProc+'</div></div>'
     +'<div class="kpi"><div class="kpi-lbl" style="color:var(--green)">Finalizadas</div><div class="kpi-val" style="color:var(--green)">'+cFin+'</div></div>'
     +'</div>'
-    +'<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
-    +'<span style="font-size:12px;color:var(--muted)">🔗 Link del portal:</span>'
+    +'<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+    +'<span style="font-size:12px;color:var(--muted)">🔗 Portal solicitudes:</span>'
     +'<code style="font-size:12px;background:var(--surface);padding:3px 10px;border-radius:6px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+portalUrl+'</code>'
     +'<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(\''+portalUrl+'\').then(function(){toast(\'Link copiado\')})">📋 Copiar</button>'
+    +'</div>'
+    +'<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+    +'<span style="font-size:12px;color:var(--muted)">🔧 Portal técnicos:</span>'
+    +'<code style="font-size:12px;background:var(--surface);padding:3px 10px;border-radius:6px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+tecPortalUrl+'</code>'
+    +'<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(\''+tecPortalUrl+'\').then(function(){toast(\'Link copiado\')})">📋 Copiar</button>'
+    +'<button class="btn btn-secondary btn-sm" onclick="aplicarActualizacionesTec()">⟳ Aplicar finalizaciones</button>'
     +'</div>'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
     +tabBtn('nueva','🟡 Nuevas',cNueva)
@@ -10944,16 +10996,55 @@ function solMantRechazar(solId) {
     toast('Solicitud rechazada');renderMantSolicitudes();
   }).catch(function(e){toast('Error: '+e.message,true);});
 }
+
+function aplicarActualizacionesTec() {
+  var db = firebase.firestore();
+  db.collection('tecActualizaciones')
+    .where('empresa','==',S.empresa)
+    .get().then(function(snap){
+      if(snap.empty){ toast('Sin finalizaciones pendientes de técnicos'); return; }
+      var docs = [];
+      snap.forEach(function(d){ docs.push({ref:d.ref, data:d.data()}); });
+      var m = mantData();
+      var aplicadas = 0;
+      docs.forEach(function(item){
+        var d = item.data;
+        var ot = (m.ots||[]).find(function(o){return o.id===d.otId;});
+        if(ot && ot.estado!=='completada'){
+          ot.estado='completada';
+          ot.fechaCompletada=new Date().toISOString().slice(0,10);
+          aplicadas++;
+        }
+        // Actualizar solicitud asociada si existe
+        if(ot && ot.origenSolicitud){
+          db.collection('solicitudesMant').doc(ot.origenSolicitud)
+            .update({estado:'finalizada'}).catch(function(){});
+        }
+        // Eliminar la actualización procesada
+        item.ref.delete().catch(function(){});
+      });
+      if(aplicadas>0){
+        markDirty('taller');
+        saveData();
+        toast('✓ '+aplicadas+' OT(s) marcadas como completadas');
+      } else {
+        toast('Las OTs ya estaban actualizadas');
+      }
+      renderMantSolicitudes();
+    }).catch(function(e){ toast('Error: '+e.message,true); });
+}
 // Llamar checkPortalMode directamente — el script está al final del body,
 // el DOM ya está listo en este punto (DOMContentLoaded ya disparó)
 // Inicializar portal si está activo (carga datos)
 if(_portalModeActive){
-  // _cargarDatosPortal se define más abajo — esperar a que el script termine de parsear
   window.addEventListener('load', function(){
     var params = new URLSearchParams(window.location.search);
-    var empresa = params.get('portal');
-    if(empresa && typeof _cargarDatosPortal === 'function'){
-      _cargarDatosPortal(empresa.toUpperCase());
+    if(_portalModeActive==='mant'){
+      var empresa = params.get('portal');
+      if(empresa && typeof _cargarDatosPortal==='function') _cargarDatosPortal(empresa.toUpperCase());
+    } else if(_portalModeActive==='tec'){
+      var empresa2 = params.get('tecnico');
+      if(empresa2 && typeof _cargarDatosTecnico==='function') _cargarDatosTecnico(empresa2.toUpperCase());
     }
   });
 }
@@ -11022,6 +11113,158 @@ function mantActualizarPunto(ci,pi,campo,val){
 }
 
 // ── mant_tecnicos ─────────────────────────────────────────
+// ── Mis OTs — vista del técnico ──────────────────────────
+// ══════════════════════════════════════════════════════════
+//  PORTAL PÚBLICO DE TÉCNICOS
+// ══════════════════════════════════════════════════════════
+
+var _tecData = {tecnicos:[], ots:[], centros:[], empresa:''};
+var _tecSelId = '';
+
+function _cargarDatosTecnico(empresa) {
+  _tecData.empresa = empresa;
+  var area = document.getElementById('portalTecArea');
+  if(area) area.innerHTML = '<div style="text-align:center;padding:60px;color:#888">Cargando...</div>';
+  firebase.firestore().collection('portalesPublicos').doc(empresa).get().then(function(doc){
+    if(!doc.exists){
+      if(area) area.innerHTML = '<div style="text-align:center;padding:40px;color:#e84040">Portal no disponible aún.<br>Pide al administrador iniciar sesión en el sistema.</div>';
+      return;
+    }
+    var data = doc.data()||{};
+    _tecData.tecnicos = (data.tecnicos||[]);
+    _tecData.ots      = (data.ots||[]);
+    _tecData.centros  = (data.centros||[]);
+    renderTecnicoSeleccion();
+  }).catch(function(err){
+    if(area) area.innerHTML = '<div style="text-align:center;padding:40px;color:#e84040">Error al cargar. Intenta de nuevo.</div>';
+    console.error('[TecPortal]', err);
+  });
+}
+
+function renderTecnicoSeleccion() {
+  var area = document.getElementById('portalTecArea');
+  if(!area) return;
+  _tecSelId = '';
+
+  if(!_tecData.tecnicos.length){
+    area.innerHTML = '<div style="text-align:center;padding:40px;color:#888">Sin técnicos registrados.<br>Contacta al administrador.</div>';
+    return;
+  }
+
+  var opts = '<option value="">— Selecciona tu nombre —</option>';
+  _tecData.tecnicos.forEach(function(t){
+    opts += '<option value="'+t.id+'">'+t.nombre+'</option>';
+  });
+
+  area.innerHTML =
+    '<div style="background:#111;border:1px solid #1e2e1e;border-radius:14px;padding:28px 20px;margin-bottom:16px;text-align:center">'
+    +'<div style="font-size:15px;font-weight:600;color:#fff;margin-bottom:6px">¿Quién eres?</div>'
+    +'<div style="font-size:13px;color:#888;margin-bottom:20px">Selecciona tu nombre para ver tus órdenes</div>'
+    +'<select id="tecSelNombre" style="width:100%;max-width:340px;padding:13px 16px;border-radius:10px;border:1px solid #2e3e2e;background:#0a0f0a;color:#fff;font-size:15px;font-weight:600;cursor:pointer">'
+    +opts+'</select>'
+    +'</div>'
+    +'<button onclick="portalTecVerMisOTs()" style="width:100%;padding:16px;background:#2db87a;color:#000;font-weight:700;border:none;border-radius:12px;cursor:pointer;font-size:15px">Ver mis órdenes de trabajo →</button>';
+}
+
+function portalTecVerMisOTs() {
+  var sel = document.getElementById('tecSelNombre');
+  var tecId = sel ? sel.value : '';
+  if(!tecId){ alert('Selecciona tu nombre primero'); return; }
+  _tecSelId = tecId;
+  var tec = _tecData.tecnicos.find(function(t){return t.id===tecId;})||{nombre:'—'};
+
+  var centroMap = {};
+  _tecData.centros.forEach(function(c){ centroMap[c.id]=c.nombre; });
+
+  var hoy = new Date().toISOString().slice(0,10);
+  var misOTs = _tecData.ots.filter(function(o){ return o.tecnicoId===tecId; });
+  var activas  = misOTs.filter(function(o){ return o.estado!=='completada'; });
+  var completadas = misOTs.filter(function(o){ return o.estado==='completada'; });
+
+  var filtro = 'activas';
+
+  function renderLista(lista, filtroActual){
+    if(!lista.length) return '<div style="text-align:center;padding:30px;color:#888">Sin órdenes '+(filtroActual==='activas'?'activas':'completadas')+' por el momento</div>';
+    return lista.map(function(ot){
+      var vencida = ot.estado!=='completada' && ot.fechaProgramada && ot.fechaProgramada<hoy;
+      var centroNombre = centroMap[ot.centroId]||ot.centroId||'—';
+      var badge = ot.estado==='completada'
+        ? '<span style="background:#1a3a2a;color:#2db87a;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">✓ Completada</span>'
+        : vencida
+          ? '<span style="background:#3a1a1a;color:#e84040;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">⚠ Vencida</span>'
+          : '<span style="background:#2a2a1a;color:#e8a020;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">Pendiente</span>';
+      var btn = ot.estado!=='completada'
+        ? '<button data-id="'+ot.id+'" onclick="portalTecFinalizarOT(this.dataset.id)" style="margin-top:12px;width:100%;padding:11px;background:#2db87a;color:#000;font-weight:700;border:none;border-radius:8px;cursor:pointer;font-size:13px">✓ Marcar como finalizada</button>'
+        : '';
+      return '<div style="background:#111;border:1px solid #1e2e1e;border-radius:12px;padding:16px;margin-bottom:10px">'
+        +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">'+badge
+        +'<span style="font-size:11px;color:#555">'+ot.id+'</span></div>'
+        +'<div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:2px">'+(ot.equipoNombre||'—')+'</div>'
+        +'<div style="font-size:12px;color:#888;margin-bottom:6px">📍 '+centroNombre+'</div>'
+        +(ot.descripcion?'<div style="font-size:13px;color:#ccc;border-left:3px solid #2e3e2e;padding-left:10px;margin-bottom:6px">'+(ot.descripcion||'')+'</div>':'')
+        +(ot.solicitanteNombre?'<div style="font-size:11px;color:#666">👤 '+ot.solicitanteNombre+(ot.solicitanteTel?' · 📱 '+ot.solicitanteTel:'')+'</div>':'')
+        +'<div style="font-size:11px;color:'+(vencida?'#e84040':'#666')+';margin-top:4px">📅 Programada: '+(ot.fechaProgramada||'—')+'</div>'
+        +btn+'</div>';
+    }).join('');
+  }
+
+  var area = document.getElementById('portalTecArea');
+  if(!area) return;
+
+  function redraw(f){
+    var lista = f==='activas' ? activas : completadas;
+    area.innerHTML =
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">'
+      +'<button onclick="renderTecnicoSeleccion()" style="background:none;border:none;color:#888;cursor:pointer;font-size:20px;padding:0">←</button>'
+      +'<div><div style="font-size:16px;font-weight:700">Hola, '+tec.nombre+' 👷</div>'
+      +'<div style="font-size:12px;color:#888">Tus órdenes de trabajo</div></div>'
+      +'</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">'
+      +'<div style="background:#111;border:1px solid #1e2e1e;border-radius:10px;padding:14px;text-align:center">'
+      +'<div style="font-size:22px;font-weight:700;color:#e8a020">'+activas.length+'</div>'
+      +'<div style="font-size:12px;color:#888">Activas</div></div>'
+      +'<div style="background:#111;border:1px solid #1e2e1e;border-radius:10px;padding:14px;text-align:center">'
+      +'<div style="font-size:22px;font-weight:700;color:#2db87a">'+completadas.length+'</div>'
+      +'<div style="font-size:12px;color:#888">Completadas</div></div>'
+      +'</div>'
+      +'<div style="display:flex;gap:8px;margin-bottom:14px">'
+      +'<button onclick="('+redraw.toString()+')('+"'activas'"+');" style="flex:1;padding:10px;background:'+(f==='activas'?'#2db87a':'#111')+';color:'+(f==='activas'?'#000':'#888')+';font-weight:600;border:1px solid #1e2e1e;border-radius:8px;cursor:pointer;font-size:13px">🔧 Activas</button>'
+      +'<button onclick="('+redraw.toString()+')('+"'completadas'"+');" style="flex:1;padding:10px;background:'+(f==='completadas'?'#2db87a':'#111')+';color:'+(f==='completadas'?'#000':'#888')+';font-weight:600;border:1px solid #1e2e1e;border-radius:8px;cursor:pointer;font-size:13px">✓ Completadas</button>'
+      +'</div>'
+      +renderLista(lista, f);
+  }
+  redraw('activas');
+}
+
+function portalTecFinalizarOT(otId) {
+  if(!confirm('¿Confirmas que esta OT está finalizada?')) return;
+  var db = firebase.firestore();
+  // Registrar actualización en colección pública
+  db.collection('tecActualizaciones').doc(otId).set({
+    otId:      otId,
+    tecnicoId: _tecSelId,
+    empresa:   _tecData.empresa,
+    estado:    'completada',
+    ts:        Date.now()
+  }).then(function(){
+    // Actualizar vista local
+    var ot = _tecData.ots.find(function(o){return o.id===otId;});
+    if(ot) ot.estado='completada';
+    portalTecVerMisOTs();
+    // Pequeño mensaje de confirmación
+    var area = document.getElementById('portalTecArea');
+    if(area){
+      var msg = document.createElement('div');
+      msg.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#2db87a;color:#000;padding:12px 24px;border-radius:10px;font-weight:700;font-size:14px;z-index:999';
+      msg.textContent='✓ OT marcada como finalizada';
+      document.body.appendChild(msg);
+      setTimeout(function(){msg.remove();},3000);
+    }
+  }).catch(function(e){
+    alert('Error al registrar. Intenta de nuevo.\n'+e.message);
+  });
+}
+
 function renderMantTecnicos(){
   var m=mantData();
   var filtroArea=S._tecFiltroArea||'';
@@ -11133,6 +11376,7 @@ function modalTecnico(id){
     +'<select id="tecUsuarioChofer">'+choferOpts+'</select>'
     +'<div style="font-size:11px;color:var(--muted);margin-top:4px">Si este t\u00e9cnico es chofer, vincula su cuenta para que reciba sus camiones en el Portal Chofer.</div></div>'
     +'<div class="fg"><label>Notas</label><textarea id="tecNotas" rows="2" placeholder="Observaciones, certificaciones, disponibilidad...">'+esc((t&&t.notas)||'')+'</textarea></div>'
+    +'<div class="fg"><label>Email de acceso (opcional)</label><input id="tecEmail" type="email" value="'+esc((t&&t.email)||'')+'" placeholder="correo@empresa.com"><div style="font-size:11px;color:var(--muted);margin-top:4px">Si se ingresa, el técnico puede ver sus OTs asignadas al iniciar sesión.</div></div>'
     +'<div class="fg"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="tecActivo"'+((t&&t.activo===false)?'':' checked')+'> Activo en el sistema</label></div>'
     +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px">'
     +'<button class="btn btn-secondary" onclick="(function(_e){if(_e)_e.remove();})(document.getElementById(\'modalTecDiv\'))">Cancelar</button>'
@@ -11157,6 +11401,7 @@ function guardarTecnico(id){
     roles:roles,
     tipo:roles[0],
     notas:((document.getElementById('tecNotas')||{}).value||'').trim(),
+    email:((document.getElementById('tecEmail')||{}).value||'').trim().toLowerCase(),
     activo:((document.getElementById('tecActivo')||{}).checked!==false),
     usuarioChoferEmail:roles.indexOf('conduccion')>=0?
       ((document.getElementById('tecUsuarioChofer')||{}).value||'').toLowerCase():''
