@@ -1025,7 +1025,7 @@ input[type=date]{color-scheme:dark}
     <!-- PASO 1: Empresa -->
     <div class="login-step active" id="step1">
       <div class="login-h">Bienvenido 👋</div>
-      <div class="login-sub">Ingresa el código de tu empresa para continuar</div>
+      <div class="login-sub">Selecciona tu empresa para continuar</div>
       <div class="login-features">
         <div class="login-chip"><span>🏗</span> Obras civiles</div>
         <div class="login-chip"><span>📊</span> Cronogramas</div>
@@ -1033,14 +1033,12 @@ input[type=date]{color-scheme:dark}
         <div class="login-chip"><span>☁️</span> Nube</div>
       </div>
       <div class="fg">
-        <label style="color:rgba(255,255,255,.5)">Código de Empresa</label>
-        <input id="empCode" placeholder="Ej: PAPAJOHNS" autocomplete="off"
-          list="empresasList"
-          onkeydown="if(event.key==='Enter')goStep2()"
-          oninput="this.value=this.value.toUpperCase()"
-          style="font-size:18px;padding:14px 16px;letter-spacing:3px;text-transform:uppercase;font-weight:700;text-align:center">
-        <datalist id="empresasList"></datalist>
-        <div id="empSuggestions" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px"></div>
+        <label style="color:rgba(255,255,255,.5)">Empresa</label>
+        <select id="empCode"
+          onchange="this.value&&(document.getElementById('step1Err').textContent='')"
+          style="font-size:16px;padding:14px 16px;font-weight:700;text-align:center;width:100%;background:#1a1a1a;color:#fff;border:1px solid rgba(255,255,255,.15);border-radius:10px;appearance:none;cursor:pointer">
+          <option value="">— Cargando empresas... —</option>
+        </select>
       </div>
       <button class="btn btn-primary" style="width:100%;justify-content:center;padding:14px;font-size:15px;border-radius:10px;letter-spacing:.5px" onclick="goStep2()">
         Continuar →
@@ -1105,6 +1103,19 @@ input[type=date]{color-scheme:dark}
   <div style="font-size:13px;color:var(--muted);margin-bottom:14px">Por inactividad — 2 minutos restantes</div>
   <button class="btn btn-primary" onclick="resetSessionTimer();document.getElementById('sessionWarning').style.display='none'">Mantener sesión activa</button>
 </div>
+<!-- PORTAL PÚBLICO MANTENIMIENTO -->
+<div id="portalMantDiv" style="display:none;min-height:100vh;background:#0f0f0f;color:#e4e2dd;font-family:'Inter',sans-serif">
+  <div style="max-width:560px;margin:0 auto;padding:24px 16px 60px">
+    <div style="text-align:center;margin-bottom:28px">
+      <div id="portalEmpLogo" style="font-size:28px;font-weight:700;letter-spacing:-1px;margin-bottom:4px">FISDC</div>
+      <div style="font-size:13px;color:#888;margin-bottom:16px">Portal de solicitudes de mantenimiento</div>
+      <div style="height:2px;background:linear-gradient(90deg,transparent,#e8a020,transparent)"></div>
+    </div>
+    <div id="portalFormArea"></div>
+  </div>
+</div>
+
+<!-- PORTAL PÚBLICO MANTENIMIENTO -->
 <!-- SUPERADMIN PANEL -->
 <div id="saPanel">
   <div class="sa-layout">
@@ -1189,11 +1200,27 @@ input[type=date]{color-scheme:dark}
 <script>
 'use strict';
 // ═══════════════════════════════════════════════════════
+//  DETECCIÓN TEMPRANA DE MODO PORTAL (antes de cualquier init)
+// ═══════════════════════════════════════════════════════
+var _portalModeActive = (function(){
+  var params = new URLSearchParams(window.location.search);
+  var empresa = params.get('portal');
+  if (!empresa) return false;
+  var lp = document.getElementById('loginPage');
+  if (lp) lp.style.display = 'none';
+  var pd = document.getElementById('portalMantDiv');
+  if (pd) pd.style.display = 'block';
+  var lbl = document.getElementById('portalEmpLogo');
+  if (lbl) lbl.textContent = empresa;
+  return true;
+})();
+
+// ═══════════════════════════════════════════════════════
 //  DEFINICIÓN DE ROLES Y PERMISOS
 // ═══════════════════════════════════════════════════════
 const ROLES={
-  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','usuarios','config','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_reportes','taller_solicitudes','taller_revisiones','taller_reportes_choferes','chofer_portal','importar']},
-  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','log','mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_reportes','taller_solicitudes','taller_revisiones','taller_reportes_choferes','chofer_portal']},
+  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','usuarios','config','log','mant_panel','mant_equipos','mant_solicitudes','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_reportes','taller_solicitudes','taller_revisiones','taller_reportes_choferes','chofer_portal','importar']},
+  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','log','mant_panel','mant_equipos','mant_solicitudes','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_reportes','taller_solicitudes','taller_revisiones','taller_reportes_choferes','chofer_portal']},
   empleado:{label:'Empleado',color:'b-ok',modulos:[]}, // permisos individuales
   viewer:{label:'Viewer',color:'b-neu',modulos:['dashboard','proyectos']},
   cliente:{label:'Cliente',color:'b-purple',modulos:['proyectos']}, // solo general, planificacion, cronograma
@@ -1217,11 +1244,12 @@ const MODULOS=[
   {id:'usuarios',label:'Usuarios',ic:'👥'},
   {id:'config',label:'Configuración',ic:'⚙'},
   {id:'importar',label:'Importar Datos',ic:'📥'},
-  {id:'mant_panel',label:'Panel OTs',ic:'🔧'},
+  {id:'mant_panel',label:'Historial',ic:'📋'},
   {id:'mant_equipos',label:'Equipos',ic:'⚙️'},
+  {id:'mant_solicitudes',label:'Solicitudes',ic:'📩'},
   {id:'mant_checklists',label:'Checklists',ic:'✅'},
   {id:'mant_tecnicos',label:'Técnicos',ic:'👷'},
-  {id:'mant_reportes',label:'Reportes Mant.',ic:'📋'},
+  {id:'mant_reportes',label:'Reportes Mant.',ic:'📈'},
   {id:'ei_dashboard',label:'EI Dashboard',ic:'⚡'},
   {id:'ei_modelo',label:'Modelo Consumo',ic:'📐'},
   {id:'ei_alertas',label:'Alertas',ic:'🔔'},
@@ -1251,7 +1279,7 @@ const MODULOS=[
 const SB_GRUPOS=[
   {id:'proyectos_grp',label:'Proyectos',ic:'🏗',items:['dashboard','proyectos']},
   {id:'empresa_grp',label:'Gestión de Empresa',ic:'🏢',items:['gastos','inventario','asistencia','auditoria_herr','gz_dashboard','proveedores','centros','bodegas','gz_gerentes','reportes']},
-  {id:'mant_grp',label:'Mantenimiento',ic:'🔧',items:['mant_panel','mant_equipos','mant_checklists','mant_tecnicos','mant_reportes']},
+  {id:'mant_grp',label:'Mantenimiento',ic:'🔧',items:['mant_equipos','mant_solicitudes','mant_panel','mant_tecnicos']},
   {id:'energy_grp',label:'Energy Intelligence',ic:'⚡',items:['ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist']},
   {id:'taller_grp',label:'Taller Mecánico',ic:'🚚',items:['taller_dashboard','taller_vehiculos','taller_ots','taller_solicitudes','taller_revisiones','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_reportes']},
   {id:'chofer_grp',label:'Portal Chofer',ic:'🚛',items:['chofer_portal','taller_reportes_choferes']},
@@ -1345,7 +1373,7 @@ const S={
     precioGasolina:0
   },
   cajachica:{reintegros:[]},
-  mantenimiento:{tecnicos:[],checklists:[],equipos:[],ots:[]},
+  mantenimiento:{tecnicos:[],checklists:[],equipos:[],ots:[],registros:[],solicitudesMant:[]},
   energy:{logs:[],alertas:[],checklists:[],tarifa:0.12},
   gerentesZona:[],
   activeTab:'dashboard',currentUser:null,
@@ -1528,7 +1556,7 @@ function setSyncUI(state,txt){const dot=document.getElementById('syncDot'),stxt=
 // ═══════════════════════════════════════════════════════
 //  SYNC
 // ═══════════════════════════════════════════════════════
-function serializeState(){return{_v:4,_ts:Date.now(),proyectos:S.proyectos,gastos:S.gastos,proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios,config:S.config,inventario:S.inventario||{bodegas:[],productos:[],movimientos:[]},cajachica:S.cajachica||{reintegros:[]},mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[],movimientosEquipos:[]},energy:S.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12},gerentesZona:S.gerentesZona||[],asistencia:S.asistencia||{registros:[]},auditorias:S.auditorias||{registros:[]},taller:S.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[],solicitudes:[],reportesDiarios:[],revisiones:[]}}}
+function serializeState(){return{_v:4,_ts:Date.now(),proyectos:S.proyectos,gastos:S.gastos,proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios,config:S.config,inventario:S.inventario||{bodegas:[],productos:[],movimientos:[]},cajachica:S.cajachica||{reintegros:[]},mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[],movimientosEquipos:[],registros:[],solicitudesMant:[]},energy:S.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12},gerentesZona:S.gerentesZona||[],asistencia:S.asistencia||{registros:[]},auditorias:S.auditorias||{registros:[]},taller:S.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[],solicitudes:[],reportesDiarios:[],revisiones:[]}}}
 
 // Versión limpia para Firestore — elimina base64 pesados que van en colección separada
 function serializeForFirestore(){
@@ -1582,7 +1610,7 @@ function serializeForFirestore(){
 
   return{...state, proyectos, gastos,
     inventario:{...inv,productos,movimientos},
-        mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[],movimientosEquipos:[]},
+        mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[],movimientosEquipos:[],registros:[],solicitudesMant:[]},
     energy:S.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12},
     gerentesZona:S.gerentesZona||[],
     cajachica:S.cajachica||{reintegros:[]},
@@ -1606,8 +1634,10 @@ function applyData(d,fromRemote=false){
   _ensureCatalogDefaults();
   S.inventario=d.inventario||{bodegas:[],productos:[],movimientos:[]};
   S.cajachica=d.cajachica||{reintegros:[]};
-  S.mantenimiento=d.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[],movimientosEquipos:[]};
+  S.mantenimiento=d.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[],movimientosEquipos:[],registros:[],solicitudesMant:[]};
   if(!S.mantenimiento.movimientosEquipos)S.mantenimiento.movimientosEquipos=[];
+  if(!S.mantenimiento.registros)S.mantenimiento.registros=[];
+  if(!S.mantenimiento.solicitudesMant)S.mantenimiento.solicitudesMant=[];
   S.energy=d.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12};
   S.gerentesZona=d.gerentesZona||[];
   if(fromRemote&&d.asistencia&&d.asistencia.registros&&d.asistencia.registros.length===0
@@ -2157,16 +2187,13 @@ window.addEventListener('fb-ready',(e)=>{
   if(dot)dot.className='sync-dot ok';if(txt)txt.textContent='Firebase activo';
   // Cargar lista de empresas para el login
   window.FB.getAllEmpresas().then(empresas=>{
-    const dl=document.getElementById('empresasList');
-    const sugg=document.getElementById('empSuggestions');
-    if(dl){
-      dl.innerHTML=empresas.map(e=>`<option value="${esc(e.id)}">${esc(e.id)}${e.nombre?' — '+esc(e.nombre):''}</option>`).join('');
-    }
-    if(sugg&&empresas.length>0){
-      sugg.innerHTML=empresas.map(e=>`<span style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:6px;padding:5px 12px;font-size:12px;color:rgba(255,255,255,.7);cursor:pointer;font-weight:600;letter-spacing:1px" onclick="document.getElementById('empCode').value='${e.id}';document.getElementById('empSuggestions').style.display='none'">${e.id}</span>`).join('');
+    const sel=document.getElementById('empCode');
+    if(sel&&empresas.length>0){
+      sel.innerHTML=empresas.map(e=>`<option value="${esc(e.id)}">${esc(e.id)}${e.nombre?' — '+esc(e.nombre):''}</option>`).join('');
     }
   }).catch(()=>{});
   const user=(e.detail&&e.detail.user);
+  if(_portalModeActive)return; // Portal público activo — no hacer auto-login
   if(user&&!S.currentUser){
     const empSaved=localStorage.getItem('pp_empresa');
     if(empSaved){S.empresa=empSaved;loadData().then(()=>{window.FB.getUsuariosEmpresa(empSaved).then(usuarios=>{S.usuarios=usuarios;const uData=usuarios.find(u=>(u.email||'').toLowerCase()===(user.email||'').toLowerCase())||{nombre:user.email.split('@')[0],rol:'viewer',permisos:{}};enterApp(user.email,uData.rol,uData.nombre,uData.permisos||{},uData.proyectosPermitidos||[]);});});}
@@ -2177,7 +2204,7 @@ setTimeout(()=>{const txt=document.getElementById('fbStatusTxt');if(txt&&txt.tex
 function goStep2(){
   const code=document.getElementById('empCode').value.trim().toUpperCase();
   const err=document.getElementById('step1Err');
-  if(!code){err.textContent='Ingresa un código de empresa';return}
+  if(!code){err.textContent='Selecciona una empresa';return}
   err.textContent='';S.empresa=code;
   const lbl=document.getElementById('step2EmpLabel');if(lbl)lbl.textContent='Empresa: '+code;
   showStep(2);setTimeout(()=>{const e=document.getElementById('loginEmail');if(e)e.focus()},100);
@@ -2281,7 +2308,7 @@ async function logout(){
   S._listening=false;S.currentUser=null;S.empresa='';
   document.getElementById('appShell').style.display='none';
   document.getElementById('loginPage').style.display='flex';
-  document.getElementById('empCode').value='';
+  var empSel=document.getElementById('empCode');if(empSel)empSel.selectedIndex=0;
   document.getElementById('loginEmail').value='';
   document.getElementById('loginPass').value='';
   document.getElementById('step1Err').textContent='';
@@ -8808,7 +8835,7 @@ function render(){
     navHtml+='</div>';
   });
   document.getElementById('nav').innerHTML=navHtml;
-  const titles={home:'🏠 Inicio',dashboard:'Dashboard',proyectos:'Proyectos',gastos:'Gastos',proveedores:'Proveedores',centros:'Centros de Costo',reportes:'Reportes',inventario:'Inventario',bodegas:'Gestión de Bodegas',cajachica:'Caja Chica',log:'Registro de Actividad',usuarios:'Usuarios',config:'Configuración',mant_panel:'Panel de OTs',mant_equipos:'Equipos',mant_checklists:'Checklists',mant_tecnicos:'Técnicos',mant_reportes:'Reportes Mantenimiento',ei_dashboard:'⚡ Energy Intelligence',ei_modelo:'Modelo de Consumo',ei_alertas:'Alertas Energéticas',ei_ranking:'Ranking de Tiendas',ei_prediccion:'Predicción de Factura',ei_checklist:'Checklist Operativo',gz_gerentes:'Gerentes de Zona',gz_dashboard:'Dashboard Gerentes de Zona',asistencia:'📋 Asistencia',auditoria_herr:'🔍 Auditoría de Herramientas',taller_dashboard:'🚚 Dashboard Taller',taller_vehiculos:'🚚 Vehículos',taller_ots:'📋 Órdenes de Trabajo',taller_servicios:'🔧 Catálogo de Servicios',taller_repuestos:'📦 Repuestos del Taller',taller_programado:'⏰ Mantenimiento Programado',taller_rutas:'🗺️ Rutas',taller_combustible:'⛽ Combustible',taller_reportes:'📈 Reportes Taller',importar:'📥 Importar Datos'};
+  const titles={home:'🏠 Inicio',dashboard:'Dashboard',proyectos:'Proyectos',gastos:'Gastos',proveedores:'Proveedores',centros:'Centros de Costo',reportes:'Reportes',inventario:'Inventario',bodegas:'Gestión de Bodegas',cajachica:'Caja Chica',log:'Registro de Actividad',usuarios:'Usuarios',config:'Configuración',mant_panel:'📋 Historial de Mantenimiento',mant_equipos:'⚙️ Equipos',mant_solicitudes:'📩 Solicitudes de Mantenimiento',mant_checklists:'Checklists',mant_tecnicos:'Técnicos',mant_reportes:'Reportes Mantenimiento',ei_dashboard:'⚡ Energy Intelligence',ei_modelo:'Modelo de Consumo',ei_alertas:'Alertas Energéticas',ei_ranking:'Ranking de Tiendas',ei_prediccion:'Predicción de Factura',ei_checklist:'Checklist Operativo',gz_gerentes:'Gerentes de Zona',gz_dashboard:'Dashboard Gerentes de Zona',asistencia:'📋 Asistencia',auditoria_herr:'🔍 Auditoría de Herramientas',taller_dashboard:'🚚 Dashboard Taller',taller_vehiculos:'🚚 Vehículos',taller_ots:'📋 Órdenes de Trabajo',taller_servicios:'🔧 Catálogo de Servicios',taller_repuestos:'📦 Repuestos del Taller',taller_programado:'⏰ Mantenimiento Programado',taller_rutas:'🗺️ Rutas',taller_combustible:'⛽ Combustible',taller_reportes:'📈 Reportes Taller',importar:'📥 Importar Datos'};
   document.getElementById('pageTitle').textContent=titles[S.activeTab]||S.activeTab;
   // Mostrar botón Home solo cuando no estás en home (y no eres chofer — ellos no tienen home)
   var homeBtnEl=document.getElementById('homeBtn');
@@ -8839,6 +8866,7 @@ function render(){
   else if(S.activeTab==='config')renderConfig();
   else if(S.activeTab==='mant_panel')renderMantPanel();
   else if(S.activeTab==='mant_equipos')renderMantEquipos();
+  else if(S.activeTab==='mant_solicitudes')renderMantSolicitudes();
   else if(S.activeTab==='mant_checklists')renderMantChecklists();
   else if(S.activeTab==='mant_tecnicos')renderMantTecnicos();
   else if(S.activeTab==='mant_reportes')renderMantReportes();
@@ -9406,11 +9434,13 @@ var frecDias={mensual:30,bimestral:60,trimestral:90,semestral:180,anual:365};
 // LEGACY: var MANT_FREQS=['mensual','bimestral','trimestral','semestral','anual'];
 
 function mantData(){
-  if(!S.mantenimiento)S.mantenimiento={tecnicos:[],checklists:[],equipos:[],ots:[]};
+  if(!S.mantenimiento)S.mantenimiento={tecnicos:[],checklists:[],equipos:[],ots:[],registros:[]};
   if(!S.mantenimiento.tecnicos)S.mantenimiento.tecnicos=[];
   if(!S.mantenimiento.checklists)S.mantenimiento.checklists=[];
   if(!S.mantenimiento.equipos)S.mantenimiento.equipos=[];
   if(!S.mantenimiento.ots)S.mantenimiento.ots=[];
+  if(!S.mantenimiento.registros)S.mantenimiento.registros=[];
+  if(!S.mantenimiento.solicitudesMant)S.mantenimiento.solicitudesMant=[];
   // Crear checklists vacíos por defecto si no existen
   var defCats=['ac','cocina','fontaneria','civil'];
   var defNames={ac:'A/C',cocina:'Cocina',fontaneria:'Fontanería',civil:'Civil'};
@@ -9449,61 +9479,97 @@ function mantEnSemana(fecha){
   return diff>=0&&diff<=7;
 }
 
-// ── mant_panel ──────────────────────────────────────────
+// ── mant_panel — Historial de mantenimientos ─────────────
 function renderMantPanel(){
   var m=mantData();
-  var hoy=mantHoy();
-  var ots=m.ots||[];
-  // Actualizar estados vencidos
-  ots.forEach(function(ot){
-    if(ot.estado==='pendiente'&&ot.fechaProgramada&&ot.fechaProgramada<hoy)ot.estado='vencida';
+  var registros=(m.registros||[]).slice().sort(function(a,b){
+    return(b.fecha||'').localeCompare(a.fecha||'');
   });
 
-  var vencidas=ots.filter(function(ot){return ot.estado==='vencida';});
-  var semana=ots.filter(function(ot){return ot.estado==='pendiente'&&mantEnSemana(ot.fechaProgramada);});
-  var proximas=ots.filter(function(ot){return ot.estado==='pendiente'&&!mantEnSemana(ot.fechaProgramada);});
+  var filtroTec=S._mantHisFiltroTec||'';
+  var filtroCentro=S._mantHisFiltroCentro||'';
+  var filtroMes=S._mantHisFiltroMes||'';
 
-  function otRow(ot){
-    var equipo=m.equipos.find(function(e){return e.id===ot.equipoId;})||{nombre:'—'};
-    var centro=S.centros.find(function(c){return c.id===ot.centroId;})||{nombre:'—'};
-    var tec=m.tecnicos.find(function(t){return t.id===ot.tecnicoId;})||{nombre:'Sin asignar'};
-    return'<div class="card" style="margin-bottom:8px;padding:12px 14px">'
-      +'<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px">'
-      +'<div><div style="font-weight:700;font-size:13px">'+esc(centro.nombre)+' — '+esc(equipo.nombre)+'</div>'
-      +'<div style="font-size:12px;color:var(--muted);margin-top:3px">'+esc(tec.nombre)+' · '+fmtDate(ot.fechaProgramada)+' · '+mantBadgePrioridad(ot.prioridad)+'</div></div>'
-      +'<button class="btn btn-secondary btn-sm" onclick="modalVerOT(\''+ot.id+'\')">Ver OT</button>'
-      +'</div></div>';
+  if(filtroTec)registros=registros.filter(function(r){return r.tecnicoId===filtroTec;});
+  if(filtroCentro){
+    registros=registros.filter(function(r){
+      var eq=m.equipos.find(function(e){return e.id===r.equipoId;});
+      if(!eq)return false;
+      var ubid=eq.ubicacionId||eq.centroId||'';
+      return ubid===filtroCentro;
+    });
+  }
+  if(filtroMes)registros=registros.filter(function(r){return(r.fecha||'').slice(0,7)===filtroMes;});
+
+  var tecOpts='<option value="">Todos los técnicos</option>';
+  m.tecnicos.forEach(function(t){
+    tecOpts+='<option value="'+t.id+'"'+(filtroTec===t.id?' selected':'')+'>'+esc(t.nombre)+'</option>';
+  });
+  var centroOpts='<option value="">Todas las sucursales</option>';
+  S.centros.forEach(function(c){
+    centroOpts+='<option value="'+c.id+'"'+(filtroCentro===c.id?' selected':'')+'>'+esc(c.nombre)+'</option>';
+  });
+  var mesOpts='<option value="">Todos los meses</option>';
+  for(var mi=0;mi<12;mi++){
+    var md=new Date();md.setDate(1);md.setMonth(md.getMonth()-mi);
+    var mv=md.toISOString().slice(0,7);
+    var ml=md.toLocaleDateString('es-SV',{year:'numeric',month:'long'});
+    mesOpts+='<option value="'+mv+'"'+(filtroMes===mv?' selected':'')+'>'+ml+'</option>';
   }
 
-  // Resumen por técnico
-  var resumenTecs='';
-  m.tecnicos.filter(function(t){return t.activo!==false;}).forEach(function(t){
-    var mes=new Date().toISOString().slice(0,7);
-    var otsTec=ots.filter(function(ot){return ot.tecnicoId===t.id&&(ot.fechaProgramada||'').slice(0,7)===mes;});
-    var comp=otsTec.filter(function(ot){return ot.estado==='completada';}).length;
-    var pend=otsTec.filter(function(ot){return ot.estado!=='completada';}).length;
-    resumenTecs+='<tr><td>'+esc(t.nombre)+'</td><td style="text-align:center">'+otsTec.length+'</td><td style="text-align:center;color:var(--green)">'+comp+'</td><td style="text-align:center;color:var(--red)">'+pend+'</td></tr>';
-  });
-  if(!resumenTecs)resumenTecs='<tr><td colspan="4" class="empty">Sin técnicos activos</td></tr>';
+  var costoTotal=registros.reduce(function(acc,r){return acc+(r.costo||0);},0);
 
-  var genBtn=puedeVer('mant_equipos')?'<button class="btn btn-primary" onclick="mantGenerarOTs()">⚙ Generar OTs del mes</button> <button class="btn btn-secondary" onclick="mantReasignarOTsPendientes()" title="Reasigna las OT pendientes según especialidades actuales">🔄 Reasignar pendientes</button>':'';
+  var rows='';
+  if(!registros.length){
+    rows='<tr><td colspan="6" class="empty">Sin registros de mantenimiento — usa el botón ✓ Registrar en la vista de Equipos</td></tr>';
+  } else {
+    registros.forEach(function(r){
+      var eq=m.equipos.find(function(e){return e.id===r.equipoId;})||{nombre:'—'};
+      var tec=m.tecnicos.find(function(t){return t.id===r.tecnicoId;})||{nombre:'—'};
+      var ubLabel='—';
+      var ubid=eq.ubicacionId||eq.centroId||'';
+      if(eq.ubicacionTipo==='bodega'){
+        var b=((S.inventario&&S.inventario.bodegas)||[]).find(function(x){return x.id===ubid;});
+        ubLabel=b?b.nombre:'—';
+      } else {
+        var cc=S.centros.find(function(x){return x.id===ubid;});
+        ubLabel=cc?cc.nombre:'—';
+      }
+      rows+='<tr>'
+        +'<td>'+fmtDate(r.fecha)+'</td>'
+        +'<td><div style="font-weight:600;font-size:13px">'+esc(eq.nombre)+'</div>'
+        +'<div style="font-size:11px;color:var(--muted)">'+esc(ubLabel)+'</div></td>'
+        +'<td>'+esc(tec.nombre)+'</td>'
+        +'<td style="font-size:12px;color:var(--muted)">'+esc(r.observaciones||'—')+'</td>'
+        +'<td style="text-align:right">'+(r.costo?fmt(r.costo):'—')+'</td>'
+        +'<td><button class="btn btn-danger btn-xs" data-id="'+r.id+'" onclick="eliminarRegistroMant(this.dataset.id)" title="Eliminar">&#10005;</button></td>'
+        +'</tr>';
+    });
+  }
 
-  var el=document.getElementById('content');
-  el.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">'
-    +'<div class="kpi-grid" style="margin-bottom:0;flex:1">'
-    +'<div class="kpi"><div class="kpi-lbl">Vencidas</div><div class="kpi-val" style="color:var(--red)">'+vencidas.length+'</div></div>'
-    +'<div class="kpi"><div class="kpi-lbl">Esta semana</div><div class="kpi-val" style="color:var(--accent)">'+semana.length+'</div></div>'
-    +'<div class="kpi"><div class="kpi-lbl">Próximas</div><div class="kpi-val">'+proximas.length+'</div></div>'
-    +'<div class="kpi"><div class="kpi-lbl">Total</div><div class="kpi-val">'+ots.length+'</div></div>'
-    +'</div>'+genBtn+'</div>'
-    +(vencidas.length?'<div style="margin-bottom:16px"><div style="font-weight:700;color:var(--red);margin-bottom:8px">🔴 Vencidas ('+vencidas.length+')</div>'+vencidas.map(otRow).join('')+'</div>':'')
-    +(semana.length?'<div style="margin-bottom:16px"><div style="font-weight:700;color:var(--accent);margin-bottom:8px">🟡 Esta semana ('+semana.length+')</div>'+semana.map(otRow).join('')+'</div>':'')
-    +(proximas.length?'<div style="margin-bottom:16px"><div style="font-weight:700;color:var(--green);margin-bottom:8px">🟢 Próximas ('+proximas.length+')</div>'+proximas.map(otRow).join('')+'</div>':'')
-    +(!ots.length?'<div class="empty" style="padding:40px;text-align:center">Sin órdenes de trabajo — Genera las OTs del mes con el botón de arriba</div>':'')
-    +'<div class="card" style="margin-top:20px"><div class="sec-hdr">Resumen por Técnico — Mes actual</div>'
-    +'<div class="tbl-wrap"><table><thead><tr><th>Técnico</th><th style="text-align:center">Total OTs</th><th style="text-align:center">Completadas</th><th style="text-align:center">Pendientes</th></tr></thead><tbody>'+resumenTecs+'</tbody></table></div></div>';
+  document.getElementById('content').innerHTML=
+    '<div class="kpi-grid" style="margin-bottom:16px">'
+    +'<div class="kpi"><div class="kpi-lbl">Registros</div><div class="kpi-val">'+registros.length+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Gasto total</div><div class="kpi-val" style="font-size:18px">'+fmt(costoTotal)+'</div></div>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">'
+    +'<select style="min-width:160px" onchange="S._mantHisFiltroMes=this.value;renderMantPanel()">'+mesOpts+'</select>'
+    +'<select style="min-width:160px" onchange="S._mantHisFiltroCentro=this.value;renderMantPanel()">'+centroOpts+'</select>'
+    +'<select style="min-width:160px" onchange="S._mantHisFiltroTec=this.value;renderMantPanel()">'+tecOpts+'</select>'
+    +'</div>'
+    +'<div class="tbl-wrap"><table>'
+    +'<thead><tr><th>Fecha</th><th>Equipo / Sucursal</th><th>Técnico</th><th>Observaciones</th><th style="text-align:right">Costo</th><th></th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table></div>';
 }
 
+function eliminarRegistroMant(id){
+  if(!confirm('¿Eliminar este registro de mantenimiento?'))return;
+  var m=mantData();
+  m.registros=m.registros.filter(function(r){return r.id!==id;});
+  saveData();
+  renderMantPanel();
+  toast('Registro eliminado');
+}
 function mantGenerarOTs(){
   var m=mantData();
   var hoy=mantHoy();
@@ -9808,133 +9874,173 @@ function resetearContadoresAlertas(){
 // ── mant_equipos ─────────────────────────────────────────
 function renderMantEquipos(){
   var m=mantData();
-  var filtro=S._mantEqFiltro||'';
-  var filtroEstado=S._mantEqEstado||'activo';
+  var hoy=mantHoy();
+  var semanaFin=addDias(hoy,7);
+  var centroMap={};
+  S.centros.forEach(function(c){centroMap[c.id]=c.nombre;});
+  var bodegaMap={};
+  ((S.inventario&&S.inventario.bodegas)||[]).forEach(function(b){bodegaMap[b.id]=b.nombre;});
+
+  function getUbLabel(eq){
+    var ubTipo=eq.ubicacionTipo||'centro';
+    var ubId=eq.ubicacionId||eq.centroId||'';
+    if(ubTipo==='bodega')return bodegaMap[ubId]||'—';
+    return centroMap[ubId]||'—';
+  }
+
+  function getEstadoSemaforo(eq){
+    if(eq.estado==='almacenado'||eq.estado==='baja')return'pausado';
+    if(!eq.frecuencia)return'sinfreq';
+    var prox=mantFechaPróximo(eq);
+    if(!prox||prox==='—')return'sinfreq';
+    if(prox<hoy)return'vencido';
+    if(prox<=semanaFin)return'proximo';
+    return'ok';
+  }
+
+  var filtroSem=S._mantSemFiltro||'vencido';
+  var filtroCentro=S._mantEqFiltro||'';
+
+  var activos=m.equipos.filter(function(e){return !e.estado||e.estado==='activo';});
+  var cVenc=activos.filter(function(e){return getEstadoSemaforo(e)==='vencido';}).length;
+  var cProx=activos.filter(function(e){return getEstadoSemaforo(e)==='proximo';}).length;
+  var cOk=activos.filter(function(e){
+    var s=getEstadoSemaforo(e);return s==='ok'||s==='sinfreq';
+  }).length;
+  var cPaus=m.equipos.filter(function(e){return e.estado==='almacenado'||e.estado==='baja';}).length;
+
   var equipos=m.equipos.filter(function(e){
-    if(filtroEstado&&e.estado&&e.estado!==filtroEstado)return false;
-    if(filtroEstado==='activo'&&e.estado&&e.estado!=='activo')return false;
-    if(filtro){
-      // Filtro por ubicación (centro o bodega)
+    if(filtroCentro){
       var ubid=e.ubicacionId||e.centroId||'';
-      if(ubid!==filtro)return false;
+      if(ubid!==filtroCentro)return false;
     }
+    if(filtroSem==='vencido')return getEstadoSemaforo(e)==='vencido';
+    if(filtroSem==='proximo')return getEstadoSemaforo(e)==='proximo';
+    if(filtroSem==='ok'){var s=getEstadoSemaforo(e);return s==='ok'||s==='sinfreq';}
+    if(filtroSem==='pausado')return e.estado==='almacenado'||e.estado==='baja';
     return true;
   });
 
-  // Mapas para ubicación (necesarios para el sort)
-  var centroMap={};S.centros.forEach(function(c){centroMap[c.id]=c.nombre;});
-  var bodegaMap={};((S.inventario&&S.inventario.bodegas)||[]).forEach(function(b){bodegaMap[b.id]=b.nombre;});
-
-  // Aplicar ordenamiento ANTES de paginar
-  equipos=applySort(equipos,'mantEquipos',function(eq,col){
-    if(col==='nombre')return eq.nombre||'';
-    if(col==='ubicacion'){
-      var t=eq.ubicacionTipo||'centro';
-      var id=eq.ubicacionId||eq.centroId||'';
-      return t==='centro'?(centroMap[id]||''):(bodegaMap[id]||'');
-    }
-    if(col==='categoria')return catAreaLabel(eq.categoria)||eq.categoria||'';
-    if(col==='estado')return eq.estado||'activo';
-    if(col==='frecuencia')return eq.frecuencia||'';
-    if(col==='ultimo')return eq.ultimoMant||'';
-    if(col==='proximo')return mantFechaPróximo(eq)||'';
-    return '';
+  // Sort: vencidos primero, luego por próximo ascendente
+  equipos.sort(function(a,b){
+    var sa=getEstadoSemaforo(a);
+    var sb=getEstadoSemaforo(b);
+    var orden={vencido:0,proximo:1,sinfreq:2,ok:3,pausado:4};
+    var da=orden[sa]!==undefined?orden[sa]:5;
+    var db=orden[sb]!==undefined?orden[sb]:5;
+    if(da!==db)return da-db;
+    var pa=mantFechaPróximo(a)||'9999';
+    var pb=mantFechaPróximo(b)||'9999';
+    return pa.localeCompare(pb);
   });
 
-  var centrosOpts='<option value="">Todas las ubicaciones</option>';
-  centrosOpts+='<optgroup label="🍔 Restaurantes (centros de costo)">';
-  S.centros.forEach(function(c){
-    centrosOpts+='<option value="'+c.id+'"'+(filtro===c.id?' selected':'')+'>'+esc(c.nombre)+'</option>';
-  });
-  centrosOpts+='</optgroup>';
-  centrosOpts+='<optgroup label="📦 Bodegas">';
-  ((S.inventario&&S.inventario.bodegas)||[]).forEach(function(b){
-    centrosOpts+='<option value="'+b.id+'"'+(filtro===b.id?' selected':'')+'>'+esc(b.nombre)+'</option>';
-  });
-  centrosOpts+='</optgroup>';
-
-  // Paginación 50/página
+  // Paginación
   var EQ_PAGE=50;
-  var totalEqPags=Math.max(1,Math.ceil(equipos.length/EQ_PAGE));
   if(S._mantEqPag===undefined)S._mantEqPag=0;
-  if(S._mantEqPag>=totalEqPags)S._mantEqPag=0;
+  var totalPags=Math.max(1,Math.ceil(equipos.length/EQ_PAGE));
+  if(S._mantEqPag>=totalPags)S._mantEqPag=0;
   var eqSlice=equipos.slice(S._mantEqPag*EQ_PAGE,(S._mantEqPag+1)*EQ_PAGE);
-  var hoy=mantHoy();
 
-  // Conteos por estado
-  var contActivo=m.equipos.filter(function(e){return !e.estado||e.estado==='activo';}).length;
-  var contAlmac=m.equipos.filter(function(e){return e.estado==='almacenado';}).length;
-  var contBaja=m.equipos.filter(function(e){return e.estado==='baja';}).length;
-
-  var rows=eqSlice.length===0?'<tr><td colspan="7" class="empty">Sin equipos</td></tr>':'';
-  eqSlice.forEach(function(eq){
-    // Ubicación: leer de ubicacionTipo/ubicacionId, fallback a centroId
-    var ubTipo=eq.ubicacionTipo||'centro';
-    var ubId=eq.ubicacionId||eq.centroId||'';
-    var ubLabel='—';
-    var ubIc='🍔';
-    if(ubTipo==='centro'){ubLabel=centroMap[ubId]||'—';ubIc='🍔';}
-    else if(ubTipo==='bodega'){ubLabel=bodegaMap[ubId]||'—';ubIc='📦';}
-
-    var estadoBadge='';
-    if(!eq.estado||eq.estado==='activo')estadoBadge='<span class="badge b-ok" style="font-size:10px">✓ Activo</span>';
-    else if(eq.estado==='almacenado')estadoBadge='<span class="badge b-warn" style="font-size:10px">📦 Almacenado</span>';
-    else if(eq.estado==='baja')estadoBadge='<span class="badge b-err" style="font-size:10px">✕ Baja</span>';
-
-    var prox=mantFechaPróximo(eq);
-    var proxColor=prox&&prox<hoy?'color:var(--red)':'';
-    var proxStr=eq.estado==='almacenado'||eq.estado==='baja'?'<span style="color:var(--muted);font-size:11px">— pausado —</span>':fmtDate(prox);
-
-    rows+='<tr><td><div>'+esc(eq.nombre)+'</div><div style="font-size:11px;color:var(--muted)">'+ubIc+' '+esc(ubLabel)+'</div></td>';
-    rows+='<td><span class="badge b-neu">'+esc(catAreaLabel(eq.categoria)||eq.tipo||eq.categoria||'—')+'</span></td>';
-    rows+='<td style="text-align:center">'+estadoBadge+'</td>';
-    rows+='<td>'+esc(eq.frecuencia||'—')+'</td>';
-    rows+='<td>'+fmtDate(eq.ultimoMant)+'</td>';
-    rows+='<td style="'+proxColor+'">'+proxStr+'</td>';
-    rows+='<td><div class="td-act">'
-      +'<button class="btn btn-secondary btn-xs" onclick="modalEquipo(\''+eq.id+'\')" title="Editar">✏</button>'
-      +'<button class="btn btn-secondary btn-xs" onclick="modalMoverEquipo(\''+eq.id+'\')" title="Mover" style="color:var(--accent);border-color:var(--accent)">📦</button>'
-      +'<button class="btn btn-danger btn-xs" onclick="delEquipo(\''+eq.id+'\')" title="Eliminar">✕</button>'
-      +'</div></td></tr>';
+  var centrosOpts='<option value="">Todas las sucursales</option>';
+  S.centros.forEach(function(c){
+    centrosOpts+='<option value="'+c.id+'"'+(filtroCentro===c.id?' selected':'')+'>'+esc(c.nombre)+'</option>';
+  });
+  ((S.inventario&&S.inventario.bodegas)||[]).forEach(function(b){
+    centrosOpts+='<option value="'+b.id+'"'+(filtroCentro===b.id?' selected':'')+'>📦 '+esc(b.nombre)+'</option>';
   });
 
-  var eqPagCtrl=totalEqPags>1
-    ?'<div style="display:flex;align-items:center;gap:8px;margin-top:10px">'
-      +'<button class="btn btn-secondary btn-xs" onclick="S._mantEqPag=Math.max(0,S._mantEqPag-1);renderMantEquipos()" '+(S._mantEqPag===0?'disabled':'')+'>‹ Ant</button>'
-      +'<span style="font-size:13px;color:var(--muted)">Pág '+(S._mantEqPag+1)+' / '+totalEqPags+' · '+equipos.length+' equipos</span>'
-      +'<button class="btn btn-secondary btn-xs" onclick="S._mantEqPag=Math.min('+(totalEqPags-1)+',S._mantEqPag+1);renderMantEquipos()" '+(S._mantEqPag>=totalEqPags-1?'disabled':'')+'>Sig ›</button></div>'
-    :'<div style="font-size:12px;color:var(--muted);margin-top:8px">'+equipos.length+' equipo(s)</div>';
-
-  // Tabs de estado
-  function tabBtn(val,label,count,color){
-    var active=filtroEstado===val;
-    return '<button class="btn '+(active?'btn-primary':'btn-secondary')+' btn-sm" onclick="S._mantEqEstado=\''+val+'\';S._mantEqPag=0;renderMantEquipos()">'+label+' <span style="background:rgba(255,255,255,0.2);padding:1px 6px;border-radius:10px;margin-left:4px;font-size:11px">'+count+'</span></button>';
+  function tabBtn(val,label,count,col){
+    var active=filtroSem===val;
+    var colorStyle=col&&active?'background:'+col+';border-color:'+col+';color:#fff':
+      col&&!active?'border-color:'+col+';color:'+col:'';
+    return'<button class="btn btn-'+(active?'primary':'secondary')+' btn-sm" style="'+colorStyle+'" onclick="S._mantSemFiltro=\''
+      +val+'\';S._mantEqPag=0;renderMantEquipos()">'+label
+      +' <span style="background:rgba(0,0,0,0.15);padding:1px 6px;border-radius:10px;margin-left:3px;font-size:11px">'+count+'</span></button>';
   }
 
-  var theadEq='<thead><tr>'
-    +thSort('mantEquipos','nombre','Nombre / Ubicación',{})
-    +thSort('mantEquipos','categoria','Categoría',{})
-    +thSort('mantEquipos','estado','Estado',{style:'text-align:center'})
-    +thSort('mantEquipos','frecuencia','Frecuencia',{})
-    +thSort('mantEquipos','ultimo','Último mant.',{})
-    +thSort('mantEquipos','proximo','Próximo mant.',{})
-    +'<th>Acciones</th></tr></thead>';
+  var rows='';
+  if(!eqSlice.length){
+    rows='<tr><td colspan="6" class="empty">Sin equipos en esta categoría</td></tr>';
+  } else {
+    eqSlice.forEach(function(eq){
+      var sem=getEstadoSemaforo(eq);
+      var prox=mantFechaPróximo(eq);
+      var dotColor=sem==='vencido'?'#E24B4A':sem==='proximo'?'#EF9F27':sem==='ok'?'#639922':'#888780';
+      var dot='<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'+dotColor+';margin-right:6px;flex-shrink:0;margin-top:2px"></span>';
+
+      var proxBadge='';
+      if(sem==='vencido'){
+        var dias=Math.round((new Date(hoy+'T12:00:00')-new Date((prox==='—'?hoy:prox)+'T12:00:00'))/(1000*60*60*24));
+        proxBadge='<span class="badge b-err">Vencido '+dias+'d</span>';
+      } else if(sem==='proximo'){
+        var diasp=Math.round((new Date((prox==='—'?hoy:prox)+'T12:00:00')-new Date(hoy+'T12:00:00'))/(1000*60*60*24));
+        proxBadge='<span class="badge b-warn">En '+diasp+'d</span>';
+      } else if(sem==='ok'&&prox&&prox!=='—'){
+        proxBadge='<span class="badge b-ok">'+fmtDate(prox)+'</span>';
+      } else if(sem==='pausado'){
+        proxBadge='<span class="badge b-neu">Pausado</span>';
+      } else {
+        proxBadge='<span class="badge b-neu">Sin freq.</span>';
+      }
+
+      // Último técnico que registró mantenimiento en este equipo
+      var regsEq=(m.registros||[]).filter(function(r){return r.equipoId===eq.id;});
+      var ultimoReg=regsEq.sort(function(a,b){return(b.fecha||'').localeCompare(a.fecha||'');})[0];
+      var tecLabel='';
+      if(ultimoReg){
+        var tec=m.tecnicos.find(function(t){return t.id===ultimoReg.tecnicoId;});
+        tecLabel=tec?tec.nombre:'';
+      }
+
+      var btnRegistrar='<button class="btn btn-primary btn-xs" data-id="'+eq.id+'" onclick="registrarMantModal(this.dataset.id)" title="Registrar mantenimiento">&#10003; Registrar</button>';
+
+      rows+='<tr>'
+        +'<td><div style="display:flex;align-items:flex-start">'+dot
+        +'<div><div style="font-weight:600;font-size:13px">'+esc(eq.nombre)+'</div>'
+        +'<div style="font-size:11px;color:var(--muted)">'+esc(getUbLabel(eq))+'</div></div></div></td>'
+        +'<td><span class="badge b-neu">'+esc(catAreaLabel(eq.categoria)||eq.categoria||'—')+'</span></td>'
+        +'<td>'+fmtDate(eq.ultimoMant)+'</td>'
+        +'<td>'+proxBadge+'</td>'
+        +'<td style="font-size:12px;color:var(--muted)">'+esc(tecLabel)+'</td>'
+        +'<td><div class="td-act">'
+        +btnRegistrar
+        +' <button class="btn btn-secondary btn-xs" data-id="'+eq.id+'" onclick="modalEquipo(this.dataset.id)" title="Editar">&#9998;</button>'
+        +'</div></td></tr>';
+    });
+  }
+
+  var pagCtrl=totalPags>1
+    ?'<div style="display:flex;align-items:center;gap:8px;margin-top:10px">'
+      +'<button class="btn btn-secondary btn-xs" onclick="S._mantEqPag=Math.max(0,S._mantEqPag-1);renderMantEquipos()" '+(S._mantEqPag===0?'disabled':'')+'>‹ Ant</button>'
+      +'<span style="font-size:13px;color:var(--muted)">Pág '+(S._mantEqPag+1)+' / '+totalPags+' · '+equipos.length+' equipos</span>'
+      +'<button class="btn btn-secondary btn-xs" onclick="S._mantEqPag=Math.min('+(totalPags-1)+',S._mantEqPag+1);renderMantEquipos()" '+(S._mantEqPag>=totalPags-1?'disabled':'')+'>Sig ›</button></div>'
+    :'<div style="font-size:12px;color:var(--muted);margin-top:8px">'+equipos.length+' equipo(s)</div>';
 
   document.getElementById('content').innerHTML=
-    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
-    +tabBtn('activo','✓ Activos',contActivo)
-    +tabBtn('almacenado','📦 Almacenados',contAlmac)
-    +tabBtn('baja','✕ Dados de baja',contBaja)
-    +'<button class="btn btn-secondary btn-sm" onclick="renderMantMovimientos()" style="margin-left:auto">📋 Historial movimientos</button>'
+    '<div class="kpi-grid" style="margin-bottom:14px">'
+    +'<div class="kpi"><div class="kpi-lbl" style="color:var(--red)">Vencidos</div><div class="kpi-val" style="color:var(--red)">'+cVenc+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl" style="color:var(--accent)">Esta semana</div><div class="kpi-val" style="color:var(--accent)">'+cProx+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl" style="color:var(--green)">Al día</div><div class="kpi-val" style="color:var(--green)">'+cOk+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Total activos</div><div class="kpi-val">'+(cVenc+cProx+cOk)+'</div></div>'
     +'</div>'
-    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">'
-    +'<select style="max-width:340px" onchange="S._mantEqFiltro=this.value;S._mantEqPag=0;renderMantEquipos()">'+centrosOpts+'</select>'
-    +'<button class="btn btn-primary" onclick="modalEquipo(\'\')">+ Nuevo equipo</button>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center">'
+    +tabBtn('vencido','🔴 Vencidos',cVenc,'#A32D2D')
+    +tabBtn('proximo','🟡 Esta semana',cProx,'#854F0B')
+    +tabBtn('ok','🟢 Al día',cOk,'#3B6D11')
+    +tabBtn('pausado','⏸ Pausados',cPaus,'')
+    +tabBtn('todos','Todos',m.equipos.length,'')
     +'</div>'
-    +'<div class="tbl-wrap"><table>'+theadEq+'<tbody>'+rows+'</tbody></table></div>'
-    +eqPagCtrl;
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">'
+    +'<select style="max-width:320px" onchange="S._mantEqFiltro=this.value;S._mantEqPag=0;renderMantEquipos()">'+centrosOpts+'</select>'
+    +'<div style="display:flex;gap:8px">'
+    +'<button class="btn btn-secondary btn-sm" onclick="renderMantMovimientos()">📋 Mov. equipos</button>'
+    +'<button class="btn btn-primary btn-sm" onclick="modalEquipo(\'\')">+ Nuevo equipo</button>'
+    +'</div></div>'
+    +'<div class="tbl-wrap"><table>'
+    +'<thead><tr><th>Equipo / Sucursal</th><th>Categoría</th><th>Último mant.</th><th>Próximo</th><th>Último técnico</th><th>Acción</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table></div>'
+    +pagCtrl;
 }
-
 function modalEquipo(id){
   var m=mantData();
   var eq=id?m.equipos.find(function(e){return e.id===id;}):null;
@@ -10215,6 +10321,595 @@ function delEquipo(id){
   m.equipos=m.equipos.filter(function(e){return e.id!==id;});
   saveData();renderMantEquipos();toast('Equipo eliminado');
 }
+
+// ── Registrar mantenimiento realizado ────────────────────
+function registrarMantModal(eqId){
+  var m=mantData();
+  var eq=m.equipos.find(function(e){return e.id===eqId;});
+  if(!eq){toast('Equipo no encontrado',true);return;}
+  var ubLabel='';
+  var ubid=eq.ubicacionId||eq.centroId||'';
+  if(eq.ubicacionTipo==='bodega'){
+    var b=((S.inventario&&S.inventario.bodegas)||[]).find(function(x){return x.id===ubid;});
+    ubLabel=b?b.nombre:'';
+  } else {
+    var cc=S.centros.find(function(x){return x.id===ubid;});
+    ubLabel=cc?cc.nombre:'';
+  }
+  var tecOpts='<option value="">— Seleccionar —</option>';
+  m.tecnicos.filter(function(t){return t.activo!==false;}).forEach(function(t){
+    tecOpts+='<option value="'+t.id+'">'+esc(t.nombre)+'</option>';
+  });
+  var hoy=mantHoy();
+  (function(old){if(old)old.remove();})(document.getElementById('modalRegMant'));
+  var div=document.createElement('div');
+  div.id='modalRegMant';
+  div.className='modal open';
+  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:12px;overflow-y:auto';
+  div.innerHTML='<div class="modal-box md" style="margin-top:auto;margin-bottom:auto">'
+    +'<div class="modal-hdr"><div class="modal-ttl">✓ Registrar mantenimiento</div>'
+    +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalRegMant\').remove()">✕</button></div>'
+    +'<div style="background:var(--surface2);padding:10px 12px;border-radius:8px;margin-bottom:14px">'
+    +'<div style="font-weight:700;font-size:14px">'+esc(eq.nombre)+'</div>'
+    +'<div style="font-size:12px;color:var(--muted)">'+esc(ubLabel)
+    +(eq.frecuencia?' · Frecuencia: '+eq.frecuencia:'')
+    +(eq.ultimoMant?' · Último: '+fmtDate(eq.ultimoMant):'')+'</div>'
+    +'</div>'
+    +'<div class="row2">'
+    +'<div class="fg"><label>Fecha del mantenimiento *</label><input type="date" id="rmFecha" value="'+hoy+'"></div>'
+    +'<div class="fg"><label>Técnico *</label><select id="rmTecnico">'+tecOpts+'</select></div>'
+    +'</div>'
+    +'<div class="fg" style="margin-bottom:10px"><label>Observaciones</label>'
+    +'<textarea id="rmObs" rows="2" placeholder="Ej: Lavado de filtros, revisión de compresor, cambio de gas..."></textarea></div>'
+    +'<div class="fg" style="margin-bottom:14px"><label>Costo ($)</label>'
+    +'<input type="number" id="rmCosto" step="0.01" min="0" placeholder="0.00"></div>'
+    +'<div style="display:flex;gap:10px;justify-content:flex-end">'
+    +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalRegMant\').remove()">Cancelar</button>'
+    +'<button class="btn btn-primary" onclick="guardarRegistroMant(\''+eqId+'\')">✓ Guardar registro</button>'
+    +'</div></div>';
+  document.body.appendChild(div);
+  setTimeout(function(){var fi=document.getElementById('rmFecha');if(fi)fi.focus();},80);
+}
+
+function guardarRegistroMant(eqId){
+  var m=mantData();
+  var eq=m.equipos.find(function(e){return e.id===eqId;});
+  if(!eq){toast('Equipo no encontrado',true);return;}
+  var fecha=(document.getElementById('rmFecha')||{}).value||'';
+  var tecnicoId=(document.getElementById('rmTecnico')||{}).value||'';
+  var obs=((document.getElementById('rmObs')||{}).value||'').trim();
+  var costo=parseFloat((document.getElementById('rmCosto')||{}).value)||0;
+  if(!fecha){toast('Selecciona la fecha',true);return;}
+  if(!tecnicoId){toast('Selecciona el técnico',true);return;}
+  var registro={
+    id:'mr_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,5),
+    equipoId:eqId,
+    fecha:fecha,
+    tecnicoId:tecnicoId,
+    observaciones:obs,
+    costo:costo,
+    ts:Date.now(),
+    creadoPor:S.currentUser?S.currentUser.email:''
+  };
+  if(!m.registros)m.registros=[];
+  m.registros.push(registro);
+  // Actualizar ultimoMant del equipo con la fecha registrada
+  if(!eq.ultimoMant||fecha>eq.ultimoMant){
+    eq.ultimoMant=fecha;
+  }
+  saveData();
+  var modal=document.getElementById('modalRegMant');
+  if(modal)modal.remove();
+  renderMantEquipos();
+  logAction('REGISTRAR','mant_mantenimiento','Equipo: '+eq.nombre+' · Fecha: '+fecha);
+  toast('✓ Mantenimiento registrado');
+}
+
+// ══════════════════════════════════════════════════════════
+//  PORTAL PÚBLICO MANTENIMIENTO + MÓDULO SOLICITUDES
+// ══════════════════════════════════════════════════════════
+
+// Clasificaciones de problema para el portal
+var SOL_MANT_CLASIFICACIONES = [
+  {id:'ac',         label:'❄️  A/C / Ventilación'},
+  {id:'cocina',     label:'🍳  Equipo de cocina'},
+  {id:'refrigeracion', label:'🧊  Refrigeración / Frío'},
+  {id:'electrico',  label:'⚡  Eléctrico / Iluminación'},
+  {id:'plomeria',   label:'🚿  Plomería / Agua'},
+  {id:'civil',      label:'🏗️  Infraestructura / Civil'},
+  {id:'fumigacion', label:'🐛  Fumigación / Plagas'},
+  {id:'otro',       label:'🔧  Otro'}
+];
+
+var SOL_MANT_URGENCIAS = [
+  {id:'normal',   label:'Normal — puede esperar unos días',   color:'#3B82F6'},
+  {id:'urgente',  label:'Urgente — esta semana sí o sí',      color:'#F59E0B'},
+  {id:'critica',  label:'Crítica — operación detenida',        color:'#EF4444'}
+];
+
+// ── checkPortalMode: carga datos si el portal está activo ─
+function checkPortalMode() {
+  var params = new URLSearchParams(window.location.search);
+  var empresa = params.get('portal');
+  if (!empresa) return false;
+  _cargarDatosPortal(empresa.toUpperCase());
+  return true;
+}
+
+// Datos mínimos del portal (centros y equipos) desde Firestore sin auth
+var _portalData = {centros: [], equipos: [], empresa: ''};
+
+function _cargarDatosPortal(empresa) {
+  _portalData.empresa = empresa;
+  var area = document.getElementById('portalFormArea');
+  if (area) area.innerHTML = '<div style="text-align:center;padding:40px;color:#888">Cargando...</div>';
+  // Usar Firebase SDK ya cargado para leer sin auth
+  var db = firebase.firestore();
+  db.collection('empresas').doc(empresa).get().then(function(doc) {
+    if (!doc.exists) {
+      if (area) area.innerHTML = '<div style="text-align:center;padding:40px;color:#e84040">Empresa no encontrada. Verifica el link.</div>';
+      return;
+    }
+    var data = doc.data() || {};
+    _portalData.centros = data.centros || [];
+    var mant = data.mantenimiento || {};
+    _portalData.equipos = (mant.equipos || []).filter(function(e) {
+      return !e.estado || e.estado === 'activo';
+    });
+    renderPortalForm();
+  }).catch(function(err) {
+    if (area) area.innerHTML = '<div style="text-align:center;padding:40px;color:#e84040">Error al cargar. Intenta de nuevo.</div>';
+    console.error('[Portal]', err);
+  });
+}
+
+function renderPortalForm() {
+  var area = document.getElementById('portalFormArea');
+  if (!area) return;
+
+  var centroOpts = '<option value="">— Selecciona tu sucursal —</option>';
+  _portalData.centros.forEach(function(c) {
+    centroOpts += '<option value="' + (c.id||'') + '">' + (c.nombre||c.id||'') + '</option>';
+  });
+
+  var clasOpts = '<option value="">— Tipo de problema —</option>';
+  SOL_MANT_CLASIFICACIONES.forEach(function(cl) {
+    clasOpts += '<option value="' + cl.id + '">' + cl.label + '</option>';
+  });
+
+  area.innerHTML =
+    '<div id="portalSuccess" style="display:none;text-align:center;padding:40px 20px">'
+    + '<div style="font-size:48px;margin-bottom:16px">✅</div>'
+    + '<div style="font-size:20px;font-weight:700;margin-bottom:8px">¡Solicitud enviada!</div>'
+    + '<div style="font-size:14px;color:#888;margin-bottom:24px">Tu solicitud fue registrada. El equipo de mantenimiento se pondrá en contacto contigo.</div>'
+    + '<div id="portalFolioBox" style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:10px;padding:14px;margin-bottom:24px;font-size:13px;color:#e8a020"></div>'
+    + '<button onclick="portalNuevaSolicitud()" style="padding:12px 28px;background:#e8a020;color:#000;font-weight:700;border:none;border-radius:8px;cursor:pointer;font-size:14px">Nueva solicitud</button>'
+    + '</div>'
+    + '<div id="portalFormInner">'
+    + '<div style="background:#141414;border:1px solid #222;border-radius:12px;padding:20px;margin-bottom:16px">'
+    + '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#666;margin-bottom:12px">1. Información de contacto</div>'
+    + '<div style="margin-bottom:12px"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Nombre completo *</label>'
+    + '<input id="pNombre" type="text" placeholder="Ej: María González" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2a;background:#0f0f0f;color:#e4e2dd;font-size:14px;box-sizing:border-box"></div>'
+    + '<div><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Teléfono / WhatsApp *</label>'
+    + '<input id="pTelefono" type="tel" placeholder="Ej: 7777-1234" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2a;background:#0f0f0f;color:#e4e2dd;font-size:14px;box-sizing:border-box"></div>'
+    + '</div>'
+    + '<div style="background:#141414;border:1px solid #222;border-radius:12px;padding:20px;margin-bottom:16px">'
+    + '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#666;margin-bottom:12px">2. Ubicación del problema</div>'
+    + '<div style="margin-bottom:12px"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Sucursal / Centro *</label>'
+    + '<select id="pCentro" onchange="portalFiltrarEquipos()" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2a;background:#0f0f0f;color:#e4e2dd;font-size:14px">'
+    + centroOpts + '</select></div>'
+    + '<div><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Equipo afectado (si aplica)</label>'
+    + '<select id="pEquipo" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2a;background:#0f0f0f;color:#e4e2dd;font-size:14px">'
+    + '<option value="">— Selecciona primero la sucursal —</option>'
+    + '</select></div>'
+    + '</div>'
+    + '<div style="background:#141414;border:1px solid #222;border-radius:12px;padding:20px;margin-bottom:16px">'
+    + '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#666;margin-bottom:12px">3. Descripción del problema</div>'
+    + '<div style="margin-bottom:12px"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Clasificación *</label>'
+    + '<select id="pClasificacion" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2a;background:#0f0f0f;color:#e4e2dd;font-size:14px">'
+    + clasOpts + '</select></div>'
+    + '<div style="margin-bottom:12px"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Describe el problema *</label>'
+    + '<textarea id="pDescripcion" rows="3" placeholder="Ej: El aire acondicionado de la sala no enfría y hace ruido extraño desde esta mañana..." '
+    + 'style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2a;background:#0f0f0f;color:#e4e2dd;font-size:14px;resize:vertical;box-sizing:border-box"></textarea></div>'
+    + '</div>'
+    + '<div style="background:#141414;border:1px solid #222;border-radius:12px;padding:20px;margin-bottom:24px">'
+    + '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#666;margin-bottom:4px">4. Foto del problema</div>'
+    + '<div style="font-size:12px;color:#666;margin-bottom:12px">Opcional — máx. 2 fotos (se comprimen automáticamente)</div>'
+    + '<input type="file" id="pFotos" accept="image/*" multiple style="font-size:13px;color:#aaa" onchange="portalPreviewFotos()">'
+    + '<div id="pFotosPreview" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"></div>'
+    + '</div>'
+    + '<div id="pError" style="color:#e84040;font-size:13px;margin-bottom:12px;display:none"></div>'
+    + '<button id="pSubmitBtn" onclick="portalEnviarSolicitud()" '
+    + 'style="width:100%;padding:14px;background:#e8a020;color:#000;font-weight:700;border:none;border-radius:10px;cursor:pointer;font-size:15px">'
+    + '📩 Enviar solicitud</button>'
+    + '</div>';
+}
+
+function portalFiltrarEquipos() {
+  var centroId = (document.getElementById('pCentro') || {}).value || '';
+  var sel = document.getElementById('pEquipo');
+  if (!sel) return;
+  var eqs = _portalData.equipos.filter(function(e) {
+    var ubid = e.ubicacionId || e.centroId || '';
+    return !centroId || ubid === centroId;
+  });
+  var html = '<option value="">— Selecciona un equipo (opcional) —</option>';
+  eqs.forEach(function(e) {
+    html += '<option value="' + (e.id||'') + '">' + (e.nombre||'—') + '</option>';
+  });
+  sel.innerHTML = html;
+}
+
+function portalPreviewFotos() {
+  var input = document.getElementById('pFotos');
+  var preview = document.getElementById('pFotosPreview');
+  if (!input || !preview) return;
+  var files = Array.prototype.slice.call(input.files || []).slice(0, 2);
+  preview.innerHTML = '';
+  files.forEach(function(file) {
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var img = document.createElement('img');
+      img.src = e.target.result;
+      img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:6px;border:1px solid #2a2a2a';
+      preview.appendChild(img);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function _comprimirPortalFoto(file, callback) {
+  if (!file) { callback(null); return; }
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var img = new Image();
+    img.onload = function() {
+      var maxW = 600;
+      var w = img.width, h = img.height;
+      if (w > maxW) { h = Math.round(h * (maxW / w)); w = maxW; }
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      callback(canvas.toDataURL('image/jpeg', 0.5));
+    };
+    img.onerror = function() { callback(null); };
+    img.src = e.target.result;
+  };
+  reader.onerror = function() { callback(null); };
+  reader.readAsDataURL(file);
+}
+
+function portalEnviarSolicitud() {
+  var nombre    = ((document.getElementById('pNombre')       || {}).value || '').trim();
+  var telefono  = ((document.getElementById('pTelefono')     || {}).value || '').trim();
+  var centroId  = ((document.getElementById('pCentro')       || {}).value || '').trim();
+  var equipoId  = ((document.getElementById('pEquipo')       || {}).value || '').trim();
+  var clasif    = ((document.getElementById('pClasificacion')|| {}).value || '').trim();
+  var desc      = ((document.getElementById('pDescripcion')  || {}).value || '').trim();
+  var errEl     = document.getElementById('pError');
+  var btn       = document.getElementById('pSubmitBtn');
+
+  if (errEl) errEl.style.display = 'none';
+  if (!nombre)   { _portalError('El nombre es obligatorio'); return; }
+  if (!telefono) { _portalError('El teléfono es obligatorio'); return; }
+  if (!centroId) { _portalError('Selecciona la sucursal'); return; }
+  if (!clasif)   { _portalError('Selecciona la clasificación del problema'); return; }
+  if (!desc)     { _portalError('Describe el problema'); return; }
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
+
+  var fotosInput = document.getElementById('pFotos');
+  var files = fotosInput ? Array.prototype.slice.call(fotosInput.files || []).slice(0, 2) : [];
+
+  function procesarFotos(idx, acum, done) {
+    if (idx >= files.length) { done(acum); return; }
+    _comprimirPortalFoto(files[idx], function(b64) {
+      if (b64) acum.push(b64);
+      procesarFotos(idx + 1, acum, done);
+    });
+  }
+
+  procesarFotos(0, [], function(fotoB64s) {
+    var folio = 'SOL-' + Date.now().toString(36).toUpperCase();
+    var doc = {
+      id:             folio,
+      empresa:        _portalData.empresa,
+      centroId:       centroId,
+      equipoId:       equipoId || null,
+      clasificacion:  clasif,
+      descripcion:    desc,
+      solicitante:    {nombre: nombre, telefono: telefono},
+      fotos:          fotoB64s,
+      ts:             Date.now(),
+      estado:         'nueva',
+      otId:           null
+    };
+
+    var db = firebase.firestore();
+    db.collection('solicitudesMant').doc(folio).set(doc).then(function() {
+      // Mostrar confirmación
+      var formInner = document.getElementById('portalFormInner');
+      var success   = document.getElementById('portalSuccess');
+      var folioBox  = document.getElementById('portalFolioBox');
+      if (formInner) formInner.style.display = 'none';
+      if (success)   success.style.display = 'block';
+      if (folioBox)  folioBox.textContent = '📋 Folio: ' + folio;
+    }).catch(function(err) {
+      if (btn) { btn.disabled = false; btn.textContent = '📩 Enviar solicitud'; }
+      _portalError('Error al enviar. Intenta de nuevo.');
+      console.error('[Portal]', err);
+    });
+  });
+}
+
+function _portalError(msg) {
+  var el = document.getElementById('pError');
+  var btn = document.getElementById('pSubmitBtn');
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
+  if (btn) { btn.disabled = false; btn.textContent = '📩 Enviar solicitud'; }
+}
+
+function portalNuevaSolicitud() {
+  var success = document.getElementById('portalSuccess');
+  var formInner = document.getElementById('portalFormInner');
+  if (success) success.style.display = 'none';
+  if (formInner) formInner.style.display = 'block';
+  var pNombre = document.getElementById('pNombre');
+  if (pNombre) pNombre.value = '';
+  var pTel = document.getElementById('pTelefono');
+  if (pTel) pTel.value = '';
+  var pDesc = document.getElementById('pDescripcion');
+  if (pDesc) pDesc.value = '';
+  var pFotos = document.getElementById('pFotos');
+  if (pFotos) pFotos.value = '';
+  var pPrev = document.getElementById('pFotosPreview');
+  if (pPrev) pPrev.innerHTML = '';
+}
+
+// ── Admin: módulo Solicitudes de Mantenimiento ────────────
+function renderMantSolicitudes() {
+  var m = mantData();
+  // Leer desde Firestore la colección solicitudesMant
+  var content = document.getElementById('content');
+  if (!content) return;
+  content.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted)">Cargando solicitudes...</div>';
+
+  var db = firebase.firestore();
+  var q = db.collection('solicitudesMant')
+    .where('empresa', '==', S.empresa)
+    .orderBy('ts', 'desc')
+    .limit(200);
+
+  q.get().then(function(snap) {
+    var docs = [];
+    snap.forEach(function(d) { docs.push(d.data()); });
+    _renderSolicitudesList(docs, m);
+  }).catch(function(err) {
+    // Si no hay índice creado aún, intentar sin orderBy
+    db.collection('solicitudesMant')
+      .where('empresa', '==', S.empresa)
+      .get().then(function(snap) {
+        var docs = [];
+        snap.forEach(function(d) { docs.push(d.data()); });
+        docs.sort(function(a, b) { return (b.ts || 0) - (a.ts || 0); });
+        _renderSolicitudesList(docs, m);
+      }).catch(function(e) {
+        content.innerHTML = '<div class="empty">Error al cargar solicitudes: ' + e.message + '</div>';
+      });
+  });
+}
+
+function _renderSolicitudesList(docs, m) {
+  var content = document.getElementById('content');
+  if (!content) return;
+
+  var filtro = S._solMantFiltro || 'nueva';
+  var centroMap = {};
+  (S.centros || []).forEach(function(c) { centroMap[c.id] = c.nombre; });
+
+  var cNueva  = docs.filter(function(d) { return d.estado === 'nueva'; }).length;
+  var cProcesada = docs.filter(function(d) { return d.estado === 'procesada'; }).length;
+  var cRechazada = docs.filter(function(d) { return d.estado === 'rechazada'; }).length;
+
+  var filtrados = filtro === 'todas' ? docs : docs.filter(function(d) { return d.estado === filtro; });
+
+
+  function tabBtn(val, label, count) {
+    var active = filtro === val;
+    return '<button class="btn btn-' + (active ? 'primary' : 'secondary') + ' btn-sm" onclick="S._solMantFiltro=\'' + val + '\';renderMantSolicitudes()">'
+      + label + (count > 0 ? ' <span style="background:rgba(0,0,0,0.2);padding:1px 6px;border-radius:10px;font-size:11px;margin-left:3px">' + count + '</span>' : '') + '</button>';
+  }
+
+  var rows = '';
+  if (!filtrados.length) {
+    rows = '<tr><td colspan="7" class="empty">Sin solicitudes en esta categoría</td></tr>';
+  } else {
+    filtrados.forEach(function(sol) {
+      var centroNombre = centroMap[sol.centroId] || sol.centroId || '—';
+      var eq = m.equipos.find(function(e) { return e.id === sol.equipoId; });
+      var eqNombre = eq ? eq.nombre : (sol.equipoId ? sol.equipoId : '—');
+      var clasObj = SOL_MANT_CLASIFICACIONES.find(function(c) { return c.id === sol.clasificacion; });
+      var clasLabel = clasObj ? clasObj.label : (sol.clasificacion || '—');
+      var fotoBtn = (sol.fotos && sol.fotos.length)
+        ? '<button class="btn btn-secondary btn-xs" onclick="solMantVerFoto(\'' + sol.id + '\')" title="Ver fotos">📷 ' + sol.fotos.length + '</button> '
+        : '';
+      var fecha = sol.ts ? new Date(sol.ts).toLocaleString('es-SV', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+      var acciones = '';
+      if (sol.estado === 'nueva') {
+        acciones = '<button class="btn btn-primary btn-xs" data-id="' + sol.id + '" onclick="solMantProcesar(this.dataset.id)">⚙ Crear OT</button>'
+          + ' <button class="btn btn-danger btn-xs" data-id="' + sol.id + '" onclick="solMantRechazar(this.dataset.id)">✗ Rechazar</button>';
+      } else if (sol.estado === 'procesada' && sol.otId) {
+        acciones = '<span style="font-size:11px;color:var(--muted)">OT: ' + sol.otId + '</span>';
+      } else {
+        acciones = '<span class="badge b-err" style="font-size:11px">Rechazada</span>';
+      }
+      rows += '<tr>'
+        + '<td><div style="font-size:12px;color:var(--muted)">' + fecha + '</div>'
+        + '<div style="font-weight:600;font-size:13px">' + sol.id + '</div></td>'
+        + '<td>' + centroNombre + '</td>'
+        + '<td style="font-size:12px">' + eqNombre + '</td>'
+        + '<td style="font-size:12px">' + clasLabel + '</td>'
+        + '<td><div style="font-size:13px;font-weight:500">' + (sol.solicitante ? sol.solicitante.nombre : '—') + '</div>'
+        + '<div style="font-size:11px;color:var(--muted)">' + (sol.solicitante ? sol.solicitante.telefono : '') + '</div></td>'
+        + '<td><div class="td-act">' + fotoBtn + acciones + '</div></td>'
+        + '</tr>';
+    });
+  }
+
+  // URL del portal para copiar
+  var portalUrl = window.location.href.split('?')[0] + '?portal=' + encodeURIComponent(S.empresa);
+
+  content.innerHTML =
+    '<div class="kpi-grid" style="margin-bottom:14px">'
+    + '<div class="kpi"><div class="kpi-lbl" style="color:var(--accent)">Nuevas</div><div class="kpi-val" style="color:var(--accent)">' + cNueva + '</div></div>'
+    + '<div class="kpi"><div class="kpi-lbl" style="color:var(--green)">Procesadas</div><div class="kpi-val" style="color:var(--green)">' + cProcesada + '</div></div>'
+    + '<div class="kpi"><div class="kpi-lbl">Rechazadas</div><div class="kpi-val">' + cRechazada + '</div></div>'
+    + '</div>'
+    + '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+    + '<span style="font-size:12px;color:var(--muted)">🔗 Link del portal para sucursales:</span>'
+    + '<code style="font-size:12px;background:var(--surface);padding:4px 10px;border-radius:6px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + portalUrl + '</code>'
+    + '<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(\'' + portalUrl + '\').then(function(){toast(\'Link copiado\')})">📋 Copiar</button>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
+    + tabBtn('nueva',  '🟡 Nuevas',     cNueva)
+    + tabBtn('procesada','🟢 Procesadas', cProcesada)
+    + tabBtn('rechazada','🔴 Rechazadas', cRechazada)
+    + tabBtn('todas',  'Todas',          docs.length)
+    + '<button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="renderMantSolicitudes()">↺ Actualizar</button>'
+    + '</div>'
+    + '<div class="tbl-wrap"><table>'
+    + '<thead><tr><th>Folio / Fecha</th><th>Sucursal</th><th>Equipo</th><th>Clasificación</th><th>Solicitante</th><th>Acción</th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table></div>'
+    + '<div id="solMantDetalleArea"></div>';
+}
+
+function solMantVerFoto(solId) {
+  var db = firebase.firestore();
+  db.collection('solicitudesMant').doc(solId).get().then(function(doc) {
+    if (!doc.exists) { toast('Solicitud no encontrada', true); return; }
+    var sol = doc.data();
+    var fotos = sol.fotos || [];
+    if (!fotos.length) { toast('Sin fotos en esta solicitud', true); return; }
+    var old = document.getElementById('solFotoModal');
+    if (old) old.remove();
+    var div = document.createElement('div');
+    div.id = 'solFotoModal';
+    div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:400;display:flex;align-items:center;justify-content:center;padding:20px;cursor:pointer';
+    div.onclick = function() { div.remove(); };
+    var imgs = fotos.map(function(f) {
+      return '<img src="' + f + '" style="max-width:100%;max-height:80vh;border-radius:10px;margin:4px;object-fit:contain">';
+    }).join('');
+    div.innerHTML = '<div style="text-align:center">' + imgs
+      + '<div style="color:#888;font-size:13px;margin-top:12px">Toca para cerrar</div></div>';
+    document.body.appendChild(div);
+  }).catch(function(e) { toast('Error al cargar foto', true); });
+}
+
+function solMantProcesar(solId) {
+  var m = mantData();
+  var tecActivos = (m.tecnicos || []).filter(function(t) { return t.activo !== false; });
+
+  // Calcular carga actual por técnico para sugerir asignación
+  var otsPorTec = {};
+  (m.ots || []).forEach(function(o) {
+    if (o.estado !== 'completada') otsPorTec[o.tecnicoId] = (otsPorTec[o.tecnicoId] || 0) + 1;
+  });
+  tecActivos.sort(function(a, b) { return (otsPorTec[a.id] || 0) - (otsPorTec[b.id] || 0); });
+  var tecSugerido = tecActivos.length ? tecActivos[0].id : '';
+
+  var tecOpts = '<option value="">— Sin asignar —</option>';
+  tecActivos.forEach(function(t) {
+    var carga = otsPorTec[t.id] || 0;
+    tecOpts += '<option value="' + t.id + '"' + (t.id === tecSugerido ? ' selected' : '') + '>'
+      + t.nombre + ' (' + carga + ' OTs activas)</option>';
+  });
+
+  var old = document.getElementById('modalProcesarSol');
+  if (old) old.remove();
+  var div = document.createElement('div');
+  div.id = 'modalProcesarSol';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto';
+  div.innerHTML = '<div class="modal-box md">'
+    + '<div class="modal-hdr"><div class="modal-ttl">⚙ Crear OT desde solicitud</div>'
+    + '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalProcesarSol\').remove()">✕</button></div>'
+    + '<div style="background:var(--surface2);padding:10px 12px;border-radius:8px;margin-bottom:14px;font-size:13px">'
+    + 'Solicitud: <strong>' + solId + '</strong>'
+    + '</div>'
+    + '<div class="row2">'
+    + '<div class="fg"><label>Prioridad *</label>'
+    + '<select id="smPrioridad">'
+    + '<option value="normal">Normal</option>'
+    + '<option value="urgente">Urgente</option>'
+    + '</select></div>'
+    + '<div class="fg"><label>Fecha programada *</label>'
+    + '<input type="date" id="smFecha" value="' + new Date().toISOString().slice(0,10) + '"></div>'
+    + '</div>'
+    + '<div class="fg" style="margin-bottom:14px"><label>Técnico asignado</label>'
+    + '<select id="smTecnico">' + tecOpts + '</select>'
+    + '<div style="font-size:11px;color:var(--muted);margin-top:3px">Sugerido: menor carga actual</div></div>'
+    + '<div style="display:flex;gap:10px;justify-content:flex-end">'
+    + '<button class="btn btn-secondary" onclick="document.getElementById(\'modalProcesarSol\').remove()">Cancelar</button>'
+    + '<button class="btn btn-primary" data-id="' + solId + '" onclick="solMantConfirmarOT(this.dataset.id)">✓ Crear OT</button>'
+    + '</div></div>';
+  document.body.appendChild(div);
+}
+
+function solMantConfirmarOT(solId) {
+  var prioridad = (document.getElementById('smPrioridad') || {}).value || 'normal';
+  var fecha     = (document.getElementById('smFecha')     || {}).value || new Date().toISOString().slice(0,10);
+  var tecId     = (document.getElementById('smTecnico')   || {}).value || '';
+
+  var db = firebase.firestore();
+  db.collection('solicitudesMant').doc(solId).get().then(function(doc) {
+    if (!doc.exists) { toast('Solicitud no encontrada', true); return; }
+    var sol = doc.data();
+    var m = mantData();
+
+    var otId = 'OT-SOL-' + Date.now().toString(36).toUpperCase();
+    var nuevaOT = {
+      id:              otId,
+      equipoId:        sol.equipoId || null,
+      centroId:        sol.centroId || '',
+      tecnicoId:       tecId || null,
+      prioridad:       prioridad,
+      estado:          'pendiente',
+      descripcion:     '[' + (sol.clasificacion || '') + '] ' + (sol.descripcion || ''),
+      fechaProgramada: fecha,
+      solicitanteNombre: sol.solicitante ? sol.solicitante.nombre : '',
+      solicitanteTel:    sol.solicitante ? sol.solicitante.telefono : '',
+      origenSolicitud: solId,
+      creadoEn:        Date.now()
+    };
+
+    if (!m.ots) m.ots = [];
+    m.ots.push(nuevaOT);
+    markDirty('taller');
+    saveData();
+
+    db.collection('solicitudesMant').doc(solId).update({estado: 'procesada', otId: otId}).then(function() {
+      var modal = document.getElementById('modalProcesarSol');
+      if (modal) modal.remove();
+      var m2 = mantData();
+      var tec = (m2.tecnicos || []).find(function(t) { return t.id === tecId; });
+      toast('✅ OT ' + otId + ' creada' + (tec ? ' — asignada a ' + tec.nombre : '') + ' · Prioridad: ' + prioridad);
+      renderMantSolicitudes();
+    }).catch(function(e) { toast('OT creada localmente pero error al actualizar solicitud: ' + e.message, true); });
+  }).catch(function(e) { toast('Error: ' + e.message, true); });
+}
+
+function solMantRechazar(solId) {
+  if (!confirm('¿Rechazar esta solicitud?')) return;
+  var db = firebase.firestore();
+  db.collection('solicitudesMant').doc(solId).update({estado: 'rechazada'}).then(function() {
+    toast('Solicitud rechazada');
+    renderMantSolicitudes();
+  }).catch(function(e) { toast('Error: ' + e.message, true); });
+}
+
+// Llamar checkPortalMode directamente — el script está al final del body,
+// el DOM ya está listo en este punto (DOMContentLoaded ya disparó)
+// Inicializar portal si está activo (carga datos)
+if(_portalModeActive){ checkPortalMode(); }
 
 // ── mant_checklists ──────────────────────────────────────
 function renderMantChecklists(){
