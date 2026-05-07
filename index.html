@@ -10433,146 +10433,214 @@ function guardarRegistroMant(eqId){
 // ══════════════════════════════════════════════════════════
 
 // Clasificaciones de problema para el portal
-var SOL_MANT_CLASIFICACIONES = [
-  {id:'ac',         label:'❄️  A/C / Ventilación'},
-  {id:'cocina',     label:'🍳  Equipo de cocina'},
-  {id:'refrigeracion', label:'🧊  Refrigeración / Frío'},
-  {id:'electrico',  label:'⚡  Eléctrico / Iluminación'},
-  {id:'plomeria',   label:'🚿  Plomería / Agua'},
-  {id:'civil',      label:'🏗️  Infraestructura / Civil'},
-  {id:'fumigacion', label:'🐛  Fumigación / Plagas'},
-  {id:'otro',       label:'🔧  Otro'}
-];
+// ══════════════════════════════════════════════════════════
+//  PORTAL PÚBLICO + MÓDULO ADMIN SOLICITUDES MANTENIMIENTO
+// ══════════════════════════════════════════════════════════
 
-var SOL_MANT_URGENCIAS = [
-  {id:'normal',   label:'Normal — puede esperar unos días',   color:'#3B82F6'},
-  {id:'urgente',  label:'Urgente — esta semana sí o sí',      color:'#F59E0B'},
-  {id:'critica',  label:'Crítica — operación detenida',        color:'#EF4444'}
-];
+var _portalData = {centros:[], equipos:[], empresa:''};
+var _portalCentroId = '';   // tienda seleccionada actualmente
 
-// ── checkPortalMode: carga datos si el portal está activo ─
-function checkPortalMode() {
-  var params = new URLSearchParams(window.location.search);
-  var empresa = params.get('portal');
-  if (!empresa) return false;
-  _cargarDatosPortal(empresa.toUpperCase());
-  return true;
-}
+// Estados visibles para el portal
+var SOL_ESTADOS = {
+  nueva:     {label:'📨 Recibida',        color:'#F59E0B'},
+  procesada: {label:'🔧 Asignada',        color:'#3B82F6'},
+  en_proceso:{label:'⚙️ En proceso',      color:'#8B5CF6'},
+  finalizada:{label:'✅ Finalizada',       color:'#10B981'},
+  rechazada: {label:'❌ No procede',       color:'#EF4444'}
+};
 
-// Datos mínimos del portal (centros y equipos) desde Firestore sin auth
-var _portalData = {centros: [], equipos: [], empresa: ''};
-
+// ── Carga datos del portal desde portalesPublicos ─────────
 function _cargarDatosPortal(empresa) {
   _portalData.empresa = empresa;
   var area = document.getElementById('portalFormArea');
-  if (area) area.innerHTML = '<div style="text-align:center;padding:40px;color:#888">Cargando...</div>';
-  var db = firebase.firestore();
-  db.collection('portalesPublicos').doc(empresa).get().then(function(doc) {
+  if (area) area.innerHTML = '<div style="text-align:center;padding:60px;color:#888">Cargando...</div>';
+  firebase.firestore().collection('portalesPublicos').doc(empresa).get().then(function(doc) {
     if (!doc.exists) {
-      if (area) area.innerHTML = '<div style="text-align:center;padding:40px;color:#e84040">Portal no disponible aún. Pide al administrador que inicie sesión en el sistema para activarlo.</div>';
+      if (area) area.innerHTML = '<div style="text-align:center;padding:40px;color:#e84040">Portal no disponible aún.<br>Pide al administrador iniciar sesión en el sistema.</div>';
       return;
     }
     var data = doc.data() || {};
     _portalData.centros = data.centros || [];
-    _portalData.equipos = (data.equipos || []).filter(function(e) {
-      return !e.estado || e.estado === 'activo';
-    });
-    renderPortalForm();
+    _portalData.equipos = (data.equipos || []);
+    renderPortalSeleccionTienda();
   }).catch(function(err) {
     if (area) area.innerHTML = '<div style="text-align:center;padding:40px;color:#e84040">Error al cargar. Intenta de nuevo.</div>';
     console.error('[Portal]', err);
   });
 }
 
-function renderPortalForm() {
+// ── Paso 1: Selección de tienda ───────────────────────────
+function renderPortalSeleccionTienda() {
   var area = document.getElementById('portalFormArea');
   if (!area) return;
+  _portalCentroId = '';
 
   var centroOpts = '<option value="">— Selecciona tu sucursal —</option>';
   _portalData.centros.forEach(function(c) {
-    centroOpts += '<option value="' + (c.id||'') + '">' + (c.nombre||c.id||'') + '</option>';
+    centroOpts += '<option value="' + c.id + '">' + (c.nombre || c.id) + '</option>';
   });
 
-  var clasOpts = '<option value="">— Tipo de problema —</option>';
-  SOL_MANT_CLASIFICACIONES.forEach(function(cl) {
-    clasOpts += '<option value="' + cl.id + '">' + cl.label + '</option>';
-  });
+  if (!_portalData.centros.length) {
+    area.innerHTML = '<div style="text-align:center;padding:40px;color:#888">Sin sucursales configuradas.<br>Contacta al administrador.</div>';
+    return;
+  }
 
   area.innerHTML =
-    '<div id="portalSuccess" style="display:none;text-align:center;padding:40px 20px">'
-    + '<div style="font-size:48px;margin-bottom:16px">✅</div>'
-    + '<div style="font-size:20px;font-weight:700;margin-bottom:8px">¡Solicitud enviada!</div>'
-    + '<div style="font-size:14px;color:#888;margin-bottom:24px">Tu solicitud fue registrada. El equipo de mantenimiento se pondrá en contacto contigo.</div>'
-    + '<div id="portalFolioBox" style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:10px;padding:14px;margin-bottom:24px;font-size:13px;color:#e8a020"></div>'
-    + '<button onclick="portalNuevaSolicitud()" style="padding:12px 28px;background:#e8a020;color:#000;font-weight:700;border:none;border-radius:8px;cursor:pointer;font-size:14px">Nueva solicitud</button>'
+    '<div style="background:#141414;border:1px solid #222;border-radius:14px;padding:28px 24px;margin-bottom:16px;text-align:center">'
+    + '<div style="font-size:36px;margin-bottom:12px">🏪</div>'
+    + '<div style="font-size:18px;font-weight:700;color:#fff;margin-bottom:6px">¿Desde qué sucursal escribes?</div>'
+    + '<div style="font-size:13px;color:#888;margin-bottom:20px">Selecciona tu tienda para continuar</div>'
+    + '<select id="pCentroSelect" style="width:100%;max-width:380px;padding:14px 16px;border-radius:10px;border:1px solid #333;background:#0f0f0f;color:#fff;font-size:15px;font-weight:600;cursor:pointer">'
+    + centroOpts + '</select>'
     + '</div>'
-    + '<div id="portalFormInner">'
-    + '<div style="background:#141414;border:1px solid #222;border-radius:12px;padding:20px;margin-bottom:16px">'
-    + '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#666;margin-bottom:12px">1. Información de contacto</div>'
-    + '<div style="margin-bottom:12px"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Nombre completo *</label>'
-    + '<input id="pNombre" type="text" placeholder="Ej: María González" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2a;background:#0f0f0f;color:#e4e2dd;font-size:14px;box-sizing:border-box"></div>'
-    + '<div><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Teléfono / WhatsApp *</label>'
-    + '<input id="pTelefono" type="tel" placeholder="Ej: 7777-1234" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2a;background:#0f0f0f;color:#e4e2dd;font-size:14px;box-sizing:border-box"></div>'
-    + '</div>'
-    + '<div style="background:#141414;border:1px solid #222;border-radius:12px;padding:20px;margin-bottom:16px">'
-    + '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#666;margin-bottom:12px">2. Ubicación del problema</div>'
-    + '<div style="margin-bottom:12px"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Sucursal / Centro *</label>'
-    + '<select id="pCentro" onchange="portalFiltrarEquipos()" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2a;background:#0f0f0f;color:#e4e2dd;font-size:14px">'
-    + centroOpts + '</select></div>'
-    + '<div><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Equipo afectado (si aplica)</label>'
-    + '<select id="pEquipo" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2a;background:#0f0f0f;color:#e4e2dd;font-size:14px">'
-    + '<option value="">— Selecciona primero la sucursal —</option>'
-    + '</select></div>'
-    + '</div>'
-    + '<div style="background:#141414;border:1px solid #222;border-radius:12px;padding:20px;margin-bottom:16px">'
-    + '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#666;margin-bottom:12px">3. Descripción del problema</div>'
-    + '<div style="margin-bottom:12px"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Clasificación *</label>'
-    + '<select id="pClasificacion" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2a;background:#0f0f0f;color:#e4e2dd;font-size:14px">'
-    + clasOpts + '</select></div>'
-    + '<div style="margin-bottom:12px"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Describe el problema *</label>'
-    + '<textarea id="pDescripcion" rows="3" placeholder="Ej: El aire acondicionado de la sala no enfría y hace ruido extraño desde esta mañana..." '
-    + 'style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2a;background:#0f0f0f;color:#e4e2dd;font-size:14px;resize:vertical;box-sizing:border-box"></textarea></div>'
-    + '</div>'
-    + '<div style="background:#141414;border:1px solid #222;border-radius:12px;padding:20px;margin-bottom:24px">'
-    + '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#666;margin-bottom:4px">4. Foto del problema</div>'
-    + '<div style="font-size:12px;color:#666;margin-bottom:12px">Opcional — máx. 2 fotos (se comprimen automáticamente)</div>'
-    + '<input type="file" id="pFotos" accept="image/*" multiple style="font-size:13px;color:#aaa" onchange="portalPreviewFotos()">'
-    + '<div id="pFotosPreview" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"></div>'
-    + '</div>'
-    + '<div id="pError" style="color:#e84040;font-size:13px;margin-bottom:12px;display:none"></div>'
-    + '<button id="pSubmitBtn" onclick="portalEnviarSolicitud()" '
-    + 'style="width:100%;padding:14px;background:#e8a020;color:#000;font-weight:700;border:none;border-radius:10px;cursor:pointer;font-size:15px">'
-    + '📩 Enviar solicitud</button>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
+    + '<button onclick="portalIrNuevaSolicitud()" style="padding:18px;background:#e8a020;color:#000;font-weight:700;border:none;border-radius:12px;cursor:pointer;font-size:15px">📩 Nueva solicitud</button>'
+    + '<button onclick="portalIrHistorial()" style="padding:18px;background:#1a1a1a;color:#fff;font-weight:600;border:1px solid #333;border-radius:12px;cursor:pointer;font-size:15px">📋 Mis solicitudes</button>'
     + '</div>';
 }
 
-function portalFiltrarEquipos() {
-  var centroId = (document.getElementById('pCentro') || {}).value || '';
-  var sel = document.getElementById('pEquipo');
-  if (!sel) return;
-  var eqs = _portalData.equipos.filter(function(e) {
-    var ubid = e.ubicacionId || e.centroId || '';
-    return !centroId || ubid === centroId;
-  });
-  var html = '<option value="">— Selecciona un equipo (opcional) —</option>';
-  eqs.forEach(function(e) {
-    html += '<option value="' + (e.id||'') + '">' + (e.nombre||'—') + '</option>';
-  });
-  sel.innerHTML = html;
+function _getPortalCentro() {
+  var sel = document.getElementById('pCentroSelect');
+  return sel ? sel.value : '';
 }
 
+// ── Paso 2a: Formulario nueva solicitud ───────────────────
+function portalIrNuevaSolicitud() {
+  var centroId = _getPortalCentro();
+  if (!centroId) { _portalError2('Selecciona tu sucursal primero'); return; }
+  _portalCentroId = centroId;
+  var centro = _portalData.centros.find(function(c){return c.id===centroId;}) || {nombre:centroId};
+
+  var eqs = _portalData.equipos.filter(function(e){
+    return e.ubicacionId === centroId || e.centroId === centroId;
+  });
+  var eqOpts = '<option value="">— Selecciona el equipo —</option>';
+  eqs.forEach(function(e) {
+    eqOpts += '<option value="' + e.id + '">' + (e.nombre||e.id) + '</option>';
+  });
+  if (!eqs.length) eqOpts = '<option value="">Sin equipos registrados para esta sucursal</option>';
+
+  var area = document.getElementById('portalFormArea');
+  if (!area) return;
+  area.innerHTML =
+    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">'
+    + '<button onclick="renderPortalSeleccionTienda()" style="background:none;border:none;color:#888;cursor:pointer;font-size:20px;padding:0">←</button>'
+    + '<div><div style="font-size:16px;font-weight:700;color:#fff">Nueva solicitud</div>'
+    + '<div style="font-size:12px;color:#888">' + (centro.nombre||centroId) + '</div></div>'
+    + '</div>'
+
+    + '<div style="background:#141414;border:1px solid #222;border-radius:12px;padding:18px;margin-bottom:14px">'
+    + '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#555;margin-bottom:12px">1. Información de contacto</div>'
+    + '<div style="margin-bottom:10px"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Nombre completo *</label>'
+    + '<input id="pNombre" type="text" placeholder="Tu nombre" style="width:100%;padding:11px 13px;border-radius:8px;border:1px solid #2a2a2a;background:#0f0f0f;color:#fff;font-size:14px;box-sizing:border-box"></div>'
+    + '<div><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Teléfono / WhatsApp *</label>'
+    + '<input id="pTelefono" type="tel" placeholder="Ej: 7777-1234" style="width:100%;padding:11px 13px;border-radius:8px;border:1px solid #2a2a2a;background:#0f0f0f;color:#fff;font-size:14px;box-sizing:border-box"></div>'
+    + '</div>'
+
+    + '<div style="background:#141414;border:1px solid #222;border-radius:12px;padding:18px;margin-bottom:14px">'
+    + '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#555;margin-bottom:12px">2. Equipo con problema *</div>'
+    + '<select id="pEquipo" style="width:100%;padding:11px 13px;border-radius:8px;border:1px solid #2a2a2a;background:#0f0f0f;color:#fff;font-size:14px">'
+    + eqOpts + '</select>'
+    + '</div>'
+
+    + '<div style="background:#141414;border:1px solid #222;border-radius:12px;padding:18px;margin-bottom:14px">'
+    + '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#555;margin-bottom:12px">3. Descripción del problema *</div>'
+    + '<textarea id="pDescripcion" rows="3" placeholder="Describe qué está pasando con el equipo..." style="width:100%;padding:11px 13px;border-radius:8px;border:1px solid #2a2a2a;background:#0f0f0f;color:#fff;font-size:14px;resize:vertical;box-sizing:border-box"></textarea>'
+    + '</div>'
+
+    + '<div style="background:#141414;border:1px solid #222;border-radius:12px;padding:18px;margin-bottom:20px">'
+    + '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#555;margin-bottom:4px">4. Foto del problema *</div>'
+    + '<div style="font-size:12px;color:#666;margin-bottom:12px">Obligatorio — máx. 2 fotos (se comprimen automáticamente)</div>'
+    + '<input type="file" id="pFotos" accept="image/*" multiple onchange="portalPreviewFotos()" style="font-size:13px;color:#aaa;width:100%">'
+    + '<div id="pFotosPreview" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"></div>'
+    + '</div>'
+
+    + '<div id="pError" style="color:#e84040;font-size:13px;margin-bottom:12px;display:none;text-align:center;padding:10px;background:rgba(232,64,64,.1);border-radius:8px"></div>'
+    + '<button id="pSubmitBtn" onclick="portalEnviarSolicitud()" style="width:100%;padding:16px;background:#e8a020;color:#000;font-weight:700;border:none;border-radius:12px;cursor:pointer;font-size:16px">📩 Enviar solicitud</button>'
+    + '<div style="text-align:center;margin-top:16px"><button onclick="portalIrHistorial()" style="background:none;border:none;color:#888;font-size:12px;cursor:pointer;text-decoration:underline">Ver mis solicitudes anteriores →</button></div>';
+}
+
+// ── Paso 2b: Historial de solicitudes por tienda ──────────
+function portalIrHistorial() {
+  var centroId = _getPortalCentro() || _portalCentroId;
+  if (!centroId) { _portalError2('Selecciona tu sucursal primero'); return; }
+  _portalCentroId = centroId;
+  var centro = _portalData.centros.find(function(c){return c.id===centroId;}) || {nombre:centroId};
+  var area = document.getElementById('portalFormArea');
+  if (!area) return;
+  area.innerHTML =
+    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">'
+    + '<button onclick="renderPortalSeleccionTienda()" style="background:none;border:none;color:#888;cursor:pointer;font-size:20px;padding:0">←</button>'
+    + '<div><div style="font-size:16px;font-weight:700;color:#fff">Mis solicitudes</div>'
+    + '<div style="font-size:12px;color:#888">' + (centro.nombre||centroId) + '</div></div>'
+    + '</div>'
+    + '<div style="text-align:center;padding:30px;color:#888">Cargando...</div>';
+
+  firebase.firestore().collection('solicitudesMant')
+    .where('centroId','==',centroId)
+    .get().then(function(snap) {
+      var docs = [];
+      snap.forEach(function(d){ docs.push(d.data()); });
+      docs.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+      _renderPortalHistorial(docs, centro);
+    }).catch(function(e){
+      var a2 = document.getElementById('portalFormArea');
+      if(a2) {
+        var last = a2.querySelector('div:last-child');
+        if(last) last.innerHTML = '<div style="color:#e84040;text-align:center">Error al cargar: '+e.message+'</div>';
+      }
+    });
+}
+
+function _renderPortalHistorial(docs, centro) {
+  var area = document.getElementById('portalFormArea');
+  if (!area) return;
+  var backBtn = area.querySelector('div:first-child');
+  var rows = '';
+  if (!docs.length) {
+    rows = '<div style="text-align:center;padding:40px;color:#888">Sin solicitudes registradas para esta sucursal</div>';
+  } else {
+    docs.forEach(function(sol) {
+      var est = SOL_ESTADOS[sol.estado] || {label:sol.estado||'—', color:'#888'};
+      var eqNombre = '—';
+      var eq = _portalData.equipos.find(function(e){return e.id===sol.equipoId;});
+      if(eq) eqNombre = eq.nombre;
+      else if(sol.equipoId) eqNombre = sol.equipoId;
+      var fecha = sol.ts ? new Date(sol.ts).toLocaleDateString('es-SV',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+      rows +=
+        '<div style="background:#141414;border:1px solid #222;border-radius:10px;padding:14px;margin-bottom:10px">'
+        + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">'
+        + '<div style="font-size:11px;color:#555;font-weight:600">' + (sol.id||'—') + '</div>'
+        + '<span style="font-size:12px;font-weight:600;color:'+est.color+'">'+est.label+'</span>'
+        + '</div>'
+        + '<div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:4px">' + eqNombre + '</div>'
+        + '<div style="font-size:12px;color:#888;margin-bottom:6px">' + (sol.descripcion||'—').substring(0,80) + (sol.descripcion&&sol.descripcion.length>80?'...':'') + '</div>'
+        + '<div style="font-size:11px;color:#555">' + fecha + '</div>'
+        + '</div>';
+    });
+  }
+
+  // Rebuild keeping back button
+  var html = area.innerHTML.split('<div style="text-align:center;padding:30px')[0];
+  area.innerHTML = html + rows
+    + '<div style="text-align:center;margin-top:16px">'
+    + '<button onclick="portalIrNuevaSolicitud()" style="background:#e8a020;border:none;color:#000;font-weight:700;padding:12px 28px;border-radius:10px;cursor:pointer;font-size:14px">+ Nueva solicitud</button>'
+    + '</div>';
+}
+
+// ── Preview fotos ─────────────────────────────────────────
 function portalPreviewFotos() {
   var input = document.getElementById('pFotos');
   var preview = document.getElementById('pFotosPreview');
   if (!input || !preview) return;
-  var files = Array.prototype.slice.call(input.files || []).slice(0, 2);
+  var files = Array.prototype.slice.call(input.files||[]).slice(0,2);
   preview.innerHTML = '';
   files.forEach(function(file) {
     var reader = new FileReader();
     reader.onload = function(e) {
       var img = document.createElement('img');
       img.src = e.target.result;
-      img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:6px;border:1px solid #2a2a2a';
+      img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid #333';
       preview.appendChild(img);
     };
     reader.readAsDataURL(file);
@@ -10587,78 +10655,79 @@ function _comprimirPortalFoto(file, callback) {
     img.onload = function() {
       var maxW = 600;
       var w = img.width, h = img.height;
-      if (w > maxW) { h = Math.round(h * (maxW / w)); w = maxW; }
+      if (w > maxW) { h = Math.round(h*(maxW/w)); w = maxW; }
       var canvas = document.createElement('canvas');
       canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.getContext('2d').drawImage(img,0,0,w,h);
       callback(canvas.toDataURL('image/jpeg', 0.5));
     };
-    img.onerror = function() { callback(null); };
+    img.onerror = function(){ callback(null); };
     img.src = e.target.result;
   };
-  reader.onerror = function() { callback(null); };
+  reader.onerror = function(){ callback(null); };
   reader.readAsDataURL(file);
 }
 
+// ── Enviar solicitud ──────────────────────────────────────
 function portalEnviarSolicitud() {
-  var nombre    = ((document.getElementById('pNombre')       || {}).value || '').trim();
-  var telefono  = ((document.getElementById('pTelefono')     || {}).value || '').trim();
-  var centroId  = ((document.getElementById('pCentro')       || {}).value || '').trim();
-  var equipoId  = ((document.getElementById('pEquipo')       || {}).value || '').trim();
-  var clasif    = ((document.getElementById('pClasificacion')|| {}).value || '').trim();
-  var desc      = ((document.getElementById('pDescripcion')  || {}).value || '').trim();
-  var errEl     = document.getElementById('pError');
-  var btn       = document.getElementById('pSubmitBtn');
+  var nombre   = ((document.getElementById('pNombre')      ||{}).value||'').trim();
+  var telefono = ((document.getElementById('pTelefono')    ||{}).value||'').trim();
+  var equipoId = ((document.getElementById('pEquipo')      ||{}).value||'').trim();
+  var desc     = ((document.getElementById('pDescripcion') ||{}).value||'').trim();
+  var btn      = document.getElementById('pSubmitBtn');
+  var errEl    = document.getElementById('pError');
+  if(errEl) errEl.style.display='none';
 
-  if (errEl) errEl.style.display = 'none';
-  if (!nombre)   { _portalError('El nombre es obligatorio'); return; }
-  if (!telefono) { _portalError('El teléfono es obligatorio'); return; }
-  if (!centroId) { _portalError('Selecciona la sucursal'); return; }
-  if (!clasif)   { _portalError('Selecciona la clasificación del problema'); return; }
-  if (!desc)     { _portalError('Describe el problema'); return; }
-
-  if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
+  if(!nombre)   { _portalError('El nombre es obligatorio'); return; }
+  if(!telefono) { _portalError('El teléfono es obligatorio'); return; }
+  if(!equipoId) { _portalError('Selecciona el equipo con problema'); return; }
+  if(!desc)     { _portalError('Describe el problema'); return; }
 
   var fotosInput = document.getElementById('pFotos');
-  var files = fotosInput ? Array.prototype.slice.call(fotosInput.files || []).slice(0, 2) : [];
+  var files = fotosInput ? Array.prototype.slice.call(fotosInput.files||[]).slice(0,2) : [];
+  if(!files.length){ _portalError('Debes adjuntar al menos una foto del problema'); return; }
+
+  if(btn){ btn.disabled=true; btn.textContent='Enviando...'; }
 
   function procesarFotos(idx, acum, done) {
-    if (idx >= files.length) { done(acum); return; }
-    _comprimirPortalFoto(files[idx], function(b64) {
-      if (b64) acum.push(b64);
-      procesarFotos(idx + 1, acum, done);
-    });
+    if(idx>=files.length){ done(acum); return; }
+    _comprimirPortalFoto(files[idx], function(b64){ if(b64) acum.push(b64); procesarFotos(idx+1,acum,done); });
   }
 
   procesarFotos(0, [], function(fotoB64s) {
-    var folio = 'SOL-' + Date.now().toString(36).toUpperCase();
+    var folio = 'SOL-'+Date.now().toString(36).toUpperCase();
+    var eq = _portalData.equipos.find(function(e){return e.id===equipoId;})||{};
     var doc = {
-      id:             folio,
-      empresa:        _portalData.empresa,
-      centroId:       centroId,
-      equipoId:       equipoId || null,
-      clasificacion:  clasif,
-      descripcion:    desc,
-      solicitante:    {nombre: nombre, telefono: telefono},
-      fotos:          fotoB64s,
-      ts:             Date.now(),
-      estado:         'nueva',
-      otId:           null
+      id:          folio,
+      empresa:     _portalData.empresa,
+      centroId:    _portalCentroId,
+      equipoId:    equipoId,
+      equipoNombre:eq.nombre||equipoId,
+      descripcion: desc,
+      solicitante: {nombre:nombre, telefono:telefono},
+      fotos:       fotoB64s,
+      ts:          Date.now(),
+      estado:      'nueva',
+      otId:        null
     };
-
-    var db = firebase.firestore();
-    db.collection('solicitudesMant').doc(folio).set(doc).then(function() {
-      // Mostrar confirmación
-      var formInner = document.getElementById('portalFormInner');
-      var success   = document.getElementById('portalSuccess');
-      var folioBox  = document.getElementById('portalFolioBox');
-      if (formInner) formInner.style.display = 'none';
-      if (success)   success.style.display = 'block';
-      if (folioBox)  folioBox.textContent = '📋 Folio: ' + folio;
-    }).catch(function(err) {
-      if (btn) { btn.disabled = false; btn.textContent = '📩 Enviar solicitud'; }
+    firebase.firestore().collection('solicitudesMant').doc(folio).set(doc).then(function() {
+      var area = document.getElementById('portalFormArea');
+      if(area) area.innerHTML =
+        '<div style="text-align:center;padding:50px 20px">'
+        + '<div style="font-size:56px;margin-bottom:16px">✅</div>'
+        + '<div style="font-size:22px;font-weight:700;color:#fff;margin-bottom:8px">¡Solicitud enviada!</div>'
+        + '<div style="font-size:14px;color:#888;margin-bottom:20px">El equipo de mantenimiento fue notificado y se pondrá en contacto pronto.</div>'
+        + '<div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:10px;padding:14px;margin-bottom:24px">'
+        + '<div style="font-size:11px;color:#666;margin-bottom:4px">Número de folio</div>'
+        + '<div style="font-size:18px;font-weight:700;color:#e8a020">'+folio+'</div>'
+        + '</div>'
+        + '<button onclick="renderPortalSeleccionTienda()" style="padding:12px 28px;background:#e8a020;color:#000;font-weight:700;border:none;border-radius:10px;cursor:pointer;font-size:14px">Nueva solicitud</button>'
+        + ' <button onclick="portalIrHistorial()" style="padding:12px 28px;background:#1a1a1a;color:#fff;font-weight:600;border:1px solid #333;border-radius:10px;cursor:pointer;font-size:14px;margin-left:8px">Ver mis solicitudes</button>'
+        + '</div>';
+    }).catch(function(e) {
+      if(btn){ btn.disabled=false; btn.textContent='📩 Enviar solicitud'; }
       _portalError('Error al enviar. Intenta de nuevo.');
-      console.error('[Portal]', err);
+      console.error('[Portal]', e);
     });
   });
 }
@@ -10666,267 +10735,215 @@ function portalEnviarSolicitud() {
 function _portalError(msg) {
   var el = document.getElementById('pError');
   var btn = document.getElementById('pSubmitBtn');
-  if (el) { el.textContent = msg; el.style.display = 'block'; }
-  if (btn) { btn.disabled = false; btn.textContent = '📩 Enviar solicitud'; }
+  if(el){ el.textContent=msg; el.style.display='block'; }
+  if(btn){ btn.disabled=false; btn.textContent='📩 Enviar solicitud'; }
 }
 
-function portalNuevaSolicitud() {
-  var success = document.getElementById('portalSuccess');
-  var formInner = document.getElementById('portalFormInner');
-  if (success) success.style.display = 'none';
-  if (formInner) formInner.style.display = 'block';
-  var pNombre = document.getElementById('pNombre');
-  if (pNombre) pNombre.value = '';
-  var pTel = document.getElementById('pTelefono');
-  if (pTel) pTel.value = '';
-  var pDesc = document.getElementById('pDescripcion');
-  if (pDesc) pDesc.value = '';
-  var pFotos = document.getElementById('pFotos');
-  if (pFotos) pFotos.value = '';
-  var pPrev = document.getElementById('pFotosPreview');
-  if (pPrev) pPrev.innerHTML = '';
+function _portalError2(msg) {
+  alert(msg);
 }
 
 // ── Admin: módulo Solicitudes de Mantenimiento ────────────
 function renderMantSolicitudes() {
   var m = mantData();
-  // Leer desde Firestore la colección solicitudesMant
   var content = document.getElementById('content');
   if (!content) return;
   content.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted)">Cargando solicitudes...</div>';
 
   var db = firebase.firestore();
-  var q = db.collection('solicitudesMant')
-    .where('empresa', '==', S.empresa)
-    .orderBy('ts', 'desc')
-    .limit(200);
-
-  q.get().then(function(snap) {
+  db.collection('solicitudesMant').where('empresa','==',S.empresa).get().then(function(snap) {
     var docs = [];
-    snap.forEach(function(d) { docs.push(d.data()); });
+    snap.forEach(function(d){ docs.push(d.data()); });
+    docs.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
     _renderSolicitudesList(docs, m);
   }).catch(function(err) {
-    // Si no hay índice creado aún, intentar sin orderBy
-    db.collection('solicitudesMant')
-      .where('empresa', '==', S.empresa)
-      .get().then(function(snap) {
-        var docs = [];
-        snap.forEach(function(d) { docs.push(d.data()); });
-        docs.sort(function(a, b) { return (b.ts || 0) - (a.ts || 0); });
-        _renderSolicitudesList(docs, m);
-      }).catch(function(e) {
-        content.innerHTML = '<div class="empty">Error al cargar solicitudes: ' + e.message + '</div>';
-      });
+    db.collection('solicitudesMant').where('empresa','==',S.empresa).get().then(function(snap){
+      var docs=[]; snap.forEach(function(d){docs.push(d.data());}); 
+      docs.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+      _renderSolicitudesList(docs, m);
+    }).catch(function(e){
+      content.innerHTML = '<div class="empty">Error al cargar solicitudes: '+e.message+'</div>';
+    });
   });
 }
 
 function _renderSolicitudesList(docs, m) {
   var content = document.getElementById('content');
   if (!content) return;
-
   var filtro = S._solMantFiltro || 'nueva';
   var centroMap = {};
-  (S.centros || []).forEach(function(c) { centroMap[c.id] = c.nombre; });
+  (S.centros||[]).forEach(function(c){ centroMap[c.id]=c.nombre; });
 
-  var cNueva  = docs.filter(function(d) { return d.estado === 'nueva'; }).length;
-  var cProcesada = docs.filter(function(d) { return d.estado === 'procesada'; }).length;
-  var cRechazada = docs.filter(function(d) { return d.estado === 'rechazada'; }).length;
+  var cNueva     = docs.filter(function(d){return d.estado==='nueva';}).length;
+  var cProc      = docs.filter(function(d){return d.estado==='procesada';}).length;
+  var cEnProc    = docs.filter(function(d){return d.estado==='en_proceso';}).length;
+  var cFin       = docs.filter(function(d){return d.estado==='finalizada';}).length;
+  var cRech      = docs.filter(function(d){return d.estado==='rechazada';}).length;
 
-  var filtrados = filtro === 'todas' ? docs : docs.filter(function(d) { return d.estado === filtro; });
-
+  var filtrados = filtro==='todas' ? docs : docs.filter(function(d){return d.estado===filtro;});
 
   function tabBtn(val, label, count) {
-    var active = filtro === val;
-    return '<button class="btn btn-' + (active ? 'primary' : 'secondary') + ' btn-sm" onclick="S._solMantFiltro=\'' + val + '\';renderMantSolicitudes()">'
-      + label + (count > 0 ? ' <span style="background:rgba(0,0,0,0.2);padding:1px 6px;border-radius:10px;font-size:11px;margin-left:3px">' + count + '</span>' : '') + '</button>';
+    var active = filtro===val;
+    return '<button class="btn btn-'+(active?'primary':'secondary')+' btn-sm" onclick="S._solMantFiltro=\''+val+'\';renderMantSolicitudes()">'
+      +label+(count?' <span style="background:rgba(0,0,0,.2);padding:1px 5px;border-radius:10px;font-size:11px;margin-left:2px">'+count+'</span>':'')+' </button>';
   }
 
   var rows = '';
   if (!filtrados.length) {
-    rows = '<tr><td colspan="7" class="empty">Sin solicitudes en esta categoría</td></tr>';
+    rows = '<tr><td colspan="6" class="empty">Sin solicitudes en esta categoría</td></tr>';
   } else {
     filtrados.forEach(function(sol) {
-      var centroNombre = centroMap[sol.centroId] || sol.centroId || '—';
-      var eq = m.equipos.find(function(e) { return e.id === sol.equipoId; });
-      var eqNombre = eq ? eq.nombre : (sol.equipoId ? sol.equipoId : '—');
-      var clasObj = SOL_MANT_CLASIFICACIONES.find(function(c) { return c.id === sol.clasificacion; });
-      var clasLabel = clasObj ? clasObj.label : (sol.clasificacion || '—');
-      var fotoBtn = (sol.fotos && sol.fotos.length)
-        ? '<button class="btn btn-secondary btn-xs" onclick="solMantVerFoto(\'' + sol.id + '\')" title="Ver fotos">📷 ' + sol.fotos.length + '</button> '
+      var centroNombre = centroMap[sol.centroId]||sol.centroId||'—';
+      var eqNombre = sol.equipoNombre || sol.equipoId || '—';
+      var est = SOL_ESTADOS[sol.estado]||{label:sol.estado||'—',color:'#888'};
+      var fecha = sol.ts ? new Date(sol.ts).toLocaleString('es-SV',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+      var fotoBtn = (sol.fotos&&sol.fotos.length)
+        ? '<button class="btn btn-secondary btn-xs" data-id="'+sol.id+'" onclick="solMantVerFoto(this.dataset.id)" title="Ver fotos">📷 '+sol.fotos.length+'</button> '
         : '';
-      var fecha = sol.ts ? new Date(sol.ts).toLocaleString('es-SV', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
       var acciones = '';
-      if (sol.estado === 'nueva') {
-        acciones = '<button class="btn btn-primary btn-xs" data-id="' + sol.id + '" onclick="solMantProcesar(this.dataset.id)">⚙ Crear OT</button>'
-          + ' <button class="btn btn-danger btn-xs" data-id="' + sol.id + '" onclick="solMantRechazar(this.dataset.id)">✗ Rechazar</button>';
-      } else if (sol.estado === 'procesada' && sol.otId) {
-        acciones = '<span style="font-size:11px;color:var(--muted)">OT: ' + sol.otId + '</span>';
+      if(sol.estado==='nueva'){
+        acciones = '<button class="btn btn-primary btn-xs" data-id="'+sol.id+'" onclick="solMantProcesar(this.dataset.id)">⚙ Crear OT</button>'
+          +' <button class="btn btn-danger btn-xs" data-id="'+sol.id+'" onclick="solMantRechazar(this.dataset.id)">✗ Rechazar</button>';
+      } else if(sol.estado==='procesada'){
+        acciones = '<button class="btn btn-secondary btn-xs" data-id="'+sol.id+'" onclick="solMantMarcarEstado(this.dataset.id,\'en_proceso\')">▶ En proceso</button>';
+      } else if(sol.estado==='en_proceso'){
+        acciones = '<button class="btn btn-primary btn-xs" data-id="'+sol.id+'" onclick="solMantMarcarEstado(this.dataset.id,\'finalizada\')">✓ Finalizar</button>';
+      } else if(sol.estado==='finalizada'){
+        acciones = '<span style="font-size:11px;color:var(--green)">✓ Completada</span>';
       } else {
-        acciones = '<span class="badge b-err" style="font-size:11px">Rechazada</span>';
+        acciones = '<span style="font-size:11px;color:var(--red)">Rechazada</span>';
       }
       rows += '<tr>'
-        + '<td><div style="font-size:12px;color:var(--muted)">' + fecha + '</div>'
-        + '<div style="font-weight:600;font-size:13px">' + sol.id + '</div></td>'
-        + '<td>' + centroNombre + '</td>'
-        + '<td style="font-size:12px">' + eqNombre + '</td>'
-        + '<td style="font-size:12px">' + clasLabel + '</td>'
-        + '<td><div style="font-size:13px;font-weight:500">' + (sol.solicitante ? sol.solicitante.nombre : '—') + '</div>'
-        + '<div style="font-size:11px;color:var(--muted)">' + (sol.solicitante ? sol.solicitante.telefono : '') + '</div></td>'
-        + '<td><div class="td-act">' + fotoBtn + acciones + '</div></td>'
-        + '</tr>';
+        +'<td><div style="font-size:11px;color:var(--muted)">'+fecha+'</div>'
+        +'<div style="font-weight:600;font-size:12px">'+sol.id+'</div></td>'
+        +'<td>'+centroNombre+'</td>'
+        +'<td style="font-size:12px">'+eqNombre+'</td>'
+        +'<td style="font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+((sol.descripcion||'').substring(0,60))+'</td>'
+        +'<td><span style="color:'+est.color+';font-size:12px;font-weight:600">'+est.label+'</span></td>'
+        +'<td><div class="td-act">'+fotoBtn+acciones+'</div></td>'
+        +'</tr>';
     });
   }
 
-  // URL del portal para copiar
-  var portalUrl = window.location.href.split('?')[0] + '?portal=' + encodeURIComponent(S.empresa);
-
+  var portalUrl = window.location.href.split('?')[0]+'?portal='+encodeURIComponent(S.empresa);
   content.innerHTML =
     '<div class="kpi-grid" style="margin-bottom:14px">'
-    + '<div class="kpi"><div class="kpi-lbl" style="color:var(--accent)">Nuevas</div><div class="kpi-val" style="color:var(--accent)">' + cNueva + '</div></div>'
-    + '<div class="kpi"><div class="kpi-lbl" style="color:var(--green)">Procesadas</div><div class="kpi-val" style="color:var(--green)">' + cProcesada + '</div></div>'
-    + '<div class="kpi"><div class="kpi-lbl">Rechazadas</div><div class="kpi-val">' + cRechazada + '</div></div>'
-    + '</div>'
-    + '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
-    + '<span style="font-size:12px;color:var(--muted)">🔗 Link del portal para sucursales:</span>'
-    + '<code style="font-size:12px;background:var(--surface);padding:4px 10px;border-radius:6px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + portalUrl + '</code>'
-    + '<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(\'' + portalUrl + '\').then(function(){toast(\'Link copiado\')})">📋 Copiar</button>'
-    + '</div>'
-    + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
-    + tabBtn('nueva',  '🟡 Nuevas',     cNueva)
-    + tabBtn('procesada','🟢 Procesadas', cProcesada)
-    + tabBtn('rechazada','🔴 Rechazadas', cRechazada)
-    + tabBtn('todas',  'Todas',          docs.length)
-    + '<button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="renderMantSolicitudes()">↺ Actualizar</button>'
-    + '</div>'
-    + '<div class="tbl-wrap"><table>'
-    + '<thead><tr><th>Folio / Fecha</th><th>Sucursal</th><th>Equipo</th><th>Clasificación</th><th>Solicitante</th><th>Acción</th></tr></thead>'
-    + '<tbody>' + rows + '</tbody></table></div>'
-    + '<div id="solMantDetalleArea"></div>';
+    +'<div class="kpi"><div class="kpi-lbl" style="color:var(--accent)">Nuevas</div><div class="kpi-val" style="color:var(--accent)">'+cNueva+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl" style="color:#3B82F6">Asignadas</div><div class="kpi-val" style="color:#3B82F6">'+cProc+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl" style="color:#8B5CF6">En proceso</div><div class="kpi-val" style="color:#8B5CF6">'+cEnProc+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl" style="color:var(--green)">Finalizadas</div><div class="kpi-val" style="color:var(--green)">'+cFin+'</div></div>'
+    +'</div>'
+    +'<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+    +'<span style="font-size:12px;color:var(--muted)">🔗 Link del portal:</span>'
+    +'<code style="font-size:12px;background:var(--surface);padding:3px 10px;border-radius:6px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+portalUrl+'</code>'
+    +'<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(\''+portalUrl+'\').then(function(){toast(\'Link copiado\')})">📋 Copiar</button>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
+    +tabBtn('nueva','🟡 Nuevas',cNueva)
+    +tabBtn('procesada','🔵 Asignadas',cProc)
+    +tabBtn('en_proceso','🟣 En proceso',cEnProc)
+    +tabBtn('finalizada','🟢 Finalizadas',cFin)
+    +tabBtn('rechazada','🔴 Rechazadas',cRech)
+    +tabBtn('todas','Todas',docs.length)
+    +'<button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="renderMantSolicitudes()">↺ Actualizar</button>'
+    +'</div>'
+    +'<div class="tbl-wrap"><table>'
+    +'<thead><tr><th>Folio / Fecha</th><th>Sucursal</th><th>Equipo</th><th>Descripción</th><th>Estado</th><th>Acción</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table></div>';
 }
 
 function solMantVerFoto(solId) {
-  var db = firebase.firestore();
-  db.collection('solicitudesMant').doc(solId).get().then(function(doc) {
-    if (!doc.exists) { toast('Solicitud no encontrada', true); return; }
-    var sol = doc.data();
-    var fotos = sol.fotos || [];
-    if (!fotos.length) { toast('Sin fotos en esta solicitud', true); return; }
-    var old = document.getElementById('solFotoModal');
-    if (old) old.remove();
-    var div = document.createElement('div');
-    div.id = 'solFotoModal';
-    div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:400;display:flex;align-items:center;justify-content:center;padding:20px;cursor:pointer';
-    div.onclick = function() { div.remove(); };
-    var imgs = fotos.map(function(f) {
-      return '<img src="' + f + '" style="max-width:100%;max-height:80vh;border-radius:10px;margin:4px;object-fit:contain">';
-    }).join('');
-    div.innerHTML = '<div style="text-align:center">' + imgs
-      + '<div style="color:#888;font-size:13px;margin-top:12px">Toca para cerrar</div></div>';
+  firebase.firestore().collection('solicitudesMant').doc(solId).get().then(function(doc) {
+    if(!doc.exists){toast('No encontrada',true);return;}
+    var sol=doc.data(); var fotos=sol.fotos||[];
+    if(!fotos.length){toast('Sin fotos',true);return;}
+    var old=document.getElementById('solFotoModal');if(old)old.remove();
+    var div=document.createElement('div');
+    div.id='solFotoModal';
+    div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:400;display:flex;align-items:center;justify-content:center;padding:20px;cursor:pointer';
+    div.onclick=function(){div.remove();};
+    var imgs=fotos.map(function(f){return '<img src="'+f+'" style="max-width:100%;max-height:80vh;border-radius:10px;margin:4px;object-fit:contain">';}).join('');
+    div.innerHTML='<div style="text-align:center">'+imgs+'<div style="color:#888;font-size:13px;margin-top:12px">Toca para cerrar</div></div>';
     document.body.appendChild(div);
-  }).catch(function(e) { toast('Error al cargar foto', true); });
+  }).catch(function(e){toast('Error al cargar foto',true);});
 }
 
 function solMantProcesar(solId) {
   var m = mantData();
-  var tecActivos = (m.tecnicos || []).filter(function(t) { return t.activo !== false; });
-
-  // Calcular carga actual por técnico para sugerir asignación
+  var tecActivos = (m.tecnicos||[]).filter(function(t){return t.activo!==false;});
   var otsPorTec = {};
-  (m.ots || []).forEach(function(o) {
-    if (o.estado !== 'completada') otsPorTec[o.tecnicoId] = (otsPorTec[o.tecnicoId] || 0) + 1;
-  });
-  tecActivos.sort(function(a, b) { return (otsPorTec[a.id] || 0) - (otsPorTec[b.id] || 0); });
+  (m.ots||[]).forEach(function(o){if(o.estado!=='completada')otsPorTec[o.tecnicoId]=(otsPorTec[o.tecnicoId]||0)+1;});
+  tecActivos.sort(function(a,b){return (otsPorTec[a.id]||0)-(otsPorTec[b.id]||0);});
   var tecSugerido = tecActivos.length ? tecActivos[0].id : '';
-
   var tecOpts = '<option value="">— Sin asignar —</option>';
-  tecActivos.forEach(function(t) {
-    var carga = otsPorTec[t.id] || 0;
-    tecOpts += '<option value="' + t.id + '"' + (t.id === tecSugerido ? ' selected' : '') + '>'
-      + t.nombre + ' (' + carga + ' OTs activas)</option>';
+  tecActivos.forEach(function(t){
+    var carga=otsPorTec[t.id]||0;
+    tecOpts+='<option value="'+t.id+'"'+(t.id===tecSugerido?' selected':'')+'>'+t.nombre+' ('+carga+' OTs activas)</option>';
   });
-
-  var old = document.getElementById('modalProcesarSol');
-  if (old) old.remove();
-  var div = document.createElement('div');
-  div.id = 'modalProcesarSol';
-  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto';
-  div.innerHTML = '<div class="modal-box md">'
-    + '<div class="modal-hdr"><div class="modal-ttl">⚙ Crear OT desde solicitud</div>'
-    + '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalProcesarSol\').remove()">✕</button></div>'
-    + '<div style="background:var(--surface2);padding:10px 12px;border-radius:8px;margin-bottom:14px;font-size:13px">'
-    + 'Solicitud: <strong>' + solId + '</strong>'
-    + '</div>'
-    + '<div class="row2">'
-    + '<div class="fg"><label>Prioridad *</label>'
-    + '<select id="smPrioridad">'
-    + '<option value="normal">Normal</option>'
-    + '<option value="urgente">Urgente</option>'
-    + '</select></div>'
-    + '<div class="fg"><label>Fecha programada *</label>'
-    + '<input type="date" id="smFecha" value="' + new Date().toISOString().slice(0,10) + '"></div>'
-    + '</div>'
-    + '<div class="fg" style="margin-bottom:14px"><label>Técnico asignado</label>'
-    + '<select id="smTecnico">' + tecOpts + '</select>'
-    + '<div style="font-size:11px;color:var(--muted);margin-top:3px">Sugerido: menor carga actual</div></div>'
-    + '<div style="display:flex;gap:10px;justify-content:flex-end">'
-    + '<button class="btn btn-secondary" onclick="document.getElementById(\'modalProcesarSol\').remove()">Cancelar</button>'
-    + '<button class="btn btn-primary" data-id="' + solId + '" onclick="solMantConfirmarOT(this.dataset.id)">✓ Crear OT</button>'
-    + '</div></div>';
+  var old=document.getElementById('modalProcesarSol');if(old)old.remove();
+  var div=document.createElement('div');
+  div.id='modalProcesarSol';
+  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto';
+  div.innerHTML='<div class="modal-box md">'
+    +'<div class="modal-hdr"><div class="modal-ttl">⚙ Crear OT desde solicitud</div>'
+    +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalProcesarSol\').remove()">✕</button></div>'
+    +'<div style="background:var(--surface2);padding:10px 12px;border-radius:8px;margin-bottom:14px;font-size:13px">Solicitud: <strong>'+solId+'</strong></div>'
+    +'<div class="row2">'
+    +'<div class="fg"><label>Prioridad *</label><select id="smPrioridad"><option value="normal">Normal</option><option value="urgente">Urgente</option></select></div>'
+    +'<div class="fg"><label>Fecha programada *</label><input type="date" id="smFecha" value="'+new Date().toISOString().slice(0,10)+'"></div>'
+    +'</div>'
+    +'<div class="fg" style="margin-bottom:14px"><label>Técnico asignado</label><select id="smTecnico">'+tecOpts+'</select>'
+    +'<div style="font-size:11px;color:var(--muted);margin-top:3px">Sugerido: menor carga actual</div></div>'
+    +'<div style="display:flex;gap:10px;justify-content:flex-end">'
+    +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalProcesarSol\').remove()">Cancelar</button>'
+    +'<button class="btn btn-primary" data-id="'+solId+'" onclick="solMantConfirmarOT(this.dataset.id)">✓ Crear OT</button>'
+    +'</div></div>';
   document.body.appendChild(div);
 }
 
 function solMantConfirmarOT(solId) {
-  var prioridad = (document.getElementById('smPrioridad') || {}).value || 'normal';
-  var fecha     = (document.getElementById('smFecha')     || {}).value || new Date().toISOString().slice(0,10);
-  var tecId     = (document.getElementById('smTecnico')   || {}).value || '';
-
-  var db = firebase.firestore();
-  db.collection('solicitudesMant').doc(solId).get().then(function(doc) {
-    if (!doc.exists) { toast('Solicitud no encontrada', true); return; }
-    var sol = doc.data();
-    var m = mantData();
-
-    var otId = 'OT-SOL-' + Date.now().toString(36).toUpperCase();
-    var nuevaOT = {
-      id:              otId,
-      equipoId:        sol.equipoId || null,
-      centroId:        sol.centroId || '',
-      tecnicoId:       tecId || null,
-      prioridad:       prioridad,
-      estado:          'pendiente',
-      descripcion:     '[' + (sol.clasificacion || '') + '] ' + (sol.descripcion || ''),
-      fechaProgramada: fecha,
-      solicitanteNombre: sol.solicitante ? sol.solicitante.nombre : '',
-      solicitanteTel:    sol.solicitante ? sol.solicitante.telefono : '',
-      origenSolicitud: solId,
-      creadoEn:        Date.now()
-    };
-
-    if (!m.ots) m.ots = [];
+  var prioridad=(document.getElementById('smPrioridad')||{}).value||'normal';
+  var fecha=(document.getElementById('smFecha')||{}).value||new Date().toISOString().slice(0,10);
+  var tecId=(document.getElementById('smTecnico')||{}).value||'';
+  var db=firebase.firestore();
+  db.collection('solicitudesMant').doc(solId).get().then(function(doc){
+    if(!doc.exists){toast('Solicitud no encontrada',true);return;}
+    var sol=doc.data(); var m=mantData();
+    var otId='OT-SOL-'+Date.now().toString(36).toUpperCase();
+    var nuevaOT={id:otId,equipoId:sol.equipoId||null,centroId:sol.centroId||'',tecnicoId:tecId||null,
+      prioridad:prioridad,estado:'pendiente',
+      descripcion:'['+sol.equipoNombre+'] '+(sol.descripcion||''),
+      fechaProgramada:fecha,
+      solicitanteNombre:sol.solicitante?sol.solicitante.nombre:'',
+      solicitanteTel:sol.solicitante?sol.solicitante.telefono:'',
+      origenSolicitud:solId,creadoEn:Date.now()};
+    if(!m.ots)m.ots=[];
     m.ots.push(nuevaOT);
-    markDirty('taller');
-    saveData();
-
-    db.collection('solicitudesMant').doc(solId).update({estado: 'procesada', otId: otId}).then(function() {
-      var modal = document.getElementById('modalProcesarSol');
-      if (modal) modal.remove();
-      var m2 = mantData();
-      var tec = (m2.tecnicos || []).find(function(t) { return t.id === tecId; });
-      toast('✅ OT ' + otId + ' creada' + (tec ? ' — asignada a ' + tec.nombre : '') + ' · Prioridad: ' + prioridad);
+    markDirty('taller');saveData();
+    db.collection('solicitudesMant').doc(solId).update({estado:'procesada',otId:otId}).then(function(){
+      var modal=document.getElementById('modalProcesarSol');if(modal)modal.remove();
+      var tec=(m.tecnicos||[]).find(function(t){return t.id===tecId;});
+      toast('✅ OT '+otId+' creada'+(tec?' — asignada a '+tec.nombre:'')+' · Prioridad: '+prioridad);
       renderMantSolicitudes();
-    }).catch(function(e) { toast('OT creada localmente pero error al actualizar solicitud: ' + e.message, true); });
-  }).catch(function(e) { toast('Error: ' + e.message, true); });
+    }).catch(function(e){toast('OT creada pero error al actualizar solicitud: '+e.message,true);});
+  }).catch(function(e){toast('Error: '+e.message,true);});
+}
+
+function solMantMarcarEstado(solId, nuevoEstado) {
+  var est = SOL_ESTADOS[nuevoEstado]||{label:nuevoEstado};
+  if(!confirm('¿Marcar como "'+est.label+'"?'))return;
+  firebase.firestore().collection('solicitudesMant').doc(solId).update({estado:nuevoEstado}).then(function(){
+    toast('Estado actualizado: '+est.label);
+    renderMantSolicitudes();
+  }).catch(function(e){toast('Error: '+e.message,true);});
 }
 
 function solMantRechazar(solId) {
-  if (!confirm('¿Rechazar esta solicitud?')) return;
-  var db = firebase.firestore();
-  db.collection('solicitudesMant').doc(solId).update({estado: 'rechazada'}).then(function() {
-    toast('Solicitud rechazada');
-    renderMantSolicitudes();
-  }).catch(function(e) { toast('Error: ' + e.message, true); });
+  if(!confirm('¿Rechazar esta solicitud?'))return;
+  firebase.firestore().collection('solicitudesMant').doc(solId).update({estado:'rechazada'}).then(function(){
+    toast('Solicitud rechazada');renderMantSolicitudes();
+  }).catch(function(e){toast('Error: '+e.message,true);});
 }
-
 // Llamar checkPortalMode directamente — el script está al final del body,
 // el DOM ya está listo en este punto (DOMContentLoaded ya disparó)
 // Inicializar portal si está activo (carga datos)
