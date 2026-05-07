@@ -2202,35 +2202,18 @@ function showSALogin(){showStep('SA')}
 window.addEventListener('fb-ready',(e)=>{
   const dot=document.getElementById('fbDot'),txt=document.getElementById('fbStatusTxt');
   if(dot)dot.className='sync-dot ok';if(txt)txt.textContent='Firebase activo';
-  // Cargar lista de empresas para el login
-  window.FB.getAllEmpresas().then(empresas=>{
+  // Cargar lista de empresas desde colección pública para el login
+  firebase.firestore().collection('portalesPublicos').get().then(snap=>{
     const sel=document.getElementById('empCode');
     if(!sel)return;
-    if(empresas&&empresas.length>0){
+    const empresas=[];
+    snap.forEach(d=>empresas.push({id:d.id,...d.data()}));
+    if(empresas.length>0){
       sel.innerHTML=empresas.map(e=>`<option value="${esc(e.id)}">${esc(e.id)}${e.nombre?' — '+esc(e.nombre):''}</option>`).join('');
-    } else {
-      // Sin lista disponible (sin auth de superadmin) → convertir a input de texto
-      const inp=document.createElement('input');
-      inp.id='empCode';inp.type='text';inp.placeholder='Ej: FISDC';
-      inp.autocomplete='off';
-      inp.setAttribute('oninput',"this.value=this.value.toUpperCase()");
-      inp.setAttribute('onkeydown',"if(event.key==='Enter')goStep2()");
-      inp.style.cssText='font-size:18px;padding:14px 16px;letter-spacing:3px;text-transform:uppercase;font-weight:700;text-align:center;width:100%;background:#1a1a1a;color:#fff;border:1px solid rgba(255,255,255,.15);border-radius:10px;box-sizing:border-box';
-      sel.parentNode.replaceChild(inp,sel);
-      const lbl=inp.previousElementSibling;
-      if(lbl&&lbl.tagName==='LABEL')lbl.textContent='Código de Empresa';
     }
+    // Si portalesPublicos está vacío, el input ya muestra EJ: FISDC como placeholder
   }).catch(()=>{
-    // Error de red — también fallback a input
-    const sel=document.getElementById('empCode');
-    if(!sel)return;
-    const inp=document.createElement('input');
-    inp.id='empCode';inp.type='text';inp.placeholder='Ej: FISDC';
-    inp.autocomplete='off';
-    inp.setAttribute('oninput',"this.value=this.value.toUpperCase()");
-    inp.setAttribute('onkeydown',"if(event.key==='Enter')goStep2()");
-    inp.style.cssText='font-size:18px;padding:14px 16px;letter-spacing:3px;text-transform:uppercase;font-weight:700;text-align:center;width:100%;background:#1a1a1a;color:#fff;border:1px solid rgba(255,255,255,.15);border-radius:10px;box-sizing:border-box';
-    sel.parentNode.replaceChild(inp,sel);
+    // Sin acceso — el input de texto ya está listo como fallback
   });
   const user=(e.detail&&e.detail.user);
   if(_portalModeActive)return; // Portal público activo — no hacer auto-login
