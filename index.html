@@ -10947,7 +10947,16 @@ function solMantRechazar(solId) {
 // Llamar checkPortalMode directamente — el script está al final del body,
 // el DOM ya está listo en este punto (DOMContentLoaded ya disparó)
 // Inicializar portal si está activo (carga datos)
-if(_portalModeActive){ checkPortalMode(); }
+if(_portalModeActive){
+  // _cargarDatosPortal se define más abajo — esperar a que el script termine de parsear
+  window.addEventListener('load', function(){
+    var params = new URLSearchParams(window.location.search);
+    var empresa = params.get('portal');
+    if(empresa && typeof _cargarDatosPortal === 'function'){
+      _cargarDatosPortal(empresa.toUpperCase());
+    }
+  });
+}
 
 // ── mant_checklists ──────────────────────────────────────
 function renderMantChecklists(){
