@@ -2542,6 +2542,8 @@ async function doResetPass(){
 }
 
 function enterApp(email,rol,nombre,permisos,proyectosPermitidos){
+  // Si cualquier portal público está activo, no entrar a la app
+  if(_portalModeActive) return;
   nombre=nombre||email.split('@')[0];
   S.currentUser={email,rol,nombre,permisos:permisos||{},proyectosPermitidos:proyectosPermitidos||[]};
   localStorage.setItem('pp_empresa',S.empresa);
