@@ -11664,6 +11664,20 @@ function motEnviarReporte(){
   };
 
   firebase.firestore().collection('reportesMotoristas').doc(folio).set(doc).then(function(){
+    // Si hay novedad, crear también solicitud de revisión en solicitudesTaller
+    if(novedad){
+      var veh=_motData.vehiculos.find(function(v){return v.id===_motVehId;})||{placa:_motVehId};
+      var solId='SOL-TLR-'+Date.now().toString(36).toUpperCase();
+      var solDoc={
+        id:solId, empresa:_motData.empresa,
+        vehiculoId:_motVehId, vehiculoPlaca:veh.placa||'',
+        motoristaNombre:_motNombre, motoristaId:_motId||'',
+        descripcion:novedad, fotos:[], ts:Date.now(),
+        estado:'nueva', origenReporteId:folio
+      };
+      firebase.firestore().collection('solicitudesTaller').doc(solId).set(solDoc)
+        .catch(function(e){console.warn('[MotPortal] Error creando solicitud taller:',e);});
+    }
     var area = document.getElementById('portalMotArea');
     if(area) area.innerHTML =
       '<div style="text-align:center;padding:50px 20px">'
@@ -11702,37 +11716,72 @@ function motIrHistorial(){
     .where('vehiculoId','==',sel.vehId)
     .where('empresa','==',_motData.empresa)
     .get().then(function(snap){
-      var docs=[];
-      snap.forEach(function(d){docs.push(d.data());});
-      docs.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
-      _renderMotHistorial(docs, veh, sel.nombre, area);
+      var reportes=[];
+      snap.forEach(function(d){reportes.push(d.data());});
+      // Cargar también solicitudes de revisión de este vehículo
+      firebase.firestore().collection('solicitudesTaller')
+        .where('vehiculoId','==',sel.vehId)
+        .where('empresa','==',_motData.empresa)
+        .get().then(function(snap2){
+          var solicitudes=[];
+          snap2.forEach(function(d){solicitudes.push(d.data());});
+          reportes.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+          solicitudes.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+          _renderMotHistorial(reportes, solicitudes, veh, sel.nombre, area);
+        }).catch(function(){
+          _renderMotHistorial(reportes, [], veh, sel.nombre, area);
+        });
     }).catch(function(e){
-      var loadEl = area.querySelector('div:last-child');
-      if(loadEl) loadEl.innerHTML='<div style="color:#e84040;text-align:center">Error: '+e.message+'</div>';
+      var loadEl=area.querySelector('div:last-child');
+      if(loadEl)loadEl.innerHTML='<div style="color:#e84040;text-align:center">Error: '+e.message+'</div>';
     });
 }
 
-function _renderMotHistorial(docs, veh, nombre, area){
+function _renderMotHistorial(reportes, solicitudes, veh, nombre, area){
   var header = area.innerHTML.split('<div style="text-align:center;padding:30px')[0];
-  var rows = '';
-  if(!docs.length){
-    rows = '<div style="text-align:center;padding:40px;color:#888">Sin reportes para este vehículo</div>';
-  } else {
-    rows = docs.map(function(r){
-      var fecha = r.ts ? new Date(r.ts).toLocaleDateString('es-SV',{day:'2-digit',month:'2-digit',year:'numeric'}) : r.fecha||'—';
-      return '<div style="background:#111128;border:1px solid #232338;border-radius:10px;padding:14px;margin-bottom:8px">'
+
+  // Solicitudes de revisión con estatus
+  var solHtml='';
+  if(solicitudes.length){
+    solHtml='<div style="font-size:11px;font-weight:700;color:#4ea8de;text-transform:uppercase;letter-spacing:.06em;margin:16px 0 8px 0">🔧 Solicitudes de revisión</div>';
+    solicitudes.forEach(function(s){
+      var est=s.estado||'nueva';
+      var estColors={nueva:'#F59E0B',asignada:'#3B82F6',en_proceso:'#8B5CF6',finalizada:'#10B981',rechazada:'#EF4444'};
+      var estLabels={nueva:'📨 Nueva',asignada:'🔵 Asignada',en_proceso:'⚙️ En proceso',finalizada:'✅ Finalizada',rechazada:'❌ No procede'};
+      var fecha=s.ts?new Date(s.ts).toLocaleDateString('es-SV',{day:'2-digit',month:'2-digit',year:'numeric'}):'—';
+      solHtml+='<div style="background:#111128;border:1px solid #232338;border-radius:10px;padding:12px;margin-bottom:8px">'
         +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
-        +'<div style="font-size:13px;font-weight:600;color:#fff">'+fecha+'</div>'
-        +'<div style="font-size:11px;color:#555">'+r.id+'</div></div>'
-        +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">'
+        +'<div style="font-size:12px;font-weight:600;color:#fff">🔧 Revisión solicitada</div>'
+        +'<span style="font-size:12px;font-weight:700;color:'+(estColors[est]||'#888')+'">'+( estLabels[est]||est)+'</span>'
+        +'</div>'
+        +'<div style="font-size:12px;color:#aaa;margin-bottom:4px">'+esc(s.descripcion||'')+'</div>'
+        +'<div style="font-size:11px;color:#555">'+fecha+' · '+s.id+'</div>'
+        +'</div>';
+    });
+  }
+
+  // Reportes diarios
+  var repHtml='';
+  if(reportes.length){
+    repHtml='<div style="font-size:11px;font-weight:700;color:#4ea8de;text-transform:uppercase;letter-spacing:.06em;margin:16px 0 8px 0">📊 Reportes diarios</div>';
+    repHtml+=reportes.map(function(r){
+      var fecha=r.ts?new Date(r.ts).toLocaleDateString('es-SV',{day:'2-digit',month:'2-digit',year:'numeric'}):r.fecha||'—';
+      return '<div style="background:#111128;border:1px solid #232338;border-radius:10px;padding:12px;margin-bottom:8px">'
+        +'<div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:6px">'+fecha+'</div>'
+        +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px">'
         +'<div><span style="color:#888">Km odóm.: </span><strong>'+(r.kmOdometro||0).toLocaleString('en-US')+'</strong></div>'
         +'<div><span style="color:#888">Galones: </span><strong>'+(r.galonesCargados||0).toFixed(2)+'</strong></div>'
         +'</div>'
-        +(r.novedad?'<div style="font-size:12px;color:#aaa;margin-top:6px;border-left:3px solid #232338;padding-left:8px">'+r.novedad+'</div>':'')
+        +(r.novedad?'<div style="font-size:12px;color:#aaa;margin-top:6px;border-left:3px solid #232338;padding-left:8px">'+esc(r.novedad)+'</div>':'')
         +'</div>';
     }).join('');
   }
-  area.innerHTML = header + rows
+
+  if(!reportes.length&&!solicitudes.length){
+    repHtml='<div style="text-align:center;padding:40px;color:#888">Sin reportes para este vehículo</div>';
+  }
+
+  area.innerHTML=header+solHtml+repHtml
     +'<div style="text-align:center;margin-top:16px">'
     +'<button onclick="motIrReportar()" style="background:#4ea8de;border:none;color:#000;font-weight:700;padding:12px 28px;border-radius:10px;cursor:pointer;font-size:14px">+ Nuevo reporte</button>'
     +'</div>';
@@ -17058,14 +17107,18 @@ function solUrgLabel(id){var u=SOL_URGENCIAS.find(function(x){return x.id===id;}
 function solUrgColor(id){var u=SOL_URGENCIAS.find(function(x){return x.id===id;});return u?u.color:'b-neu';}
 
 var SOL_ESTADOS=[
-  {id:'enviada',label:'Enviada',color:'b-blue'},
-  {id:'aprobada',label:'Aprobada',color:'b-warn'},
-  {id:'ot_creada',label:'OT Creada',color:'b-purple'},
-  {id:'rechazada',label:'Rechazada',color:'b-err'},
-  {id:'resuelta',label:'Resuelta',color:'b-ok'}
+  {id:'nueva',      label:'📨 Nueva',       color:'b-warn',   uiColor:'#F59E0B'},
+  {id:'asignada',   label:'🔵 Asignada',    color:'b-blue',   uiColor:'#3B82F6'},
+  {id:'en_proceso', label:'⚙️ En proceso',  color:'b-purple', uiColor:'#8B5CF6'},
+  {id:'finalizada', label:'✅ Finalizada',   color:'b-ok',     uiColor:'#10B981'},
+  {id:'rechazada',  label:'❌ No procede',   color:'b-err',    uiColor:'#EF4444'}
 ];
-function solEstLabel(id){var e=SOL_ESTADOS.find(function(x){return x.id===id;});return e?e.label:id;}
-function solEstColor(id){var e=SOL_ESTADOS.find(function(x){return x.id===id;});return e?e.color:'b-neu';}
+// Mapa de estados heredados → nuevos (migración suave)
+var SOL_ESTADOS_MAP={'enviada':'nueva','aprobada':'asignada','ot_creada':'en_proceso','resuelta':'finalizada'};
+function solEstNorm(id){return SOL_ESTADOS_MAP[id]||id||'nueva';}
+function solEstLabel(id){id=solEstNorm(id);var e=SOL_ESTADOS.find(function(x){return x.id===id;});return e?e.label:id;}
+function solEstColor(id){id=solEstNorm(id);var e=SOL_ESTADOS.find(function(x){return x.id===id;});return e?e.color:'b-neu';}
+function solEstUiColor(id){id=solEstNorm(id);var e=SOL_ESTADOS.find(function(x){return x.id===id;});return e?e.uiColor:'#888';}
 
 // ── Helpers de datos ──
 function getMisCamiones(){
@@ -17576,53 +17629,201 @@ function choferRenderMisSolicitudes(veh){
 //  ADMIN — SOLICITUDES DE REVISIÓN
 // ═══════════════════════════════════════════════════════════════════
 function renderTallerSolicitudes(){
+  var content=document.getElementById('content');
+  if(!content)return;
+  content.innerHTML='<div style="padding:40px;text-align:center;color:var(--muted)">Cargando solicitudes...</div>';
+
+  // Cargar desde colección pública Firestore
+  firebase.firestore().collection('solicitudesTaller')
+    .where('empresa','==',S.empresa)
+    .get().then(function(snap){
+      var docs=[];
+      snap.forEach(function(d){docs.push(d.data());});
+      // Incluir también solicitudes del sistema interno (legacy)
+      var t=tallerData();
+      (t.solicitudes||[]).forEach(function(s){
+        // Solo incluir si no existe ya en Firestore
+        if(!docs.find(function(d){return d.id===s.id;})){
+          docs.push({
+            id:s.id, empresa:S.empresa,
+            vehiculoId:s.vehiculoId, vehiculoPlaca:s.vehiculoPlaca||'',
+            motoristaNombre:s.choferNombre||s.choferId||'',
+            descripcion:s.descripcion||'', fotos:s.foto?[s.foto]:[],
+            estado:solEstNorm(s.estado||'nueva'), ts:s.ts||0,
+            origen:'interno'
+          });
+        }
+      });
+      docs.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+      _renderTallerSolLista(docs);
+    }).catch(function(err){
+      // Fallback: solo solicitudes internas
+      var t=tallerData();
+      var docs=(t.solicitudes||[]).map(function(s){return{
+        id:s.id, empresa:S.empresa,
+        vehiculoId:s.vehiculoId, vehiculoPlaca:s.vehiculoPlaca||'',
+        motoristaNombre:s.choferNombre||s.choferId||'',
+        descripcion:s.descripcion||'', fotos:s.foto?[s.foto]:[],
+        estado:solEstNorm(s.estado||'nueva'), ts:s.ts||0, origen:'interno'
+      };});
+      docs.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+      _renderTallerSolLista(docs);
+    });
+}
+
+function _renderTallerSolLista(docs){
+  var content=document.getElementById('content');
+  if(!content)return;
+  var filtro=S._solFiltro||'nueva';
   var t=tallerData();
-  if(!t.solicitudes)t.solicitudes=[];
-  if(!S._solFiltro)S._solFiltro='';
+  var vehMap={};(t.vehiculos||[]).forEach(function(v){vehMap[v.id]=v;});
+  // Empleados para asignar mecánico
+  var mecanicos=((S.mantenimiento&&S.mantenimiento.tecnicos)||[])
+    .filter(function(m){return (m.cargo==='mecanico'||m.cargo==='tecnico')&&m.activo!==false;});
+  var mecMap={};mecanicos.forEach(function(m){mecMap[m.id]=m.nombre;});
 
-  var sols=[].concat(t.solicitudes).sort(function(a,b){return (b.ts||0)-(a.ts||0);});
-  if(S._solFiltro)sols=sols.filter(function(s){return s.estado===S._solFiltro;});
+  var counts={};
+  SOL_ESTADOS.forEach(function(e){counts[e.id]=0;});
+  docs.forEach(function(d){
+    var est=solEstNorm(d.estado);
+    if(counts[est]!==undefined)counts[est]++;
+  });
 
-  var pendientes=t.solicitudes.filter(function(s){return s.estado==='enviada';}).length;
-  var esAdmin=S.currentUser&&(S.currentUser.rol==='admin'||S.currentUser.rol==='supervisor');
+  var filtrados=filtro==='todas'?docs:docs.filter(function(d){return solEstNorm(d.estado)===filtro;});
 
-  var rows=sols.map(function(s){
-    var v=t.vehiculos.find(function(x){return x.id===s.vehiculoId;});
-    var srvLabel=s.servicioNombre||(SOL_CATEGORIAS.find(function(x){return x.id===s.categoria;})||{label:s.categoria}).label;
-    var catIc=srvCatLabel(s.categoria||'otro').split(' ')[0];
-    return '<tr>'
-      +'<td><div style="font-weight:600;font-size:12px">'+fmtDate(s.fecha)+'</div></td>'
-      +'<td><strong>'+esc(v?v.placa:'(eliminado)')+'</strong></td>'
-      +'<td>'+esc(s.choferNombre||'')+'</td>'
-      +'<td><div style="font-size:12px">'+catIc+' '+esc(srvLabel)+'</div></td>'
-      +'<td><span class="badge '+solUrgColor(s.urgencia)+'" style="font-size:10px">'+esc((s.urgencia||'').toUpperCase())+'</span></td>'
-      +'<td style="font-size:12px;max-width:300px;white-space:normal">'+esc(s.descripcion)+'</td>'
-      +'<td><span class="badge '+solEstColor(s.estado)+'">'+esc(solEstLabel(s.estado))+'</span></td>'
-      +'<td class="td-act">'
-      +(s.foto?'<button class="btn btn-secondary btn-xs" onclick="solVerFoto(\''+s.id+'\')">📷</button>':'')
-      +'<button class="btn btn-primary btn-xs" onclick="solDetalle(\''+s.id+'\')">Ver</button>'
-      +(esAdmin?'<button class="btn btn-danger btn-xs" onclick="solEliminar(\''+s.id+'\')" title="Eliminar (admin)">✕</button>':'')
-      +'</td></tr>';
-  }).join('');
-  if(!rows)rows='<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">Sin solicitudes</td></tr>';
+  function tabBtn(val,label,count){
+    var active=filtro===val;
+    return '<button class="btn btn-'+(active?'primary':'secondary')+' btn-sm" onclick="S._solFiltro=\''+val+'\';renderTallerSolicitudes()">'
+      +label+(count?' <span style="background:rgba(0,0,0,.2);padding:1px 5px;border-radius:10px;font-size:11px;margin-left:2px">'+count+'</span>':'')+' </button>';
+  }
 
-  var filterBtns=[''].concat(SOL_ESTADOS.map(function(e){return e.id;})).map(function(id){
-    var label=id===''?'Todas':solEstLabel(id);
-    var active=S._solFiltro===id;
-    return '<button class="btn '+(active?'btn-primary':'btn-secondary')+' btn-xs" onclick="S._solFiltro=\''+id+'\';renderTallerSolicitudes()">'+label+'</button>';
-  }).join(' ');
+  var rows='';
+  if(!filtrados.length){
+    rows='<tr><td colspan="6" class="empty">Sin solicitudes en esta categoría</td></tr>';
+  } else {
+    filtrados.forEach(function(sol){
+      var est=solEstNorm(sol.estado);
+      var veh=vehMap[sol.vehiculoId]||{placa:sol.vehiculoPlaca||sol.vehiculoId||'—'};
+      var fecha=sol.ts?new Date(sol.ts).toLocaleString('es-SV',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
+      var mecNombre=sol.mecanicoId?mecMap[sol.mecanicoId]||sol.mecanicoId:'—';
+      var fotoBtn=(sol.fotos&&sol.fotos.length)?'<button class="btn btn-secondary btn-xs" data-id="'+sol.id+'" onclick="tallerSolVerFoto(this.dataset.id)" title="Ver fotos">📷 '+sol.fotos.length+'</button> ':'';
+      var acciones='';
+      if(est==='nueva'){
+        acciones='<button class="btn btn-primary btn-xs" data-id="'+sol.id+'" onclick="tallerSolModalAsignar(this.dataset.id)">⚙ Asignar</button>'
+          +' <button class="btn btn-danger btn-xs" data-id="'+sol.id+'" onclick="tallerSolRechazar(this.dataset.id)">✗ Rechazar</button>';
+      } else if(est==='asignada'){
+        acciones='<button class="btn btn-secondary btn-xs" data-id="'+sol.id+'" onclick="tallerSolAvanzar(this.dataset.id,\'en_proceso\')">▶ En proceso</button>';
+      } else if(est==='en_proceso'){
+        acciones='<button class="btn btn-primary btn-xs" data-id="'+sol.id+'" onclick="tallerSolAvanzar(this.dataset.id,\'finalizada\')">✓ Finalizar</button>';
+      } else if(est==='finalizada'){
+        acciones='<span style="font-size:11px;color:var(--green)">✓ Completada</span>';
+      } else {
+        acciones='<span style="font-size:11px;color:var(--red)">No procede</span>';
+      }
+      rows+='<tr>'
+        +'<td><div style="font-size:11px;color:var(--muted)">'+fecha+'</div>'
+        +'<div style="font-weight:600;font-size:12px">'+sol.id+'</div></td>'
+        +'<td><strong>'+esc(veh.placa)+'</strong>'
+        +(veh.marca?'<div style="font-size:11px;color:var(--muted)">'+esc(veh.marca+' '+(veh.modelo||''))+'</div>':'')+'</td>'
+        +'<td style="font-size:12px">'+esc(sol.motoristaNombre||'—')+'</td>'
+        +'<td style="font-size:12px;max-width:200px">'+esc((sol.descripcion||'').substring(0,80))+'</td>'
+        +'<td><span style="color:'+solEstUiColor(est)+';font-weight:600;font-size:12px">'+solEstLabel(est)+'</span>'
+        +(sol.mecanicoId?'<div style="font-size:10px;color:var(--muted)">'+esc(mecNombre)+'</div>':'')+'</td>'
+        +'<td><div class="td-act">'+fotoBtn+acciones+'</div></td>'
+        +'</tr>';
+    });
+  }
 
-  // Botón borrar todas (solo admin) si hay solicitudes
-  var botonBorrarTodas=esAdmin&&t.solicitudes.length>0
-    ?'<button class="btn btn-danger btn-sm" onclick="solBorrarTodas()" style="margin-left:auto" title="Eliminar TODAS las solicitudes">🗑 Borrar todas ('+t.solicitudes.length+')</button>'
-    :'';
+  var portalUrl=window.location.href.split('?')[0]+'?motorista='+encodeURIComponent(S.empresa);
+  content.innerHTML=
+    '<div class="kpi-grid" style="margin-bottom:14px">'
+    +'<div class="kpi"><div class="kpi-lbl" style="color:var(--accent)">Nuevas</div><div class="kpi-val" style="color:var(--accent)">'+(counts.nueva||0)+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl" style="color:#3B82F6">Asignadas</div><div class="kpi-val" style="color:#3B82F6">'+(counts.asignada||0)+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl" style="color:#8B5CF6">En proceso</div><div class="kpi-val" style="color:#8B5CF6">'+(counts.en_proceso||0)+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl" style="color:var(--green)">Finalizadas</div><div class="kpi-val" style="color:var(--green)">'+(counts.finalizada||0)+'</div></div>'
+    +'</div>'
+    +'<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+    +'<span style="font-size:12px;color:var(--muted)">🚛 Portal motoristas:</span>'
+    +'<code style="font-size:12px;background:var(--surface);padding:3px 10px;border-radius:6px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+portalUrl+'</code>'
+    +'<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(\''+portalUrl+'\').then(function(){toast(\'Link copiado\')})">📋 Copiar</button>'
+    +'<button class="btn btn-secondary btn-sm" onclick="renderTallerSolicitudes()">↺ Actualizar</button>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
+    +tabBtn('nueva','🟡 Nuevas',counts.nueva||0)
+    +tabBtn('asignada','🔵 Asignadas',counts.asignada||0)
+    +tabBtn('en_proceso','🟣 En proceso',counts.en_proceso||0)
+    +tabBtn('finalizada','🟢 Finalizadas',counts.finalizada||0)
+    +tabBtn('rechazada','🔴 Rechazadas',counts.rechazada||0)
+    +tabBtn('todas','Todas',docs.length)
+    +'</div>'
+    +'<div class="tbl-wrap"><table>'
+    +'<thead><tr><th>Folio / Fecha</th><th>Vehículo</th><th>Motorista</th><th>Descripción</th><th>Estado</th><th>Acción</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table></div>';
+}
 
-  document.getElementById('content').innerHTML=
-    (pendientes>0?'<div class="info-box" style="background:#2a1a00;color:var(--accent);border-color:#5a3a00">⚠ <strong>'+pendientes+' solicitud(es) pendiente(s) de revisión</strong></div>':'')
-    +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+filterBtns+botonBorrarTodas+'</div>'
-    +'<div class="card" style="padding:0"><div class="tbl-wrap" style="border:none;border-radius:0">'
-    +'<table><thead><tr><th>Fecha</th><th>Vehículo</th><th>Chofer</th><th>Servicio solicitado</th><th>Urg.</th><th>Descripción</th><th>Estado</th><th>Acciones</th></tr></thead>'
-    +'<tbody>'+rows+'</tbody></table></div></div>';
+function tallerSolVerFoto(solId){
+  firebase.firestore().collection('solicitudesTaller').doc(solId).get().then(function(doc){
+    var fotos=doc.exists?(doc.data().fotos||[]):[];
+    if(!fotos.length){toast('Sin fotos',true);return;}
+    var old=document.getElementById('tallerSolFotoMod');if(old)old.remove();
+    var div=document.createElement('div');
+    div.id='tallerSolFotoMod';
+    div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:400;display:flex;align-items:center;justify-content:center;padding:20px;cursor:pointer';
+    div.onclick=function(){div.remove();};
+    div.innerHTML='<div style="text-align:center">'+fotos.map(function(f){return '<img src="'+f+'" style="max-width:100%;max-height:80vh;border-radius:10px;margin:4px;object-fit:contain">';}).join('')+'<div style="color:#888;font-size:13px;margin-top:12px">Toca para cerrar</div></div>';
+    document.body.appendChild(div);
+  }).catch(function(){toast('Error al cargar foto',true);});
+}
+
+function tallerSolModalAsignar(solId){
+  var mecanicos=((S.mantenimiento&&S.mantenimiento.tecnicos)||[])
+    .filter(function(m){return (m.cargo==='mecanico'||m.cargo==='tecnico')&&m.activo!==false;});
+  var mecOpts='<option value="">— Sin asignar por ahora —</option>';
+  mecanicos.forEach(function(m){mecOpts+='<option value="'+m.id+'">'+esc(m.nombre)+'</option>';});
+  var old=document.getElementById('tallerSolAsigMod');if(old)old.remove();
+  var div=document.createElement('div');
+  div.id='tallerSolAsigMod';
+  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px';
+  div.innerHTML='<div class="modal-box md">'
+    +'<div class="modal-hdr"><div class="modal-ttl">⚙ Asignar solicitud</div>'
+    +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'tallerSolAsigMod\').remove()">✕</button></div>'
+    +'<div style="background:var(--surface2);padding:10px;border-radius:8px;margin-bottom:14px;font-size:13px">Solicitud: <strong>'+solId+'</strong></div>'
+    +'<div class="fg" style="margin-bottom:14px"><label>Mecánico asignado</label>'
+    +'<select id="tallerSolMec">'+mecOpts+'</select></div>'
+    +'<div style="display:flex;gap:10px;justify-content:flex-end">'
+    +'<button class="btn btn-secondary" onclick="document.getElementById(\'tallerSolAsigMod\').remove()">Cancelar</button>'
+    +'<button class="btn btn-primary" data-id="'+solId+'" onclick="tallerSolConfAsignar(this.dataset.id)">✓ Asignar</button>'
+    +'</div></div>';
+  document.body.appendChild(div);
+}
+
+function tallerSolConfAsignar(solId){
+  var mecId=(document.getElementById('tallerSolMec')||{}).value||'';
+  firebase.firestore().collection('solicitudesTaller').doc(solId)
+    .update({estado:'asignada', mecanicoId:mecId||null}).then(function(){
+      var old=document.getElementById('tallerSolAsigMod');if(old)old.remove();
+      toast('✅ Solicitud asignada');
+      renderTallerSolicitudes();
+    }).catch(function(e){toast('Error: '+e.message,true);});
+}
+
+function tallerSolAvanzar(solId, nuevoEstado){
+  var est=SOL_ESTADOS.find(function(e){return e.id===nuevoEstado;})||{label:nuevoEstado};
+  if(!confirm('¿Marcar como "'+est.label+'"?'))return;
+  firebase.firestore().collection('solicitudesTaller').doc(solId)
+    .update({estado:nuevoEstado}).then(function(){
+      toast('Estado actualizado: '+est.label);
+      renderTallerSolicitudes();
+    }).catch(function(e){toast('Error: '+e.message,true);});
+}
+
+function tallerSolRechazar(solId){
+  if(!confirm('¿Rechazar esta solicitud de revisión?'))return;
+  firebase.firestore().collection('solicitudesTaller').doc(solId)
+    .update({estado:'rechazada'}).then(function(){
+      toast('Solicitud rechazada');
+      renderTallerSolicitudes();
+    }).catch(function(e){toast('Error: '+e.message,true);});
 }
 
 function solVerFoto(solId){
