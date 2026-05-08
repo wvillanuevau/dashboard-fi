@@ -579,6 +579,9 @@ _fbAuth.onAuthStateChanged(user=>{
 /* ── RESET & BASE ─────────────────────────────── */
 *{margin:0;padding:0;box-sizing:border-box}html,body{height:100%;overflow:hidden}
 body{font-family:'Karla',sans-serif;background:var(--bg);color:var(--text);font-size:var(--fs);line-height:1.55}
+.nav-ic{position:relative}
+.nav-badge{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;background:#e84040;color:#fff;border-radius:99px;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 3px;line-height:1;border:1.5px solid var(--surface);pointer-events:none;z-index:2}
+.home-badge{position:absolute;top:6px;right:6px;min-width:18px;height:18px;background:#e84040;color:#fff;border-radius:99px;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px;line-height:1;border:2px solid var(--surface);pointer-events:none;z-index:2}
 #appShell{display:flex;height:100vh;overflow:hidden}
 
 /* ── SCROLLBAR GLOBAL ─────────────────────────── */
@@ -1437,7 +1440,7 @@ const SB_GRUPOS=[
   {id:'empresa_grp',label:'Gestión de Empresa',ic:'🏢',items:['gastos','inventario','asistencia','auditoria_herr','gz_dashboard','proveedores','centros','bodegas','gz_gerentes','reportes']},
   {id:'mant_grp',label:'Mantenimiento',ic:'🔧',items:['mant_equipos','mant_solicitudes','mant_panel','mant_tecnicos']},
   {id:'energy_grp',label:'Energy Intelligence',ic:'⚡',items:['ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist']},
-  {id:'taller_grp',label:'Taller Mecánico',ic:'🚚',items:['taller_dashboard','taller_vehiculos','taller_ots','taller_solicitudes','taller_revisiones','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_reportes']},
+  {id:'taller_grp',label:'Taller Mecánico',ic:'🚚',items:['taller_dashboard','taller_vehiculos','taller_ots','taller_solicitudes','taller_revisiones','taller_reportes_choferes','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_reportes']},
   {id:'chofer_grp',label:'Portal Chofer',ic:'🚛',items:['chofer_portal','taller_reportes_choferes']},
   {id:'config_grp',label:'Configuración General',ic:'⚙',items:['log','usuarios','config','importar']},
 ];
@@ -2382,6 +2385,48 @@ async function _doSaveFirebase(){
   }
   // Sincronizar datos públicos del portal (centros + equipos activos) — sin datos sensibles
   _syncPortalPublico();
+  // Actualizar badges de notificación
+  setTimeout(loadBadges, 500);
+}
+
+// ── Badge notifications ───────────────────────────────────
+function loadBadges(){
+  if(!S.empresa)return;
+  if(!S._badges)S._badges={};
+
+  // Badges desde datos locales (instantáneos)
+  var t=S.taller||{};
+  var m=S.mantenimiento||{};
+  var hoy=new Date().toISOString().slice(0,10);
+
+  // OTs taller pendientes o vencidas
+  var otsPend=((t.ots||[]).filter(function(o){return o.estado==='pendiente'||o.estado==='vencida';})).length;
+  // OTs mantenimiento pendientes
+  var mantPend=((m.ots||[]).filter(function(o){return o.estado==='pendiente'||o.estado==='vencida';})).length;
+  // Reportes motoristas sin reportar hoy
+  var camAsig=(t.vehiculos||[]).filter(function(v){return v.choferId&&v.estado!=='baja';});
+  var sinRep=camAsig.filter(function(v){
+    return !(t.reportesDiarios||[]).find(function(r){return r.vehiculoId===v.id&&r.fecha===hoy;});
+  }).length;
+
+  S._badges.taller_ots         = otsPend   || 0;
+  S._badges.mant_panel         = mantPend  || 0;
+  S._badges.taller_reportes_choferes = sinRep || 0;
+
+  // Badges desde Firestore (async — solicitudes nuevas)
+  var db=firebase.firestore();
+  db.collection('solicitudesTaller').where('empresa','==',S.empresa).where('estado','==','nueva').get()
+    .then(function(snap){
+      S._badges.taller_solicitudes=snap.size||0;
+      // Re-render nav silenciosamente para actualizar badges
+      if(S.currentUser)render();
+    }).catch(function(){});
+
+  db.collection('solicitudesMant').where('empresa','==',S.empresa).where('estado','==','nueva').get()
+    .then(function(snap){
+      S._badges.mant_solicitudes=snap.size||0;
+      if(S.currentUser)render();
+    }).catch(function(){});
 }
 
 function _syncPortalPublico(){
@@ -2562,6 +2607,8 @@ function enterApp(email,rol,nombre,permisos,proyectosPermitidos){
     S.activeTab='home';
   }
   render();toast('Bienvenido, '+nombre);
+  // Cargar badges de notificación (async, no bloquea)
+  setTimeout(loadBadges, 1000);
 }
 
 async function logout(){
@@ -8449,23 +8496,17 @@ function renderHome(){
   var cards='';
   gruposDisponibles.forEach(function(g){
     var info=HOME_GRUPO_INFO[g.id]||{ic:'📁',label:g.label,desc:'',color:'#888'};
+    // Sumar badges de todos los módulos del grupo
+    var grpBadge=0;
+    if(S._badges) g.items.forEach(function(id){grpBadge+=(S._badges[id]||0);});
+    var badgeHtml=grpBadge>0?'<div class="home-badge">'+(grpBadge>99?'99+':grpBadge)+'</div>':'';
     cards+='<div class="home-card" onclick="abrirGrupoOverlay(\''+g.id+'\')" '
       +'style="aspect-ratio:1/1;background:var(--surface);border:1px solid var(--border);border-radius:14px;'
       +'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;'
       +'cursor:pointer;padding:14px;transition:all .2s;text-align:center;position:relative;overflow:hidden" '
       +'onmouseover="this.style.borderColor=\''+info.color+'\';this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 6px 18px '+info.color+'30\'" '
-      +'onmouseout="this.style.borderColor=\'var(--border)\';this.style.transform=\'none\';this.style.boxShadow=\'none\'">'
-      // Acento de color arriba
-      +'<div style="position:absolute;top:0;left:0;right:0;height:3px;background:'+info.color+'"></div>'
-      // Icono grande
-      +'<div style="font-size:42px;line-height:1;filter:drop-shadow(0 3px 6px '+info.color+'40)">'+info.ic+'</div>'
-      // Nombre del grupo
-      +'<div style="font-family:\'Syne\',sans-serif;font-weight:700;font-size:14px;color:var(--text);line-height:1.2">'+esc(info.label||g.label)+'</div>'
-      // Descripción opcional
-      +(info.desc?'<div style="font-size:10.5px;color:var(--muted);max-width:160px;line-height:1.3">'+esc(info.desc)+'</div>':'')
-      +'</div>';
+      +'onmouseout="this.style.borderColor=\'var(--border)\';this.style.transform=\'none\';this.style.boxShadow=\'none\'">'      +'<div style="position:absolute;top:0;left:0;right:0;height:3px;background:'+info.color+'"></div>'      +badgeHtml      +'<div style="font-size:42px;line-height:1;filter:drop-shadow(0 3px 6px '+info.color+'40)">'+info.ic+'</div>'      +'<div style="font-family:\'Syne\',sans-serif;font-weight:700;font-size:14px;color:var(--text);line-height:1.2">'+esc(info.label||g.label)+'</div>'      +(info.desc?'<div style="font-size:10.5px;color:var(--muted);max-width:160px;line-height:1.3">'+esc(info.desc)+'</div>':'')      +'</div>';
   });
-
   if(gruposDisponibles.length===0){
     cards='<div style="grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--muted)"><div style="font-size:48px;margin-bottom:14px">🔒</div><div style="font-weight:700;font-size:16px">Sin módulos disponibles</div><div style="font-size:13px;margin-top:6px">Pide al administrador que te asigne acceso a algún módulo.</div></div>';
   }
@@ -9092,9 +9133,10 @@ function render(){
       const n=MODULOS.find(m=>m.id===id);if(!n)return;
       const isActive=S.activeTab===id;
       const icColor=isActive?'rgba(0,0,0,.2)':navIcColors[id]||'#666';
+      const badge=S._badges&&S._badges[id]?`<span class="nav-badge">${S._badges[id]>99?'99+':S._badges[id]}</span>`:'';
       navHtml+=`<div class="nav-item ${isActive?'active':''}" onclick="goTab('${id}')">
         <div class="nav-ic" style="${isActive?'':`background:${icColor}22;`}">
-          <span style="font-size:18px">${n.ic}</span>
+          <span style="font-size:18px">${n.ic}</span>${badge}
         </div>
         <span>${n.label}</span>
       </div>`;
@@ -9102,7 +9144,7 @@ function render(){
     navHtml+='</div>';
   });
   document.getElementById('nav').innerHTML=navHtml;
-  const titles={home:'🏠 Inicio',dashboard:'Dashboard',proyectos:'Proyectos',gastos:'Gastos',proveedores:'Proveedores',centros:'Centros de Costo',reportes:'Reportes',inventario:'Inventario',bodegas:'Gestión de Bodegas',cajachica:'Caja Chica',log:'Registro de Actividad',usuarios:'Usuarios',config:'Configuración',mant_panel:'📋 Historial de Mantenimiento',mant_equipos:'⚙️ Equipos',mant_solicitudes:'📩 Solicitudes de Mantenimiento',mant_checklists:'Checklists',mant_tecnicos:'👥 Empleados',mant_reportes:'Reportes Mantenimiento',ei_dashboard:'⚡ Energy Intelligence',ei_modelo:'Modelo de Consumo',ei_alertas:'Alertas Energéticas',ei_ranking:'Ranking de Tiendas',ei_prediccion:'Predicción de Factura',ei_checklist:'Checklist Operativo',gz_gerentes:'Gerentes de Zona',gz_dashboard:'Dashboard Gerentes de Zona',asistencia:'📋 Asistencia',auditoria_herr:'🔍 Auditoría de Herramientas',taller_dashboard:'🚚 Dashboard Taller',taller_vehiculos:'🚚 Vehículos',taller_ots:'📋 Órdenes de Trabajo',taller_servicios:'🔧 Catálogo de Servicios',taller_repuestos:'📦 Repuestos del Taller',taller_programado:'⏰ Mantenimiento Programado',taller_rutas:'🗺️ Rutas',taller_combustible:'⛽ Combustible',taller_reportes:'📈 Reportes Taller',importar:'📥 Importar Datos'};
+  const titles={home:'🏠 Inicio',dashboard:'Dashboard',proyectos:'Proyectos',gastos:'Gastos',proveedores:'Proveedores',centros:'Centros de Costo',reportes:'Reportes',inventario:'Inventario',bodegas:'Gestión de Bodegas',cajachica:'Caja Chica',log:'Registro de Actividad',usuarios:'Usuarios',config:'Configuración',mant_panel:'📋 Historial de Mantenimiento',mant_equipos:'⚙️ Equipos',mant_solicitudes:'📩 Solicitudes de Mantenimiento',mant_checklists:'Checklists',mant_tecnicos:'👥 Empleados',mant_reportes:'Reportes Mantenimiento',ei_dashboard:'⚡ Energy Intelligence',ei_modelo:'Modelo de Consumo',ei_alertas:'Alertas Energéticas',ei_ranking:'Ranking de Tiendas',ei_prediccion:'Predicción de Factura',ei_checklist:'Checklist Operativo',gz_gerentes:'Gerentes de Zona',gz_dashboard:'Dashboard Gerentes de Zona',asistencia:'📋 Asistencia',auditoria_herr:'🔍 Auditoría de Herramientas',taller_dashboard:'🚚 Dashboard Taller',taller_vehiculos:'🚚 Vehículos',taller_ots:'📋 Órdenes de Trabajo',taller_servicios:'🔧 Catálogo de Servicios',taller_repuestos:'📦 Repuestos del Taller',taller_programado:'⏰ Mantenimiento Programado',taller_rutas:'🗺️ Rutas',taller_combustible:'⛽ Combustible',taller_reportes:'📈 Reportes Taller',taller_reportes_choferes:'🚛 Reportes de Motoristas',importar:'📥 Importar Datos'};
   document.getElementById('pageTitle').textContent=titles[S.activeTab]||S.activeTab;
   // Mostrar botón Home solo cuando no estás en home (y no eres chofer — ellos no tienen home)
   var homeBtnEl=document.getElementById('homeBtn');
