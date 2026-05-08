@@ -11265,6 +11265,21 @@ function aplicarActualizacionesTec() {
 if(_portalModeActive){
   window.addEventListener('load', function(){
     var params = new URLSearchParams(window.location.search);
+
+    // Forzar ocultamiento del appShell y loginPage — el portal siempre gana
+    function _enforcePortalDisplay(){
+      var appShell = document.getElementById('appShell');
+      if(appShell) appShell.style.display='none';
+      var lp = document.getElementById('loginPage');
+      if(lp) lp.style.display='none';
+      var sa = document.getElementById('saPanel');
+      if(sa) sa.style.display='none';
+    }
+    _enforcePortalDisplay();
+    // Repetir 3 veces para cubrir callbacks async
+    setTimeout(_enforcePortalDisplay, 500);
+    setTimeout(_enforcePortalDisplay, 1500);
+
     if(_portalModeActive==='mant'){
       var empresa = params.get('portal');
       if(empresa && typeof _cargarDatosPortal==='function') _cargarDatosPortal(empresa.toUpperCase());
