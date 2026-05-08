@@ -580,8 +580,8 @@ _fbAuth.onAuthStateChanged(user=>{
 *{margin:0;padding:0;box-sizing:border-box}html,body{height:100%;overflow:hidden}
 body{font-family:'Karla',sans-serif;background:var(--bg);color:var(--text);font-size:var(--fs);line-height:1.55}
 .nav-ic{position:relative}
-.nav-badge{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;background:#e84040;color:#fff;border-radius:99px;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 3px;line-height:1;border:1.5px solid var(--surface);pointer-events:none;z-index:2}
-.home-badge{position:absolute;top:6px;right:6px;min-width:18px;height:18px;background:#e84040;color:#fff;border-radius:99px;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px;line-height:1;border:2px solid var(--surface);pointer-events:none;z-index:2}
+.nav-badge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;background:#e84040;color:#fff;border-radius:99px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 3px;line-height:1;border:1.5px solid var(--bg,#080807);pointer-events:none;z-index:10;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.home-badge{position:absolute;top:8px;right:8px;min-width:20px;height:20px;background:#e84040;color:#fff;border-radius:99px;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px;line-height:1;border:2px solid var(--surface,#111);pointer-events:none;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.3)}
 #appShell{display:flex;height:100vh;overflow:hidden}
 
 /* ── SCROLLBAR GLOBAL ─────────────────────────── */
@@ -2390,43 +2390,83 @@ async function _doSaveFirebase(){
 }
 
 // ── Badge notifications ───────────────────────────────────
+// Solo cuenta items que requieren ACCIÓN INMEDIATA del admin
 function loadBadges(){
-  if(!S.empresa)return;
+  if(!S.empresa||!S.currentUser)return;
   if(!S._badges)S._badges={};
 
-  // Badges desde datos locales (instantáneos)
   var t=S.taller||{};
   var m=S.mantenimiento||{};
   var hoy=new Date().toISOString().slice(0,10);
 
-  // OTs taller pendientes o vencidas
-  var otsPend=((t.ots||[]).filter(function(o){return o.estado==='pendiente'||o.estado==='vencida';})).length;
-  // OTs mantenimiento pendientes
-  var mantPend=((m.ots||[]).filter(function(o){return o.estado==='pendiente'||o.estado==='vencida';})).length;
-  // Reportes motoristas sin reportar hoy
+  // OTs VENCIDAS únicamente (pendientes normales no requieren acción urgente)
+  var otsVenc=((t.ots||[]).filter(function(o){
+    return o.estado==='vencida'||(o.estado==='pendiente'&&o.fechaProgramada&&o.fechaProgramada<hoy);
+  })).length;
+
+  // Mantenimiento: equipos con mantenimiento vencido
+  var mantVenc=((m.equipos||[]).filter(function(eq){
+    if(eq.estado==='almacenado'||eq.estado==='baja')return false;
+    var prox=mantFechaPróximo?mantFechaPróximo(eq):null;
+    return prox&&prox!=='—'&&prox<hoy;
+  })).length;
+
+  // Motoristas que NO han reportado HOY (solo días hábiles / cuando hay asignados)
   var camAsig=(t.vehiculos||[]).filter(function(v){return v.choferId&&v.estado!=='baja';});
   var sinRep=camAsig.filter(function(v){
     return !(t.reportesDiarios||[]).find(function(r){return r.vehiculoId===v.id&&r.fecha===hoy;});
   }).length;
 
-  S._badges.taller_ots         = otsPend   || 0;
-  S._badges.mant_panel         = mantPend  || 0;
-  S._badges.taller_reportes_choferes = sinRep || 0;
+  // Actualizar badges locales sincrónicos
+  S._badges.taller_ots               = otsVenc;
+  S._badges.mant_equipos             = mantVenc;
+  S._badges.taller_reportes_choferes = sinRep;
+  // Limpiar badges de solicitudes hasta que llegue respuesta de Firestore
+  if(S._badges.taller_solicitudes===undefined) S._badges.taller_solicitudes=0;
+  if(S._badges.mant_solicitudes===undefined)   S._badges.mant_solicitudes=0;
 
-  // Badges desde Firestore (async — solicitudes nuevas)
+  // Re-renderizar nav con datos locales inmediatamente
+  if(S.currentUser)_renderNavBadges();
+
+  // Solicitudes nuevas (Firestore) — async
   var db=firebase.firestore();
-  db.collection('solicitudesTaller').where('empresa','==',S.empresa).where('estado','==','nueva').get()
+  db.collection('solicitudesTaller')
+    .where('empresa','==',S.empresa).where('estado','==','nueva').get()
     .then(function(snap){
       S._badges.taller_solicitudes=snap.size||0;
-      // Re-render nav silenciosamente para actualizar badges
-      if(S.currentUser)render();
+      _renderNavBadges();
     }).catch(function(){});
 
-  db.collection('solicitudesMant').where('empresa','==',S.empresa).where('estado','==','nueva').get()
+  db.collection('solicitudesMant')
+    .where('empresa','==',S.empresa).where('estado','==','nueva').get()
     .then(function(snap){
       S._badges.mant_solicitudes=snap.size||0;
-      if(S.currentUser)render();
+      _renderNavBadges();
     }).catch(function(){});
+}
+
+// Actualiza solo los badges sin re-renderizar todo el nav
+function _renderNavBadges(){
+  // Actualizar badges en nav items
+  document.querySelectorAll('.nav-item').forEach(function(item){
+    var onclick=item.getAttribute('onclick')||'';
+    var m=onclick.match(/goTab\('([^']+)'\)/);
+    if(!m)return;
+    var id=m[1];
+    var count=S._badges&&S._badges[id]?S._badges[id]:0;
+    var navIc=item.querySelector('.nav-ic');
+    if(!navIc)return;
+    var existing=navIc.querySelector('.nav-badge');
+    if(count>0){
+      var txt=count>99?'99+':count;
+      if(existing){existing.textContent=txt;}
+      else{var b=document.createElement('span');b.className='nav-badge';b.textContent=txt;navIc.appendChild(b);}
+    } else {
+      if(existing)existing.remove();
+    }
+  });
+  // Actualizar badges en home cards (si están visibles)
+  if(S.activeTab==='home') renderHome();
 }
 
 function _syncPortalPublico(){
@@ -8496,9 +8536,12 @@ function renderHome(){
   var cards='';
   gruposDisponibles.forEach(function(g){
     var info=HOME_GRUPO_INFO[g.id]||{ic:'📁',label:g.label,desc:'',color:'#888'};
-    // Sumar badges de todos los módulos del grupo
+    // Sumar solo badges de módulos con items accionables
     var grpBadge=0;
     if(S._badges) g.items.forEach(function(id){grpBadge+=(S._badges[id]||0);});
+    // Mostrar max del grupo (no suma) para no inflar el número
+    var grpMax=0;
+    if(S._badges) g.items.forEach(function(id){if((S._badges[id]||0)>grpMax)grpMax=S._badges[id]||0;});
     var badgeHtml=grpBadge>0?'<div class="home-badge">'+(grpBadge>99?'99+':grpBadge)+'</div>':'';
     cards+='<div class="home-card" onclick="abrirGrupoOverlay(\''+g.id+'\')" '
       +'style="aspect-ratio:1/1;background:var(--surface);border:1px solid var(--border);border-radius:14px;'
@@ -9133,7 +9176,8 @@ function render(){
       const n=MODULOS.find(m=>m.id===id);if(!n)return;
       const isActive=S.activeTab===id;
       const icColor=isActive?'rgba(0,0,0,.2)':navIcColors[id]||'#666';
-      const badge=S._badges&&S._badges[id]?`<span class="nav-badge">${S._badges[id]>99?'99+':S._badges[id]}</span>`:'';
+      const cnt=S._badges&&S._badges[id]?S._badges[id]:0;
+      const badge=cnt>0?`<span class="nav-badge">${cnt>99?'99+':cnt}</span>`:'';
       navHtml+=`<div class="nav-item ${isActive?'active':''}" onclick="goTab('${id}')">
         <div class="nav-ic" style="${isActive?'':`background:${icColor}22;`}">
           <span style="font-size:18px">${n.ic}</span>${badge}
