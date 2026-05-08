@@ -5700,7 +5700,7 @@ function renderProveedores(){
   <div class="tbl-wrap"><table><thead><tr>${thSort('proveedores','nombre','Nombre',{})}${thSort('proveedores','tipo','Tipo',{})}${thSort('proveedores','tel','Teléfono',{})}<th></th></tr></thead><tbody id="tblProveedores">${rows}</tbody></table></div>`;
 }
 function addProv(){const n=document.getElementById('pvN').value.trim();if(!n){toast('Nombre requerido',true);document.getElementById('pvN').focus();return}S.proveedores.push({id:genId(),nombre:n,tipo:document.getElementById('pvT').value.trim(),tel:document.getElementById('pvTel').value.trim()});saveData();render();toast('✓ Proveedor registrado');setTimeout(()=>_focusFirst('#content .card'),40);}
-function delProv(id){if(!confirm('¿Eliminar proveedor?'))return;S.proveedores=S.proveedores.filter(x=>x.id!==id);saveData();render()}
+function delProv(id){if(!confirm('¿Eliminar proveedor?'))return;var p=S.proveedores.find(x=>x.id===id);S.proveedores=S.proveedores.filter(x=>x.id!==id);if(p)logAction('ELIMINAR','proveedores','Proveedor: '+p.nombre);saveData();render()}
 
 // ═══════════════════════════════════════════════════════
 //  CENTROS DE COSTO
@@ -5751,7 +5751,7 @@ function renderCentros(){
     +'<div id="modalEditCentro" class="modal"><div class="modal-box sm"><div class="modal-hdr"><div class="modal-ttl">✏ Editar Centro</div><button class="btn btn-secondary btn-sm" onclick="closeModal(\"modalEditCentro\")">✕</button></div><div id="modalEditCentroBody"></div></div></div>';
 }
 function addCentro(){var n=document.getElementById('ccN').value.trim();if(!n){toast('Nombre requerido',true);document.getElementById('ccN').focus();return;}S.centros.push({id:genId(),nombre:n,descripcion:document.getElementById('ccD').value.trim(),proyectoId:document.getElementById('ccP').value||null,auto:false});saveData();render();toast('✓ Centro registrado');setTimeout(function(){_focusFirst('#content .card');},40);}
-function delCentro(id){var c=S.centros.find(function(x){return x.id===id;});if(c&&c.auto){toast('Centro automático — elimina el proyecto para borrarlo',true);return;}if(!confirm('¿Eliminar?'))return;S.centros=S.centros.filter(function(x){return x.id!==id;});saveData();render();}
+function delCentro(id){var c=S.centros.find(function(x){return x.id===id;});if(c&&c.auto){toast('Centro automático — elimina el proyecto para borrarlo',true);return;}if(!confirm('¿Eliminar?'))return;var cn=S.centros.find(function(x){return x.id===id;});S.centros=S.centros.filter(function(x){return x.id!==id;});if(cn)logAction('ELIMINAR','centros','Centro: '+cn.nombre);saveData();render();}
 function modalEditarCentro(id){
   var c=S.centros.find(function(x){return x.id===id;});
   if(!c)return;
@@ -7914,7 +7914,8 @@ function confirmarMov(prodId,tipo,btn){
 function delProducto(prodId){
   if(!confirm('¿Eliminar este producto del inventario?'))return;
   var prodNombre=(S.inventario.productos.find(function(p){return p.id===prodId;})||{}).nombre||'(sin nombre)';
-  S.inventario.productos=S.inventario.productos.filter(p=>p.id!==prodId);
+  logAction('ELIMINAR','inventario','Producto: '+prodNombre);
+  S.inventario.productos=S.inventario.productos.filter(function(p){return p.id!==prodId;});
   saveData();renderInventario();toast('✓ Producto eliminado');
 }
 
@@ -7985,6 +7986,8 @@ function delBodega(id){
   const prods=((S.inventario&&S.inventario.productos)||[]).filter(p=>p.bodegaId===id).length;
   if(prods>0){toast(`No se puede eliminar — tiene ${prods} producto(s) asignados`,true);return;}
   if(!confirm('¿Eliminar esta bodega?'))return;
+  var _b=(S.inventario.bodegas||[]).find(function(x){return x.id===id;});
+  if(_b)logAction('ELIMINAR','bodegas','Bodega: '+_b.nombre);
   S.inventario.bodegas=S.inventario.bodegas.filter(b=>b.id!==id);
   saveData();renderBodegas();toast('✓ Bodega eliminada');
 }
@@ -9922,7 +9925,10 @@ function renderMantPanel(){
 function eliminarRegistroMant(id){
   if(!confirm('¿Eliminar este registro de mantenimiento?'))return;
   var m=mantData();
+  var reg=m.registros.find(function(r){return r.id===id;});
   m.registros=m.registros.filter(function(r){return r.id!==id;});
+  var eq=reg?(m.equipos||[]).find(function(e){return e.id===reg.equipoId;}):null;
+  logAction('ELIMINAR','mantenimiento','Registro de: '+(eq?eq.nombre:id));
   saveData();
   renderMantPanel();
   toast('Registro eliminado');
@@ -10675,7 +10681,9 @@ function ejecutarMoverEquipo(id){
 function delEquipo(id){
   if(!confirm('¿Eliminar equipo?'))return;
   var m=mantData();
+  var eq=(m.equipos||[]).find(function(e){return e.id===id;});
   m.equipos=m.equipos.filter(function(e){return e.id!==id;});
+  if(eq)logAction('ELIMINAR','mantenimiento','Equipo: '+eq.nombre);
   saveData();renderMantEquipos();toast('Equipo eliminado');
 }
 
@@ -12184,6 +12192,8 @@ function delTecnico(id){
   if(!confirm('¿Eliminar este registro de personal?'))return;
   var m=mantData();
   m.tecnicos=m.tecnicos.filter(function(t){return t.id!==id;});
+  var tx=(mantData().tecnicos||[]).find(function(t){return t.id===id;});
+  if(tx)logAction('ELIMINAR','empleados','Empleado: '+tx.nombre);
   saveData();renderMantTecnicos();toast('Técnico eliminado');
 }
 
@@ -15083,6 +15093,133 @@ function renderTallerDashboard(){
     +rcHoyHTML
     +'</div>';
 
+  // ── Tabla de costos mensuales estimados vs reales por vehículo ────
+  var precioGal=getPrecioGasolina()||0;
+  var mesActual=new Date().toISOString().slice(0,7);
+  var diasMes=new Date(new Date().getFullYear(),new Date().getMonth()+1,0).getDate();
+  var diasHoy=new Date().getDate();
+
+  // Calcular para cada vehículo activo con ruta asignada
+  var filasCosto='';
+  var totalEstMes=0, totalRealMes=0;
+
+  vehs.filter(function(v){return v.estado!=='baja';}).forEach(function(v){
+    var ruta=v.rutaId?(t.rutas||[]).find(function(r){return r.id===v.rutaId;}):null;
+    // Reportes del mes actual
+    var repsMes=((S.taller&&S.taller.reportesDiarios)||[]).filter(function(r){
+      return r.vehiculoId===v.id && (r.fecha||'').startsWith(mesActual);
+    });
+    var kmRealMes=repsMes.reduce(function(s,r){return s+(r.kmRecorridos||0);},0);
+    var galRealMes=repsMes.reduce(function(s,r){return s+(r.galonesCargados||0);},0);
+    var costoRealMes=repsMes.reduce(function(s,r){return s+(r.costoGasolina||0);},0);
+    // Si no hay costo registrado, calcularlo desde galones x precio
+    if(!costoRealMes&&galRealMes&&precioGal) costoRealMes=galRealMes*precioGal;
+
+    // Estimado mensual desde ruta
+    var kmEstDia=ruta?(parseFloat(ruta.kmEstimados)||0):0;
+    var galEstDia=ruta?(parseFloat(ruta.galonesEstimados)||0):0;
+    var costoEstDia=galEstDia*precioGal;
+    var kmEstMes=kmEstDia*diasMes;
+    var costoEstMes=costoEstDia*diasMes;
+    // Pro-rata al día de hoy para comparación justa
+    var costoEstHastaHoy=costoEstDia*diasHoy;
+
+    // Variación %
+    var varPct=costoEstHastaHoy>0?((costoRealMes-costoEstHastaHoy)/costoEstHastaHoy)*100:null;
+
+    // Rendimiento real vs esperado
+    var rendReal=galRealMes>0?(kmRealMes/galRealMes).toFixed(1):'—';
+    var rendEsp=galEstDia>0?(kmEstDia/galEstDia).toFixed(1):'—';
+
+    // Semáforo de anomalía
+    var semaforo='';
+    var anomalia='';
+    if(varPct!==null&&repsMes.length>0){
+      if(varPct>25){
+        semaforo='<span style="color:#e84040;font-size:16px">🔴</span>';
+        anomalia='<div style="font-size:10px;color:#e84040;margin-top:2px">+'+varPct.toFixed(0)+'% sobre lo esperado</div>';
+      } else if(varPct>10){
+        semaforo='<span style="color:#e8a020;font-size:16px">🟡</span>';
+        anomalia='<div style="font-size:10px;color:#e8a020;margin-top:2px">+'+varPct.toFixed(0)+'% sobre lo esperado</div>';
+      } else if(varPct<-15){
+        semaforo='<span style="color:#4ea8de;font-size:16px">🔵</span>';
+        anomalia='<div style="font-size:10px;color:#4ea8de;margin-top:2px">'+varPct.toFixed(0)+'% bajo lo esperado</div>';
+      } else {
+        semaforo='<span style="color:#2db87a;font-size:16px">🟢</span>';
+        anomalia='<div style="font-size:10px;color:#2db87a;margin-top:2px">Normal</div>';
+      }
+    } else if(!ruta){
+      semaforo='<span style="color:#666;font-size:16px">⚪</span>';
+      anomalia='<div style="font-size:10px;color:var(--muted);margin-top:2px">Sin ruta asignada</div>';
+    } else {
+      semaforo='<span style="color:#666;font-size:16px">⚪</span>';
+      anomalia='<div style="font-size:10px;color:var(--muted);margin-top:2px">Sin reportes</div>';
+    }
+
+    totalEstMes+=costoEstMes;
+    totalRealMes+=costoRealMes;
+
+    filasCosto+='<tr>'
+      +'<td><strong>'+esc(v.placa)+'</strong>'
+        +(v.marca?'<div style="font-size:10px;color:var(--muted)">'+esc(v.marca+' '+(v.modelo||''))+'</div>':'')
+      +'</td>'
+      +'<td style="font-size:12px">'+esc(ruta?ruta.nombre:'— Sin ruta —')+'</td>'
+      +'<td style="text-align:right;font-size:12px">'+(kmEstMes>0?kmEstMes.toLocaleString('en-US')+' km':'—')+'</td>'
+      +'<td style="text-align:right"><strong>'+(costoEstMes>0?'$'+costoEstMes.toFixed(2):'—')+'</strong>'
+        +(costoEstHastaHoy>0?'<div style="font-size:10px;color:var(--muted)">hasta hoy: $'+costoEstHastaHoy.toFixed(2)+'</div>':'')
+      +'</td>'
+      +'<td style="text-align:right">'+(repsMes.length>0?'$'+costoRealMes.toFixed(2):'<span style="color:var(--muted)">—</span>')+'</td>'
+      +'<td style="text-align:right;font-size:12px">'+(repsMes.length>0?rendReal+' km/gal':'—')+'</td>'
+      +'<td style="text-align:right;font-size:12px">'+(rendEsp!=='—'?rendEsp+' km/gal':'—')+'</td>'
+      +'<td style="text-align:center">'+semaforo+anomalia+'</td>'
+      +'</tr>';
+  });
+
+  if(!filasCosto){
+    filasCosto='<tr><td colspan="8" class="empty">Sin vehículos activos</td></tr>';
+  }
+
+  var precioInfo=precioGal>0?'Precio gasolina: <strong>$'+precioGal.toFixed(3)+'/gal</strong>':'⚠ Configura el precio de gasolina en Configuración → Taller';
+
+  html+='<div class="card" style="margin-top:14px">'
+    +'<div class="sec-hdr" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'
+    +'💰 Análisis de Costos por Vehículo — '+new Date().toLocaleString('es-SV',{month:'long',year:'numeric'})
+    +'<span style="font-size:12px;color:var(--muted);font-weight:400">'+precioInfo+'</span>'
+    +'</div>'
+    // Totales rápidos
+    +'<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:14px">'
+    +'<div class="kpi"><div class="kpi-lbl">Costo estimado mes</div><div class="kpi-val" style="font-size:18px;color:#4ea8de">$'+totalEstMes.toFixed(2)+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Costo real acumulado</div><div class="kpi-val" style="font-size:18px;color:#e84040">$'+totalRealMes.toFixed(2)+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Diferencia</div>'
+    +'<div class="kpi-val" style="font-size:18px;color:'+(totalRealMes>totalEstMes/diasMes*diasHoy?'#e84040':'#2db87a')+'">'
+    +(totalEstMes>0?'$'+(totalRealMes-(totalEstMes/diasMes*diasHoy)).toFixed(2):'—')
+    +'</div></div>'
+    +'</div>'
+    // Leyenda
+    +'<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;font-size:11px">'
+    +'<span>🟢 Normal (±10%)</span>'
+    +'<span>🟡 Atención (+10 a +25%)</span>'
+    +'<span>🔴 Anomalía (>+25%)</span>'
+    +'<span>🔵 Bajo lo esperado (<-15%)</span>'
+    +'<span>⚪ Sin datos</span>'
+    +'</div>'
+    +'<div class="tbl-wrap"><table>'
+    +'<thead><tr>'
+    +'<th>Vehículo</th><th>Ruta</th>'
+    +'<th style="text-align:right">Km est./mes</th>'
+    +'<th style="text-align:right">Costo est./mes</th>'
+    +'<th style="text-align:right">Costo real (mes)</th>'
+    +'<th style="text-align:right">Rend. real</th>'
+    +'<th style="text-align:right">Rend. esperado</th>'
+    +'<th style="text-align:center">Estado</th>'
+    +'</tr></thead>'
+    +'<tbody>'+filasCosto+'</tbody>'
+    +'</table></div>'
+    +'<div style="font-size:11px;color:var(--muted);margin-top:8px">'
+    +'* Estimado basado en km/galones por ruta × días del mes. Real calculado desde reportes diarios de motoristas. '
+    +'Comparación pro-rata al día '+diasHoy+' de '+diasMes+'.</div>'
+    +'</div>';
+
   document.getElementById('content').innerHTML=html;
 }
 
@@ -16776,7 +16913,9 @@ function guardarServicio(id){
 function delServicio(id){
   if(!confirm('¿Eliminar este servicio? Los Mantenimientos Programados y OT que lo usen mantendrán su nombre pero perderán el vínculo.'))return;
   var t=tallerData();
+  var sv=(t.servicios||[]).find(function(x){return x.id===id;});
   t.servicios=t.servicios.filter(function(x){return x.id!==id;});
+  if(sv)logAction('ELIMINAR','taller','Servicio: '+sv.nombre);
   saveData();renderTallerServicios();toast('Servicio eliminado');
 }
 
@@ -16869,7 +17008,9 @@ function guardarRepuesto(id){
 function delRepuesto(id){
   if(!confirm('¿Eliminar este repuesto?'))return;
   var t=tallerData();
+  var rp=(t.repuestos||[]).find(function(x){return x.id===id;});
   t.repuestos=t.repuestos.filter(function(x){return x.id!==id;});
+  if(rp)logAction('ELIMINAR','taller','Repuesto: '+rp.nombre);
   saveData();renderTallerRepuestos();toast('Repuesto eliminado');
 }
 
@@ -17068,7 +17209,9 @@ function guardarProgramado(id){
 function delProgramado(id){
   if(!confirm('¿Eliminar este programa de mantenimiento?'))return;
   var t=tallerData();
+  var pg=(t.programado||[]).find(function(x){return x.id===id;});
   t.programado=t.programado.filter(function(x){return x.id!==id;});
+  if(pg)logAction('ELIMINAR','taller','Programado: '+(pg.servicio||id));
   saveData();renderTallerProgramado();toast('Eliminado');
 }
 
