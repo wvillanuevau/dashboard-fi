@@ -578,6 +578,9 @@ _fbAuth.onAuthStateChanged(user=>{
 
 /* ── RESET & BASE ─────────────────────────────── */
 *{margin:0;padding:0;box-sizing:border-box}html,body{height:100%;overflow:hidden}
+/* Cuando un portal público está activo, permitir scroll */
+body.portal-activo{overflow-y:auto !important;height:auto !important}
+html.portal-activo{overflow-y:auto !important;height:auto !important}
 body{font-family:'Karla',sans-serif;background:var(--bg);color:var(--text);font-size:var(--fs);line-height:1.55}
 .nav-ic{position:relative}
 .nav-badge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;background:#e84040;color:#fff;border-radius:99px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 3px;line-height:1;border:1.5px solid var(--bg,#080807);pointer-events:none;z-index:10;box-shadow:0 1px 4px rgba(0,0,0,.4)}
@@ -1074,6 +1077,23 @@ input[type=date]{color-scheme:dark}
 @media(max-width:640px){
   input,select,textarea{font-size:16px !important}
   .search-box{font-size:16px !important}
+  /* Asistencia registro diario: apila en mobile */
+  .asist-daily-grid{grid-template-columns:1fr !important}
+  /* Asistencia semanal: fuerza scroll horizontal con ancho mínimo razonable */
+  .asist-semanal-wrap table{min-width:480px}
+  .asist-semanal-wrap th,.asist-semanal-wrap td{padding:5px 4px;font-size:11px}
+  /* KPIs asistencia: 4 en fila reducen tamaño */
+  .asist-kpi-row{grid-template-columns:repeat(4,1fr) !important;gap:5px !important}
+  .asist-kpi-row .kpi{padding:7px 6px}
+  .asist-kpi-row .kpi-val{font-size:16px}
+  .asist-kpi-row .kpi-lbl{font-size:9px}
+  /* Cronograma: tabla compacta en mobile */
+  .cron-table{font-size:11px !important}
+  .cron-table th,.cron-table td{padding:4px 4px !important;font-size:10px !important;white-space:normal !important}
+  .cron-table input[type=number],.cron-table input[type=date]{min-width:48px !important;font-size:12px !important}
+  .cron-table input[type=date]{min-width:90px !important}
+  /* Modales en mobile: scroll interno */
+  .modal-box{max-height:92vh;overflow-y:auto}
 }
 
 /* ── Extra pequeño: 360px ── */
@@ -1343,6 +1363,8 @@ var _portalModeActive = (function(){
   var params = new URLSearchParams(window.location.search);
   var empresa = params.get('portal');
   if (empresa) {
+    document.documentElement.classList.add('portal-activo');
+    document.body.classList.add('portal-activo');
     var lp = document.getElementById('loginPage');
     if (lp) lp.style.display = 'none';
     var pd = document.getElementById('portalMantDiv');
@@ -1353,6 +1375,8 @@ var _portalModeActive = (function(){
   }
   var tecnico = params.get('tecnico');
   if (tecnico) {
+    document.documentElement.classList.add('portal-activo');
+    document.body.classList.add('portal-activo');
     var lp2 = document.getElementById('loginPage');
     if (lp2) lp2.style.display = 'none';
     var pd2 = document.getElementById('portalTecnicoDiv');
@@ -1363,6 +1387,8 @@ var _portalModeActive = (function(){
   }
   var motorista = params.get('motorista');
   if (motorista) {
+    document.documentElement.classList.add('portal-activo');
+    document.body.classList.add('portal-activo');
     var lp3 = document.getElementById('loginPage');
     if (lp3) lp3.style.display = 'none';
     var pd3 = document.getElementById('portalMotoristaDiv');
@@ -3895,9 +3921,9 @@ function tplCron(p){
     ${isCerrado?'<div style="font-size:11px;color:var(--muted);margin-top:4px">🔒 Condiciones bloqueadas — oferta aceptada</div>':''}
   </div>
 
-  <!-- Tabla partidas — sin scroll horizontal, columnas en % -->
-  <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px">
-  <table class="cron-table" style="table-layout:fixed;width:100%">
+  <!-- Tabla partidas — scroll horizontal en mobile -->
+  <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;overflow-x:auto;margin-bottom:16px;-webkit-overflow-scrolling:touch">
+  <table class="cron-table" style="table-layout:fixed;width:100%;min-width:580px">
     <colgroup>
       <col style="width:${isCerrado?'24':'22'}%">
       <col style="width:9%">
@@ -11595,42 +11621,31 @@ function tecPortalDraw(filtro){
 function portalTecFinalizarOT(otId) {
   if(!confirm('¿Confirmas que esta OT está finalizada?')) return;
   var db = firebase.firestore();
-  // Registrar actualización en colección pública
-  db.collection('tecActualizaciones').doc(otId).set({
-    otId:      otId,
-    tecnicoId: _tecSelId,
-    empresa:   _tecData.empresa,
-    estado:    'completada',
-    ts:        Date.now()
-  }).then(function(){
-    // Actualizar vista local
+  var docData = {
+    otId: otId,
+    tecnicoId: _tecSelId||'',
+    empresa: _tecData.empresa||'',
+    estado: 'completada',
+    ts: Date.now()
+  };
+  db.collection('tecActualizaciones').add(docData).then(function(){
     var ot = _tecData.ots.find(function(o){return o.id===otId;});
     if(ot) ot.estado='completada';
-    portalTecVerMisOTs();
-    // Pequeño mensaje de confirmación
-    var area = document.getElementById('portalTecArea');
-    if(area){
-      var msg = document.createElement('div');
-      msg.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#2db87a;color:#000;padding:12px 24px;border-radius:10px;font-weight:700;font-size:14px;z-index:999';
-      msg.textContent='✓ OT marcada como finalizada';
-      document.body.appendChild(msg);
-      setTimeout(function(){msg.remove();},3000);
+    if(window._tecPortalState){
+      window._tecPortalState.activas = _tecData.ots.filter(function(o){return o.tecnicoId===_tecSelId&&o.estado!=='completada';});
+      window._tecPortalState.completadas = _tecData.ots.filter(function(o){return o.tecnicoId===_tecSelId&&o.estado==='completada';});
+      tecPortalDraw('activas');
     }
+    var msg = document.createElement('div');
+    msg.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#2db87a;color:#000;padding:12px 24px;border-radius:10px;font-weight:700;font-size:14px;z-index:999;white-space:nowrap';
+    msg.textContent='✓ OT marcada como finalizada';
+    document.body.appendChild(msg);
+    setTimeout(function(){if(msg.parentNode)msg.remove();},3000);
   }).catch(function(e){
     alert('Error al registrar. Intenta de nuevo.\n'+e.message);
   });
 }
 
-// ══════════════════════════════════════════════════════════
-//  PORTAL PÚBLICO DE MOTORISTAS
-// ══════════════════════════════════════════════════════════
-
-var _motData = {vehiculos:[], motoristas:[], empresa:''};
-var _motVehId  = '';
-var _motNombre = '';
-var _motId     = '';
-
-var MOT_ESTILOS = 'width:100%;padding:12px 13px;border-radius:8px;border:1px solid #232338;background:#0a0a14;color:#e4e2dd;font-size:16px;box-sizing:border-box';
 
 function _cargarDatosMotorista(empresa) {
   _motData.empresa = empresa;
@@ -14091,13 +14106,13 @@ function asistRenderRegistro(tecnicos){
   var fechaLabel=diasSem[dFecha.getDay()]+' '+dFecha.getDate()+' de '+mesesNom[dFecha.getMonth()]+' '+dFecha.getFullYear();
 
   document.getElementById('asistPanel').innerHTML=
-    '<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr)">'
+    '<div class="kpi-grid asist-kpi-row" style="grid-template-columns:repeat(4,1fr)">'
       +'<div class="kpi"><div class="kpi-lbl">Asistencias</div><div class="kpi-val" style="color:var(--green)">'+nRC+'</div></div>'
       +'<div class="kpi"><div class="kpi-lbl">No reportó</div><div class="kpi-val" style="color:var(--red)">'+nX+'</div></div>'
       +'<div class="kpi"><div class="kpi-lbl">Permisos/Incap.</div><div class="kpi-val" style="color:var(--accent)">'+nP+'</div></div>'
       +'<div class="kpi"><div class="kpi-lbl">Tarde (&gt;5 min)</div><div class="kpi-val" style="color:#c084fc">'+nTarde+'</div></div>'
     +'</div>'
-    +'<div style="display:grid;grid-template-columns:1fr 1.5fr;gap:16px">'
+    +'<div class="asist-daily-grid" style="display:grid;grid-template-columns:1fr 1.5fr;gap:16px">'
 
       // Formulario
       +'<div class="card">'
@@ -14250,7 +14265,7 @@ function asistRenderSemanal(tecnicos){
   // Cabecera de días
   var thDias=diasStr.map(function(f,i){
     var d=dias[i];
-    return'<th style="text-align:center;min-width:65px;cursor:pointer" onclick="S._asistFecha=\''+f+'\';S._asistTab=\'registro\';renderAsistencia()">'+diasLabel[i]+'<br><span style="font-size:10px;font-weight:400;color:var(--muted)">'+d.getDate()+'</span></th>';
+    return'<th style="text-align:center;min-width:46px;cursor:pointer" onclick="S._asistFecha=\''+f+'\';S._asistTab=\'registro\';renderAsistencia()">'+diasLabel[i]+'<br><span style="font-size:10px;font-weight:400;color:var(--muted)">'+d.getDate()+'</span></th>';
   }).join('');
 
   // Filas por técnico
@@ -14297,12 +14312,12 @@ function asistRenderSemanal(tecnicos){
           +'<button class="btn btn-secondary btn-sm" onclick="asistImprimirSemanal()">🖨 Imprimir</button>'
         +'</div>'
       +'</div>'
-      +'<div class="tbl-wrap"><table>'
+      +'<div class="tbl-wrap asist-semanal-wrap"><table>'
         +'<thead><tr>'
-          +'<th style="min-width:50px">ASIST.</th><th style="min-width:50px;color:var(--red)">FALTAS</th>'
-          +'<th style="min-width:30px">N°</th><th style="min-width:180px">NOMBRE</th>'
+          +'<th style="min-width:36px">A.</th><th style="min-width:36px;color:var(--red)">F.</th>'
+          +'<th style="min-width:24px">#</th><th style="min-width:110px">NOMBRE</th>'
           +thDias
-          +'<th style="min-width:160px">Observación</th>'
+          +'<th style="min-width:80px">Obs.</th>'
         +'</tr></thead>'
         +'<tbody>'+rows+'</tbody>'
         +'<tfoot><tr style="background:var(--surface2)">'
