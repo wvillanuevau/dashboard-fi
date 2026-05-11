@@ -18905,26 +18905,36 @@ function _renderReportesChoferes(reportes){
 
   // Estado de hoy
   var hoyStr=new Date().toISOString().slice(0,10);
-  var camionesAsig=t.vehiculos.filter(function(v){return v.choferId&&v.estado!=='baja';});
-  var statusHoy=camionesAsig.map(function(v){
-    var rh=(t.reportesDiarios||[]).find(function(r){return r.vehiculoId===v.id&&r.fecha===hoyStr;});
-    var ch=(S.usuarios||[]).find(function(u){return (u.email||'').toLowerCase()===v.choferId;});
-    return {veh:v,chofer:ch?ch.nombre:v.choferId,reporte:rh};
+  // Todos los vehículos activos (no solo los con choferId asignado)
+  var todosVehs=t.vehiculos.filter(function(v){return v.estado!=='baja';});
+  var statusHoy=todosVehs.map(function(v){
+    // Buscar en datos locales Y en reportes del portal (parámetro ya unificado)
+    var rh=(t.reportesDiarios||[]).find(function(r){return r.vehiculoId===v.id&&r.fecha===hoyStr;})
+        || reportes.find(function(r){return r.vehiculoId===v.id&&r.fecha===hoyStr;});
+    // Nombre: usuario vinculado, motoristaNombre del reporte, o choferId
+    var nombreChofer=rh&&rh.motoristaNombre?rh.motoristaNombre
+      :(function(){var ch=(S.usuarios||[]).find(function(u){return (u.email||'').toLowerCase()===(v.choferId||'');});return ch?ch.nombre:(v.choferId||'—');})();
+    return {veh:v, chofer:nombreChofer, reporte:rh};
   });
 
   var rowsHoy=statusHoy.map(function(s){
     var r=s.reporte;
+    var kmOdo=r?(r.kmOdometro||r.kmFinal||'—'):'—';
+    var kmRec=r?(r.kmRecorridos||'—'):'—';
+    var gal=r&&r.galonesCargados?r.galonesCargados.toFixed(2):'—';
     return '<tr>'
-      +'<td><strong>'+esc(s.veh.placa)+'</strong></td>'
+      +'<td><strong>'+esc(s.veh.placa)+'</strong>'
+      +(s.veh.marca?'<div style="font-size:10px;color:var(--muted)">'+esc(s.veh.marca+' '+(s.veh.modelo||''))+'</div>':'')
+      +'</td>'
       +'<td>'+esc(s.chofer)+'</td>'
       +'<td>'+(r?'<span class="badge b-ok">✓ Reportó</span>':'<span class="badge b-err">✗ Pendiente</span>')+'</td>'
-      +'<td style="text-align:right">'+(r?r.kmOdometro:'—')+'</td>'
-      +'<td style="text-align:right">'+(r?r.kmRecorridos:'—')+'</td>'
-      +'<td style="text-align:right">'+(r&&r.galonesCargados?r.galonesCargados.toFixed(2):'—')+'</td>'
+      +'<td style="text-align:right">'+kmOdo+'</td>'
+      +'<td style="text-align:right">'+kmRec+'</td>'
+      +'<td style="text-align:right">'+gal+'</td>'
+      +(r&&r.novedad?'<td style="font-size:11px;color:var(--accent)">⚠ '+esc(r.novedad.substring(0,40))+'</td>':'<td>—</td>')
       +'</tr>';
   }).join('');
-  if(!rowsHoy)rowsHoy='<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:16px">Sin choferes asignados</td></tr>';
-
+  if(!rowsHoy)rowsHoy='<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px">Sin vehículos registrados</td></tr>';
   // ═══════════════════════════════════════════════════════════════════
   // ANÁLISIS COMPARATIVO POR VEHÍCULO (vs Ruta y vs Histórico)
   // ═══════════════════════════════════════════════════════════════════
@@ -19108,7 +19118,7 @@ function _renderReportesChoferes(reportes){
     +'<div class="card" style="margin-bottom:16px">'
     +'<div class="sec-hdr">📅 Estado de reportes de HOY ('+fmtDate(hoyStr)+')</div>'
     +'<div class="tbl-wrap"><table>'
-    +'<thead><tr><th>Vehículo</th><th>Chofer</th><th>Estado</th><th style="text-align:right">Km Odóm.</th><th style="text-align:right">Recorridos</th><th style="text-align:right">Galones</th></tr></thead>'
+    +'<thead><tr><th>Vehículo</th><th>Chofer</th><th>Estado</th><th style="text-align:right">Km Odóm.</th><th style="text-align:right">Recorridos</th><th style="text-align:right">Galones</th><th>Novedad</th></tr></thead>'
     +'<tbody>'+rowsHoy+'</tbody></table></div></div>'
 
     // Filtros
