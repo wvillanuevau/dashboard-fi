@@ -11361,36 +11361,73 @@ function aplicarActualizacionesTec() {
   db.collection('tecActualizaciones')
     .where('empresa','==',S.empresa)
     .get().then(function(snap){
-      if(snap.empty){ toast('Sin finalizaciones pendientes de técnicos'); return; }
+      if(snap.empty){ toast('Sin solicitudes de cierre pendientes de técnicos'); return; }
       var docs = [];
-      snap.forEach(function(d){ docs.push({ref:d.ref, data:d.data()}); });
-      var m = mantData();
-      var aplicadas = 0;
-      docs.forEach(function(item){
-        var d = item.data;
-        var ot = (m.ots||[]).find(function(o){return o.id===d.otId;});
-        if(ot && ot.estado!=='completada'){
-          ot.estado='completada';
-          ot.fechaCompletada=new Date().toISOString().slice(0,10);
-          aplicadas++;
-        }
-        // Actualizar solicitud asociada si existe
-        if(ot && ot.origenSolicitud){
-          db.collection('solicitudesMant').doc(ot.origenSolicitud)
-            .update({estado:'finalizada'}).catch(function(){});
-        }
-        // Eliminar la actualización procesada
-        item.ref.delete().catch(function(){});
-      });
-      if(aplicadas>0){
-        markDirty('taller');
-        saveData();
-        toast('✓ '+aplicadas+' OT(s) marcadas como completadas');
-      } else {
-        toast('Las OTs ya estaban actualizadas');
-      }
-      renderMantSolicitudes();
+      snap.forEach(function(d){ docs.push({id:d.id, ref:d.ref, data:d.data()}); });
+
+      // Mostrar modal con lista de solicitudes pendientes
+      var old=document.getElementById('modalSolCierrAdmin');if(old)old.remove();
+      var div=document.createElement('div');
+      div.id='modalSolCierrAdmin';
+      div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto';
+
+      var m=mantData();
+      var items=docs.map(function(item){
+        var d=item.data;
+        var ot=(m.ots||[]).find(function(o){return o.id===d.otId;})||{equipoNombre:d.otId};
+        var fotoHtml=d.fotoCierre?'<img src="'+d.fotoCierre+'" style="width:100%;max-height:160px;object-fit:cover;border-radius:8px;margin-top:8px">':'<div style="font-size:11px;color:#888;margin-top:4px">Sin foto</div>';
+        var fecha=d.ts?new Date(d.ts).toLocaleString('es-SV',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
+        return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px">'
+          +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">'
+          +'<div><div style="font-weight:600;font-size:14px">'+esc(ot.equipoNombre||'—')+'</div>'
+          +'<div style="font-size:11px;color:var(--muted)">'+esc(d.tecnicoNombre||d.tecnicoId||'—')+' · '+fecha+'</div></div>'
+          +'</div>'
+          +(d.observaciones?'<div style="font-size:13px;color:var(--text);background:var(--surface);padding:8px 10px;border-radius:6px;margin-bottom:8px;border-left:3px solid var(--accent)">'+esc(d.observaciones)+'</div>':'')
+          +fotoHtml
+          +'<div style="display:flex;gap:8px;margin-top:10px">'
+          +'<button class="btn btn-primary btn-sm" data-docid="'+item.id+'" data-otid="'+(d.otId||'')+'" data-origen="'+(ot.origenSolicitud||'')+'" onclick="adminAprobarCierreOT(this.dataset.docid,this.dataset.otid,this.dataset.origen)">✓ Aprobar y cerrar OT</button>'
+          +'<button class="btn btn-danger btn-sm" data-docid="'+item.id+'" onclick="adminRechazarCierreOT(this.dataset.docid)">✗ Rechazar</button>'
+          +'</div></div>';
+      }).join('');
+
+      div.innerHTML='<div class="modal-box" style="max-width:520px;max-height:90vh;overflow-y:auto">'
+        +'<div class="modal-hdr"><div class="modal-ttl">📝 Solicitudes de cierre de OT ('+docs.length+')</div>'
+        +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalSolCierrAdmin\').remove()">✕</button></div>'
+        +'<div style="font-size:12px;color:var(--muted);margin-bottom:14px">Revisa la evidencia fotográfica y las observaciones antes de aprobar.</div>'
+        +items+'</div>';
+      document.body.appendChild(div);
     }).catch(function(e){ toast('Error: '+e.message,true); });
+}
+
+function adminAprobarCierreOT(docId, otId, origenSolicitud) {
+  if(!confirm('¿Aprobar el cierre de esta OT?'))return;
+  var db=firebase.firestore();
+  var m=mantData();
+  var ot=(m.ots||[]).find(function(o){return o.id===otId;});
+  if(ot){
+    ot.estado='completada';
+    ot.fechaCompletada=new Date().toISOString().slice(0,10);
+    markDirty('taller');
+    saveData();
+  }
+  if(origenSolicitud){
+    db.collection('solicitudesMant').doc(origenSolicitud).update({estado:'finalizada'}).catch(function(){});
+  }
+  db.collection('tecActualizaciones').doc(docId).delete().then(function(){
+    toast('✅ OT cerrada correctamente');
+    var old=document.getElementById('modalSolCierrAdmin');if(old)old.remove();
+    renderMantSolicitudes();
+    loadBadges();
+  }).catch(function(e){toast('Error: '+e.message,true);});
+}
+
+function adminRechazarCierreOT(docId) {
+  if(!confirm('¿Rechazar esta solicitud de cierre? El técnico recibirá que debe revisar.'))return;
+  firebase.firestore().collection('tecActualizaciones').doc(docId)
+    .update({estado:'rechazada_cierre'}).then(function(){
+      toast('Solicitud rechazada');
+      var old=document.getElementById('modalSolCierrAdmin');if(old)old.remove();
+    }).catch(function(e){toast('Error: '+e.message,true);});
 }
 // Llamar checkPortalMode directamente — el script está al final del body,
 // el DOM ya está listo en este punto (DOMContentLoaded ya disparó)
@@ -11588,9 +11625,11 @@ function tecPortalDraw(filtro){
         : vencida
           ? '<span style="background:#3a1a1a;color:#e84040;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">⚠ Vencida</span>'
           : '<span style="background:#2a2a1a;color:#e8a020;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">Pendiente</span>';
-      var btn = ot.estado!=='completada'
-        ? '<button data-id="'+ot.id+'" onclick="portalTecFinalizarOT(this.dataset.id)" style="margin-top:12px;width:100%;padding:11px;background:#2db87a;color:#000;font-weight:700;border:none;border-radius:8px;cursor:pointer;font-size:13px">✓ Marcar como finalizada</button>'
-        : '';
+      var solPendiente = ot._solicitudCierre; // marcado localmente si ya envió solicitud
+      var btn = ot.estado==='completada' ? ''
+        : solPendiente
+          ? '<div style="margin-top:12px;padding:10px;background:#1a2a1a;border-radius:8px;border:1px solid #2e3e2e;text-align:center;font-size:12px;color:#2db87a">⏳ Solicitud de cierre enviada — pendiente de aprobación</div>'
+          : '<button data-id="'+ot.id+'" onclick="portalTecSolicitarCierre(this.dataset.id)" style="margin-top:12px;width:100%;padding:11px;background:#e8a020;color:#000;font-weight:700;border:none;border-radius:8px;cursor:pointer;font-size:13px">📝 Solicitar cierre</button>';
       listaHtml += '<div style="background:#111;border:1px solid #1e2e1e;border-radius:12px;padding:16px;margin-bottom:10px">'
         +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">'+badge
         +'<span style="font-size:11px;color:#555">'+ot.id+'</span></div>'
@@ -11625,32 +11664,135 @@ function tecPortalDraw(filtro){
 }
 
 
-function portalTecFinalizarOT(otId) {
-  if(!confirm('¿Confirmas que esta OT está finalizada?')) return;
-  var db = firebase.firestore();
-  var docData = {
-    otId: otId,
-    tecnicoId: _tecSelId||'',
-    empresa: _tecData.empresa||'',
-    estado: 'completada',
-    ts: Date.now()
+// ── Solicitar cierre de OT (técnico) ─────────────────────
+// No cierra — muestra formulario con observaciones + foto de cámara obligatoria
+function portalTecSolicitarCierre(otId) {
+  var st = window._tecPortalState;
+  var ot = _tecData.ots.find(function(o){return o.id===otId;});
+  if(!ot) return;
+  var centroNombre = st&&st.centroMap?st.centroMap[ot.centroId]||ot.centroId||'—':'—';
+
+  var old = document.getElementById('modalSolCierre');
+  if(old) old.remove();
+  var div = document.createElement('div');
+  div.id = 'modalSolCierre';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:500;display:flex;align-items:flex-end;justify-content:center;padding:0';
+  div.innerHTML =
+    '<div style="background:#111;border-radius:16px 16px 0 0;width:100%;max-width:600px;padding:20px 18px 32px;max-height:95vh;overflow-y:auto">'
+    +'<div style="text-align:center;margin-bottom:4px"><div style="width:36px;height:4px;background:#333;border-radius:2px;margin:0 auto 16px"></div></div>'
+    +'<div style="font-size:16px;font-weight:700;color:#fff;margin-bottom:4px">📝 Solicitar cierre de OT</div>'
+    +'<div style="font-size:13px;color:#888;margin-bottom:16px">'+esc(ot.equipoNombre||'—')+' · '+esc(centroNombre)+'</div>'
+
+    // Info box
+    +'<div style="background:#1a2a1a;border:1px solid #2e3e2e;border-radius:10px;padding:12px;margin-bottom:16px;font-size:12px;color:#aaa">'
+    +'⚠ El administrador revisará tu solicitud antes de cerrar la OT oficialmente.'
+    +'</div>'
+
+    // Observaciones
+    +'<div style="margin-bottom:14px">'
+    +'<label style="font-size:12px;color:#888;display:block;margin-bottom:6px">Observaciones del trabajo realizado *</label>'
+    +'<textarea id="scObs" rows="3" placeholder="Describe qué se hizo, materiales usados, estado actual del equipo..." '
+    +'style="width:100%;padding:11px 13px;border-radius:8px;border:1px solid #232338;background:#0a0a0a;color:#fff;font-size:15px;resize:vertical;box-sizing:border-box"></textarea>'
+    +'</div>'
+
+    // Foto de cámara OBLIGATORIA - capture="camera" fuerza cámara, no galería
+    +'<div style="margin-bottom:20px">'
+    +'<label style="font-size:12px;color:#888;display:block;margin-bottom:6px">Foto de evidencia * <span style="color:#e8a020">(debe tomarse con la cámara)</span></label>'
+    +'<input type="file" id="scFoto" accept="image/*" capture="camera" '
+    +'onchange="portalTecPreviewFoto()" '
+    +'style="width:100%;padding:10px;border-radius:8px;border:1px solid #232338;background:#0a0a0a;color:#aaa;font-size:13px;box-sizing:border-box">'
+    +'<div id="scFotoPreview" style="margin-top:10px;text-align:center"></div>'
+    +'</div>'
+
+    +'<div id="scErr" style="color:#e84040;font-size:13px;margin-bottom:12px;display:none;padding:10px;background:rgba(232,64,64,.1);border-radius:8px;text-align:center"></div>'
+
+    +'<div style="display:flex;gap:10px">'
+    +'<button onclick="document.getElementById(\'modalSolCierre\').remove()" '
+    +'style="flex:1;padding:13px;background:#222;color:#888;border:1px solid #333;border-radius:10px;cursor:pointer;font-size:14px;font-weight:600">Cancelar</button>'
+    +'<button id="scSubmitBtn" data-id="'+otId+'" onclick="portalTecEnviarSolicitudCierre(this.dataset.id)" '
+    +'style="flex:2;padding:13px;background:#e8a020;color:#000;border:none;border-radius:10px;cursor:pointer;font-size:14px;font-weight:700">📤 Enviar solicitud</button>'
+    +'</div></div>';
+  document.body.appendChild(div);
+  setTimeout(function(){var t=document.getElementById('scObs');if(t)t.focus();},100);
+}
+
+function portalTecPreviewFoto() {
+  var input = document.getElementById('scFoto');
+  var preview = document.getElementById('scFotoPreview');
+  if(!input||!preview) return;
+  var file = input.files&&input.files[0];
+  if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e){
+    preview.innerHTML = '<img src="'+e.target.result+'" style="max-width:100%;max-height:200px;border-radius:8px;border:1px solid #2e3e2e;object-fit:contain">';
   };
-  db.collection('tecActualizaciones').add(docData).then(function(){
-    var ot = _tecData.ots.find(function(o){return o.id===otId;});
-    if(ot) ot.estado='completada';
-    if(window._tecPortalState){
-      window._tecPortalState.activas = _tecData.ots.filter(function(o){return o.tecnicoId===_tecSelId&&o.estado!=='completada';});
-      window._tecPortalState.completadas = _tecData.ots.filter(function(o){return o.tecnicoId===_tecSelId&&o.estado==='completada';});
-      tecPortalDraw('activas');
-    }
-    var msg = document.createElement('div');
-    msg.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#2db87a;color:#000;padding:12px 24px;border-radius:10px;font-weight:700;font-size:14px;z-index:999;white-space:nowrap';
-    msg.textContent='✓ OT marcada como finalizada';
-    document.body.appendChild(msg);
-    setTimeout(function(){if(msg.parentNode)msg.remove();},3000);
-  }).catch(function(e){
-    alert('Error al registrar. Intenta de nuevo.\n'+e.message);
-  });
+  reader.readAsDataURL(file);
+}
+
+function portalTecEnviarSolicitudCierre(otId) {
+  var obs   = ((document.getElementById('scObs')||{}).value||'').trim();
+  var input = document.getElementById('scFoto');
+  var file  = input&&input.files&&input.files[0];
+  var btn   = document.getElementById('scSubmitBtn');
+  var errEl = document.getElementById('scErr');
+  if(errEl) errEl.style.display='none';
+
+  if(!obs){ if(errEl){errEl.textContent='Las observaciones son obligatorias';errEl.style.display='block';} return; }
+  if(!file){ if(errEl){errEl.textContent='Debes tomar una foto como evidencia';errEl.style.display='block';} return; }
+
+  if(btn){ btn.disabled=true; btn.textContent='Enviando...'; }
+
+  // Comprimir foto a 800px JPEG 70%
+  var reader = new FileReader();
+  reader.onload = function(e){
+    var img = new Image();
+    img.onload = function(){
+      var maxW=800, w=img.width, h=img.height;
+      if(w>maxW){h=Math.round(h*(maxW/w));w=maxW;}
+      var canvas=document.createElement('canvas');
+      canvas.width=w;canvas.height=h;
+      canvas.getContext('2d').drawImage(img,0,0,w,h);
+      var b64=canvas.toDataURL('image/jpeg',0.7);
+
+      var db=firebase.firestore();
+      var docData={
+        otId:       otId,
+        tecnicoId:  _tecSelId||'',
+        tecnicoNombre: window._tecPortalState?(window._tecPortalState.tec.nombre||''):'',
+        empresa:    _tecData.empresa||'',
+        estado:     'solicitud_cierre',
+        observaciones: obs,
+        fotoCierre: b64,
+        ts:         Date.now()
+      };
+      db.collection('tecActualizaciones').add(docData).then(function(){
+        // Marcar localmente que ya envió solicitud
+        var ot=_tecData.ots.find(function(o){return o.id===otId;});
+        if(ot) ot._solicitudCierre=true;
+        var modal=document.getElementById('modalSolCierre');
+        if(modal) modal.remove();
+        if(window._tecPortalState){
+          window._tecPortalState.activas=_tecData.ots.filter(function(o){return o.tecnicoId===_tecSelId&&o.estado!=='completada';});
+          tecPortalDraw('activas');
+        }
+        // Toast de confirmación
+        var msg=document.createElement('div');
+        msg.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#e8a020;color:#000;padding:12px 24px;border-radius:10px;font-weight:700;font-size:14px;z-index:999;white-space:nowrap';
+        msg.textContent='📝 Solicitud enviada — el admin revisará y cerrará la OT';
+        document.body.appendChild(msg);
+        setTimeout(function(){if(msg.parentNode)msg.remove();},4000);
+      }).catch(function(e){
+        if(btn){btn.disabled=false;btn.textContent='📤 Enviar solicitud';}
+        if(errEl){errEl.textContent='Error: '+e.message;errEl.style.display='block';}
+      });
+    };
+    img.onerror=function(){
+      if(btn){btn.disabled=false;btn.textContent='📤 Enviar solicitud';}
+      if(errEl){errEl.textContent='Error al procesar la foto';errEl.style.display='block';}
+    };
+    img.src=e.target.result;
+  };
+  reader.readAsDataURL(file);
 }
 
 
@@ -18678,12 +18820,65 @@ function verFotoRevision(refId){
 //  ADMIN — REPORTES DIARIOS DE CHOFERES (vista admin)
 // ═══════════════════════════════════════════════════════════════════
 function renderTallerReportesChoferes(){
-  // Al ver este módulo, limpiar el badge (ya están atendiéndolo)
+  // Al ver este módulo, limpiar el badge
   if(S._badges){ S._badges.taller_reportes_choferes=0; _renderNavBadges(); }
-  var t=tallerData();
-  var reportes=[].concat(t.reportesDiarios||[]).sort(function(a,b){return (a.fecha+'').localeCompare(b.fecha+'');});
 
-  // Filtros
+  var content=document.getElementById('content');
+  if(content) content.innerHTML='<div style="padding:40px;text-align:center;color:var(--muted)">Cargando reportes...</div>';
+
+  // Inicializar filtros
+  if(!S._rdcFiltroVeh)S._rdcFiltroVeh='';
+  if(!S._rdcFiltroDesde){var d0=new Date();d0.setDate(d0.getDate()-30);S._rdcFiltroDesde=d0.toISOString().slice(0,10);}
+  if(!S._rdcFiltroHasta)S._rdcFiltroHasta=new Date().toISOString().slice(0,10);
+
+  var t=tallerData();
+  // Reportes locales (sistema legacy)
+  var repLocales=[].concat(t.reportesDiarios||[]).map(function(r){
+    return {
+      id:r.id||('loc-'+r.vehiculoId+'-'+r.fecha),
+      vehiculoId:r.vehiculoId, vehiculoPlaca:r.vehiculoPlaca||'',
+      motoristaNombre:r.choferId||r.motoristaNombre||'',
+      fecha:r.fecha, kmOdometro:r.kmOdometro||r.kmFinal||0,
+      kmRecorridos:r.kmRecorridos||0,
+      galonesCargados:r.galonesCargados||0,
+      costoGasolina:r.costoGasolina||0,
+      novedad:r.novedad||r.observaciones||'',
+      origen:'local'
+    };
+  });
+
+  // Cargar también de Firestore (portal motoristas)
+  firebase.firestore().collection('reportesMotoristas')
+    .where('empresa','==',S.empresa)
+    .get().then(function(snap){
+      var repFirestore=[];
+      snap.forEach(function(d){
+        var r=d.data();
+        repFirestore.push({
+          id:r.id||d.id, vehiculoId:r.vehiculoId, vehiculoPlaca:r.vehiculoPlaca||'',
+          motoristaNombre:r.motoristaNombre||'', fecha:r.fecha||(r.ts?new Date(r.ts).toISOString().slice(0,10):''),
+          kmOdometro:r.kmOdometro||0, kmRecorridos:r.kmRecorridos||0,
+          galonesCargados:r.galonesCargados||0, costoGasolina:r.costoGasolina||0,
+          novedad:r.novedad||'', origen:'portal'
+        });
+      });
+      // Unir ambas fuentes — evitar duplicados por vehiculoId+fecha
+      var vistos={};
+      var todosRep=[];
+      repLocales.concat(repFirestore).forEach(function(r){
+        var key=(r.vehiculoId||'')+'|'+(r.fecha||'');
+        if(!vistos[key]){vistos[key]=true;todosRep.push(r);}
+      });
+      todosRep.sort(function(a,b){return (a.fecha||'').localeCompare(b.fecha||'');});
+      _renderReportesChoferes(todosRep);
+    }).catch(function(){
+      // Si falla Firestore, usar solo locales
+      _renderReportesChoferes(repLocales);
+    });
+}
+
+function _renderReportesChoferes(reportes){
+// Filtros
   if(!S._rdcFiltroVeh)S._rdcFiltroVeh='';
   if(!S._rdcFiltroDesde){var d=new Date();d.setDate(d.getDate()-30);S._rdcFiltroDesde=d.toISOString().slice(0,10);}
   if(!S._rdcFiltroHasta)S._rdcFiltroHasta=new Date().toISOString().slice(0,10);
@@ -18852,7 +19047,7 @@ function renderTallerReportesChoferes(){
   });
 
   if(analisisHTML===''){
-    analisisHTML='<div class="card" style="text-align:center;padding:30px;color:var(--muted)">Sin reportes en el período. Los choferes deben usar el Portal Chofer para reportar su km diario.</div>';
+    analisisHTML='<div class="card" style="text-align:center;padding:30px;color:var(--muted)">Sin reportes en el período. Los motoristas deben usar el Portal de Motoristas para reportar su km diario.</div>';
   }
 
   // Histórico tabla
@@ -18933,6 +19128,8 @@ function renderTallerReportesChoferes(){
 // ═══════════════════════════════════════════════════════════════════
 // ADMIN — Editar/Eliminar reporte chofer y Resetear km vehículo
 // ═══════════════════════════════════════════════════════════════════
+
+
 function editarReporteChofer(repId){
   if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
     toast('Solo administradores pueden corregir reportes',true);return;
