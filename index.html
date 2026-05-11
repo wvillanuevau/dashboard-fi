@@ -4405,7 +4405,7 @@ function renderGastos(){
   <div style="display:flex;align-items:center;gap:8px;margin-top:14px;margin-bottom:8px;flex-wrap:wrap">
     <input id="srchGastos" placeholder="🔍 Buscar factura, proveedor, descripción, centro..." value="${S._srchGastos||''}"
       style="flex:1;max-width:420px;padding:7px 12px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)"
-      oninput="S._srchGastos=this.value;S._gastosPag=0;renderGastos()">
+      oninput="S._srchGastos=this.value;S._gastosPag=0;gastosIrPag(0);">
     <span id="cntGastos" style="font-size:12px;color:var(--muted)">${gastosF.length} de ${S.gastos.length} registros</span>
   </div>
   <div class="tbl-wrap" style="overflow-x:auto"><table style="table-layout:auto;min-width:0">
@@ -4461,6 +4461,12 @@ function gastosIrPag(p){
     </tr>`;
   });
   const tb=document.getElementById('tblGastos');
+  const cnt=document.getElementById('cntGastos');
+  if(cnt){
+    var q=(S._srchGastos||'').trim();
+    cnt.textContent=q?(gastosF.length+' de '+S.gastos.length+(gastosF.length===0?' — sin resultados':'')):gastosF.length+' de '+S.gastos.length+' registros';
+    cnt.style.color=q&&gastosF.length===0?'var(--red)':'var(--muted)';
+  }
   if(tb)tb.innerHTML=rows||'<tr><td colspan="9" class="empty">Sin gastos</td></tr>';
   // Update pagination controls
   const pagDiv=document.getElementById('gastosPagControls');
@@ -18878,7 +18884,8 @@ function renderTallerReportesChoferes(){
 }
 
 function _renderReportesChoferes(reportes){
-// Filtros
+  var t=tallerData(); // necesario para acceder a vehiculos, rutas, reportesDiarios
+  // Filtros
   if(!S._rdcFiltroVeh)S._rdcFiltroVeh='';
   if(!S._rdcFiltroDesde){var d=new Date();d.setDate(d.getDate()-30);S._rdcFiltroDesde=d.toISOString().slice(0,10);}
   if(!S._rdcFiltroHasta)S._rdcFiltroHasta=new Date().toISOString().slice(0,10);
