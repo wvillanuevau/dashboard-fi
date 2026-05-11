@@ -10805,8 +10805,15 @@ function guardarRegistroMant(eqId){
 //  PORTAL PÚBLICO + MÓDULO ADMIN SOLICITUDES MANTENIMIENTO
 // ══════════════════════════════════════════════════════════
 
-var _portalData = {centros:[], equipos:[], empresa:''};
-var _portalCentroId = '';   // tienda seleccionada actualmente
+var _portalData     = {centros:[], equipos:[], tecnicos:[], empresa:''};
+var _portalCentroId = '';
+var _tecData        = {tecnicos:[], ots:[], centros:[], empresa:''};
+var _tecSelId       = '';
+var _motData        = {vehiculos:[], motoristas:[], empresa:''};
+var _motVehId       = '';
+var _motNombre      = '';
+var _motId          = '';
+var MOT_ESTILOS     = 'width:100%;padding:12px 13px;border-radius:8px;border:1px solid #232338;background:#0a0a14;color:#e4e2dd;font-size:16px;box-sizing:border-box';
 
 // Estados visibles para el portal
 var SOL_ESTADOS = {
@@ -11488,8 +11495,8 @@ function mantActualizarPunto(ci,pi,campo,val){
 //  PORTAL PÚBLICO DE TÉCNICOS
 // ══════════════════════════════════════════════════════════
 
-var _tecData = {tecnicos:[], ots:[], centros:[], empresa:''};
-var _tecSelId = '';
+
+
 
 function _cargarDatosTecnico(empresa) {
   _tecData.empresa = empresa;
