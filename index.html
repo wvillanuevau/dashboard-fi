@@ -757,7 +757,7 @@ th{
   border-bottom:1px solid var(--border);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
-td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle;overflow:hidden;text-overflow:ellipsis}
+td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
 tr:last-child td{border-bottom:none}
 tbody tr:hover td{background:var(--surface2)}
 .td-act{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
@@ -4405,7 +4405,7 @@ function renderGastos(){
   <div style="display:flex;align-items:center;gap:8px;margin-top:14px;margin-bottom:8px;flex-wrap:wrap">
     <input id="srchGastos" placeholder="🔍 Buscar factura, proveedor, descripción, centro..." value="${S._srchGastos||''}"
       style="flex:1;max-width:420px;padding:7px 12px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)"
-      oninput="S._gastosPag=0;srchFiltrarTabla(this,'tblGastos','cntGastos')">
+      oninput="S._srchGastos=this.value;S._gastosPag=0;renderGastos()">
     <span id="cntGastos" style="font-size:12px;color:var(--muted)">${gastosF.length} de ${S.gastos.length} registros</span>
   </div>
   <div class="tbl-wrap" style="overflow-x:auto"><table style="table-layout:auto;min-width:0">
@@ -11221,7 +11221,7 @@ function _renderSolicitudesList(docs, m) {
         +'<div style="font-weight:600;font-size:12px">'+sol.id+'</div></td>'
         +'<td>'+centroNombre+'</td>'
         +'<td style="font-size:12px">'+eqNombre+'</td>'
-        +'<td style="font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+((sol.descripcion||'').substring(0,60))+'</td>'
+        +'<td style="font-size:12px;max-width:200px;white-space:normal;line-height:1.4">'+esc(sol.descripcion||'—')+'</td>'
         +'<td><span style="color:'+est.color+';font-size:12px;font-weight:600">'+est.label+'</span></td>'
         +'<td><div class="td-act">'+fotoBtn+acciones+'</div></td>'
         +'</tr>';
@@ -18132,7 +18132,7 @@ function _renderTallerSolLista(docs){
         +'<td><strong>'+esc(veh.placa)+'</strong>'
         +(veh.marca?'<div style="font-size:11px;color:var(--muted)">'+esc(veh.marca+' '+(veh.modelo||''))+'</div>':'')+'</td>'
         +'<td style="font-size:12px">'+esc(sol.motoristaNombre||'—')+'</td>'
-        +'<td style="font-size:12px;max-width:200px">'+esc((sol.descripcion||'').substring(0,80))+'</td>'
+        +'<td style="font-size:12px;max-width:220px;white-space:normal;line-height:1.4">'+esc(sol.descripcion||'—')+'</td>'
         +'<td><span style="color:'+solEstUiColor(est)+';font-weight:600;font-size:12px">'+solEstLabel(est)+'</span>'
         +(sol.mecanicoId?'<div style="font-size:10px;color:var(--muted)">'+esc(mecNombre)+'</div>':'')+'</td>'
         +'<td><div class="td-act">'+fotoBtn+acciones+'</div></td>'
