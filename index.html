@@ -14375,7 +14375,10 @@ function asistRenderRegistro(tecnicos){
 function asistGuardar(){
   var tecId=document.getElementById('asistTec').value;
   if(!tecId){toast('Selecciona un empleado',true);return;}
-  var fecha=document.getElementById('asistFecha').value;
+  // Fecha desde el mini calendario (S._asistFecha) o fallback al input DOM si existe
+  var fechaEl=document.getElementById('asistFecha');
+  var fecha=S._asistFecha||(fechaEl?fechaEl.value:'');
+  if(!fecha){toast('Selecciona una fecha en el calendario',true);return;}
   var hora=document.getElementById('asistHora').value;
   var estado=document.getElementById('asistEstado').value;
   var rutaVal=document.getElementById('asistRuta').value;
