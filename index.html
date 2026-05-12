@@ -1642,6 +1642,48 @@ function applyMobileTableFix(){
 }
 
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+
+// ── Mini Calendario Reutilizable ─────────────────────────
+function miniCalHTML(currentDate, onSelectFn, markedDates, maxDate){
+  var d=new Date(currentDate+'T12:00:00');
+  var year=d.getFullYear(),month=d.getMonth();
+  var today=new Date().toISOString().slice(0,10);
+  var maxD=maxDate||today;
+  var DS=['Do','Lu','Ma','Mi','Ju','Vi','Sa'];
+  var MS=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  var primerDia=new Date(year,month,1).getDay();
+  var totalDias=new Date(year,month+1,0).getDate();
+  var prevMes=new Date(year,month-1,1).toISOString().slice(0,10);
+  var nextMes=new Date(year,month+1,1).toISOString().slice(0,10);
+  var canNext=nextMes.slice(0,7)<=maxD.slice(0,7);
+  var md=markedDates||[];
+  var html='<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px;user-select:none">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+    +'<button onclick="'+onSelectFn+'_nav(\''+prevMes+'\');" style="border:none;background:none;cursor:pointer;font-size:18px;color:var(--text);padding:0 6px">&#8249;</button>'
+    +'<div style="font-weight:700;font-size:13px">'+MS[month]+' '+year+'</div>'
+    +'<button onclick="'+onSelectFn+'_nav(\''+nextMes+'\');" '+(canNext?'':'disabled style="opacity:.3;pointer-events:none"')+' style="border:none;background:none;cursor:pointer;font-size:18px;color:var(--text);padding:0 6px">&#8250;</button>'
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(7,1fr);text-align:center;margin-bottom:3px">'
+    +DS.map(function(x){return '<div style="font-size:10px;font-weight:700;color:var(--muted);padding:2px">'+x+'</div>';}).join('')
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:1px">';
+  for(var i=0;i<primerDia;i++) html+='<div></div>';
+  for(var dia=1;dia<=totalDias;dia++){
+    var ds=year+'-'+(month<9?'0':'')+(month+1)+'-'+(dia<10?'0':'')+dia;
+    var isSel=ds===currentDate, isTod=ds===today, isFut=ds>maxD, hasDot=md.indexOf(ds)>=0;
+    var bg=isSel?'var(--accent)':isTod?'var(--surface2)':'transparent';
+    var col=isSel?'#000':isFut?'var(--muted)':'var(--text)';
+    html+='<div '+(isFut?'':'onclick="'+onSelectFn+'(\''+ds+'\');"')+' '
+      +'style="text-align:center;padding:4px 2px;border-radius:6px;background:'+bg+';color:'+col
+      +';font-size:12px;font-weight:'+(isSel||isTod?700:400)+';cursor:'+(isFut?'default':'pointer')
+      +';position:relative'+(isTod&&!isSel?';box-shadow:inset 0 0 0 1.5px var(--accent)':'')+'">'
+      +dia
+      +(hasDot?'<div style="position:absolute;bottom:1px;left:50%;transform:translateX(-50%);width:4px;height:4px;border-radius:50%;background:'+(isSel?'rgba(0,0,0,.4)':'var(--accent)')+'"></div>':'')
+      +'</div>';
+  }
+  html+='</div></div>';
+  return html;
+}
 function fmt(n){return'$'+(parseFloat(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
 
 // ── Helpers de ordenamiento de tablas (genéricos, reusables, sin tocar datos) ──
@@ -2435,16 +2477,31 @@ function loadBadges(){
     return prox&&prox!=='—'&&prox<hoy;
   })).length;
 
-  // Motoristas que NO han reportado HOY (solo días hábiles / cuando hay asignados)
-  var camAsig=(t.vehiculos||[]).filter(function(v){return v.choferId&&v.estado!=='baja';});
-  var sinRep=camAsig.filter(function(v){
+  // Motoristas que NO han reportado HOY — todos los vehículos activos
+  var todosActivos=(t.vehiculos||[]).filter(function(v){return v.estado!=='baja';});
+  var sinRep=todosActivos.filter(function(v){
     return !(t.reportesDiarios||[]).find(function(r){return r.vehiculoId===v.id&&r.fecha===hoy;});
   }).length;
+  // Ajuste asíncrono desde Firestore (reportes del portal)
+  firebase.firestore().collection('reportesMotoristas')
+    .where('empresa','==',S.empresa).where('fecha','==',hoy).get()
+    .then(function(snap){
+      var repHoy=[];
+      snap.forEach(function(d){repHoy.push(d.data().vehiculoId);});
+      var sinRepFinal=todosActivos.filter(function(v){
+        var enLocal=(t.reportesDiarios||[]).find(function(r){return r.vehiculoId===v.id&&r.fecha===hoy;});
+        var enPortal=repHoy.indexOf(v.id)>=0;
+        return !enLocal&&!enPortal;
+      }).length;
+      S._badges.taller_reportes_choferes=sinRepFinal;
+      _renderNavBadges();
+    }).catch(function(){});
+
 
   // Actualizar badges locales sincrónicos
   S._badges.taller_ots               = otsVenc;
   S._badges.mant_equipos             = mantVenc;
-  S._badges.taller_reportes_choferes = sinRep;
+  S._badges.taller_reportes_choferes = sinRep; // se refinará con Firestore async arriba
   // Limpiar badges de solicitudes hasta que llegue respuesta de Firestore
   if(S._badges.taller_solicitudes===undefined) S._badges.taller_solicitudes=0;
   if(S._badges.mant_solicitudes===undefined)   S._badges.mant_solicitudes=0;
@@ -14272,7 +14329,7 @@ function asistRenderRegistro(tecnicos){
       // Formulario
       +'<div class="card">'
         +'<div class="sec-hdr">✍ Registrar entrada</div>'
-        +'<div class="fg"><label>Día a evaluar (jornada anterior)</label><input type="date" id="asistFecha" value="'+fechaSel+'" max="'+hoy+'" onchange="S._asistFecha=this.value;renderAsistencia()"><div style="font-size:10px;color:var(--muted);margin-top:3px">Por defecto: ayer. Los empleados reportan hasta medianoche.</div></div>'
+        +'<div class="fg"><label>Día a evaluar</label>'      +miniCalHTML(fechaSel,'asistCalSel',(S.asistencia&&S.asistencia.registros||[]).map(function(r){return r.fecha;}),hoy)      +'<div style="font-size:10px;color:var(--muted);margin-top:6px">📍 Selecciona el día directamente en el calendario. Los puntos indican días con registros.</div></div>'
         +'<div class="fg"><label>Empleado *</label><select id="asistTec">'+tecOpts+'</select></div>'
         +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
           +'<div class="fg" style="margin:0"><label>Hora de entrada</label><input type="time" id="asistHora" value="'+new Date().toTimeString().slice(0,5)+'"></div>'
@@ -14399,6 +14456,18 @@ function asistEliminar(id){
 }
 
 // ── Pestaña 2: Reporte semanal ─────────────────────────────────────
+function asistCalSel(fecha){S._asistFecha=fecha;renderAsistencia();}
+function asistCalSel_nav(fecha){
+  // Navegar al mes, mantener día o usar último día del mes si no existe
+  var d=new Date(fecha+'T12:00:00');
+  var year=d.getFullYear(),month=d.getMonth();
+  var diasMes=new Date(year,month+1,0).getDate();
+  var diaActual=new Date((S._asistFecha||fecha)+'T12:00:00').getDate();
+  var nuevoDia=Math.min(diaActual,diasMes);
+  var nuevaFecha=year+'-'+(month<9?'0':'')+(month+1)+'-'+(nuevoDia<10?'0':'')+nuevoDia;
+  S._asistFecha=nuevaFecha;renderAsistencia();
+}
+
 function asistRenderSemanal(tecnicos){
   // Semana seleccionada (lunes a sábado)
   if(!S._asistSemana){
@@ -19069,43 +19138,73 @@ function _renderReportesChoferes(reportes){
 
   // Histórico tabla
   var esAdmin=S.currentUser&&(S.currentUser.rol==='admin'||S.currentUser.rol==='supervisor');
-  var rowsHist=rep.slice().reverse().slice(0,200).map(function(r){
-    var v=t.vehiculos.find(function(x){return x.id===r.vehiculoId;});
-    var ruta=r.rutaId?(t.rutas||[]).find(function(rt){return rt.id===r.rutaId;}):null;
-    var varStr='';
-    if(r.variacionKm!==null&&r.variacionKm!==undefined&&r.variacionKm!==0){
-      var clr=r.variacionKm>0?'#e84040':'#2db87a';
-      varStr=' <span style="color:'+clr+';font-size:11px">'+(r.variacionKm>0?'+':'')+r.variacionKm+'</span>';
-    }
-    var kmOdomDisplay=(r.kmOdometro||0).toLocaleString('en-US');
-    var kmRecDisplay=(r.kmRecorridos||0).toLocaleString('en-US');
-    var corregidoBadge=r.corregidoPor?'<div style="font-size:9px;color:var(--accent)">✏ Corregido</div>':'';
-    var accionesAdmin=esAdmin
-      ?'<div class="td-act"><button class="btn btn-secondary btn-xs" onclick="editarReporteChofer(\''+r.id+'\')" title="Corregir reporte">✏</button>'
-       +'<button class="btn btn-danger btn-xs" onclick="eliminarReporteChofer(\''+r.id+'\')" title="Eliminar reporte">✕</button></div>'
-      :'';
-    return '<tr>'
-      +'<td>'+fmtDate(r.fecha)+corregidoBadge+'</td>'
-      +'<td><strong>'+esc(v?v.placa:'—')+'</strong></td>'
-      +'<td>'+esc(r.choferNombre||'')+'</td>'
-      +'<td>'+esc(ruta?ruta.nombre:'—')+'</td>'
-      +'<td style="text-align:right">'+kmOdomDisplay+'</td>'
-      +'<td style="text-align:right">'+kmRecDisplay+varStr+'</td>'
-      +'<td style="text-align:right">'+(r.galonesCargados?r.galonesCargados.toFixed(2):'—')+'</td>'
-      +'<td style="text-align:right">'+(r.costoGasolina?'$'+r.costoGasolina.toFixed(2):'—')+'</td>'
-      +(esAdmin?'<td>'+accionesAdmin+'</td>':'')
-      +'</tr>';
-  }).join('');
-  var colspanHist=esAdmin?9:8;
-  if(!rowsHist)rowsHist='<tr><td colspan="'+colspanHist+'" style="text-align:center;color:var(--muted);padding:16px">Sin reportes en el período</td></tr>';
+
+  // Agrupar historial por fecha para mejor visualización
+  var porFecha={};
+  rep.slice().reverse().forEach(function(r){
+    var d=r.fecha||'—';
+    if(!porFecha[d])porFecha[d]=[];
+    porFecha[d].push(r);
+  });
+  var fechasHist=Object.keys(porFecha).sort(function(a,b){return b.localeCompare(a);});
+
+  var histHTML='';
+  fechasHist.slice(0,60).forEach(function(fecha){
+    var repsD=porFecha[fecha];
+    var rowsD=repsD.map(function(r){
+      var v2=t.vehiculos.find(function(x){return x.id===r.vehiculoId;});
+      var nombreChofer=r.motoristaNombre||r.choferNombre||r.choferId||'—';
+      var ruta2=r.rutaId?(t.rutas||[]).find(function(rt){return rt.id===r.rutaId;}):null;
+      var kmOdo2=(r.kmOdometro||0).toLocaleString('en-US');
+      var kmRec2=r.kmRecorridos?(r.kmRecorridos.toLocaleString('en-US')):'—';
+      var gal2=r.galonesCargados?r.galonesCargados.toFixed(2):'—';
+      var costo2=r.costoGasolina?'$'+r.costoGasolina.toFixed(2):'—';
+      var origenBadge=r.origen==='portal'?'<span style="font-size:9px;background:#1a2a3a;color:#4ea8de;padding:1px 5px;border-radius:4px;margin-left:4px">portal</span>':'';
+      var novedad2=r.novedad?'<div style="font-size:11px;color:var(--accent);margin-top:2px">⚠ '+esc(r.novedad.substring(0,60))+'</div>':'—';
+      var accD=esAdmin
+        ?'<div class="td-act"><button class="btn btn-secondary btn-xs" data-id="'+r.id+'" onclick="editarReporteChofer(this.dataset.id)">✏</button>'
+         +'<button class="btn btn-danger btn-xs" data-id="'+r.id+'" onclick="eliminarReporteChofer(this.dataset.id)">✕</button></div>'
+        :'';
+      return '<tr>'
+        +'<td><strong>'+esc(v2?v2.placa:'—')+'</strong>'
+        +(v2&&v2.marca?'<div style="font-size:10px;color:var(--muted)">'+esc(v2.marca)+'</div>':'')
+        +'</td>'
+        +'<td>'+esc(nombreChofer)+origenBadge+'</td>'
+        +'<td>'+esc(ruta2?ruta2.nombre:'—')+'</td>'
+        +'<td style="text-align:right">'+kmOdo2+'</td>'
+        +'<td style="text-align:right">'+kmRec2+'</td>'
+        +'<td style="text-align:right">'+gal2+'</td>'
+        +'<td style="text-align:right">'+costo2+'</td>'
+        +'<td style="font-size:11px">'+novedad2+'</td>'
+        +(esAdmin?'<td>'+accD+'</td>':'')
+        +'</tr>';
+    }).join('');
+    var totalGalD=repsD.reduce(function(s,r){return s+(r.galonesCargados||0);},0);
+    histHTML+='<div class="card" style="margin-bottom:8px;padding:0;overflow:hidden">'
+      +'<div onclick="(function(el){el.nextElementSibling.style.display=el.nextElementSibling.style.display===\'none\'?\'block\':\'none\'})(this)" '
+      +'style="padding:10px 14px;background:var(--surface2);cursor:pointer;display:flex;justify-content:space-between;align-items:center;user-select:none">'
+      +'<div style="font-weight:700;font-size:13px">📅 '+fmtDate(fecha)+'</div>'
+      +'<div style="display:flex;gap:12px;align-items:center;font-size:12px;color:var(--muted)">'
+      +'<span>'+repsD.length+' reporte'+(repsD.length>1?'s':'')+'</span>'
+      +(totalGalD>0?'<span style="color:#facc15">⛽ '+totalGalD.toFixed(1)+' gal</span>':'')
+      +'<span style="font-size:16px;color:var(--accent)">›</span>'
+      +'</div></div>'
+      +'<div style="display:none">'
+      +'<div class="tbl-wrap" style="border:none;border-radius:0"><table>'
+      +'<thead><tr><th>Vehículo</th><th>Motorista</th><th>Ruta</th>'
+      +'<th style="text-align:right">Km Odóm.</th><th style="text-align:right">Recorridos</th>'
+      +'<th style="text-align:right">Galones</th><th style="text-align:right">Costo</th>'
+      +'<th>Novedad</th>'+(esAdmin?'<th>Acc.</th>':'')+'</tr></thead>'
+      +'<tbody>'+rowsD+'</tbody></table></div>'
+      +'</div></div>';
+  });
+  if(!histHTML)histHTML='<div class="card" style="text-align:center;padding:30px;color:var(--muted)">Sin reportes en el período.</div>';
 
   var vehOpts='<option value="">Todos los vehículos</option>'
     +t.vehiculos.map(function(v){return '<option value="'+v.id+'"'+(S._rdcFiltroVeh===v.id?' selected':'')+'>'+esc(v.placa)+'</option>';}).join('');
 
   document.getElementById('content').innerHTML=
-    '<div class="info-box">📊 <strong>Reportes Diarios y Combustible.</strong> Aquí ves los reportes de km y galones que registran los choferes desde su Portal. Compara con los estimados de cada ruta para detectar desvíos, fallas mecánicas o trasiego.</div>'
-
-    // KPIs período (5 indicadores - responsivo)
+    '<div class="info-box">📊 <strong>Reportes Diarios y Combustible.</strong> Reportes de km y galones desde el Portal de Motoristas. Compara con estimados de cada ruta para detectar desvíos, fallas o trasiego.</div>'
     +'<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:16px">'
     +'<div class="kpi"><div class="kpi-lbl">Reportes período</div><div class="kpi-val">'+rep.length+'</div></div>'
     +'<div class="kpi"><div class="kpi-lbl">Km totales</div><div class="kpi-val" style="color:#4ea8de;font-size:18px">'+totalKm.toLocaleString('en-US',{maximumFractionDigits:0})+' km</div></div>'
@@ -19113,38 +19212,22 @@ function _renderReportesChoferes(reportes){
     +'<div class="kpi"><div class="kpi-lbl">Costo combustible</div><div class="kpi-val" style="color:#e84040;font-size:18px">$'+totalCost.toFixed(2)+'</div></div>'
     +'<div class="kpi"><div class="kpi-lbl">Rendimiento global</div><div class="kpi-val" style="color:#2db87a;font-size:18px">'+rendimiento+' km/gal</div></div>'
     +'</div>'
-
-    // Estado de hoy
     +'<div class="card" style="margin-bottom:16px">'
     +'<div class="sec-hdr">📅 Estado de reportes de HOY ('+fmtDate(hoyStr)+')</div>'
     +'<div class="tbl-wrap"><table>'
     +'<thead><tr><th>Vehículo</th><th>Chofer</th><th>Estado</th><th style="text-align:right">Km Odóm.</th><th style="text-align:right">Recorridos</th><th style="text-align:right">Galones</th><th>Novedad</th></tr></thead>'
     +'<tbody>'+rowsHoy+'</tbody></table></div></div>'
-
-    // Filtros
     +'<div class="card" style="margin-bottom:12px">'
     +'<div class="sec-hdr">🔍 Filtros del análisis</div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">'
     +'<div class="fg" style="margin:0"><label>Vehículo</label><select onchange="S._rdcFiltroVeh=this.value;renderTallerReportesChoferes()">'+vehOpts+'</select></div>'
-    +'<div class="fg" style="margin:0"><label>Desde</label><input type="date" value="'+S._rdcFiltroDesde+'" onchange="S._rdcFiltroDesde=this.value;renderTallerReportesChoferes()"></div>'
-    +'<div class="fg" style="margin:0"><label>Hasta</label><input type="date" value="'+S._rdcFiltroHasta+'" onchange="S._rdcFiltroHasta=this.value;renderTallerReportesChoferes()"></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'    +'<div><div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:5px;text-transform:uppercase">Desde</div>'    +miniCalHTML(S._rdcFiltroDesde,'rdcCalDesde',[],'')+'</div>'    +'<div><div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:5px;text-transform:uppercase">Hasta</div>'    +miniCalHTML(S._rdcFiltroHasta,'rdcCalHasta',[],new Date().toISOString().slice(0,10))+'</div>'    +'</div>'
     +'</div></div>'
-
-    // Análisis comparativo (lo más importante)
     +'<div class="sec-hdr" style="margin:18px 0 10px 0">🚨 ANÁLISIS COMPARATIVO POR VEHÍCULO</div>'
     +analisisHTML
-
-    // Histórico
-    +'<div class="sec-hdr" style="margin:18px 0 10px 0">📋 Histórico detallado de reportes</div>'
-    +'<div class="card" style="padding:0">'
-    +'<div class="tbl-wrap" style="border:none;border-radius:0"><table>'
-    +'<thead><tr><th>Fecha</th><th>Vehículo</th><th>Chofer</th><th>Ruta</th><th style="text-align:right">Km Odóm.</th><th style="text-align:right">Recorridos (var.)</th><th style="text-align:right">Galones</th><th style="text-align:right">Costo</th>'+(esAdmin?'<th>Acciones</th>':'')+'</tr></thead>'
-    +'<tbody>'+rowsHist+'</tbody></table></div></div>';
+    +'<div class="sec-hdr" style="margin:18px 0 8px 0">📋 Histórico por día <span style="font-size:11px;color:var(--muted);font-weight:400">— clic en la fecha para expandir</span></div>'
+    +histHTML;
 }
-
-// ═══════════════════════════════════════════════════════════════════
-// ADMIN — Editar/Eliminar reporte chofer y Resetear km vehículo
-// ═══════════════════════════════════════════════════════════════════
 
 
 function editarReporteChofer(repId){
