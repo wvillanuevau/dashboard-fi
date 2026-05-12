@@ -19139,72 +19139,89 @@ function _renderReportesChoferes(reportes){
   // Histórico tabla
   var esAdmin=S.currentUser&&(S.currentUser.rol==='admin'||S.currentUser.rol==='supervisor');
 
-  // Agrupar historial por fecha para mejor visualización
-  var porFecha={};
-  rep.slice().reverse().forEach(function(r){
-    var d=r.fecha||'—';
-    if(!porFecha[d])porFecha[d]=[];
-    porFecha[d].push(r);
-  });
-  var fechasHist=Object.keys(porFecha).sort(function(a,b){return b.localeCompare(a);});
 
-  var histHTML='';
-  fechasHist.slice(0,60).forEach(function(fecha){
-    var repsD=porFecha[fecha];
-    var rowsD=repsD.map(function(r){
-      var v2=t.vehiculos.find(function(x){return x.id===r.vehiculoId;});
-      var nombreChofer=r.motoristaNombre||r.choferNombre||r.choferId||'—';
-      var ruta2=r.rutaId?(t.rutas||[]).find(function(rt){return rt.id===r.rutaId;}):null;
-      var kmOdo2=(r.kmOdometro||0).toLocaleString('en-US');
-      var kmRec2=r.kmRecorridos?(r.kmRecorridos.toLocaleString('en-US')):'—';
-      var gal2=r.galonesCargados?r.galonesCargados.toFixed(2):'—';
-      var costo2=r.costoGasolina?'$'+r.costoGasolina.toFixed(2):'—';
-      var origenBadge=r.origen==='portal'?'<span style="font-size:9px;background:#1a2a3a;color:#4ea8de;padding:1px 5px;border-radius:4px;margin-left:4px">portal</span>':'';
-      var novedad2=r.novedad?'<div style="font-size:11px;color:var(--accent);margin-top:2px">⚠ '+esc(r.novedad.substring(0,60))+'</div>':'—';
-      var accD=esAdmin
-        ?'<div class="td-act"><button class="btn btn-secondary btn-xs" data-id="'+r.id+'" onclick="editarReporteChofer(this.dataset.id)">✏</button>'
-         +'<button class="btn btn-danger btn-xs" data-id="'+r.id+'" onclick="eliminarReporteChofer(this.dataset.id)">✕</button></div>'
-        :'';
-      return '<tr>'
-        +'<td><strong>'+esc(v2?v2.placa:'—')+'</strong>'
-        +(v2&&v2.marca?'<div style="font-size:10px;color:var(--muted)">'+esc(v2.marca)+'</div>':'')
-        +'</td>'
-        +'<td>'+esc(nombreChofer)+origenBadge+'</td>'
-        +'<td>'+esc(ruta2?ruta2.nombre:'—')+'</td>'
-        +'<td style="text-align:right">'+kmOdo2+'</td>'
-        +'<td style="text-align:right">'+kmRec2+'</td>'
-        +'<td style="text-align:right">'+gal2+'</td>'
-        +'<td style="text-align:right">'+costo2+'</td>'
-        +'<td style="font-size:11px">'+novedad2+'</td>'
-        +(esAdmin?'<td>'+accD+'</td>':'')
-        +'</tr>';
-    }).join('');
-    var totalGalD=repsD.reduce(function(s,r){return s+(r.galonesCargados||0);},0);
-    histHTML+='<div class="card" style="margin-bottom:8px;padding:0;overflow:hidden">'
-      +'<div onclick="(function(el){el.nextElementSibling.style.display=el.nextElementSibling.style.display===\'none\'?\'block\':\'none\'})(this)" '
-      +'style="padding:10px 14px;background:var(--surface2);cursor:pointer;display:flex;justify-content:space-between;align-items:center;user-select:none">'
-      +'<div style="font-weight:700;font-size:13px">📅 '+fmtDate(fecha)+'</div>'
-      +'<div style="display:flex;gap:12px;align-items:center;font-size:12px;color:var(--muted)">'
-      +'<span>'+repsD.length+' reporte'+(repsD.length>1?'s':'')+'</span>'
-      +(totalGalD>0?'<span style="color:#facc15">⛽ '+totalGalD.toFixed(1)+' gal</span>':'')
-      +'<span style="font-size:16px;color:var(--accent)">›</span>'
-      +'</div></div>'
-      +'<div style="display:none">'
-      +'<div class="tbl-wrap" style="border:none;border-radius:0"><table>'
-      +'<thead><tr><th>Vehículo</th><th>Motorista</th><th>Ruta</th>'
-      +'<th style="text-align:right">Km Odóm.</th><th style="text-align:right">Recorridos</th>'
-      +'<th style="text-align:right">Galones</th><th style="text-align:right">Costo</th>'
-      +'<th>Novedad</th>'+(esAdmin?'<th>Acc.</th>':'')+'</tr></thead>'
-      +'<tbody>'+rowsD+'</tbody></table></div>'
-      +'</div></div>';
+  // ── Historial semana × vehículo (formato igual a asistencias) ────
+  if(!S._rdcSemana){
+    var hoyD=new Date();var diaD=hoyD.getDay()||7;
+    var lunD=new Date(hoyD);lunD.setDate(hoyD.getDate()-(diaD-1));
+    S._rdcSemana=lunD.toISOString().slice(0,10);
+  }
+  var lunDate2=new Date(S._rdcSemana+'T12:00:00');
+  var semDias=[];
+  for(var sd=0;sd<7;sd++){var sd2=new Date(lunDate2);sd2.setDate(lunDate2.getDate()+sd);semDias.push(sd2);}
+  var semDiasStr=semDias.map(function(d){return d.toISOString().slice(0,10);});
+  var semLabels=['LUN','MAR','MIÉ','JUE','VIE','SÁB','DOM'];
+  var mesesN=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  var semLabel=semDias[0].getDate()+' – '+semDias[6].getDate()+' de '+mesesN[semDias[0].getMonth()]+' '+semDias[0].getFullYear();
+
+  // Cabecera de días
+  var thSemDias=semDiasStr.map(function(f,i){
+    return '<th style="text-align:center;min-width:80px">'+semLabels[i]+'<br><span style="font-size:10px;font-weight:400;color:var(--muted)">'+semDias[i].getDate()+'</span></th>';
+  }).join('');
+
+  // Mapa rápido: vehiculoId+fecha → reporte
+  var repMap={};
+  reportes.forEach(function(r){
+    var key=(r.vehiculoId||'')+'|'+(r.fecha||'');
+    if(!repMap[key])repMap[key]=r;
   });
-  if(!histHTML)histHTML='<div class="card" style="text-align:center;padding:30px;color:var(--muted)">Sin reportes en el período.</div>';
+
+  // Filas: un vehículo por fila
+  var semRows=t.vehiculos.filter(function(v){return v.estado!=='baja';}).map(function(v){
+    var celdas=semDiasStr.map(function(f){
+      var r=repMap[v.id+'|'+f];
+      if(!r)return '<td style="text-align:center;color:var(--border)">—</td>';
+      var gal=r.galonesCargados?r.galonesCargados.toFixed(1):'';
+      var kmOdo=r.kmOdometro?(r.kmOdometro).toLocaleString('en-US'):'';
+      var novColor=r.novedad?'background:#fff3e0':'';
+      var tip=r.motoristaNombre||r.choferNombre||'';
+      return '<td style="text-align:center;font-size:11px;'+novColor+';padding:6px 4px" title="'+esc(tip)+'">'
+        +'<div style="font-weight:700;color:var(--accent)">'+kmOdo+'</div>'
+        +(gal?'<div style="color:#facc15;font-size:10px">⛽'+gal+'</div>':'')
+        +(r.novedad?'<div style="color:var(--accent);font-size:9px">⚠</div>':'')
+        +'</td>';
+    }).join('');
+    // Total galones de la semana para este vehículo
+    var semGal=semDiasStr.reduce(function(s,f){
+      var r=repMap[v.id+'|'+f];return s+(r&&r.galonesCargados?r.galonesCargados:0);
+    },0);
+    var diasRep=semDiasStr.filter(function(f){return !!repMap[v.id+'|'+f];}).length;
+    var nombreMot='';
+    // Tomar nombre del primer reporte de la semana
+    for(var si=0;si<semDiasStr.length;si++){
+      var sr=repMap[v.id+'|'+semDiasStr[si]];
+      if(sr&&(sr.motoristaNombre||sr.choferNombre)){nombreMot=sr.motoristaNombre||sr.choferNombre;break;}
+    }
+    return '<tr>'
+      +'<td><strong>'+esc(v.placa)+'</strong>'
+      +(v.marca?'<div style="font-size:10px;color:var(--muted)">'+esc(v.marca)+'</div>':'')
+      +'</td>'
+      +'<td style="font-size:12px">'+esc(nombreMot)+'</td>'
+      +'<td style="text-align:center"><span class="badge '+(diasRep>0?'b-ok':'b-neu')+'">'+diasRep+'/7</span></td>'
+      +celdas
+      +'<td style="text-align:center;color:#facc15;font-size:12px;font-weight:700">'+(semGal>0?semGal.toFixed(1)+'gal':'—')+'</td>'
+      +'</tr>';
+  }).join('');
+
+  if(!semRows)semRows='<tr><td colspan="12" class="empty">Sin vehículos activos</td></tr>';
+
+  // Totales galones por día
+  var semTotales=semDiasStr.map(function(f){
+    var tot=t.vehiculos.reduce(function(s,v){
+      var r=repMap[v.id+'|'+f];return s+(r&&r.galonesCargados?r.galonesCargados:0);
+    },0);
+    return '<td style="text-align:center;color:#facc15;font-weight:700;font-size:12px">'+(tot>0?tot.toFixed(1):'—')+'</td>';
+  }).join('');
+
+  var prevLun2=new Date(lunDate2);prevLun2.setDate(lunDate2.getDate()-7);
+  var nextLun2=new Date(lunDate2);nextLun2.setDate(lunDate2.getDate()+7);
 
   var vehOpts='<option value="">Todos los vehículos</option>'
     +t.vehiculos.map(function(v){return '<option value="'+v.id+'"'+(S._rdcFiltroVeh===v.id?' selected':'')+'>'+esc(v.placa)+'</option>';}).join('');
 
   document.getElementById('content').innerHTML=
     '<div class="info-box">📊 <strong>Reportes Diarios y Combustible.</strong> Reportes de km y galones desde el Portal de Motoristas. Compara con estimados de cada ruta para detectar desvíos, fallas o trasiego.</div>'
+    // KPIs
     +'<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:16px">'
     +'<div class="kpi"><div class="kpi-lbl">Reportes período</div><div class="kpi-val">'+rep.length+'</div></div>'
     +'<div class="kpi"><div class="kpi-lbl">Km totales</div><div class="kpi-val" style="color:#4ea8de;font-size:18px">'+totalKm.toLocaleString('en-US',{maximumFractionDigits:0})+' km</div></div>'
@@ -19212,21 +19229,51 @@ function _renderReportesChoferes(reportes){
     +'<div class="kpi"><div class="kpi-lbl">Costo combustible</div><div class="kpi-val" style="color:#e84040;font-size:18px">$'+totalCost.toFixed(2)+'</div></div>'
     +'<div class="kpi"><div class="kpi-lbl">Rendimiento global</div><div class="kpi-val" style="color:#2db87a;font-size:18px">'+rendimiento+' km/gal</div></div>'
     +'</div>'
+    // Estado de hoy
     +'<div class="card" style="margin-bottom:16px">'
     +'<div class="sec-hdr">📅 Estado de reportes de HOY ('+fmtDate(hoyStr)+')</div>'
     +'<div class="tbl-wrap"><table>'
     +'<thead><tr><th>Vehículo</th><th>Chofer</th><th>Estado</th><th style="text-align:right">Km Odóm.</th><th style="text-align:right">Recorridos</th><th style="text-align:right">Galones</th><th>Novedad</th></tr></thead>'
     +'<tbody>'+rowsHoy+'</tbody></table></div></div>'
+    // Filtros periodo
     +'<div class="card" style="margin-bottom:12px">'
     +'<div class="sec-hdr">🔍 Filtros del análisis</div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">'
     +'<div class="fg" style="margin:0"><label>Vehículo</label><select onchange="S._rdcFiltroVeh=this.value;renderTallerReportesChoferes()">'+vehOpts+'</select></div>'
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'    +'<div><div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:5px;text-transform:uppercase">Desde</div>'    +miniCalHTML(S._rdcFiltroDesde,'rdcCalDesde',[],'')+'</div>'    +'<div><div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:5px;text-transform:uppercase">Hasta</div>'    +miniCalHTML(S._rdcFiltroHasta,'rdcCalHasta',[],new Date().toISOString().slice(0,10))+'</div>'    +'</div>'
+    +'<div class="fg" style="margin:0"><label>Desde</label>'+miniCalHTML(S._rdcFiltroDesde,'rdcCalDesde',[],new Date().toISOString().slice(0,10))+'</div>'
+    +'<div class="fg" style="margin:0"><label>Hasta</label>'+miniCalHTML(S._rdcFiltroHasta,'rdcCalHasta',[],new Date().toISOString().slice(0,10))+'</div>'
     +'</div></div>'
+    // Análisis comparativo
     +'<div class="sec-hdr" style="margin:18px 0 10px 0">🚨 ANÁLISIS COMPARATIVO POR VEHÍCULO</div>'
     +analisisHTML
-    +'<div class="sec-hdr" style="margin:18px 0 8px 0">📋 Histórico por día <span style="font-size:11px;color:var(--muted);font-weight:400">— clic en la fecha para expandir</span></div>'
-    +histHTML;
+    // Historial semana × vehículo
+    +'<div class="card" style="margin-top:14px;padding:0;overflow:hidden">'
+    +'<div style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'
+    +'<div><div style="font-weight:700;font-size:14px">📋 CONTROL SEMANAL DE KM</div>'
+    +'<div style="font-size:12px;color:var(--muted)">'+mesesN[semDias[0].getMonth()]+' '+semDias[0].getFullYear()+'</div></div>'
+    +'<div style="display:flex;align-items:center;gap:8px">'
+    +'<button class="btn btn-secondary btn-sm" onclick="S._rdcSemana=\''+prevLun2.toISOString().slice(0,10)+'\'\';renderTallerReportesChoferes()">‹</button>'
+    +'<span style="font-weight:700;color:var(--accent);font-size:13px;min-width:180px;text-align:center">'+semLabel+'</span>'
+    +'<button class="btn btn-secondary btn-sm" onclick="S._rdcSemana=\''+nextLun2.toISOString().slice(0,10)+'\'\';renderTallerReportesChoferes()">›</button>'
+    +'</div></div>'
+    +'<div class="tbl-wrap asist-semanal-wrap" style="border:none;border-radius:0"><table>'
+    +'<thead><tr>'
+    +'<th style="min-width:90px">Vehículo</th>'
+    +'<th style="min-width:90px">Motorista</th>'
+    +'<th style="min-width:50px;text-align:center">Días</th>'
+    +thSemDias
+    +'<th style="text-align:center">Total⛽</th>'
+    +'</tr></thead>'
+    +'<tbody>'+semRows+'</tbody>'
+    +'<tfoot><tr style="background:var(--surface2)">'
+    +'<td colspan="3" style="text-align:right;font-size:11px;color:var(--muted);padding:8px 12px">TOTAL GALONES DÍA:</td>'
+    +semTotales
+    +'<td></td></tr></tfoot>'
+    +'</table></div>'
+    +'<div style="display:flex;gap:16px;flex-wrap:wrap;padding:10px 14px;background:var(--surface2);font-size:11px;color:var(--muted)">'
+    +'<span>Cada celda muestra <strong style="color:var(--accent)">Km odómetro</strong> + <strong style="color:#facc15">galones</strong></span>'
+    +'<span><strong style="color:var(--accent)">⚠</strong> = novedad reportada</span>'
+    +'</div></div>';
 }
 
 
