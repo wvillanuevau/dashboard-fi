@@ -1176,6 +1176,7 @@ input[type=date]{color-scheme:dark}
       <button class="btn btn-primary" style="width:100%;justify-content:center;padding:14px;font-size:15px;border-radius:10px;letter-spacing:.5px" onclick="goStep2()">
         Continuar →
       </button>
+      <div id="loginHint"></div>
       <div id="step1Err" style="color:var(--red);font-size:12px;margin-top:12px;min-height:18px;text-align:center"></div>
       <div style="margin-top:28px;text-align:center">
         <span style="font-size:11px;color:rgba(255,255,255,.2);cursor:pointer;transition:color .2s" onmouseover="this.style.color='rgba(192,132,252,.6)'" onmouseout="this.style.color='rgba(255,255,255,.2)'" onclick="showSALogin()">⚙ Acceso SuperAdmin</span>
@@ -2898,7 +2899,21 @@ window.addEventListener('fb-ready',(e)=>{
     if(empSaved){S.empresa=empSaved;loadData().then(()=>{window.FB.getUsuariosEmpresa(empSaved).then(usuarios=>{S.usuarios=usuarios;const uData=usuarios.find(u=>(u.email||'').toLowerCase()===(user.email||'').toLowerCase())||{nombre:user.email.split('@')[0],rol:'viewer',permisos:{}};enterApp(user.email,uData.rol,uData.nombre,uData.permisos||{},uData.proyectosPermitidos||[]);});});}
   }
 });
-setTimeout(()=>{const txt=document.getElementById('fbStatusTxt');if(txt&&txt.textContent==='Conectando...'){txt.textContent='Sin conexión';const d=document.getElementById('fbDot');if(d)d.className='sync-dot err';}},5000);
+setTimeout(()=>{
+  const txt=document.getElementById('fbStatusTxt');
+  if(txt&&txt.textContent==='Conectando...'){
+    txt.textContent='Sin conexión';
+    const d=document.getElementById('fbDot');if(d)d.className='sync-dot err';
+  }
+  // Mostrar aviso en login si sigue cargando empresas
+  const empSel=document.getElementById('empCode');
+  if(empSel&&empSel.options[0]&&empSel.options[0].text.includes('Cargando')){
+    empSel.innerHTML='<option value="">— Sin conexión. Recarga la página —</option>';
+    empSel.style.color='#e84040';
+    const hint=document.getElementById('loginHint');
+    if(hint)hint.innerHTML='<div style="color:#e84040;font-size:12px;margin-top:8px;text-align:center">⚠ Firebase no responde.<br>1) Cierra otras pestañas del dashboard<br>2) Recarga con F5<br>3) Intenta modo incógnito</div>';
+  }
+},7000);
 
 function goStep2(){
   const code=document.getElementById('empCode').value.trim().toUpperCase();
