@@ -2592,13 +2592,129 @@ function diagnosticarAsistencia(){
 
 function recuperarDesdeLogs(){
   if(!S.empresa){toast('Sin empresa activa',true);return;}
-  // Pedir fecha a recuperar
   var fechaRec=prompt('¿Qué fecha quieres recuperar? (formato YYYY-MM-DD)','2026-05-13');
   if(!fechaRec)return;
   toast('🔍 Leyendo logs de Firestore...');
   firebase.firestore().collection('logs')
     .where('empresa','==',S.empresa)
     .get().then(function(snap){
+      var logs=[];
+      snap.forEach(function(d){logs.push(d.data());});
+      var logsDelDia=logs.filter(function(l){
+        return (l.fecha||'').startsWith(fechaRec)||(l.ts&&new Date(l.ts).toISOString().startsWith(fechaRec));
+      }).sort(function(a,b){return (a.ts||0)-(b.ts||0);});
+      if(!logsDelDia.length){alert('No se encontraron logs para '+fechaRec);return;}
+
+      // Parsear logs de inventario CREAR → reconstruir productos
+      var logsInv=logsDelDia.filter(function(l){return l.accion==='CREAR'&&l.modulo==='inventario';});
+      // Parsear logs de herramientas asignadas
+      var logsAudit=logsDelDia.filter(function(l){return l.modulo==='auditoria_herr'||l.modulo==='herramientas';});
+
+      var productosReconstruidos=logsInv.map(function(l){
+        // Formato: "Producto: NombreProducto (cant: X)"
+        var match=(l.detalle||'').match(/Producto: (.+?) \(cant: (\d+)\)/);
+        var nombre=match?match[1]:'Sin nombre';
+        var cant=match?parseInt(match[2])||1:1;
+        // Buscar si ya existe en inventario (no duplicar)
+        var existe=(S.inventario&&S.inventario.productos||[]).find(function(p){
+          return p.nombre.toLowerCase()===nombre.toLowerCase();
+        });
+        return {
+          _existe:!!existe,
+          _existeId:existe?existe.id:null,
+          nombre:nombre,
+          cantidad:cant,
+          hora:l.ts?new Date(l.ts).toLocaleTimeString('es-SV',{hour:'2-digit',minute:'2-digit'}):''
+        };
+      });
+
+      var nuevos=productosReconstruidos.filter(function(p){return !p._existe;});
+      var existentes=productosReconstruidos.filter(function(p){return p._existe;});
+
+      // Mostrar modal de confirmación
+      var old=document.getElementById('modalRecLogs');if(old)old.remove();
+      var div=document.createElement('div');
+      div.id='modalRecLogs';
+      div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto';
+
+      var rowsNuevos=nuevos.length?nuevos.map(function(p,i){
+        return '<tr>'
+          +'<td><input id="recNom'+i+'" value="'+esc(p.nombre)+'" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);font-size:12px"></td>'
+          +'<td><input id="recCant'+i+'" type="number" value="'+p.cantidad+'" style="width:70px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);font-size:12px"></td>'
+          +'<td><select id="recBod'+i+'" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);font-size:12px">'
+          +((S.inventario&&S.inventario.bodegas)||[]).map(function(b){return '<option value="'+b.id+'">'+esc(b.nombre)+'</option>';}).join('')
+          +'</select></td>'
+          +'<td style="font-size:11px;color:var(--muted)">'+p.hora+'</td>'
+          +'</tr>';
+      }).join(''):'<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:12px">Sin productos nuevos para recuperar</td></tr>';
+
+      div.innerHTML='<div style="background:var(--surface);border-radius:14px;padding:20px;max-width:720px;width:100%;max-height:90vh;overflow-y:auto">'
+        +'<div style="font-size:16px;font-weight:700;margin-bottom:4px">📋 Reconstruir desde Logs — '+fechaRec+'</div>'
+        +'<div style="font-size:12px;color:var(--muted);margin-bottom:12px">'+logsDelDia.length+' acciones en el log · '+logsInv.length+' productos de inventario encontrados</div>'
+
+        +(existentes.length?'<div style="background:var(--surface2);border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px"><strong>Ya existen en el sistema ('+existentes.length+'):</strong> '+existentes.map(function(p){return esc(p.nombre);}).join(', ')+'</div>':'')
+
+        +'<div style="font-size:13px;font-weight:700;margin-bottom:8px">Productos a re-crear ('+nuevos.length+'):</div>'
+        +'<div style="background:#1a2a1a;border-radius:8px;padding:8px;margin-bottom:14px;font-size:11px;color:#2db87a">✏ Puedes editar nombre, cantidad y bodega antes de importar</div>'
+        +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">'
+        +'<thead><tr style="font-size:11px;color:var(--muted)">'
+        +'<th style="padding:6px 8px;text-align:left">Nombre</th>'
+        +'<th style="padding:6px 8px;text-align:left">Cant.</th>'
+        +'<th style="padding:6px 8px;text-align:left">Bodega</th>'
+        +'<th style="padding:6px 8px;text-align:left">Hora</th>'
+        +'</tr></thead>'
+        +'<tbody>'+rowsNuevos+'</tbody></table></div>'
+
+        +(logsAudit.length?'<div style="margin-top:14px;background:var(--surface2);border-radius:8px;padding:10px;font-size:12px"><strong style="color:var(--accent)">'+logsAudit.length+' acciones de herramientas/auditoría</strong> — estas requieren re-ingreso manual desde el módulo correspondiente:<br>'
+        +logsAudit.map(function(l){return '<div style="margin-top:4px;color:var(--muted)">'+l.accion+': '+esc(l.detalle)+'</div>';}).join('')+'</div>':'')
+
+        +'<div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">'
+        +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalRecLogs\').remove()">Cancelar</button>'
+        +(nuevos.length?'<button class="btn btn-primary" id="btnReconstruir" onclick="confirmarReconstruccion('+nuevos.length+')">✅ Importar '+nuevos.length+' producto(s)</button>':'')
+        +'</div></div>';
+
+      // Guardar referencia a los nuevos productos para la confirmación
+      window._reconstruirNuevos=nuevos;
+      document.body.appendChild(div);
+    }).catch(function(e){toast('Error al leer logs: '+e.message,true);});
+}
+
+function confirmarReconstruccion(n){
+  var bodegaDefault=((S.inventario&&S.inventario.bodegas)||[])[0];
+  var importados=0;
+  var movs=[];
+  for(var i=0;i<n;i++){
+    var nomEl=document.getElementById('recNom'+i);
+    var cantEl=document.getElementById('recCant'+i);
+    var bodEl=document.getElementById('recBod'+i);
+    if(!nomEl)continue;
+    var nombre=(nomEl.value||'').trim();
+    var cant=parseInt(cantEl?cantEl.value:1)||1;
+    var bodegaId=bodEl?bodEl.value:(bodegaDefault?bodegaDefault.id:'');
+    if(!nombre)continue;
+    // Crear producto
+    var prod={id:genId(),_ca:Date.now(),nombre:nombre,codigo:'',categoria:'herramienta',
+      unidad:'unidad',stock:{},stockMinimo:1,descripcion:'Recuperado de logs '+new Date().toISOString().slice(0,10)};
+    prod.stock[bodegaId]=cant;
+    if(!S.inventario)S.inventario={bodegas:[],productos:[],movimientos:[]};
+    if(!S.inventario.productos)S.inventario.productos=[];
+    S.inventario.productos.push(prod);
+    // Crear movimiento de entrada
+    movs.push({id:genId(),_ca:Date.now(),tipo:'entrada',prodId:prod.id,bodegaId:bodegaId,
+      cantidad:cant,fecha:new Date().toISOString().slice(0,10),nota:'Recuperado de logs',origen:null,destino:null});
+    importados++;
+  }
+  if(movs.length){
+    if(!S.inventario.movimientos)S.inventario.movimientos=[];
+    S.inventario.movimientos=S.inventario.movimientos.concat(movs);
+  }
+  var modal=document.getElementById('modalRecLogs');if(modal)modal.remove();
+  markDirty('inventario');
+  saveData();
+  render();
+  logAction('CREAR','inventario','Recuperación masiva desde logs: '+importados+' productos');
+  toast('✅ '+importados+' producto(s) importados correctamente');
+}
       var logs=[];
       snap.forEach(function(d){logs.push(d.data());});
       // Filtrar por fecha
@@ -2650,15 +2766,6 @@ function recuperarDesdeLogs(){
         html+='</div>';
       });
 
-      html+='<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">';
-      html+='<button class="btn btn-secondary" onclick="document.getElementById(\'modalRecuperarLogs\').remove()">Cerrar</button>';
-      html+='<button class="btn btn-primary" onclick="exportarLogsDia(\''+fechaRec+'\')">📥 Exportar como texto</button>';
-      html+='</div></div>';
-
-      div.innerHTML=html;
-      document.body.appendChild(div);
-    }).catch(function(e){toast('Error al leer logs: '+e.message,true);});
-}
 
 function exportarLogsDia(fecha){
   firebase.firestore().collection('logs')
