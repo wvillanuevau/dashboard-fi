@@ -4147,7 +4147,7 @@ function tplPagos(p){
 function tplGastosProy(p){
   const lista=gastosDeProyecto(p.id),total=lista.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
   let rows=lista.length===0?`<tr><td colspan="5" class="empty">Sin gastos asignados</td></tr>`:'';
-  lista.forEach(g=>{rows+=`<tr><td>${esc(g.factura)}</td><td>${esc(g.descripcion)}</td><td>${esc(g.proveedor)}</td><td><strong>${fmt(g.valor)}</strong></td><td>${fmtDate(g.fecha)}</td></tr>`;});
+  lista.forEach(g=>{rows+=`<tr><td>${esc(g.factura)}</td><td>${esc(g.descripcion)}</td><td>${esc(g.proveedor)}</td><td><strong>${fmt(g.valor)}</strong></td><td>${fmtDate(g.fecha)}${fmtCaObj(g)}</td></tr>`;});
   return`<div class="kpi" style="margin-bottom:16px"><div class="kpi-lbl">Total gastos</div><div class="kpi-val" style="color:var(--red)">${fmt(total)}</div><div class="kpi-sub">${lista.length} registros</div></div>
   <div class="tbl-wrap"><table><thead><tr><th>Factura</th><th>Descripción</th><th>Proveedor</th><th>Valor</th><th>Fecha</th></tr></thead><tbody>${rows}</tbody></table></div>`}
 
@@ -4626,7 +4626,7 @@ function renderGastos(){
       <td class="hide-sm">${esc(g.descripcion||'—')}</td>
       <td class="hide-sm">${esc(g.proveedor)}</td>
       <td><strong style="color:var(--accent)">${fmt(g.valor)}</strong></td>
-      <td class="hide-sm">${fmtDate(g.fecha)}</td>
+      <td class="hide-sm">${fmtDate(g.fecha)}${fmtCaObj(g)}</td>
       <td>${g.proyectoId
         ?`<div><span class="badge b-blue" style="font-size:10px">${esc(pname.length>12?pname.substring(0,11)+'…':pname)}</span>
            ${g.sumarAlProy===false?'<div style="font-size:10px;color:#555;margin-top:2px">sin presupuesto</div>':''}</div>`
@@ -4790,7 +4790,7 @@ function gastosIrPag(p){
       <td class="hide-sm">${esc(g.descripcion||'—')}</td>
       <td class="hide-sm">${esc(g.proveedor)}</td>
       <td><strong style="color:var(--accent)">${fmt(g.valor)}</strong></td>
-      <td class="hide-sm">${fmtDate(g.fecha)}</td>
+      <td class="hide-sm">${fmtDate(g.fecha)}${fmtCaObj(g)}</td>
       <td>${g.proyectoId?`<span class="badge b-blue" style="font-size:10px">${esc(pname.length>12?pname.substring(0,11)+'…':pname)}</span>`:g.centroId?`<span class="badge b-neu" style="font-size:10px">${esc(ccname.length>14?ccname.substring(0,13)+'…':ccname)}</span>`:'<span style="color:#555;font-size:11px">General</span>'}</td>
       <td style="text-align:center">${(g.proyectoId||g.centroId)?`<span style="font-size:15px">${g.sumarAlProy===false?'⬜':'✅'}</span>`:'<span style="color:#333">—</span>'}</td>
       <td style="text-align:center">${g.comprobante?(g.comprobante.startsWith('ref:')?`<button class="btn btn-secondary btn-xs" onclick="verComprobanteGasto('${g.id}','Factura ${esc(g.factura)}')">📎 Ver</button>`:(isImg?`<img src="${g.comprobante}" style="height:30px;width:38px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="verImagen('${g.comprobante}','Factura ${esc(g.factura)}')">`:isPDF?`<a href="${g.comprobante}" download="factura.pdf" style="font-size:18px;text-decoration:none">📄</a>`:'<span style="color:#444;font-size:12px">—</span>')):'<span style="color:#444;font-size:12px">—</span>'}</td>
@@ -5140,7 +5140,7 @@ function tplPagosYGastos(p){
 
   let gastoRows=lista.length===0?`<tr><td colspan="5" class="empty">Sin gastos vinculados</td></tr>`:'';
   lista.forEach(g=>{
-    gastoRows+=`<tr><td>${fmtDate(g.fecha)}</td><td><strong>${esc(g.factura)}</strong></td><td>${esc(g.descripcion||'—')}</td><td>${esc(g.proveedor)}</td><td style="text-align:right;color:var(--red)">${fmt(g.valor)}</td></tr>`;
+    gastoRows+=`<tr><td>${fmtDate(g.fecha)}${fmtCaObj(g)}</td><td><strong>${esc(g.factura)}</strong></td><td>${esc(g.descripcion||'—')}</td><td>${esc(g.proveedor)}</td><td style="text-align:right;color:var(--red)">${fmt(g.valor)}</td></tr>`;
   });
 
   return`
@@ -5658,7 +5658,7 @@ function tplPagosYGastos(p){
       <td class="hide-sm">${esc(g.descripcion||'—')}</td>
       <td class="hide-sm">${esc(g.proveedor)}</td>
       <td style="text-align:right;color:var(--red);font-weight:600">${fmt(g.valor)}</td>
-      <td class="hide-sm">${fmtDate(g.fecha)}</td>
+      <td class="hide-sm">${fmtDate(g.fecha)}${fmtCaObj(g)}</td>
       <td style="text-align:center">${gIsImg
         ?`<img src="${g.comprobante}" style="height:30px;width:38px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="verImagen('${g.comprobante}','${esc(g.factura)}')">`
         :gIsRef?`<button class="btn btn-secondary btn-xs" onclick="verComprobanteGasto('${g.id}','${esc(g.factura)}')">📎 Ver</button>`
@@ -6276,7 +6276,7 @@ function renderReporteOutput(){
       <td><div class="prog"><div class="prog-fill" style="width:${p.avanceFisico}%"></div></div><span style="font-size:11px;color:var(--muted)">${p.avanceFisico}%</span></td>
       <td>${esc(p.contratista||'—')}</td>
       <td>${(p.cronograma&&p.cronograma.aceptado)?'<span class="badge b-ok">Aceptado</span>':'<span class="badge b-neu">Pendiente</span>'}</td>
-      <td>${fmtDate(p.fechaInicio||'')} → ${fmtDate(p.fechaFin||'')}</td>
+      <td>${fmtDate(p.fechaInicio||'')} → ${fmtDate(p.fechaFin||'')}${fmtCaObj(p)}</td>
     </tr>`).join('');
     html=`<div class="sec-hdr">Avance de proyectos</div><div class="tbl-wrap"><table><thead><tr><th>Proyecto</th><th>Estado</th><th>Avance</th><th>Contratista</th><th>Cronograma</th><th>Fechas</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
@@ -6847,7 +6847,7 @@ function _ccBuildPrintHtml(data){
     itemRows+=`<tr>
       <td>${esc(cc)}</td>
       <td style="text-align:center">${i+1}</td>
-      <td>${fmtDate(g.fecha)}</td>
+      <td>${fmtDate(g.fecha)}${fmtCaObj(g)}</td>
       <td>${esc(g.proveedor||'')}</td>
       <td>${esc(g.factura||'')}</td>
       <td>${esc(g.descripcion||'')}</td>
@@ -10315,7 +10315,7 @@ function renderMantPanel(){
         ubLabel=cc?cc.nombre:'—';
       }
       rows+='<tr>'
-        +'<td>'+fmtDate(r.fecha)+'</td>'
+        +'<td>'+fmtDate(r.fecha)+fmtCaObj(r)+'</td>'
         +'<td><div style="font-weight:600;font-size:13px">'+esc(eq.nombre)+'</div>'
         +'<div style="font-size:11px;color:var(--muted)">'+esc(ubLabel)+'</div></td>'
         +'<td>'+esc(tec.nombre)+'</td>'
@@ -12966,7 +12966,7 @@ function renderMantReportes(){
     otsHist.forEach(function(ot){
       var eq=m.equipos.find(function(e){return e.id===ot.equipoId;})||{nombre:'—'};
       var tec=m.tecnicos.find(function(t){return t.id===ot.tecnicoId;})||{nombre:'—'};
-      filasH+='<tr><td>'+fmtDate(ot.fechaProgramada)+'</td><td>'+esc(eq.nombre)+'</td>'
+      filasH+='<tr><td>'+fmtDate(ot.fechaProgramada)+'</td><td>'+esc(eq.nombre)+fmtCaObj(ot)+'</td>'
         +'<td>'+esc(tec.nombre)+'</td><td>'+mantBadgeEstado(ot.estado)+'</td>'
         +'<td style="text-align:right">'+(ot.montoGasto?fmt(ot.montoGasto):'—')+'</td>'
         +'<td><button class="btn btn-secondary btn-xs" onclick="modalVerOT(\''+ot.id+'\')">Ver</button></td></tr>';
@@ -17517,7 +17517,7 @@ function renderTallerRepuestos(){
   } else {
     t.repuestos.forEach(function(r){
       var bajo=r.minimo&&(r.stock||0)<r.minimo;
-      rows+='<tr><td><strong>'+esc(r.nombre)+'</strong></td>'
+      rows+='<tr><td><strong>'+esc(r.nombre)+'</strong>'+fmtCaObj(r)+'</td>'
         +'<td>'+esc(r.codigo||'—')+'</td>'
         +'<td>'+esc(r.marca||'—')+'</td>'
         +'<td style="text-align:right;color:'+(bajo?'var(--red)':'var(--text)')+'"><strong>'+(r.stock||0)+'</strong>'+(bajo?' ⚠':'')+'</td>'
@@ -17616,7 +17616,7 @@ function renderTallerProgramado(){
       var estadoBadge=faltKm<0?'<span class="badge b-err">VENCIDO</span>'
         :faltKm<2000?'<span class="badge b-warn">en '+faltKm.toLocaleString('en-US')+' km</span>'
         :'<span class="badge b-ok">OK</span>';
-      rows+='<tr><td><strong>'+esc(v.placa)+'</strong></td>'
+      rows+='<tr><td><strong>'+esc(v.placa)+'</strong>'+fmtCaObj(v)+'</td>'
         +'<td>'+esc(p.servicio)+'</td>'
         +'<td style="text-align:center">'+(p.cadaKm||0).toLocaleString('en-US')+'</td>'
         +'<td>'+(p.ultimoFecha?fmtDate(p.ultimoFecha):'—')+(p.ultimoKm?' ('+(p.ultimoKm).toLocaleString('en-US')+' km)':'')+'</td>'
@@ -17825,7 +17825,7 @@ function renderTallerReportes(){
       var g=grupos[vid];
       var tot=g.manoObra+g.repuestos;
       totMo+=g.manoObra;totRep+=g.repuestos;totOTs+=g.ots;
-      rows+='<tr><td><strong>'+esc(v?v.placa:'(eliminado)')+'</strong></td>'
+      rows+='<tr><td><strong>'+esc(v?v.placa:'(eliminado)')+'</strong>'+fmtCaObj(v)+'</td>'
         +'<td style="text-align:center">'+g.ots+'</td>'
         +'<td style="text-align:right">$'+fmt(g.manoObra)+'</td>'
         +'<td style="text-align:right">$'+fmt(g.repuestos)+'</td>'
@@ -17854,7 +17854,7 @@ function renderTallerReportes(){
     Object.keys(mecGrupos).forEach(function(mid){
       var m=((S.mantenimiento&&S.mantenimiento.tecnicos)||[]).find(function(x){return x.id===mid;});
       var g=mecGrupos[mid];
-      rows+='<tr><td><strong>'+esc(m?m.nombre:'(eliminado)')+'</strong></td>'
+      rows+='<tr><td><strong>'+esc(m?m.nombre:'(eliminado)')+'</strong>'+fmtCaObj(m)+'</td>'
         +'<td style="text-align:center">'+g.ots+'</td>'
         +'<td style="text-align:center">'+g.completadas+'</td>'
         +'<td style="text-align:right">$'+fmt(g.total)+'</td></tr>';
@@ -20043,7 +20043,7 @@ function renderMantMovimientos(){
     else if(mv.tipoMov==='traslado'){tipoLabel='📦 Traslado';tipoColor='b-blue';}
     else if(mv.tipoMov==='baja'){tipoLabel='✕ Baja';tipoColor='b-err';}
     return '<tr>'
-      +'<td>'+fmtDate(mv.fecha)+'<div style="font-size:10px;color:var(--muted)">'+(mv.usuario||'')+'</div></td>'
+      +'<td>'+fmtDate(mv.fecha)+fmtCaObj(mv)+'<div style="font-size:10px;color:var(--muted)">'+(mv.usuario||'')+'</div></td>'
       +'<td><strong>'+esc(eq?eq.nombre:'(eliminado)')+'</strong></td>'
       +'<td><span class="badge '+tipoColor+'">'+tipoLabel+'</span></td>'
       +'<td>'+esc(nomUbicacion(mv.origenTipo,mv.origenId))+'</td>'
