@@ -2297,29 +2297,27 @@ function startListening(){
   window.FB.listen(S.empresa,(remoteData)=>{
     if(S._saving)return;
     if(!remoteData||Object.keys(remoteData).length<=3)return;
-    if(remoteData._gastosChunked){
-      // Gastos en subcolección — necesitamos hacer FB.load completo para obtenerlos
-      // Debounce para no llamar FB.load en cada keystroke
+
+    // No sobreescribir secciones con cambios locales pendientes (multi-usuario)
+    var localDirty=Object.keys(S._dirtySections||{});
+    if(localDirty.length>0){
+      var savedSections={};
+      localDirty.forEach(function(sec){
+        if(S[sec]!==undefined){try{savedSections[sec]=JSON.parse(JSON.stringify(S[sec]));}catch(e){}}
+      });
+      applyData(remoteData,true);
+      localDirty.forEach(function(sec){if(savedSections[sec]!==undefined)S[sec]=savedSections[sec];});
+    } else if(remoteData._gastosChunked){
       clearTimeout(_listenReloadTimer);
       _listenReloadTimer=setTimeout(async ()=>{
-        try{
-          const full=await window.FB.load(S.empresa);
-          if(full&&!S._saving){
-            applyData(full,false);
-            if(S.currentUser)render();
-            setSyncUI('ok','Actualizado');
-          }
-        }catch(e){console.warn('[PP] listener reload failed:',e.message);}
+        try{const full=await window.FB.load(S.empresa);if(full&&!S._saving){applyData(full,false);if(S.currentUser)render();setSyncUI('ok','Actualizado');}}catch(e){}
       },800);
-      // Mientras tanto, aplicar todo excepto gastos (para que proyectos/centros/etc actualicen)
       applyData(remoteData,true);
-      if(S.currentUser)render();
-      setSyncUI('ok','Actualizado');
     } else {
       applyData(remoteData,true);
-      if(S.currentUser)render();
-      setSyncUI('ok','Actualizado');
     }
+    if(S.currentUser)render();
+    setSyncUI('ok','Actualizado');
   });
 }
 
@@ -2417,31 +2415,38 @@ async function _doSaveFirebase(){
     // múltiples usuarios editan secciones distintas en paralelo.
     // ═══════════════════════════════════════════════════════════════════
     var dirtySections=Object.keys(S._dirtySections||{});
-    // Si gastos está dirty, NO podemos usar saveSection (gastos van en chunks separados)
-    // Forzar save completo en ese caso para que se actualicen los chunks correctamente.
     var hasGastosDirty=dirtySections.indexOf('gastos')>=0;
-    var canUseSectionSave=(dirtySections.length>0&&dirtySections.length<=4&&!hasGastosDirty&&window.FB.saveSection);
+    // Secciones no-gastos que están sucias
+    var otherDirtySections=dirtySections.filter(function(s){return s!=='gastos';});
 
     var result;
-    if(canUseSectionSave){
-      // Save por sección: solo las modificadas
-      console.log('[PP] Saving sections to Firebase:',dirtySections.join(','),'sz:'+(sz/1024).toFixed(0)+'KB');
-      result=await window.FB.saveSection(S.empresa,dirtySections,dataToSave);
-      // Limpiar dirty sections solo si tuvo éxito
+    if(otherDirtySections.length>0&&otherDirtySections.length<=4&&window.FB.saveSection){
+      // Guardar secciones no-gastos por separado (evita sobreescribir cambios de otros usuarios)
+      console.log('[PP] Saving sections:',otherDirtySections.join(','),'sz:'+(sz/1024).toFixed(0)+'KB');
+      result=await window.FB.saveSection(S.empresa,otherDirtySections,dataToSave);
       var savedOk=(result===true)||(result&&result.ok===true);
       if(savedOk){
-        S._dirtySections={};
+        // Solo limpiar las secciones que se guardaron, no gastos
+        otherDirtySections.forEach(function(s){delete S._dirtySections[s];});
       }
-    } else {
-      // Save completo: el comportamiento original (fallback)
-      console.log('[PP] Saving to Firebase — gastos:'+S.gastos.length+' sz:'+(sz/1024).toFixed(0)+'KB');
+    }
+
+    if(hasGastosDirty){
+      // Gastos va en chunks separados — save completo solo para gastos
+      console.log('[PP] Saving gastos chunks — gastos:'+S.gastos.length+' sz:'+(sz/1024).toFixed(0)+'KB');
       result=await window.FB.save(S.empresa,dataToSave);
-      // Limpiar dirty sections — el save completo ya las cubre
-      S._dirtySections={};
+      if((result===true)||(result&&result.ok===true)){
+        delete S._dirtySections['gastos'];
+      }
+    }
+
+    // Si no había nada dirty pero se llegó aquí por otra razón, save completo
+    if(dirtySections.length===0){
+      result=await window.FB.save(S.empresa,dataToSave);
     }
 
     S._saving=false;
-    S._dirty=false;
+    S._dirty=Object.keys(S._dirtySections||{}).length>0;
     // result puede ser true (éxito), false (error genérico), o {ok:false,err:'...'} (error con detalle)
     var ok=(result===true)||(result&&result.ok===true);
     var errMsg=(result&&result.err)?result.err:null;
