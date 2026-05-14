@@ -2590,6 +2590,98 @@ function diagnosticarAsistencia(){
   }).catch(function(e){toast('Error: '+e.message,true);});
 }
 
+function recuperarDesdeLogs(){
+  if(!S.empresa){toast('Sin empresa activa',true);return;}
+  // Pedir fecha a recuperar
+  var fechaRec=prompt('¿Qué fecha quieres recuperar? (formato YYYY-MM-DD)','2026-05-13');
+  if(!fechaRec)return;
+  toast('🔍 Leyendo logs de Firestore...');
+  firebase.firestore().collection('logs')
+    .where('empresa','==',S.empresa)
+    .get().then(function(snap){
+      var logs=[];
+      snap.forEach(function(d){logs.push(d.data());});
+      // Filtrar por fecha
+      var logsDelDia=logs.filter(function(l){
+        return (l.fecha||'').startsWith(fechaRec)||(l.ts&&new Date(l.ts).toISOString().startsWith(fechaRec));
+      });
+      logsDelDia.sort(function(a,b){return (a.ts||0)-(b.ts||0);});
+
+      if(!logsDelDia.length){
+        alert('No se encontraron logs para '+fechaRec+'. Intenta con otra fecha.');
+        return;
+      }
+
+      // Agrupar por módulo y acción
+      var grupos={};
+      logsDelDia.forEach(function(l){
+        var key=(l.modulo||'otro');
+        if(!grupos[key])grupos[key]=[];
+        grupos[key].push(l);
+      });
+
+      // Mostrar modal con los logs encontrados
+      var old=document.getElementById('modalRecuperarLogs');if(old)old.remove();
+      var div=document.createElement('div');
+      div.id='modalRecuperarLogs';
+      div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto';
+
+      var html='<div style="background:var(--surface);border-radius:14px;padding:20px;max-width:700px;width:100%;max-height:85vh;overflow-y:auto">';
+      html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
+      html+='<div><div style="font-size:16px;font-weight:700">📋 Logs del '+fechaRec+'</div>';
+      html+='<div style="font-size:12px;color:var(--muted)">'+logsDelDia.length+' acciones encontradas en el log de actividad</div></div>';
+      html+='<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'modalRecuperarLogs\').remove()">✕ Cerrar</button></div>';
+      html+='<div style="font-size:12px;color:#facc15;background:#2a2000;border:1px solid #facc15;border-radius:8px;padding:10px;margin-bottom:14px">⚠ Estos logs muestran qué se creó/modificó ese día. Úsalos como referencia para re-ingresar los datos que faltan.</div>';
+
+      // Por módulo
+      Object.keys(grupos).sort().forEach(function(mod){
+        var items=grupos[mod];
+        html+='<div style="margin-bottom:14px">';
+        html+='<div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;margin-bottom:6px">'+mod+' ('+items.length+' acciones)</div>';
+        items.forEach(function(l){
+          var hora=l.ts?new Date(l.ts).toLocaleTimeString('es-SV',{hour:'2-digit',minute:'2-digit'}):'—';
+          var accionColor={'CREAR':'#2db87a','ELIMINAR':'#e84040','EDITAR':'#e8a020','ASIGNAR':'#4ea8de'}[l.accion]||'var(--muted)';
+          html+='<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">';
+          html+='<span style="color:'+accionColor+';font-weight:700;min-width:70px">'+esc(l.accion||'')+'</span>';
+          html+='<span style="flex:1">'+esc(l.detalle||'')+'</span>';
+          html+='<span style="color:var(--muted);white-space:nowrap">'+hora+'</span>';
+          html+='</div>';
+        });
+        html+='</div>';
+      });
+
+      html+='<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">';
+      html+='<button class="btn btn-secondary" onclick="document.getElementById(\'modalRecuperarLogs\').remove()">Cerrar</button>';
+      html+='<button class="btn btn-primary" onclick="exportarLogsDia(\''+fechaRec+'\')">📥 Exportar como texto</button>';
+      html+='</div></div>';
+
+      div.innerHTML=html;
+      document.body.appendChild(div);
+    }).catch(function(e){toast('Error al leer logs: '+e.message,true);});
+}
+
+function exportarLogsDia(fecha){
+  firebase.firestore().collection('logs')
+    .where('empresa','==',S.empresa).get().then(function(snap){
+      var logs=[];
+      snap.forEach(function(d){logs.push(d.data());});
+      var logsDelDia=logs.filter(function(l){
+        return (l.fecha||'').startsWith(fecha)||(l.ts&&new Date(l.ts).toISOString().startsWith(fecha));
+      }).sort(function(a,b){return (a.ts||0)-(b.ts||0);});
+      var txt='REGISTRO DE ACTIVIDAD — '+fecha+'\n'+'='.repeat(50)+'\n\n';
+      logsDelDia.forEach(function(l){
+        var hora=l.ts?new Date(l.ts).toLocaleString('es-SV'):'—';
+        txt+=hora+' | '+l.accion+' | '+l.modulo+' | '+(l.usuario||'')+'\\n'+'  '+l.detalle+'\\n\\n';
+      });
+      var blob=new Blob([txt],{type:'text/plain;charset=utf-8'});
+      var a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download='logs_'+fecha+'.txt';
+      a.click();
+      toast('✅ Archivo descargado');
+    });
+}
+
 function recuperarDesdeLocalStorage(){
   if(!S.empresa){toast('Sin empresa activa',true);return;}
   try{
@@ -2620,7 +2712,6 @@ function recuperarDesdeLocalStorage(){
     }
   }catch(e){alert('Error al leer localStorage: '+e.message);}
 }
-
 
 function _syncPortalPublico(){
   if(!S.empresa||!window.FB||!window.FB.currentUser())return;
@@ -7302,6 +7393,7 @@ function renderConfig(){
       <button class="btn btn-secondary" onclick="diagRestoreLocal()" style="color:var(--accent);border-color:var(--accent)">♻ Restaurar desde respaldo local</button>
       <button class="btn btn-secondary" onclick="diagForceSave()" style="color:var(--green);border-color:var(--green)">⬆ Forzar guardado en Firebase</button>
       <button class="btn btn-secondary" onclick="recuperarDesdeLocalStorage()" style="color:#e84040;border-color:#e84040;font-weight:700">🚨 Recuperar data perdida</button>
+      <button class="btn btn-secondary" onclick="recuperarDesdeLogs()" style="color:#8b5cf6;border-color:#8b5cf6;font-weight:700">📋 Reconstruir desde Logs</button>
     </div>
   </div>
   <div class="card" style="border-color:#e8404033;margin-top:14px">
