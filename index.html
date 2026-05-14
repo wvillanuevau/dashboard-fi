@@ -19007,17 +19007,33 @@ function renderTallerReportesChoferes(){
           novedad:r.novedad||'', origen:'portal'
         });
       });
-      // Unir ambas fuentes — evitar duplicados por vehiculoId+fecha
+      // Unir ambas fuentes — Firestore (portal) tiene PRIORIDAD sobre local
+      // Un reporte del portal es más confiable que el local legacy
       var vistos={};
       var todosRep=[];
-      repLocales.concat(repFirestore).forEach(function(r){
+      // Primero agregar Firestore (mayor prioridad)
+      repFirestore.forEach(function(r){
+        var key=(r.vehiculoId||'')+'|'+(r.fecha||'');
+        if(!vistos[key]){vistos[key]=true;todosRep.push(r);}
+      });
+      // Luego locales — solo si no hay ya uno de Firestore para ese vehículo+fecha
+      repLocales.forEach(function(r){
         var key=(r.vehiculoId||'')+'|'+(r.fecha||'');
         if(!vistos[key]){vistos[key]=true;todosRep.push(r);}
       });
       todosRep.sort(function(a,b){return (a.fecha||'').localeCompare(b.fecha||'');});
       _renderReportesChoferes(todosRep);
-    }).catch(function(){
-      // Si falla Firestore, usar solo locales
+    }).catch(function(err){
+      console.error('[ReportesMotoristas] Firestore error:', err);
+      // Si falla Firestore, mostrar locales con aviso
+      var content2=document.getElementById('content');
+      if(content2){
+        var warn=document.createElement('div');
+        warn.style.cssText='background:#fff3e0;border:1px solid #f59e0b;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#92400e';
+        warn.innerHTML='⚠ No se pudieron cargar los reportes del portal de motoristas. Mostrando solo datos locales.<br><small>Error: '+(err.message||err)+'</small>';
+        content2.innerHTML='';
+        content2.appendChild(warn);
+      }
       _renderReportesChoferes(repLocales);
     });
 }
