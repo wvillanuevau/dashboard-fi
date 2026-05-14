@@ -1599,6 +1599,8 @@ function fmtCa(ts){
 function getCa(obj){
   if(!obj)return null;
   if(obj._ca)return obj._ca;
+  if(obj.creadoEn&&obj.creadoEn>1400000000000)return obj.creadoEn;
+  if(obj.creadoEn&&obj.creadoEn>1400000000)return obj.creadoEn*1000; // segundos → ms
   var id=obj.id||'';
   if(id.length>=7){
     var ts=parseInt(id.substring(0,8),36);
@@ -2097,7 +2099,31 @@ function optsTecnicos(selVal,area){
 }
 
 function migrateData(){
-  // ── Migración de schema de equipos: ubicación tipo + estado + origen ──
+  // ── Backfill _ca desde ID o creadoEn para registros existentes ──────
+  var _backfillCa=function(arr){
+    if(!arr)return;
+    arr.forEach(function(obj){
+      if(obj._ca)return; // ya tiene
+      if(obj.creadoEn&&obj.creadoEn>1400000000000){obj._ca=obj.creadoEn;return;}
+      var id=obj.id||'';
+      if(id.length>=7){
+        var ts=parseInt(id.substring(0,8),36);
+        if(ts>1400000000000&&ts<2100000000000){obj._ca=ts;return;}
+      }
+    });
+  };
+  _backfillCa(S.gastos);
+  _backfillCa(S.proveedores);
+  _backfillCa(S.centros);
+  _backfillCa(S.proyectos);
+  _backfillCa(S.inventario&&S.inventario.productos);
+  _backfillCa(S.inventario&&S.inventario.movimientos);
+  _backfillCa(S.mantenimiento&&S.mantenimiento.tecnicos);
+  _backfillCa(S.mantenimiento&&S.mantenimiento.equipos);
+  _backfillCa(S.mantenimiento&&S.mantenimiento.ots);
+  _backfillCa(S.taller&&S.taller.vehiculos);
+  _backfillCa(S.taller&&S.taller.ots);
+  _backfillCa(S.asistencia&&S.asistencia.registros);
   if(S.mantenimiento&&S.mantenimiento.equipos){
     var sinCatArreglados=0;
     S.mantenimiento.equipos.forEach(function(eq){
