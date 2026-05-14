@@ -2568,6 +2568,60 @@ function _renderNavBadges(){
   if(S.activeTab==='home') renderHome();
 }
 
+// ── Diagnóstico y recuperación de datos ──────────────────
+function diagnosticarAsistencia(){
+  if(!S.empresa){toast('Sin empresa activa',true);return;}
+  firebase.firestore().collection('empresas').doc(S.empresa).get().then(function(doc){
+    if(!doc.exists){toast('Documento no existe en Firestore',true);return;}
+    var data=doc.data();
+    var regs=(data.asistencia&&data.asistencia.registros)||[];
+    var hace7=new Date();hace7.setDate(hace7.getDate()-7);
+    var hace7str=hace7.toISOString().slice(0,10);
+    var recientes=regs.filter(function(r){return (r.fecha||'')>=hace7str;});
+    var porFecha={};
+    recientes.forEach(function(r){var f=r.fecha||'?';if(!porFecha[f])porFecha[f]=0;porFecha[f]++;});
+    var resumen=Object.keys(porFecha).sort().map(function(f){return f+': '+porFecha[f]+' regs';}).join('\n');
+    var memRegs=(S.asistencia&&S.asistencia.registros||[]).length;
+    var msg='Firestore asistencia últimos 7 días:\n'+(resumen||'Sin registros')+'\n\nFirestore total: '+regs.length+'  Memoria: '+memRegs;
+    alert(msg);
+    if(regs.length>memRegs){
+      if(confirm('Firestore tiene más datos. ¿Restaurar?')){S.asistencia=data.asistencia;render();toast('✅ Restaurado');}
+    }
+  }).catch(function(e){toast('Error: '+e.message,true);});
+}
+
+function recuperarDesdeLocalStorage(){
+  if(!S.empresa){toast('Sin empresa activa',true);return;}
+  try{
+    var raw=localStorage.getItem('pp3_'+S.empresa);
+    if(!raw){alert('No hay datos en localStorage para esta empresa.');return;}
+    var local=JSON.parse(raw);
+    var tsLocal=local._ts?new Date(local._ts).toLocaleString('es-SV',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit',year:'numeric'}):'desconocida';
+    var gasLocal=(local.gastos||[]).length;
+    var gasMem=S.gastos.length;
+    var invLocal=((local.inventario&&local.inventario.productos)||[]).length;
+    var invMem=((S.inventario&&S.inventario.productos)||[]).length;
+    var asLocal=((local.asistencia&&local.asistencia.registros)||[]).length;
+    var asMem=((S.asistencia&&S.asistencia.registros)||[]).length;
+    var movLocal=((local.inventario&&local.inventario.movimientos)||[]).length;
+    var movMem=((S.inventario&&S.inventario.movimientos)||[]).length;
+    var msg='📦 LOCALSTORAGE — Fecha guardado: '+tsLocal+'\n\n'
+      +'Gastos: '+gasLocal+(gasLocal>gasMem?' ⬆ ('+gasMem+' en memoria)':' (igual)')+' \n'
+      +'Inventario productos: '+invLocal+(invLocal>invMem?' ⬆ ('+invMem+' en memoria)':' (igual)')+' \n'
+      +'Inventario movimientos: '+movLocal+(movLocal>movMem?' ⬆ ('+movMem+' en memoria)':' (igual)')+' \n'
+      +'Asistencia: '+asLocal+(asLocal>asMem?' ⬆ ('+asMem+' en memoria)':' (igual)')+' \n\n'
+      +'¿Restaurar desde localStorage? (se guardará inmediatamente a Firestore)';
+    if(confirm(msg)){
+      applyData(local,false);
+      markDirty('asistencia');markDirty('inventario');markDirty('taller');
+      saveData();
+      render();
+      toast('✅ Datos restaurados. Guardando a Firestore...');
+    }
+  }catch(e){alert('Error al leer localStorage: '+e.message);}
+}
+
+
 function _syncPortalPublico(){
   if(!S.empresa||!window.FB||!window.FB.currentUser())return;
   var db=firebase.firestore();
@@ -2578,7 +2632,9 @@ function _syncPortalPublico(){
   var tecnicosPublicos=((S.mantenimiento&&S.mantenimiento.tecnicos)||[])
     .filter(function(t){return t.activo!==false;})
     .map(function(t){return{id:t.id,nombre:t.nombre,cargo:t.cargo||'tecnico',telefono:t.telefono||''};});
-  // OTs activas con info mínima para el portal del técnico
+  var vehiculosPublicos=((S.taller&&S.taller.vehiculos)||[])
+    .filter(function(v){return v.estado!=='baja';})
+    .map(function(v){return{id:v.id,placa:v.placa,marca:v.marca||'',modelo:v.modelo||'',tipo:v.tipo||''};});
   var otsPublicas=((S.mantenimiento&&S.mantenimiento.ots)||[])
     .filter(function(o){return o.estado!=='baja';})
     .map(function(o){
@@ -2594,9 +2650,6 @@ function _syncPortalPublico(){
         origenSolicitud:o.origenSolicitud||''
       };
     });
-  var vehiculosPublicos=((S.taller&&S.taller.vehiculos)||[])
-    .filter(function(v){return v.estado!=='baja';})
-    .map(function(v){return{id:v.id,placa:v.placa,marca:v.marca||'',modelo:v.modelo||'',tipo:v.tipo||''};});
   db.collection('portalesPublicos').doc(S.empresa).set({
     empresa:S.empresa,
     centros:centrosPublicos,
@@ -2607,6 +2660,7 @@ function _syncPortalPublico(){
     _ts:Date.now()
   },{merge:true}).catch(function(e){console.warn('[Portal] Sync error:',e.message);});
 }
+
 function applyBranding(){
   const cfg=S.config||{};const name=cfg.appName||'Proyectos Pro';
   ['sbAppName','loginBrandName'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=name});
@@ -7247,6 +7301,7 @@ function renderConfig(){
       <button class="btn btn-secondary" onclick="diagData()">🔍 Diagnosticar</button>
       <button class="btn btn-secondary" onclick="diagRestoreLocal()" style="color:var(--accent);border-color:var(--accent)">♻ Restaurar desde respaldo local</button>
       <button class="btn btn-secondary" onclick="diagForceSave()" style="color:var(--green);border-color:var(--green)">⬆ Forzar guardado en Firebase</button>
+      <button class="btn btn-secondary" onclick="recuperarDesdeLocalStorage()" style="color:#e84040;border-color:#e84040;font-weight:700">🚨 Recuperar data perdida</button>
     </div>
   </div>
   <div class="card" style="border-color:#e8404033;margin-top:14px">
@@ -14308,7 +14363,7 @@ function renderAsistencia(){
     return'<div class="tab'+(tab===t?' active':'')+'" onclick="S._asistTab=\''+t+'\';renderAsistencia()">'+labels[t]+'</div>';
   }).join('');
 
-  document.getElementById('content').innerHTML='<div class="tabs" style="margin-bottom:18px">'+subTabs+'</div><div id="asistPanel"></div>';
+  document.getElementById('content').innerHTML='<div class="tabs" style="margin-bottom:18px">'+subTabs+'</div><div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn btn-secondary btn-xs" onclick="diagnosticarAsistencia()" title="Verificar y recuperar datos de Firestore">🔍 Diagnóstico Firestore</button></div><div id="asistPanel"></div>';
 
   if(tab==='registro') asistRenderRegistro(tecnicos);
   else if(tab==='semanal') asistRenderSemanal(tecnicos);
@@ -14413,7 +14468,7 @@ function asistRenderRegistro(tecnicos){
         +'<div id="asistTardeInfo" style="background:var(--surface2);border-radius:8px;padding:9px 13px;margin-bottom:12px;font-size:12px;display:none">'
           +'⏱ Hora meta: <strong>'+getCfgHoraMeta()+'</strong>'
         +'</div>'
-        +'<button class="btn btn-primary" style="width:100%" onclick="asistGuardar()">✅ Registrar</button>'
+        +'<button id="btnAsistReg" class="btn btn-primary" style="width:100%" onclick="asistGuardar()">✅ Registrar</button>'
       +'</div>'
 
       // Lista del día
@@ -14472,8 +14527,19 @@ function asistGuardar(){
     estado:estado,rutaNombre:rutaNombre,observacion:obs,minutosTarde:mt
   });
   markDirty('asistencia');
+  // Guardar y confirmar
+  var btnReg=document.getElementById('btnAsistReg');
+  if(btnReg){btnReg.disabled=true;btnReg.textContent='Guardando...';}
   saveData();
-  toast('✓ Registro guardado');
+  // Verificar que el registro quedó en memoria
+  var confirmado=datos.registros.find(function(r){return r.tecnicoId===tecId&&r.fecha===fecha;});
+  if(confirmado){
+    toast('✓ Registro guardado — '+fecha);
+  } else {
+    toast('⚠ Error al guardar. Intenta de nuevo.',true);
+    if(btnReg){btnReg.disabled=false;btnReg.textContent='✅ Registrar';}
+    return;
+  }
   renderAsistencia();
 }
 
