@@ -1590,10 +1590,25 @@ function fmtCa(ts){
   var hoy=new Date();
   var ayer=new Date(hoy);ayer.setDate(hoy.getDate()-1);
   var mismaFecha=function(a,b){return a.toDateString()===b.toDateString();};
-  var hora=d.toLocaleTimeString('es-SV',{hour:'2-digit',minute:'2-digit'});
+  var hora=d.toLocaleTimeString('es-SV',{hour:'2-digit',minute:'2-digit',hour12:true});
   if(mismaFecha(d,hoy)) return 'Hoy '+hora;
   if(mismaFecha(d,ayer)) return 'Ayer '+hora;
   return d.toLocaleDateString('es-SV',{day:'2-digit',month:'short',year:'numeric'})+' '+hora;
+}
+// Extrae timestamp desde _ca o decodificando el ID (genId = Date.now().toString(36) + random)
+function getCa(obj){
+  if(!obj)return null;
+  if(obj._ca)return obj._ca;
+  var id=obj.id||'';
+  if(id.length>=7){
+    var ts=parseInt(id.substring(0,8),36);
+    if(ts>1400000000000&&ts<2100000000000)return ts;
+  }
+  return null;
+}
+function fmtCaObj(obj){
+  var ts=getCa(obj);
+  return ts?'<div style="font-size:9px;color:var(--muted);opacity:.65;margin-top:2px">📅 '+fmtCa(ts)+'</div>':'';
 }
 function isMobile(){return window.innerWidth<=640;}
 
@@ -4032,7 +4047,7 @@ function tplPagos(p){
       <td class="hide-sm">${esc(g.descripcion||'—')}</td>
       <td class="hide-sm">${esc(g.proveedor)}</td>
       <td style="text-align:right"><strong style="color:var(--red)">${fmt(g.valor)}</strong></td>
-      <td>${fmtDate(g.fecha)}${g._ca?'<div style="font-size:9px;color:var(--muted);opacity:.7">'+fmtCa(g._ca)+'</div>':''}</td>
+      <td>${fmtDate(g.fecha)}${fmtCaObj(g)}</td>
       <td style="text-align:center">${gIsImg
         ?`<img src="${g.comprobante}" style="height:28px;width:34px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="verImagen('${g.comprobante}','${esc(g.factura)}')">`
         :gIsRef
@@ -6013,7 +6028,7 @@ function renderProveedores(){
   });
   var rows=provF.length===0?('<tr><td colspan="4" class="empty">'+(S.proveedores.length===0?'Sin proveedores':('Sin resultados para "'+esc(_q)+'"'))+'</td></tr>'):'';
   provF.forEach(function(p){
-    rows+=`<tr><td>${esc(p.nombre)}</td><td>${esc(p.tipo||'—')}</td><td>${esc(p.tel||'—')}</td><td><button class="btn btn-danger btn-xs" onclick="delProv('${p.id}')">✕</button></td></tr>`;
+    rows+=`<tr><td>${esc(p.nombre)}<br>${fmtCaObj(p)}</td><td>${esc(p.tipo||'—')}</td><td>${esc(p.tel||'—')}</td><td><button class="btn btn-danger btn-xs" onclick="delProv('${p.id}')">✕</button></td></tr>`;
   });
   document.getElementById('content').innerHTML=`
   <div class="card" style="margin-bottom:18px"><div class="sec-hdr">Nuevo Proveedor</div>
@@ -6061,7 +6076,7 @@ function renderCentros(){
     var gBadge=gobj?('<span class="badge b-blue" style="font-size:10px">👔 '+esc(gobj.nombre)+'</span>'):'<span style="font-size:11px;color:var(--muted)">—</span>';
     var q="'";
     var acciones=c.auto?'<span style="font-size:11px;color:var(--muted)">—</span>':'<div class="td-act"><button class="btn btn-secondary btn-xs" onclick="modalEditarCentro('+q+c.id+q+')">✏</button><button class="btn btn-danger btn-xs" onclick="delCentro('+q+c.id+q+')">✕</button></div>';
-    rows+='<tr><td><strong>'+esc(c.nombre)+'</strong></td><td style="font-size:12px;color:var(--muted)">'+esc(c.descripcion||'—')+'</td><td>'+pBadge+'</td><td>'+origBadge+'</td><td>'+codBadge+'</td><td>'+gBadge+'</td><td>'+acciones+'</td></tr>';
+    rows+='<tr><td><strong>'+esc(c.nombre)+'</strong>'+fmtCaObj(c)+'</td><td style="font-size:12px;color:var(--muted)">'+esc(c.descripcion||'—')+'</td><td>'+pBadge+'</td><td>'+origBadge+'</td><td>'+codBadge+'</td><td>'+gBadge+'</td><td>'+acciones+'</td></tr>';
   });
   var proyOpts=_proyOpts('');
   var theadHtml='<thead><tr>'+thSort('centros','nombre','Nombre',{})+thSort('centros','descripcion','Descripción',{})+thSort('centros','proyecto','Proyecto',{})+thSort('centros','origen','Origen',{})+thSort('centros','codMant','Cód. Mant.',{})+thSort('centros','gerente','Gerente de Zona',{})+'<th></th></tr></thead>';
@@ -8171,7 +8186,7 @@ function movInventario(prodId,tipo){
       ${tipo==='entrada'?'↑ Entrada de stock':'↓ Salida de stock'}
     </div>
     <div style="font-size:13px;color:var(--muted);margin-bottom:16px">
-      ${esc(prod.nombre)}${prod.numActivo?` · Activo: <strong>${esc(prod.numActivo)}</strong>`:''}
+      ${esc(prod.nombre)}${prod.numActivo?` · Activo: <strong>${esc(prod.numActivo)}</strong>`:''} ${fmtCaObj(prod)}
       · Stock actual: <strong>${prod.cantidad} ${esc(prod.unidad)}</strong>
     </div>
     <div class="row2">
@@ -12455,7 +12470,7 @@ function renderMantTecnicos(){
         +(t.activo===false?' <span class="badge b-err" style="font-size:10px">Inactivo</span>':'')
         +'</div>'
         +(t.telefono?'<div style="font-size:11px;color:var(--muted)">📞 '+esc(t.telefono)+'</div>':'')
-        +(t._ca?'<div style="font-size:10px;color:var(--muted);opacity:.6">'+fmtCa(t._ca)+'</div>':'')
+        +fmtCaObj(t)
         +(rolesBadges?'<div style="margin-top:4px">'+rolesBadges+'</div>':'')
         +'</div>'
         +'<div class="td-act">'
@@ -12675,7 +12690,7 @@ function verOTsTecnico(tecId){
       return '<tr>'
         +'<td><strong>'+esc(eq?eq.nombre:'(eliminado)')+'</strong></td>'
         +'<td style="font-size:11px">'+esc(centroMap[ot.centroId]||'—')+'</td>'
-        +'<td>'+fmtDate(ot.fechaProgramada)+(ot._ca?'<div style="font-size:9px;color:var(--muted);opacity:.6">'+fmtCa(ot._ca)+'</div>':'')+'</td>'
+        +'<td>'+fmtDate(ot.fechaProgramada)+fmtCaObj(ot)+'</td>'
         +'<td><span class="badge '+estColor+'">'+esc(estLabel)+'</span></td>'
         +'<td><button class="btn btn-secondary btn-xs" onclick="modalVerOT(\''+ot.id+'\')">Ver</button></td>'
         +'</tr>';
@@ -18877,7 +18892,7 @@ function renderTallerRevisiones(){
     }
     var totalRevs=(t.revisiones||[]).filter(function(r){return r.vehiculoId===v.id;}).length;
     return '<tr style="border-left:3px solid '+color+'">'
-      +'<td><strong>'+esc(v.placa)+'</strong><div style="font-size:11px;color:var(--muted)">'+esc(v.marca||'')+' '+esc(v.modelo||'')+'</div>'+(v._ca?'<div style="font-size:9px;color:var(--muted);opacity:.6">'+fmtCa(v._ca)+'</div>':'')+'</td>'
+      +'<td><strong>'+esc(v.placa)+'</strong><div style="font-size:11px;color:var(--muted)">'+esc(v.marca||'')+' '+esc(v.modelo||'')+'</div>'+fmtCaObj(v)+'</td>'
       +'<td>'+(ult?fmtDate(ult.fecha):'—')+'</td>'
       +'<td>'+estado+'</td>'
       +'<td style="text-align:center">'+totalRevs+'</td>'
