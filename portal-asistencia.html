@@ -1299,8 +1299,164 @@ function paUpdateDash() {
 }
 
 // ══════════════════════════════════════════════════════
-// MARCACIÓN (Camera + Location + Confirm)
+// CÁLCULO AUTOMÁTICO DE HORAS EXTRA
 // ══════════════════════════════════════════════════════
+
+// Clasifica minutos de un rango como diurnos o nocturnos
+// Diurna:   5:01 AM (301 min) – 7:00 PM (1200 min)
+// Nocturna: 7:01 PM (1201 min) – 5:00 AM (300 min, siguiente día)
+var HE_DIURNA_INI  = 5 * 60 + 1;   // 5:01 AM = 301
+var HE_DIURNA_FIN  = 19 * 60;       // 7:00 PM = 1140
+var HE_NOCT_FIN    = 5 * 60;        // 5:00 AM = 300
+
+function _heMinsDiurna(desdeMin, hastaMin) {
+  // minutos del rango [desdeMin, hastaMin) que caen en diurno (301-1140)
+  var s = Math.max(desdeMin, HE_DIURNA_INI);
+  var e = Math.min(hastaMin, HE_DIURNA_FIN);
+  return Math.max(0, e - s);
+}
+
+function _heMinsNocturna(desdeMin, hastaMin) {
+  // minutos en nocturno: 0-300 (madrugada) y 1141-1440+ (noche)
+  var mins = 0;
+  // Madrugada: 0:00 – 5:00 AM
+  var s1 = Math.max(desdeMin, 0);
+  var e1 = Math.min(hastaMin, HE_NOCT_FIN);
+  mins += Math.max(0, e1 - s1);
+  // Noche: 7:01 PM en adelante
+  var s2 = Math.max(desdeMin, HE_DIURNA_FIN + 1);
+  var e2 = hastaMin;
+  mins += Math.max(0, e2 - s2);
+  return mins;
+}
+
+function paCalcularHorasExtra(entradaTs, salidaTs, fecha) {
+  // Minutos desde medianoche
+  function toMin(ts) {
+    var d = new Date(ts);
+    return d.getHours() * 60 + d.getMinutes();
+  }
+
+  var dia = new Date(fecha + 'T12:00:00').getDay(); // 0=Dom,6=Sab
+  var esSabado  = dia === 6;
+  var esDomingo = dia === 0;
+
+  var minE = toMin(entradaTs); // minutos entrada
+  var minS = toMin(salidaTs);  // minutos salida
+  // Si salida < entrada asumimos que cruzó medianoche
+  if (minS <= minE) minS += 24 * 60;
+
+  // Horario normal en minutos
+  var ini, fin;
+  if (esDomingo) {
+    ini = null; fin = null; // todo extra
+  } else if (esSabado) {
+    ini = 8 * 60;  // 8:00
+    fin = 12 * 60; // 12:00
+  } else {
+    var hIni = PA.horario.horaEntrada || '08:00';
+    var hFin = PA.horario.horaSalida  || '17:00';
+    ini = parseInt(hIni.split(':')[0]) * 60 + parseInt(hIni.split(':')[1] || 0);
+    fin = parseInt(hFin.split(':')[0]) * 60 + parseInt(hFin.split(':')[1] || 0);
+  }
+
+  var extraDiurna   = 0; // minutos
+  var extraNocturna = 0;
+
+  if (esDomingo) {
+    // Todo el tiempo trabajado es extra
+    extraDiurna   = _heMinsDiurna(minE, minS);
+    extraNocturna = _heMinsNocturna(minE, minS);
+  } else {
+    // Antes del horario normal
+    if (minE < ini) {
+      extraDiurna   += _heMinsDiurna(minE, ini);
+      extraNocturna += _heMinsNocturna(minE, ini);
+    }
+    // Después del horario normal
+    if (minS > fin) {
+      extraDiurna   += _heMinsDiurna(fin, minS);
+      extraNocturna += _heMinsNocturna(fin, minS);
+    }
+  }
+
+  var horasDiurna   = Math.round(extraDiurna   / 60 * 100) / 100;
+  var horasNocturna = Math.round(extraNocturna  / 60 * 100) / 100;
+
+  return {
+    diurna:   horasDiurna,
+    nocturna: horasNocturna,
+    total:    Math.round((horasDiurna + horasNocturna) * 100) / 100,
+    esSabado:  esSabado,
+    esDomingo: esDomingo
+  };
+}
+
+function paAutoRegistrarHorasExtra(salidaDocData, callback) {
+  // Buscar marcación de entrada del mismo día para calcular
+  var hoy = salidaDocData.fecha;
+  var empId = salidaDocData.empleadoId;
+
+  // Buscar en marcaciones locales primero
+  var mEntrada = PA.marcacionesHoy.find(function(m){ return m.tipo === 'entrada' && m.fecha === hoy; });
+
+  var registrar = function(entradaTs) {
+    var calc = paCalcularHorasExtra(entradaTs, salidaDocData.ts, hoy);
+    if (calc.total <= 0) { if (callback) callback(null); return; } // sin horas extra
+
+    var registros = [];
+    if (calc.diurna > 0) {
+      registros.push({
+        empresa: PA.empresa, empleadoId: empId,
+        empleadoNombre: salidaDocData.empleadoNombre,
+        fecha: hoy, tipo: 'diurna', horas: calc.diurna,
+        descripcion: 'Auto-calculado — jornada ' + hoy,
+        ts: Date.now(), estado: 'pendiente',
+        origen: 'auto', folio: 'HE-AUTO-' + paGenId().toUpperCase()
+      });
+    }
+    if (calc.nocturna > 0) {
+      registros.push({
+        empresa: PA.empresa, empleadoId: empId,
+        empleadoNombre: salidaDocData.empleadoNombre,
+        fecha: hoy, tipo: 'nocturna', horas: calc.nocturna,
+        descripcion: 'Auto-calculado — jornada ' + hoy,
+        ts: Date.now(), estado: 'pendiente',
+        origen: 'auto', folio: 'HE-AUTO-' + paGenId().toUpperCase()
+      });
+    }
+
+    // Guardar en Firestore
+    var promises = registros.map(function(r) {
+      return paDb.collection('paHorasExtra').add(r);
+    });
+    Promise.all(promises).then(function() {
+      if (callback) callback(calc);
+    }).catch(function(e) {
+      console.warn('[HE Auto]', e.message);
+      if (callback) callback(calc); // mostrar igual aunque no se guardara
+    });
+  };
+
+  if (mEntrada) {
+    registrar(mEntrada.ts);
+  } else {
+    // Buscar en Firestore
+    paDb.collection('paMarcaciones')
+      .where('empresa', '==', PA.empresa)
+      .where('empleadoId', '==', empId)
+      .where('fecha', '==', hoy)
+      .where('tipo', '==', 'entrada')
+      .get().then(function(snap) {
+        if (!snap.empty) {
+          var ts = snap.docs[0].data().ts;
+          registrar(ts);
+        } else {
+          if (callback) callback(null);
+        }
+      }).catch(function() { if (callback) callback(null); });
+  }
+}
 var paStream = null;
 
 function paGoMarcar(tipo) {
@@ -1531,44 +1687,59 @@ function paConfirmarMarca() {
   };
   
   paDb.collection('paMarcaciones').add(docData).then(function(ref) {
-    // Update local state
     PA.marcacionesHoy.push(Object.assign({ id: ref.id }, docData));
-    
-    // Stop camera
     if (paStream) { paStream.getTracks().forEach(function(t){ t.stop(); }); paStream = null; }
-    
-    // Show success
+
+    // ── Si es salida → calcular horas extra automáticamente ──
+    if (PA.tipoMarca === 'salida') {
+      paAutoRegistrarHorasExtra(docData, function(calc) {
+        _paMostrarExito(docData, calc);
+      });
+    } else {
+      _paMostrarExito(docData, null);
+    }
+    if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
+  }).catch(function(e) {
+    if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
+    if (errEl) { errEl.textContent = 'Error: ' + e.message; errEl.style.display = 'block'; }
+  });
+}
+
+function _paMostrarExito(docData, calc) {
     var tipos = {
       entrada: { icon: '🏢', title: '¡Entrada registrada!', sub: 'Tu llegada fue marcada correctamente.' },
       almuerzo_salida: { icon: '🍽️', title: '¡Buen provecho!', sub: 'Salida a almuerzo registrada.' },
       almuerzo_regreso: { icon: '↩️', title: '¡Bienvenido de vuelta!', sub: 'Regreso de almuerzo registrado.' },
       salida: { icon: '🏠', title: '¡Hasta mañana!', sub: 'Tu salida fue registrada. ¡Buen descanso!' }
     };
-    var info = tipos[PA.tipoMarca] || { icon: '✅', title: '¡Registro exitoso!', sub: '' };
-    
-    var iconEl = document.getElementById('successIcon');
+    var info = tipos[docData.tipo] || { icon: '✅', title: '¡Registro exitoso!', sub: '' };
+    var iconEl  = document.getElementById('successIcon');
     var titleEl = document.getElementById('successTitle');
-    var subEl = document.getElementById('successSub');
+    var subEl   = document.getElementById('successSub');
     var folioEl = document.getElementById('successFolio');
-    
-    if (iconEl) iconEl.textContent = info.icon;
+    if (iconEl)  iconEl.textContent  = info.icon;
     if (titleEl) titleEl.textContent = info.title;
-    var extraInfo = '';
-    if (PA.tipoMarca === 'entrada' && docData.minutosRetraso > 0) {
-      extraInfo = '\n⚠ Llegada con ' + docData.minutosRetraso + ' minutos de retraso';
+
+    var extraInfo = '\n' + paFmtHora(docData.ts);
+    if (docData.tipo === 'entrada' && docData.minutosRetraso > 0) {
+      extraInfo += '\n⚠ Llegada con ' + docData.minutosRetraso + ' minutos de retraso';
     }
-    if (docData.esFeriado) extraInfo += '\n🎉 Día feriado registrado';
-    if (docData.esFinDeSemana && !docData.esFeriado) extraInfo += '\n📅 Día fin de semana';
-    if (subEl) subEl.textContent = info.sub + '\n' + paFmtHora(now) + extraInfo;
+    if (docData.esFeriado)    extraInfo += '\n🎉 Día feriado';
+    if (docData.esFinDeSemana && !docData.esFeriado) extraInfo += '\n📅 Fin de semana';
+
+    // Resumen de horas extra auto-calculadas
+    if (calc && calc.total > 0) {
+      extraInfo += '\n\n⏰ Horas extra calculadas:';
+      if (calc.diurna   > 0) extraInfo += '\n  ☀️ Diurnas:   ' + calc.diurna.toFixed(2) + ' hrs';
+      if (calc.nocturna > 0) extraInfo += '\n  🌙 Nocturnas: ' + calc.nocturna.toFixed(2) + ' hrs';
+      extraInfo += '\n  Total: ' + calc.total.toFixed(2) + ' hrs (pendiente de aprobación)';
+    } else if (docData.tipo === 'salida') {
+      extraInfo += '\n✓ Sin horas extra en esta jornada';
+    }
+
+    if (subEl)   subEl.textContent  = info.sub + extraInfo;
     if (folioEl) folioEl.textContent = 'Folio: ' + docData.folio;
-    
     paShow('scSuccess');
-    
-    if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
-  }).catch(function(e) {
-    if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
-    if (errEl) { errEl.textContent = 'Error: ' + e.message; errEl.style.display = 'block'; }
-  });
 }
 
 // ══════════════════════════════════════════════════════
