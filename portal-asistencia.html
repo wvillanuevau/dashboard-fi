@@ -774,6 +774,7 @@ body.scrollable{overflow-y:auto}
   </div>
   <div class="tab-bar">
     <button class="tab-btn active" id="atab_hoy" onclick="paAdminTab('hoy')">📅 Hoy</button>
+    <button class="tab-btn" id="atab_hist" onclick="paAdminTab('hist')">🔍 Historial</button>
     <button class="tab-btn" id="atab_emps" onclick="paAdminTab('emps')">👥 Empleados</button>
     <button class="tab-btn" id="atab_extra" onclick="paAdminTab('extra')">⏰ Horas extra</button>
     <button class="tab-btn" id="atab_reporte" onclick="paAdminTab('reporte')">📊 Reporte pago</button>
@@ -1178,17 +1179,25 @@ function paBioAuth() {
   if (!PA._bioAttempts) PA._bioAttempts = 0;
 
   var credId = emp.credId;
+
   if (!credId) {
-    // First time: register biometric then auth
-    paRegisterBio();
+    // Sin credencial registrada — registrar ahora
+    _paRegistrarBioYAutenticar();
     return;
   }
 
-  var credIdBytes = Uint8Array.from(atob(credId), function(c){ return c.charCodeAt(0); });
-  // Random challenge each attempt
+  // Intentar autenticar con credencial existente
+  var credIdBytes;
+  try {
+    credIdBytes = Uint8Array.from(atob(credId), function(c){ return c.charCodeAt(0); });
+  } catch(e) {
+    // credId inválido — registrar de nuevo
+    _paRegistrarBioYAutenticar();
+    return;
+  }
+
   var challenge = new Uint8Array(16);
   if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(challenge);
-  else challenge.fill(PA._bioAttempts + 1);
 
   navigator.credentials.get({
     publicKey: {
@@ -1202,16 +1211,93 @@ function paBioAuth() {
     paToast('🧬 Biométrico verificado');
     paAfterAuth();
   }).catch(function(e) {
+    // "No credentials available" — la credencial no existe en este dispositivo
+    if (e.name === 'NotAllowedError' || e.message.indexOf('No credentials') >= 0 || e.message.indexOf('llaves') >= 0) {
+      // Ofrecer registrar biométrico en este dispositivo
+      if (confirm('No hay biométrico registrado en este dispositivo.\n\n¿Registrar ahora con Face ID / huella?')) {
+        _paRegistrarBioYAutenticar();
+      } else {
+        _paFallbackPin();
+      }
+      return;
+    }
     PA._bioAttempts++;
     if (PA._bioAttempts >= 3) {
-      // 3 failed attempts → generate one-time PIN
       _paGenerarOTP();
     } else {
       var restantes = 3 - PA._bioAttempts;
-      // Show retry screen
       _paShowBioRetry(restantes);
     }
   });
+}
+
+function _paRegistrarBioYAutenticar() {
+  var emp = PA.empleado;
+  if (!emp) return;
+
+  var nameEl = document.getElementById('pinEmpName');
+  if (nameEl) nameEl.textContent = emp.nombre;
+
+  var bioHint = document.getElementById('bioHint');
+  if (bioHint) bioHint.textContent = '🧬 Coloca tu dedo o mira la cámara para registrar tu biométrico...';
+
+  paShow('scPin');
+
+  // Hide PIN pad while registering
+  document.querySelectorAll('.pin-key').forEach(function(k){ k.style.display='none'; });
+  var pinDisp = document.getElementById('pinDisplay');
+  if (pinDisp) pinDisp.style.display = 'none';
+
+  var userIdBytes = new TextEncoder().encode(emp.id);
+
+  navigator.credentials.create({
+    publicKey: {
+      challenge: new Uint8Array(16).fill(3),
+      rp: { name: 'Portal Asistencia FISDC', id: window.location.hostname },
+      user: { id: userIdBytes, name: emp.nombre, displayName: emp.nombre },
+      pubKeyCredParams: [{ alg: -7, type: 'public-key' }],
+      authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required' },
+      timeout: 60000
+    }
+  }).then(function(cred) {
+    var credIdB64 = btoa(String.fromCharCode.apply(null, new Uint8Array(cred.rawId)));
+    // Save credId to paPins
+    var existDocId = PA._pinsDocMap && PA._pinsDocMap[emp.id];
+    var bioPromise = existDocId
+      ? paDb.collection('paPins').doc(existDocId).update({ credId: credIdB64 })
+      : paDb.collection('paPins').add({ empresa: PA.empresa, empleadoId: emp.id, credId: credIdB64, pin: emp.pin || '' });
+    bioPromise.then(function() {
+      emp.credId = credIdB64;
+      // Update local pinsDocMap if new doc
+      PA._bioAttempts = 0;
+      paToast('🧬 Biométrico registrado. Bienvenido, ' + emp.nombre + '!');
+      // Restore PIN pad
+      document.querySelectorAll('.pin-key').forEach(function(k){ k.style.removeProperty('display'); });
+      if (pinDisp) pinDisp.style.display = 'flex';
+      paAfterAuth();
+    }).catch(function(e) {
+      paToast('Error guardando biométrico: ' + e.message, true);
+      _paFallbackPin();
+    });
+  }).catch(function(e) {
+    if (e.name !== 'NotAllowedError') {
+      paToast('No se pudo registrar: ' + e.message, true);
+    }
+    // Fallback to PIN
+    _paFallbackPin();
+  });
+}
+
+function _paFallbackPin() {
+  var nameEl = document.getElementById('pinEmpName');
+  if (nameEl && PA.empleado) nameEl.textContent = PA.empleado.nombre;
+  var bioHint = document.getElementById('bioHint');
+  if (bioHint) bioHint.textContent = '';
+  document.querySelectorAll('.pin-key').forEach(function(k){ k.style.removeProperty('display'); });
+  var pinDisp = document.getElementById('pinDisplay');
+  if (pinDisp) pinDisp.style.display = 'flex';
+  paPinUpdate();
+  paShow('scPin');
 }
 
 function _paShowBioRetry(restantes) {
@@ -2239,7 +2325,7 @@ function paLoadHistorial() {
 // ══════════════════════════════════════════════════════
 function paAdminTab(tab) {
   PA.adminTab = tab;
-  var tabs = ['hoy', 'emps', 'extra', 'reporte', 'config'];
+  var tabs = ['hoy', 'hist', 'emps', 'extra', 'reporte', 'config'];
   tabs.forEach(function(t) {
     var el = document.getElementById('atab_' + t);
     if (el) el.className = 'tab-btn' + (t === tab ? ' active' : '');
@@ -2249,11 +2335,12 @@ function paAdminTab(tab) {
   if (!content) return;
   content.innerHTML = '<div class="spinner"></div>';
   
-  if (tab === 'hoy') paAdminHoy(content);
-  if (tab === 'emps') paAdminEmps(content);
-  if (tab === 'extra') paAdminExtra(content);
+  if (tab === 'hoy')     paAdminHoy(content);
+  if (tab === 'hist')    paAdminHistorial(content);
+  if (tab === 'emps')    paAdminEmps(content);
+  if (tab === 'extra')   paAdminExtra(content);
   if (tab === 'reporte') paAdminReporte(content);
-  if (tab === 'config') paAdminConfig(content);
+  if (tab === 'config')  paAdminConfig(content);
 }
 
 function paAdminHoy(content) {
@@ -2263,42 +2350,60 @@ function paAdminHoy(content) {
     .where('fecha', '==', hoy)
     .get().then(function(snap) {
       var marcs = {};
+      PA._marcacionesDetalle = {}; // store full records for viewer
       snap.forEach(function(d) {
-        var m = d.data();
+        var m = Object.assign({ _id: d.id }, d.data());
         var empId = m.empleadoId;
-        if (!marcs[empId]) marcs[empId] = { nombre: m.empleadoNombre, tipos: [], tarde: 0, centro: '' };
+        if (!marcs[empId]) marcs[empId] = { nombre: m.empleadoNombre, tipos: [], tarde: 0, centro: '', registros: [] };
         marcs[empId].tipos.push(m.tipo);
+        marcs[empId].registros.push(m);
         if (m.minutosRetraso > 0) marcs[empId].tarde = m.minutosRetraso;
         if (m.centroNombre) marcs[empId].centro = m.centroNombre;
+        PA._marcacionesDetalle[m._id] = m;
       });
-      
-      var totalHoy = Object.keys(marcs).length;
+
       var conEntrada = Object.keys(marcs).filter(function(k){ return marcs[k].tipos.indexOf('entrada') >= 0; }).length;
-      var conSalida = Object.keys(marcs).filter(function(k){ return marcs[k].tipos.indexOf('salida') >= 0; }).length;
-      
-      var html = '<div class="stat-grid">';
-      html += '<div class="stat-card"><div class="stat-val" style="color:var(--accent)">'+conEntrada+'</div><div class="stat-lbl">Con entrada hoy</div></div>';
-      html += '<div class="stat-card"><div class="stat-val" style="color:var(--warn)">'+conSalida+'</div><div class="stat-lbl">Con salida hoy</div></div>';
-      html += '</div>';
-      
-      html += '<div class="section-title">Marcaciones de hoy</div>';
-      
+      var conSalida  = Object.keys(marcs).filter(function(k){ return marcs[k].tipos.indexOf('salida') >= 0; }).length;
+
+      var html = '<div class="stat-grid">'
+        +'<div class="stat-card"><div class="stat-val" style="color:var(--accent)">'+conEntrada+'</div><div class="stat-lbl">Con entrada hoy</div></div>'
+        +'<div class="stat-card"><div class="stat-val" style="color:var(--warn)">'+conSalida+'</div><div class="stat-lbl">Con salida hoy</div></div>'
+        +'</div>';
+
+      html += '<div class="section-title">Marcaciones de hoy — clic para ver foto y ubicación</div>';
+
+      var tiposLabel = { entrada:'🏢 Entrada', almuerzo_salida:'🍽️ Sal. almuerzo', almuerzo_regreso:'↩️ Reg. almuerzo', salida:'🏠 Salida', entrada_adicional:'⚡ Entrada adicional', salida_adicional:'⚡ Sal. adicional' };
+
       if (!Object.keys(marcs).length) {
         html += '<div style="text-align:center;padding:32px;color:var(--muted)">Sin marcaciones hoy.</div>';
       } else {
         Object.keys(marcs).forEach(function(empId) {
           var emp = marcs[empId];
-          var tiposLabel = { entrada:'🏢', almuerzo_salida:'🍽️', almuerzo_regreso:'↩️', salida:'🏠' };
-          var icons = emp.tipos.map(function(t){ return tiposLabel[t] || t; }).join(' ');
-          html += '<div class="report-row"><div><div class="report-emp">'+emp.nombre+'</div><div class="report-detail">'+icons+'</div></div></div>';
+          var tardeBadge = emp.tarde > 0 ? ' <span style="color:var(--warn);font-size:10px">⚠ +'+emp.tarde+'min</span>' : '';
+          html += '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:8px">'
+            +'<div style="font-weight:700;margin-bottom:8px">'+emp.nombre+tardeBadge+'</div>'
+            +'<div style="display:flex;flex-wrap:wrap;gap:8px">';
+          emp.registros.sort(function(a,b){ return (a.ts||0)-(b.ts||0); }).forEach(function(r) {
+            var hora = r.ts ? paFmtHora(r.ts) : '—';
+            var hasFoto = !!r.foto;
+            var hasLoc  = !!(r.ubicacion && r.ubicacion.lat);
+            var badges  = (hasFoto ? '📸' : '') + (hasLoc ? '📍' : '');
+            html += '<button onclick="paVerMarcacion(\''+r._id+'\')" '
+              +'style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:8px 12px;cursor:pointer;text-align:left;color:var(--text);font-family:inherit">'
+              +'<div style="font-size:11px;font-weight:700;color:var(--accent2)">'+(tiposLabel[r.tipo]||r.tipo)+'</div>'
+              +'<div style="font-size:12px;font-family:\'JetBrains Mono\',monospace;margin:2px 0">'+hora+'</div>'
+              +'<div style="font-size:11px;color:var(--muted)">'+badges+(r.centroNombre?' · '+r.centroNombre:'')+'</div>'
+              +'</button>';
+          });
+          html += '</div></div>';
         });
       }
-      
+
       // Pending extra hours
       paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).where('estado','==','pendiente').get()
         .then(function(snapH) {
           if (!snapH.empty) {
-            html += '<div class="section-title" style="margin-top:20px">⏳ Horas extra pendientes de aprobar ('+snapH.size+')</div>';
+            html += '<div class="section-title" style="margin-top:20px">⏳ Horas extra pendientes ('+snapH.size+')</div>';
             snapH.forEach(function(d) {
               var h = d.data();
               var tipos = { diurna:'☀️', nocturna:'🌙', feriado:'🎉', finde:'📅' };
@@ -2315,6 +2420,124 @@ function paAdminHoy(content) {
         });
     }).catch(function(e) {
       content.innerHTML = '<div style="color:var(--red)">Error: ' + e.message + '</div>';
+    });
+}
+
+function paVerMarcacion(marcId) {
+  var m = PA._marcacionesDetalle && PA._marcacionesDetalle[marcId];
+  if (!m) { paToast('Registro no encontrado', true); return; }
+
+  var old = document.getElementById('modalVerMarca'); if (old) old.remove();
+  var div = document.createElement('div');
+  div.id = 'modalVerMarca';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:500;display:flex;align-items:flex-end;justify-content:center;padding:0';
+
+  var tiposLabel = { entrada:'🏢 Entrada', almuerzo_salida:'🍽️ Salida almuerzo', almuerzo_regreso:'↩️ Regreso almuerzo', salida:'🏠 Salida', entrada_adicional:'⚡ Entrada adicional', salida_adicional:'⚡ Salida adicional' };
+  var hora = m.ts ? new Date(m.ts).toLocaleString('es-SV',{hour:'2-digit',minute:'2-digit',hour12:true,day:'2-digit',month:'short'}) : '—';
+
+  var fotoHtml = m.foto
+    ? '<img src="'+m.foto+'" style="width:100%;max-height:300px;object-fit:cover;border-radius:10px;margin-bottom:12px">'
+    : '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:24px;text-align:center;color:var(--muted);margin-bottom:12px">📷 Sin foto registrada</div>';
+
+  var locHtml = '';
+  if (m.ubicacion && m.ubicacion.lat) {
+    var lat = m.ubicacion.lat.toFixed(6);
+    var lng = m.ubicacion.lng.toFixed(6);
+    var acc = m.ubicacion.acc ? ' (±'+m.ubicacion.acc+'m)' : '';
+    var mapsUrl = 'https://www.google.com/maps?q='+lat+','+lng;
+    locHtml = '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px">'
+      +'<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">📍 Ubicación'+acc+'</div>'
+      +'<div style="font-family:\'JetBrains Mono\',monospace;font-size:12px;color:var(--accent2);margin-bottom:8px">'+lat+', '+lng+'</div>'
+      // Embedded static map via Google Maps image
+      +'<img src="https://maps.googleapis.com/maps/api/staticmap?center='+lat+','+lng+'&zoom=16&size=400x160&markers=color:red%7C'+lat+','+lng+'&key=AIzaSyC0R7573cB76FzC6qPZhLmvKhVT46PN3RM" '
+      +'onerror="this.style.display=\'none\'" style="width:100%;border-radius:8px;margin-bottom:8px">'
+      +'<a href="'+mapsUrl+'" target="_blank" style="display:block;text-align:center;background:rgba(56,139,253,.15);border:1px solid rgba(56,139,253,.3);border-radius:8px;padding:8px;color:var(--accent2);text-decoration:none;font-size:13px;font-weight:600">🗺️ Ver en Google Maps</a>'
+      +'</div>';
+  } else {
+    locHtml = '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px;color:var(--muted);font-size:13px">📍 Ubicación no disponible</div>';
+  }
+
+  var tardeBadge = m.minutosRetraso > 0
+    ? '<span style="background:rgba(210,153,34,.15);color:var(--warn);padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;margin-left:6px">⚠ +'+m.minutosRetraso+' min</span>'
+    : '';
+  var feriadoBadge = m.esFeriado ? '<span style="background:rgba(46,160,67,.15);color:var(--accent);padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;margin-left:6px">🎉 Feriado</span>' : '';
+  var findeBadge = (m.esFinDeSemana && !m.esFeriado) ? '<span style="background:rgba(56,139,253,.15);color:var(--accent2);padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;margin-left:6px">📅 Fin semana</span>' : '';
+
+  div.innerHTML = '<div style="background:var(--surface);border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:20px 18px 36px;max-height:90vh;overflow-y:auto">'
+    +'<span style="display:block;width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px"></span>'
+    +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">'
+    +'<div>'
+    +'<div style="font-size:16px;font-weight:700">'+(tiposLabel[m.tipo]||m.tipo)+tardeBadge+feriadoBadge+findeBadge+'</div>'
+    +'<div style="font-size:13px;color:var(--muted);margin-top:2px">'+m.empleadoNombre+'</div>'
+    +'<div style="font-size:12px;font-family:\'JetBrains Mono\',monospace;color:var(--accent2);margin-top:4px">'+hora+'</div>'
+    +(m.centroNombre?'<div style="font-size:11px;color:var(--muted);margin-top:2px">📍 '+m.centroNombre+'</div>':'')
+    +(m.observacion?'<div style="font-size:11px;color:var(--text);margin-top:6px;background:var(--surface2);padding:6px 8px;border-radius:6px">💬 '+m.observacion+'</div>':'')
+    +'</div>'
+    +'<button onclick="document.getElementById(\'modalVerMarca\').remove()" style="background:var(--surface2);border:none;color:var(--muted);cursor:pointer;font-size:20px;border-radius:8px;padding:4px 10px">✕</button>'
+    +'</div>'
+    +fotoHtml
+    +locHtml
+    +'<div style="font-size:10px;color:var(--muted);text-align:right;font-family:\'JetBrains Mono\',monospace">'+m.folio+'</div>'
+    +'</div>';
+
+  document.body.appendChild(div);
+}
+function paAdminHistorial(content) {
+  var hoy = paHoy();
+  var html = '<div class="fg"><label>Fecha a revisar</label>'
+    +'<input type="date" id="histFecha" value="'+hoy+'" max="'+hoy+'" style="font-size:16px" onchange="paCargarHistorialFecha(this.value)">'
+    +'</div><div id="histFechaContent"><div class="spinner"></div></div>';
+  content.innerHTML = html;
+  paCargarHistorialFecha(hoy);
+}
+
+function paCargarHistorialFecha(fecha) {
+  var rc = document.getElementById('histFechaContent');
+  if (!rc) return;
+  rc.innerHTML = '<div class="spinner"></div>';
+
+  paDb.collection('paMarcaciones')
+    .where('empresa','==',PA.empresa)
+    .where('fecha','==',fecha)
+    .get().then(function(snap) {
+      PA._marcacionesDetalle = PA._marcacionesDetalle || {};
+      var byEmp = {};
+      snap.forEach(function(d) {
+        var m = Object.assign({ _id: d.id }, d.data());
+        PA._marcacionesDetalle[m._id] = m;
+        if (!byEmp[m.empleadoId]) byEmp[m.empleadoId] = { nombre: m.empleadoNombre, registros: [] };
+        byEmp[m.empleadoId].registros.push(m);
+      });
+
+      if (!Object.keys(byEmp).length) {
+        rc.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted)">Sin marcaciones para '+fecha+'</div>';
+        return;
+      }
+
+      var tiposLabel = { entrada:'🏢 Entrada', almuerzo_salida:'🍽️ Sal. almuerzo', almuerzo_regreso:'↩️ Reg. almuerzo', salida:'🏠 Salida', entrada_adicional:'⚡ Entrada adicional', salida_adicional:'⚡ Sal. adicional' };
+      var html = '<div class="section-title">'+Object.keys(byEmp).length+' empleado(s) con registro el '+fecha+'</div>';
+
+      Object.keys(byEmp).forEach(function(eid) {
+        var emp = byEmp[eid];
+        html += '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:8px">'
+          +'<div style="font-weight:700;margin-bottom:8px">'+emp.nombre+'</div>'
+          +'<div style="display:flex;flex-wrap:wrap;gap:8px">';
+        emp.registros.sort(function(a,b){ return (a.ts||0)-(b.ts||0); }).forEach(function(r) {
+          var hora = r.ts ? paFmtHora(r.ts) : '—';
+          var hasFoto = !!r.foto;
+          var hasLoc  = !!(r.ubicacion && r.ubicacion.lat);
+          html += '<button onclick="paVerMarcacion(\''+r._id+'\')" '
+            +'style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:8px 12px;cursor:pointer;text-align:left;color:var(--text);font-family:inherit">'
+            +'<div style="font-size:11px;font-weight:700;color:var(--accent2)">'+(tiposLabel[r.tipo]||r.tipo)+'</div>'
+            +'<div style="font-size:12px;font-family:\'JetBrains Mono\',monospace;margin:2px 0">'+hora+'</div>'
+            +'<div style="font-size:11px;color:var(--muted)">'+(hasFoto?'📸 ':'')+(hasLoc?'📍':'')+(r.minutosRetraso>0?' ⚠+'+r.minutosRetraso+'min':'')+'</div>'
+            +'</button>';
+        });
+        html += '</div></div>';
+      });
+      rc.innerHTML = html;
+    }).catch(function(e) {
+      rc.innerHTML = '<div style="color:var(--red)">Error: '+e.message+'</div>';
     });
 }
 
