@@ -574,6 +574,14 @@ body.scrollable{overflow-y:auto}
       </div>
     </div>
 
+    <!-- Centro de trabajo -->
+    <div class="section-title">🏢 Sucursal / Centro de trabajo</div>
+    <div class="fg" style="margin-bottom:16px">
+      <select id="marcarCentro" style="font-size:16px;width:100%;padding:13px 14px;background:var(--surface);border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:inherit;-webkit-appearance:none">
+        <option value="">— Seleccionar sucursal —</option>
+      </select>
+    </div>
+
     <!-- Hora actual -->
     <div class="section-title">⏱️ Hora de registro</div>
     <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">
@@ -766,6 +774,7 @@ body.scrollable{overflow-y:auto}
     <button class="tab-btn" id="atab_emps" onclick="paAdminTab('emps')">👥 Empleados</button>
     <button class="tab-btn" id="atab_extra" onclick="paAdminTab('extra')">⏰ Horas extra</button>
     <button class="tab-btn" id="atab_reporte" onclick="paAdminTab('reporte')">📊 Reporte pago</button>
+    <button class="tab-btn" id="atab_config" onclick="paAdminTab('config')">⚙️ Config</button>
   </div>
   <div class="portal-body" style="overflow-y:auto;padding-top:16px" id="adminContent">
     <div class="spinner"></div>
@@ -788,18 +797,22 @@ body.scrollable{overflow-y:auto}
   </div>
 </div>
 
-<!-- ADMIN MODAL: Nuevo Empleado -->
+<!-- ADMIN MODAL: Asignar PIN a empleado existente -->
 <div class="pa-modal" id="modalNuevoEmp" style="display:none">
   <div class="pa-modal-box">
     <span class="modal-handle"></span>
-    <div style="font-size:17px;font-weight:700;margin-bottom:16px">➕ Nuevo Empleado</div>
-    <div class="fg"><label>Nombre completo *</label><input id="neNombre" type="text" placeholder="Nombre del empleado"></div>
-    <div class="fg"><label>Cargo</label><input id="neCargo" type="text" placeholder="Ej: Técnico, Motorista..."></div>
-    <div class="fg"><label>PIN (4 dígitos) *</label><input id="nePin" type="number" placeholder="0000" maxlength="4" style="font-family:'JetBrains Mono',monospace;text-align:center;font-size:24px"></div>
+    <div style="font-size:17px;font-weight:700;margin-bottom:4px">🔐 Asignar PIN a empleado</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Los empleados se gestionan desde el sistema principal. Aquí solo asignas el PIN de acceso al portal.</div>
+    <div class="fg">
+      <label>Empleado *</label>
+      <select id="neEmpSel" style="font-size:16px">
+        <option value="">— Seleccionar empleado —</option>
+      </select>
+    </div>
+    <div class="fg"><label>PIN (4 dígitos) *</label><input id="nePin" type="number" placeholder="0000" style="font-family:'JetBrains Mono',monospace;text-align:center;font-size:24px"></div>
     <div class="fg"><label>Días de vacaciones disponibles</label><input id="neDiasVac" type="number" value="15" min="0"></div>
-    <div class="fg"><label>Horas extra acumuladas</label><input id="neHorasExt" type="number" value="0" min="0" step="0.5"></div>
-    <div class="fg"><label>Ruta/Sede</label><input id="neRuta" type="text" placeholder="Ej: Armenia, Zaragoza..."></div>
-    <button class="big-btn" onclick="paCrearEmpleado()">✅ Crear empleado</button>
+    <div class="fg"><label>Horas extra acumuladas (si aplica)</label><input id="neHorasExt" type="number" value="0" min="0" step="0.5"></div>
+    <button class="big-btn" onclick="paCrearEmpleado()">✅ Asignar PIN</button>
     <button class="big-btn outline mt8" onclick="document.getElementById('modalNuevoEmp').style.display='none'">Cancelar</button>
   </div>
 </div>
@@ -826,10 +839,29 @@ const paDb = firebase.firestore(_paApp);
 // ══════════════════════════════════════════════════════
 // STATE
 // ══════════════════════════════════════════════════════
+// Feriados El Salvador (fijos + trasladados)
+var PA_FERIADOS_SV = [
+  // Fijos nacionales
+  '01-01','05-01','09-15','11-02','12-25',
+  // Semana Santa (variables - se configuran manualmente por año)
+  // Fiestas Agostinas San Salvador
+  '08-03','08-04','08-05','08-06',
+];
+
 var PA = {
   empresa: 'FISDC',
   empleado: null,
   empleados: [],
+  centros: [],
+  rutas: [],
+  horario: {
+    horaEntrada: '07:00',
+    horaSalida: '17:00',
+    minutosTolerancia: 10,
+    minutosAlmuerzo: 60,
+    diasLaborales: [1,2,3,4,5,6], // 0=Dom,1=Lun...6=Sab
+  },
+  feriados: [], // fechas ISO cargadas desde paConfig
   marcacionesHoy: [],
   horasExtraAcum: 0,
   diasVacDisp: 0,
@@ -840,8 +872,10 @@ var PA = {
   adminTab: 'hoy',
   histTab: 'marc',
   isAdmin: false,
-  adminPin: '1234', // superadmin PIN del portal - configurable
+  adminPin: '1234',
   horaTimer: null,
+  _pinsDocMap: {},
+  _horasMap: {},
 };
 
 // ══════════════════════════════════════════════════════
@@ -913,18 +947,72 @@ function paHoy() { return new Date().toISOString().slice(0, 10); }
 function paLoadEmpleados() {
   var list = document.getElementById('empList');
   if (list) list.innerHTML = '<div class="spinner"></div>';
-  
-  paDb.collection('paEmpleados').where('empresa', '==', PA.empresa)
-    .get().then(function(snap) {
-      PA.empleados = [];
-      snap.forEach(function(d){ PA.empleados.push(Object.assign({id:d.id}, d.data())); });
+
+  // Cargar desde el documento principal de la empresa (mismo que el sistema)
+  paDb.collection('empresas').doc(PA.empresa).get().then(function(doc) {
+    if (!doc.exists) { if(list)list.innerHTML='<div style="color:var(--red);text-align:center;padding:20px">Empresa no encontrada</div>'; return; }
+    var data = doc.data();
+    var tecnicos = (data.mantenimiento && data.mantenimiento.tecnicos) || [];
+    // ── Centros de costo (sucursales) ──
+    PA.centros = (data.centros || []).map(function(c){ return {id:c.id, nombre:c.nombre}; });
+    // ── Rutas del taller ──
+    PA.rutas = (data.taller && data.taller.rutas || []).map(function(r){ return {id:r.id, nombre:r.nombre}; });
+    // También cargar PINs desde paConfig para no exponer datos del doc principal
+    // Cargar configuración del portal (horario + feriados)
+    paDb.collection('paConfig').doc(PA.empresa).get().then(function(cfgDoc) {
+      if (cfgDoc.exists) {
+        var cfg = cfgDoc.data();
+        if (cfg.horario) PA.horario = Object.assign(PA.horario, cfg.horario);
+        if (cfg.feriados && cfg.feriados.length) PA.feriados = cfg.feriados;
+        else {
+          // Generar feriados del año actual desde la lista base
+          var year = new Date().getFullYear();
+          PA.feriados = PA_FERIADOS_SV.map(function(md){ return year+'-'+md; });
+          // Agregar Semana Santa aproximada si no está configurada
+        }
+      } else {
+        var year2 = new Date().getFullYear();
+        PA.feriados = PA_FERIADOS_SV.map(function(md){ return year2+'-'+md; });
+      }
+    }).catch(function(){ 
+      var year3 = new Date().getFullYear();
+      PA.feriados = PA_FERIADOS_SV.map(function(md){ return year3+'-'+md; });
+    });
+    paDb.collection('paPins').where('empresa','==',PA.empresa).get().then(function(snapPins) {
+      var pins = {};
+      var creds = {};
+      snapPins.forEach(function(d){ 
+        var pd = d.data();
+        pins[pd.empleadoId] = pd.pin || '';
+        creds[pd.empleadoId] = pd.credId || null;
+        if(pd.horasExtraAcum !== undefined) PA._horasMap = PA._horasMap || {};
+        if(pd.horasExtraAcum !== undefined) PA._horasMap[pd.empleadoId] = pd;
+      });
+      PA._pinsDocMap = {};
+      snapPins.forEach(function(d){ PA._pinsDocMap[d.data().empleadoId] = d.id; });
+
+      PA.empleados = tecnicos
+        .filter(function(t){ return t.activo !== false; })
+        .map(function(t){ 
+          return {
+            id: t.id,
+            nombre: t.nombre || '—',
+            cargo: t.cargo || '—',
+            ruta: t.ruta || '',
+            pin: pins[t.id] || '',
+            credId: creds[t.id] || null,
+            diasVacacionesDisponibles: (PA._horasMap && PA._horasMap[t.id] && PA._horasMap[t.id].diasVacDisp) || 15,
+            horasExtraAcum: (PA._horasMap && PA._horasMap[t.id] && PA._horasMap[t.id].horasExtraAcum) || 0,
+          };
+        });
       PA.empleados.sort(function(a,b){ return (a.nombre||'').localeCompare(b.nombre||''); });
       paRenderEmpList(PA.empleados);
       var badge = document.getElementById('empCountBadge');
       if (badge) badge.textContent = PA.empleados.length + ' empleados';
-    }).catch(function(e) {
-      if (list) list.innerHTML = '<div style="color:var(--red);text-align:center;padding:20px">Error al cargar: '+e.message+'</div>';
     });
+  }).catch(function(e) {
+    if (list) list.innerHTML = '<div style="color:var(--red);text-align:center;padding:20px">Error al cargar: '+e.message+'</div>';
+  });
 }
 
 function paRenderEmpList(emps) {
@@ -1068,7 +1156,11 @@ function paRegisterBio() {
   }).then(function(cred) {
     // Store credential ID in employee record
     var credIdB64 = btoa(String.fromCharCode.apply(null, new Uint8Array(cred.rawId)));
-    paDb.collection('paEmpleados').doc(PA.empleado.id).update({ credId: credIdB64 })
+    var existDocId = PA._pinsDocMap && PA._pinsDocMap[PA.empleado.id];
+        var bioPromise = existDocId
+          ? paDb.collection('paPins').doc(existDocId).update({ credId: credIdB64 })
+          : paDb.collection('paPins').add({ empresa: PA.empresa, empleadoId: PA.empleado.id, credId: credIdB64, pin: PA.empleado.pin || '' });
+        bioPromise
       .then(function() {
         PA.empleado.credId = credIdB64;
         paToast('🧬 Biométrico registrado para ' + empName);
@@ -1159,6 +1251,13 @@ function paUpdateDash() {
     if (timeEl) timeEl.textContent = marca ? paFmtHora(marca.ts) : '';
   }
   
+  // Show tardiness badge on entrada step
+  if (mEntrada && mEntrada.minutosRetraso > 0) {
+    var stEl = document.getElementById('stEntrada');
+    if (stEl) stEl.textContent = paFmtHora(mEntrada.ts) + ' (+' + mEntrada.minutosRetraso + 'm)';
+    var stepEl = document.getElementById('stepEntrada');
+    if (stepEl) stepEl.style.color = 'var(--warn)';
+  }
   setStep('stepEntrada', 'stEntrada', mEntrada, true);
   setStep('stepAlmuerzo', 'stAlmuerzo', mAlmSal, !!mEntrada);
   setStep('stepRegreso', 'stRegreso', mAlmReg, !!mAlmSal);
@@ -1207,6 +1306,18 @@ function paGoMarcar(tipo) {
   
   var obsEl = document.getElementById('marcarObs');
   if (obsEl) obsEl.value = '';
+  
+  // Populate centro selector
+  var centroSel = document.getElementById('marcarCentro');
+  if (centroSel) {
+    // Pre-select employee's assigned route/centro if exists
+    var empRuta = PA.empleado && PA.empleado.ruta ? PA.empleado.ruta.toLowerCase() : '';
+    centroSel.innerHTML = '<option value="">— Seleccionar sucursal —</option>'
+      + PA.centros.map(function(c) {
+          var sel = empRuta && c.nombre.toLowerCase().includes(empRuta) ? ' selected' : '';
+          return '<option value="'+c.id+'"'+sel+'>'+c.nombre+'</option>';
+        }).join('');
+  }
   
   paShow('scMarcar');
   paGetLocation();
@@ -1352,16 +1463,47 @@ function paConfirmarMarca() {
   var now = Date.now();
   var hoy = paHoy();
   
+  var centroSel2 = document.getElementById('marcarCentro');
+  var centroId = centroSel2 ? centroSel2.value : '';
+  var centro = PA.centros.find(function(c){ return c.id === centroId; });
+  
+  // Calcular si llegó tarde (solo en entrada)
+  var minutosRetraso = 0;
+  var estadoPuntualidad = 'a_tiempo';
+  if (PA.tipoMarca === 'entrada' && PA.horario) {
+    var partes = (PA.horario.horaEntrada || '07:00').split(':');
+    var esperadaMs = parseInt(partes[0])*60*60*1000 + parseInt(partes[1]||0)*60*1000;
+    var midnight = new Date(now); midnight.setHours(0,0,0,0);
+    var horaActualMs = now - midnight.getTime();
+    var toleranciaMs = (PA.horario.minutosTolerancia || 10) * 60 * 1000;
+    if (horaActualMs > esperadaMs + toleranciaMs) {
+      minutosRetraso = Math.round((horaActualMs - esperadaMs) / 60000);
+      estadoPuntualidad = 'tarde';
+    }
+  }
+  
+  // Detectar si es feriado o fin de semana para alertar
+  var diaSemana = new Date(now).getDay(); // 0=Dom, 6=Sab
+  var esFeriado = PA.feriados.indexOf(hoy) >= 0;
+  var esFinDeSemana = diaSemana === 0 || diaSemana === 6;
+  
   var docData = {
     empresa: PA.empresa,
     empleadoId: PA.empleado.id,
     empleadoNombre: PA.empleado.nombre,
+    cargo: PA.empleado.cargo || '',
     tipo: PA.tipoMarca,
     fecha: hoy,
     ts: now,
     foto: PA.capturedB64,
     ubicacion: PA.location || null,
+    centroId: centroId,
+    centroNombre: centro ? centro.nombre : '',
     observacion: obs,
+    minutosRetraso: minutosRetraso,
+    estadoPuntualidad: estadoPuntualidad,
+    esFeriado: esFeriado,
+    esFinDeSemana: esFinDeSemana,
     folio: 'MRC-' + paGenId().toUpperCase()
   };
   
@@ -1388,7 +1530,13 @@ function paConfirmarMarca() {
     
     if (iconEl) iconEl.textContent = info.icon;
     if (titleEl) titleEl.textContent = info.title;
-    if (subEl) subEl.textContent = info.sub + '\n' + paFmtHora(now);
+    var extraInfo = '';
+    if (PA.tipoMarca === 'entrada' && docData.minutosRetraso > 0) {
+      extraInfo = '\n⚠ Llegada con ' + docData.minutosRetraso + ' minutos de retraso';
+    }
+    if (docData.esFeriado) extraInfo += '\n🎉 Día feriado registrado';
+    if (docData.esFinDeSemana && !docData.esFeriado) extraInfo += '\n📅 Día fin de semana';
+    if (subEl) subEl.textContent = info.sub + '\n' + paFmtHora(now) + extraInfo;
     if (folioEl) folioEl.textContent = 'Folio: ' + docData.folio;
     
     paShow('scSuccess');
@@ -1698,7 +1846,7 @@ function paLoadHistorial() {
 // ══════════════════════════════════════════════════════
 function paAdminTab(tab) {
   PA.adminTab = tab;
-  var tabs = ['hoy', 'emps', 'extra', 'reporte'];
+  var tabs = ['hoy', 'emps', 'extra', 'reporte', 'config'];
   tabs.forEach(function(t) {
     var el = document.getElementById('atab_' + t);
     if (el) el.className = 'tab-btn' + (t === tab ? ' active' : '');
@@ -1712,6 +1860,7 @@ function paAdminTab(tab) {
   if (tab === 'emps') paAdminEmps(content);
   if (tab === 'extra') paAdminExtra(content);
   if (tab === 'reporte') paAdminReporte(content);
+  if (tab === 'config') paAdminConfig(content);
 }
 
 function paAdminHoy(content) {
@@ -1724,8 +1873,10 @@ function paAdminHoy(content) {
       snap.forEach(function(d) {
         var m = d.data();
         var empId = m.empleadoId;
-        if (!marcs[empId]) marcs[empId] = { nombre: m.empleadoNombre, tipos: [] };
+        if (!marcs[empId]) marcs[empId] = { nombre: m.empleadoNombre, tipos: [], tarde: 0, centro: '' };
         marcs[empId].tipos.push(m.tipo);
+        if (m.minutosRetraso > 0) marcs[empId].tarde = m.minutosRetraso;
+        if (m.centroNombre) marcs[empId].centro = m.centroNombre;
       });
       
       var totalHoy = Object.keys(marcs).length;
@@ -1774,8 +1925,23 @@ function paAdminHoy(content) {
     });
 }
 
+function paOpenPinModal() {
+  // Populate employee selector with current list
+  var sel = document.getElementById('neEmpSel');
+  if (sel) {
+    sel.innerHTML = '<option value="">— Seleccionar empleado —</option>'
+      + PA.empleados.map(function(e){
+          return '<option value="'+e.id+'">'+e.nombre+(e.cargo?' ('+e.cargo+')':'')+'</option>';
+        }).join('');
+  }
+  var pinInput = document.getElementById('nePin');
+  if (pinInput) pinInput.value = '';
+  document.getElementById('modalNuevoEmp').style.display = 'flex';
+}
+
+
 function paAdminEmps(content) {
-  var html = '<button class="big-btn" onclick="document.getElementById(\'modalNuevoEmp\').style.display=\'flex\'" style="margin-bottom:16px">+ Nuevo empleado</button>';
+  html += '<button class="big-btn" onclick="paOpenPinModal()" style="margin-bottom:16px">🔐 Asignar / actualizar PIN</button>';
   html += '<div class="section-title">'+PA.empleados.length+' empleados registrados</div>';
   
   PA.empleados.forEach(function(emp) {
@@ -1899,6 +2065,93 @@ function paGenerarReporte() {
     });
 }
 
+function paAdminConfig(content) {
+  var h = PA.horario;
+  var ferList = PA.feriados.length ? PA.feriados : ['2026-01-01', '2026-04-02', '2026-04-03', '2026-04-04', '2026-05-01', '2026-05-10', '2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06', '2026-09-15', '2026-11-02', '2026-12-25'];
+  if (!PA.feriados.length) PA.feriados = ferList;
+
+  var diasOpts = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'].map(function(d,i){
+    var sel = PA.horario.diasLaborales.indexOf(i) >= 0 ? ' selected' : '';
+    return '<option value="'+i+'"'+sel+'>'+d+'</option>';
+  }).join('');
+
+  var ferHTML = PA.feriados.slice().sort().map(function(f){
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">'
+      +'<span style="font-size:13px;font-family:\'JetBrains Mono\',monospace">'+f+'</span>'
+      +'<button style="background:none;border:none;color:var(--red);cursor:pointer;font-size:16px" onclick="paDelFeriado(this,\''+f+'\')">✕</button></div>';
+  }).join('');
+
+  content.innerHTML =
+    '<div class="section-title">⏰ Horario laboral</div>'
+    +'<div class="info-box">Este horario se usa para calcular llegadas tardías y horas trabajadas.</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">'
+    +'<div class="fg" style="margin:0"><label>Hora entrada</label><input type="time" id="cfgEntrada" value="'+h.horaEntrada+'" style="font-size:16px"></div>'
+    +'<div class="fg" style="margin:0"><label>Hora salida</label><input type="time" id="cfgSalida" value="'+h.horaSalida+'" style="font-size:16px"></div>'
+    +'<div class="fg" style="margin:0"><label>Tolerancia (min)</label><input type="number" id="cfgTol" value="'+h.minutosTolerancia+'" min="0" max="60" style="font-size:16px"></div>'
+    +'<div class="fg" style="margin:0"><label>Almuerzo (min)</label><input type="number" id="cfgAlm" value="'+h.minutosAlmuerzo+'" min="0" max="120" style="font-size:16px"></div>'
+    +'</div>'
+    +'<div class="fg"><label>Días laborales</label>'
+    +'<select id="cfgDias" multiple size="4" style="font-size:14px;width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:12px;color:var(--text)">'+diasOpts+'</select>'
+    +'<div style="font-size:11px;color:var(--muted);margin-top:4px">Mantén Ctrl/Cmd para seleccionar varios</div></div>'
+    +'<div class="fg"><label>PIN de administrador del portal</label><input type="number" id="cfgAdminPin" value="'+PA.adminPin+'" placeholder="4 dígitos" style="font-size:20px;font-family:\'JetBrains Mono\',monospace;text-align:center"></div>'
+    +'<button class="big-btn" onclick="paGuardarHorario()">💾 Guardar horario</button>'
+
+    +'<div class="section-title" style="margin-top:24px">🗓️ Días feriados ('+PA.feriados.length+')</div>'
+    +'<div class="info-box">Feriados de El Salvador precargados. Agrega o elimina según el año.</div>'
+    +'<div id="ferListEl">'+ferHTML+'</div>'
+    +'<div style="display:flex;gap:8px;margin-top:12px">'
+    +'<input type="date" id="nuevoFeriado" style="flex:1;font-size:14px;padding:10px;background:var(--surface);border:1.5px solid var(--border);border-radius:10px;color:var(--text)">'
+    +'<button class="big-btn" style="flex:0;padding:10px 16px;font-size:13px" onclick="paAddFeriado()">+ Agregar</button>'
+    +'</div>'
+    +'<button class="big-btn outline mt8" onclick="paGuardarFeriados()">💾 Guardar feriados en Firebase</button>'
+
+    +'<div class="section-title" style="margin-top:24px">📋 Datos vinculados del sistema</div>'
+    +'<div class="report-row"><div><div class="report-emp">Centros de costo</div><div class="report-detail">'+PA.centros.length+' cargados desde empresas/'+PA.empresa+'</div></div><span style="color:var(--accent)">✓</span></div>'
+    +'<div class="report-row"><div><div class="report-emp">Rutas</div><div class="report-detail">'+PA.rutas.length+' rutas cargadas desde taller</div></div><span style="color:var(--accent)">✓</span></div>'
+    +'<div class="report-row"><div><div class="report-emp">Empleados</div><div class="report-detail">'+PA.empleados.length+' cargados desde mantenimiento.tecnicos</div></div><span style="color:var(--accent)">✓</span></div>';
+}
+
+function paGuardarHorario() {
+  var entrada = (document.getElementById('cfgEntrada')||{}).value || PA.horario.horaEntrada;
+  var salida = (document.getElementById('cfgSalida')||{}).value || PA.horario.horaSalida;
+  var tol = parseInt((document.getElementById('cfgTol')||{}).value) || 10;
+  var alm = parseInt((document.getElementById('cfgAlm')||{}).value) || 60;
+  var diasSel = Array.from((document.getElementById('cfgDias')||{options:[]}).options)
+    .filter(function(o){ return o.selected; })
+    .map(function(o){ return parseInt(o.value); });
+  var newPin = (document.getElementById('cfgAdminPin')||{}).value;
+  
+  PA.horario = { horaEntrada: entrada, horaSalida: salida, minutosTolerancia: tol, minutosAlmuerzo: alm, diasLaborales: diasSel.length ? diasSel : PA.horario.diasLaborales };
+  if (newPin && String(newPin).length >= 4) PA.adminPin = String(newPin);
+  
+  paDb.collection('paConfig').doc(PA.empresa).set({ horario: PA.horario, adminPin: PA.adminPin }, { merge: true })
+    .then(function(){ paToast('✅ Horario guardado'); })
+    .catch(function(e){ paToast('Error: '+e.message, true); });
+}
+
+function paAddFeriado() {
+  var el = document.getElementById('nuevoFeriado');
+  var val = el ? el.value : '';
+  if (!val) { paToast('Selecciona una fecha', true); return; }
+  if (PA.feriados.indexOf(val) >= 0) { paToast('Ya está en la lista', true); return; }
+  PA.feriados.push(val);
+  PA.feriados.sort();
+  if (el) el.value = '';
+  paAdminConfig(document.getElementById('adminContent'));
+}
+
+function paDelFeriado(btn, fecha) {
+  PA.feriados = PA.feriados.filter(function(f){ return f !== fecha; });
+  paAdminConfig(document.getElementById('adminContent'));
+}
+
+function paGuardarFeriados() {
+  paDb.collection('paConfig').doc(PA.empresa).set({ feriados: PA.feriados }, { merge: true })
+    .then(function(){ paToast('✅ '+PA.feriados.length+' feriados guardados'); })
+    .catch(function(e){ paToast('Error: '+e.message, true); });
+}
+
+
 function paExportarReporte(mes) {
   paDb.collection('paHorasExtra')
     .where('empresa','==',PA.empresa)
@@ -1929,12 +2182,16 @@ function paAprobarHorasExtra(docId, empId, horas) {
   if (!confirm('¿Aprobar ' + horas + ' horas extra?')) return;
   paDb.collection('paHorasExtra').doc(docId).update({ estado: 'aprobado' })
     .then(function() {
-      // Add to employee's accumulated hours
-      paDb.collection('paEmpleados').doc(empId).get().then(function(doc) {
-        if (!doc.exists) return;
-        var current = parseFloat(doc.data().horasExtraAcum || 0);
-        paDb.collection('paEmpleados').doc(empId).update({ horasExtraAcum: current + horas });
-      });
+      // Add to employee's accumulated hours in paPins
+      var existingDocId = PA._pinsDocMap && PA._pinsDocMap[empId];
+      if (existingDocId) {
+        paDb.collection('paPins').doc(existingDocId).get().then(function(doc) {
+          var current = doc.exists ? parseFloat(doc.data().horasExtraAcum || 0) : 0;
+          paDb.collection('paPins').doc(existingDocId).update({ horasExtraAcum: current + horas });
+        });
+      } else {
+        paDb.collection('paPins').add({ empresa: PA.empresa, empleadoId: empId, horasExtraAcum: horas });
+      }
       paToast('✅ Horas extra aprobadas');
       paAdminTab(PA.adminTab);
     }).catch(function(e){ paToast('Error: '+e.message, true); });
@@ -1948,30 +2205,35 @@ function paRechazarHorasExtra(docId) {
 }
 
 function paCrearEmpleado() {
-  var nombre = (document.getElementById('neNombre') || {}).value || '';
-  var cargo = (document.getElementById('neCargo') || {}).value || '';
+  // Los empleados se crean en el sistema principal (index.html)
+  // Aquí solo asignamos/actualizamos el PIN de un empleado existente
+  var empSel = document.getElementById('neEmpSel');
   var pin = (document.getElementById('nePin') || {}).value || '';
   var diasVac = parseInt((document.getElementById('neDiasVac') || {}).value || 15);
   var horasExt = parseFloat((document.getElementById('neHorasExt') || {}).value || 0);
-  var ruta = (document.getElementById('neRuta') || {}).value || '';
   
-  if (!nombre.trim()) { paToast('El nombre es obligatorio', true); return; }
-  if (!pin || pin.length < 4) { paToast('El PIN debe tener al menos 4 dígitos', true); return; }
+  var empId = empSel ? empSel.value : '';
+  if (!empId) { paToast('Selecciona un empleado', true); return; }
+  if (!pin || String(pin).length < 4) { paToast('El PIN debe tener 4 dígitos', true); return; }
   
   var docData = {
     empresa: PA.empresa,
-    nombre: nombre.trim(),
-    cargo: cargo.trim(),
-    pin: pin,
-    diasVacacionesDisponibles: diasVac,
+    empleadoId: empId,
+    pin: String(pin),
+    diasVacDisp: diasVac,
     horasExtraAcum: horasExt,
-    ruta: ruta.trim(),
-    activo: true,
     _ca: Date.now()
   };
   
-  paDb.collection('paEmpleados').add(docData).then(function() {
-    paToast('✅ Empleado creado: ' + nombre);
+  // Buscar si ya existe un pin doc para este empleado
+  var existingDocId = PA._pinsDocMap && PA._pinsDocMap[empId];
+  var promise = existingDocId
+    ? paDb.collection('paPins').doc(existingDocId).update(docData)
+    : paDb.collection('paPins').add(docData);
+  
+  promise.then(function() {
+    var emp = PA.empleados.find(function(e){ return e.id===empId; });
+    paToast('✅ PIN asignado a ' + (emp?emp.nombre:empId));
     document.getElementById('modalNuevoEmp').style.display = 'none';
     paLoadEmpleados();
     paAdminTab('emps');
@@ -1981,18 +2243,22 @@ function paCrearEmpleado() {
 function paEditarEmp(empId) {
   var emp = PA.empleados.find(function(e){ return e.id === empId; });
   if (!emp) return;
-  var newPin = prompt('Nuevo PIN para ' + emp.nombre + ' (dejar vacío para no cambiar):');
+  var newPin = prompt('Nuevo PIN para ' + emp.nombre + ' (dejar vacío para no cambiar):', emp.pin||'');
   if (newPin === null) return;
-  var updates = {};
-  if (newPin && newPin.length >= 4) updates.pin = newPin;
   var newDias = prompt('Días de vacaciones disponibles:', emp.diasVacacionesDisponibles || 15);
-  if (newDias !== null && !isNaN(parseInt(newDias))) updates.diasVacacionesDisponibles = parseInt(newDias);
   var newHoras = prompt('Horas extra acumuladas:', emp.horasExtraAcum || 0);
+  
+  var updates = { empresa: PA.empresa, empleadoId: empId };
+  if (newPin && newPin.length >= 4) updates.pin = String(newPin);
+  if (newDias !== null && !isNaN(parseInt(newDias))) updates.diasVacDisp = parseInt(newDias);
   if (newHoras !== null && !isNaN(parseFloat(newHoras))) updates.horasExtraAcum = parseFloat(newHoras);
   
-  if (!Object.keys(updates).length) return;
-  paDb.collection('paEmpleados').doc(empId).update(updates)
-    .then(function(){ paToast('✅ Empleado actualizado'); paLoadEmpleados(); paAdminTab('emps'); })
+  var existingDocId = PA._pinsDocMap && PA._pinsDocMap[empId];
+  var promise = existingDocId
+    ? paDb.collection('paPins').doc(existingDocId).update(updates)
+    : paDb.collection('paPins').add(updates);
+  
+  promise.then(function(){ paToast('✅ Empleado actualizado'); paLoadEmpleados(); paAdminTab('emps'); })
     .catch(function(e){ paToast('Error: '+e.message, true); });
 }
 
