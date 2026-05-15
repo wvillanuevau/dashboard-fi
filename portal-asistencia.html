@@ -1941,7 +1941,7 @@ function paOpenPinModal() {
 
 
 function paAdminEmps(content) {
-  html += '<button class="big-btn" onclick="paOpenPinModal()" style="margin-bottom:16px">🔐 Asignar / actualizar PIN</button>';
+  var html = '<button class="big-btn" onclick="paOpenPinModal()" style="margin-bottom:16px">🔐 Asignar / actualizar PIN</button>';
   html += '<div class="section-title">'+PA.empleados.length+' empleados registrados</div>';
   
   PA.empleados.forEach(function(emp) {
