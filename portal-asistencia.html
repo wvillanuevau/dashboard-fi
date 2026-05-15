@@ -1,0 +1,2025 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0d1117">
+<title>Portal Asistencia — FISDC</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0d1117;
+  --surface:#161b22;
+  --surface2:#21262d;
+  --border:#30363d;
+  --text:#e6edf3;
+  --muted:#7d8590;
+  --accent:#2ea043;
+  --accent2:#388bfd;
+  --warn:#d29922;
+  --red:#f85149;
+  --purple:#bc8cff;
+  --radius:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Space Grotesk',sans-serif;overflow:hidden}
+body.scrollable{overflow-y:auto}
+
+/* ── SCREENS ─────────────────────────────────────────── */
+.screen{display:none;min-height:100vh;flex-direction:column;align-items:center;justify-content:flex-start;padding:0}
+.screen.active{display:flex}
+
+/* ── LANDING ─────────────────────────────────────────── */
+#scLanding{
+  background:radial-gradient(ellipse 80% 60% at 50% -10%,rgba(46,160,67,.15),transparent),
+             radial-gradient(ellipse 60% 40% at 80% 80%,rgba(56,139,253,.1),transparent),
+             var(--bg);
+  justify-content:center;
+  gap:0;
+  padding:40px 24px;
+}
+.landing-logo{
+  width:72px;height:72px;background:linear-gradient(135deg,#2ea043,#26a641);
+  border-radius:22px;display:flex;align-items:center;justify-content:center;
+  font-size:32px;margin-bottom:24px;
+  box-shadow:0 0 40px rgba(46,160,67,.3);
+}
+.landing-title{font-size:28px;font-weight:700;text-align:center;margin-bottom:8px;letter-spacing:-.5px}
+.landing-sub{font-size:14px;color:var(--muted);text-align:center;margin-bottom:40px;line-height:1.5}
+.landing-btn{
+  width:100%;max-width:320px;padding:16px;background:var(--accent);color:#0d1117;
+  font-weight:700;font-size:16px;border:none;border-radius:var(--radius);cursor:pointer;
+  font-family:inherit;letter-spacing:.3px;
+  transition:transform .1s,box-shadow .1s;
+}
+.landing-btn:active{transform:scale(.97)}
+.landing-btn.secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border);margin-top:10px}
+.landing-features{
+  display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;max-width:340px;margin-bottom:40px
+}
+.feat-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:14px 12px;text-align:center
+}
+.feat-icon{font-size:22px;margin-bottom:6px}
+.feat-label{font-size:11px;color:var(--muted);font-weight:500}
+
+/* ── HEADER ─────────────────────────────────────────── */
+.portal-header{
+  width:100%;background:var(--surface);border-bottom:1px solid var(--border);
+  padding:14px 18px;display:flex;align-items:center;gap:12px;flex-shrink:0;
+}
+.header-back{background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px;padding:4px}
+.header-title{font-weight:700;font-size:15px;flex:1}
+.header-badge{font-size:11px;background:var(--surface2);border:1px solid var(--border);
+  padding:3px 10px;border-radius:20px;color:var(--muted)}
+
+/* ── FORM ELEMENTS ─────────────────────────────────── */
+.portal-body{width:100%;max-width:480px;padding:20px 18px;flex:1}
+.fg{margin-bottom:16px}
+.fg label{display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.8px;margin-bottom:8px}
+.fg input,.fg select,.fg textarea{
+  width:100%;padding:14px 16px;background:var(--surface);border:1.5px solid var(--border);
+  border-radius:12px;color:var(--text);font-family:inherit;font-size:16px;
+  transition:border-color .15s;outline:none;-webkit-appearance:none;
+}
+.fg input:focus,.fg select:focus{border-color:var(--accent2)}
+.fg select{cursor:pointer}
+
+/* ── PIN PAD ─────────────────────────────────────────── */
+.pin-display{
+  display:flex;gap:14px;justify-content:center;margin:24px 0 20px;
+}
+.pin-dot{
+  width:18px;height:18px;border-radius:50%;background:var(--surface2);
+  border:2px solid var(--border);transition:all .2s;
+}
+.pin-dot.filled{background:var(--accent);border-color:var(--accent)}
+.pin-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:280px;margin:0 auto}
+.pin-key{
+  aspect-ratio:1;background:var(--surface);border:1.5px solid var(--border);
+  border-radius:14px;font-size:24px;font-weight:600;color:var(--text);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;
+  transition:background .1s,transform .1s;user-select:none;-webkit-user-select:none;
+}
+.pin-key:active{background:var(--surface2);transform:scale(.94)}
+.pin-key.delete{font-size:18px;color:var(--muted)}
+.pin-key.empty{background:transparent;border-color:transparent;pointer-events:none}
+.pin-error{color:var(--red);font-size:13px;text-align:center;margin-top:12px;min-height:20px}
+
+/* ── EMPLOYEE LIST ─────────────────────────────────── */
+.emp-search{
+  width:100%;padding:12px 16px;background:var(--surface);border:1.5px solid var(--border);
+  border-radius:12px;color:var(--text);font-family:inherit;font-size:16px;outline:none;
+  margin-bottom:12px;
+}
+.emp-search:focus{border-color:var(--accent2)}
+.emp-list{display:flex;flex-direction:column;gap:8px;max-height:calc(100vh - 240px);overflow-y:auto;padding-bottom:20px}
+.emp-item{
+  background:var(--surface);border:1.5px solid var(--border);border-radius:14px;
+  padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;
+  transition:border-color .15s,background .15s;
+}
+.emp-item:active,.emp-item:hover{border-color:var(--accent2);background:var(--surface2)}
+.emp-avatar{
+  width:42px;height:42px;border-radius:12px;background:var(--surface2);
+  display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;
+  color:var(--accent2);flex-shrink:0;border:1px solid var(--border);
+}
+.emp-name{font-weight:600;font-size:14px}
+.emp-cargo{font-size:11px;color:var(--muted);margin-top:2px}
+
+/* ── BIOMETRIC ─────────────────────────────────────── */
+.bio-icon{
+  width:80px;height:80px;background:linear-gradient(135deg,rgba(56,139,253,.2),rgba(188,140,255,.2));
+  border:2px solid var(--accent2);border-radius:24px;display:flex;align-items:center;
+  justify-content:center;font-size:36px;margin:24px auto;animation:bioPulse 2s infinite;
+}
+@keyframes bioPulse{0%,100%{box-shadow:0 0 0 0 rgba(56,139,253,.3)}50%{box-shadow:0 0 0 16px rgba(56,139,253,0)}}
+.bio-title{font-size:18px;font-weight:700;text-align:center;margin-bottom:8px}
+.bio-sub{font-size:13px;color:var(--muted);text-align:center;margin-bottom:32px;line-height:1.5}
+
+/* ── DASHBOARD ─────────────────────────────────────── */
+.dash-greeting{padding:20px 18px 0;width:100%;max-width:480px}
+.dash-greeting h2{font-size:22px;font-weight:700;letter-spacing:-.3px}
+.dash-greeting p{font-size:13px;color:var(--muted);margin-top:4px}
+.dash-status{
+  width:100%;max-width:480px;margin:16px 18px;
+  background:var(--surface);border:1.5px solid var(--border);border-radius:16px;
+  padding:16px;
+}
+.dash-status-label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px}
+.status-timeline{display:flex;gap:0;align-items:center}
+.status-step{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;position:relative
+}
+.status-step:not(:last-child)::after{
+  content:'';position:absolute;top:14px;left:50%;right:-50%;
+  height:2px;background:var(--border);z-index:0;
+}
+.status-step.done::after{background:var(--accent)}
+.step-dot{
+  width:28px;height:28px;border-radius:50%;background:var(--surface2);
+  border:2px solid var(--border);display:flex;align-items:center;justify-content:center;
+  font-size:12px;z-index:1;position:relative;
+}
+.status-step.done .step-dot{background:var(--accent);border-color:var(--accent);color:#000}
+.status-step.active .step-dot{background:var(--accent2);border-color:var(--accent2);color:#fff;animation:bioPulse 1.5s infinite}
+.step-label{font-size:10px;color:var(--muted);text-align:center;font-weight:500}
+.step-time{font-size:9px;color:var(--accent);font-family:'JetBrains Mono',monospace}
+
+.dash-actions{width:100%;max-width:480px;padding:0 18px;display:flex;flex-direction:column;gap:10px}
+.action-btn{
+  width:100%;padding:16px 18px;border:none;border-radius:14px;cursor:pointer;
+  font-family:inherit;font-size:15px;font-weight:600;display:flex;align-items:center;gap:12px;
+  text-align:left;transition:transform .1s,opacity .1s;
+}
+.action-btn:active{transform:scale(.98);opacity:.9}
+.action-btn.primary{background:var(--accent);color:#000}
+.action-btn.secondary{background:var(--surface);border:1.5px solid var(--border);color:var(--text)}
+.action-btn.warn{background:rgba(210,153,34,.15);border:1.5px solid rgba(210,153,34,.3);color:var(--warn)}
+.action-btn.blue{background:rgba(56,139,253,.15);border:1.5px solid rgba(56,139,253,.3);color:var(--accent2)}
+.action-btn.purple{background:rgba(188,140,255,.15);border:1.5px solid rgba(188,140,255,.3);color:var(--purple)}
+.action-btn.disabled{opacity:.4;pointer-events:none}
+.action-icon{font-size:22px;flex-shrink:0}
+.action-info{flex:1}
+.action-title{font-size:14px;font-weight:700}
+.action-sub{font-size:11px;opacity:.7;margin-top:2px}
+.action-arrow{font-size:18px;opacity:.4}
+
+/* ── MARCACIÓN SCREEN ─────────────────────────────── */
+.camera-preview{
+  width:100%;max-width:360px;aspect-ratio:3/4;background:var(--surface2);
+  border-radius:16px;overflow:hidden;position:relative;margin:0 auto 16px;
+}
+.camera-preview video,.camera-preview canvas{width:100%;height:100%;object-fit:cover}
+.camera-preview .cam-overlay{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  justify-content:center;align-items:center;
+}
+.cam-frame{
+  width:180px;height:220px;border:3px solid rgba(56,139,253,.7);border-radius:50% 50% 50% 50% / 40% 40% 60% 60%;
+  position:relative;
+}
+.cam-frame::before,.cam-frame::after{
+  content:'';position:absolute;width:20px;height:20px;border-color:var(--accent);border-style:solid;
+}
+.cam-frame::before{top:-3px;left:-3px;border-width:3px 0 0 3px;border-radius:4px 0 0 0}
+.cam-frame::after{bottom:-3px;right:-3px;border-width:0 3px 3px 0;border-radius:0 0 4px 0}
+.cam-hint{color:#fff;font-size:12px;margin-top:16px;text-align:center;
+  text-shadow:0 1px 4px rgba(0,0,0,.8);font-weight:500}
+.capture-btn{
+  width:64px;height:64px;border-radius:50%;background:var(--accent);border:4px solid rgba(255,255,255,.3);
+  font-size:24px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  margin:0 auto;transition:transform .1s;box-shadow:0 4px 20px rgba(46,160,67,.4);
+}
+.capture-btn:active{transform:scale(.9)}
+
+/* ── LOCATION ─────────────────────────────────────── */
+.loc-card{
+  background:var(--surface);border:1.5px solid var(--border);border-radius:12px;
+  padding:12px 14px;display:flex;align-items:center;gap:12px;margin-bottom:16px;
+}
+.loc-icon{font-size:20px;flex-shrink:0}
+.loc-text{flex:1}
+.loc-name{font-size:13px;font-weight:500}
+.loc-coords{font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-top:2px}
+.loc-status{font-size:11px;margin-top:4px}
+.loc-status.ok{color:var(--accent)}
+.loc-status.loading{color:var(--warn)}
+.loc-status.error{color:var(--red)}
+
+/* ── OVERTIME FORM ─────────────────────────────────── */
+.ot-types{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
+.ot-type-btn{
+  padding:12px 10px;background:var(--surface);border:1.5px solid var(--border);
+  border-radius:12px;cursor:pointer;text-align:center;transition:all .15s;
+}
+.ot-type-btn.selected{border-color:var(--accent2);background:rgba(56,139,253,.1)}
+.ot-type-icon{font-size:20px;margin-bottom:4px}
+.ot-type-label{font-size:11px;font-weight:600;color:var(--text)}
+.ot-type-rate{font-size:10px;color:var(--muted);margin-top:2px}
+
+/* ── HISTORY LIST ─────────────────────────────────── */
+.hist-item{
+  background:var(--surface);border:1.5px solid var(--border);border-radius:14px;
+  padding:14px 16px;margin-bottom:8px;
+}
+.hist-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.hist-date{font-size:12px;font-weight:700;color:var(--accent2);font-family:'JetBrains Mono',monospace}
+.hist-badge{font-size:10px;padding:3px 8px;border-radius:6px;font-weight:600}
+.hist-badge.entrada{background:rgba(46,160,67,.15);color:var(--accent)}
+.hist-badge.almuerzo{background:rgba(210,153,34,.15);color:var(--warn)}
+.hist-badge.salida{background:rgba(248,81,73,.15);color:var(--red)}
+.hist-badge.extra{background:rgba(188,140,255,.15);color:var(--purple)}
+.hist-badge.vacacion{background:rgba(56,139,253,.15);color:var(--accent2)}
+.hist-timeline{display:flex;gap:16px;flex-wrap:wrap}
+.hist-mark{font-size:11px;color:var(--muted)}
+.hist-mark strong{color:var(--text);font-family:'JetBrains Mono',monospace}
+
+/* ── TABS ─────────────────────────────────────────── */
+.tab-bar{
+  display:flex;background:var(--surface);border-bottom:1px solid var(--border);
+  width:100%;overflow-x:auto;flex-shrink:0;
+}
+.tab-btn{
+  flex:1;min-width:70px;padding:12px 8px;background:none;border:none;color:var(--muted);
+  font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;
+  border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap;
+}
+.tab-btn.active{color:var(--accent2);border-bottom-color:var(--accent2)}
+
+/* ── ADMIN ─────────────────────────────────────────── */
+.stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px}
+.stat-card{
+  background:var(--surface);border:1.5px solid var(--border);border-radius:14px;
+  padding:16px;text-align:center;
+}
+.stat-val{font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace}
+.stat-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-top:4px}
+.report-row{
+  background:var(--surface);border:1.5px solid var(--border);border-radius:12px;
+  padding:12px 14px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;
+}
+.report-emp{font-size:13px;font-weight:600}
+.report-detail{font-size:11px;color:var(--muted);margin-top:2px}
+.report-val{font-size:14px;font-weight:700;color:var(--accent);font-family:'JetBrains Mono',monospace}
+
+/* ── TOAST ─────────────────────────────────────────── */
+#paToast{
+  position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(100px);
+  background:var(--surface2);border:1px solid var(--border);border-radius:12px;
+  padding:12px 20px;font-size:13px;font-weight:500;z-index:999;
+  transition:transform .3s cubic-bezier(.34,1.56,.64,1);white-space:nowrap;
+  max-width:90vw;text-align:center;
+}
+#paToast.show{transform:translateX(-50%) translateY(0)}
+#paToast.ok{border-color:var(--accent);color:var(--accent)}
+#paToast.err{border-color:var(--red);color:var(--red)}
+
+/* ── MODAL ─────────────────────────────────────────── */
+.pa-modal{
+  position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:400;
+  display:flex;align-items:flex-end;justify-content:center;
+}
+.pa-modal-box{
+  background:var(--surface);border-radius:20px 20px 0 0;width:100%;max-width:480px;
+  padding:20px 18px 36px;max-height:90vh;overflow-y:auto;
+}
+.modal-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 20px;display:block}
+
+/* ── UTIL ─────────────────────────────────────────── */
+.big-btn{
+  width:100%;padding:16px;background:var(--accent);color:#000;font-weight:700;
+  font-size:15px;border:none;border-radius:14px;cursor:pointer;font-family:inherit;
+  transition:transform .1s;margin-top:8px;
+}
+.big-btn:active{transform:scale(.98)}
+.big-btn.blue{background:var(--accent2);color:#fff}
+.big-btn.disabled{opacity:.5;pointer-events:none}
+.big-btn.outline{background:transparent;border:1.5px solid var(--border);color:var(--text)}
+.section-title{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.8px;margin-bottom:12px}
+.info-box{
+  background:rgba(56,139,253,.08);border:1px solid rgba(56,139,253,.2);
+  border-radius:10px;padding:12px 14px;font-size:12px;color:var(--accent2);
+  margin-bottom:16px;line-height:1.5;
+}
+.warn-box{
+  background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.2);
+  border-radius:10px;padding:12px 14px;font-size:12px;color:var(--warn);
+  margin-bottom:16px;line-height:1.5;
+}
+.spinner{
+  width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);
+  border-radius:50%;animation:spin .7s linear infinite;margin:20px auto;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.mt8{margin-top:8px}
+.success-anim{
+  text-align:center;padding:32px 16px;
+}
+.success-icon{font-size:64px;margin-bottom:16px;display:block}
+.success-title{font-size:22px;font-weight:700;margin-bottom:8px}
+.success-sub{font-size:14px;color:var(--muted);line-height:1.5}
+.success-folio{
+  background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:14px;margin-top:20px;font-family:'JetBrains Mono',monospace;
+  font-size:13px;color:var(--accent2);text-align:center;
+}
+</style>
+</head>
+<body>
+
+<!-- TOAST -->
+<div id="paToast"></div>
+
+<!-- ══════════════════════════════════════════════════
+     SCREEN: LANDING
+══════════════════════════════════════════════════ -->
+<div class="screen active" id="scLanding">
+  <div class="landing-logo">🏢</div>
+  <div class="landing-title" id="landingTitle">Portal de Asistencia</div>
+  <div class="landing-sub" id="landingSub">Registro de entrada, salida, horas extra y vacaciones</div>
+  <div class="landing-features">
+    <div class="feat-card">
+      <div class="feat-icon">📍</div>
+      <div class="feat-label">Ubicación GPS</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">📸</div>
+      <div class="feat-label">Foto + Cámara</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">⏰</div>
+      <div class="feat-label">Horas Extra</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">🏖️</div>
+      <div class="feat-label">Vacaciones</div>
+    </div>
+  </div>
+  <button class="landing-btn" onclick="paGoToSelectEmp()">📋 Registrar Asistencia</button>
+  <button class="landing-btn secondary" onclick="paGoAdmin()">🔐 Administrador</button>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     SCREEN: SELECT EMPLOYEE
+══════════════════════════════════════════════════ -->
+<div class="screen" id="scSelectEmp">
+  <div class="portal-header">
+    <button class="header-back" onclick="paShow('scLanding')">←</button>
+    <div class="header-title">¿Quién eres?</div>
+    <div class="header-badge" id="empCountBadge">—</div>
+  </div>
+  <div class="portal-body">
+    <input class="emp-search" id="empSearch" placeholder="🔍 Buscar empleado..." oninput="paFilterEmps(this.value)">
+    <div class="emp-list" id="empList">
+      <div class="spinner"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     SCREEN: PIN ENTRY
+══════════════════════════════════════════════════ -->
+<div class="screen" id="scPin">
+  <div class="portal-header">
+    <button class="header-back" onclick="paShow('scSelectEmp')">←</button>
+    <div class="header-title">Ingresa tu PIN</div>
+  </div>
+  <div class="portal-body" style="text-align:center">
+    <div style="margin-bottom:16px">
+      <div style="font-size:14px;color:var(--muted);margin-bottom:4px">Hola,</div>
+      <div style="font-size:20px;font-weight:700" id="pinEmpName">—</div>
+    </div>
+    <div class="pin-display" id="pinDisplay">
+      <div class="pin-dot" id="pd0"></div>
+      <div class="pin-dot" id="pd1"></div>
+      <div class="pin-dot" id="pd2"></div>
+      <div class="pin-dot" id="pd3"></div>
+    </div>
+    <div class="pin-error" id="pinError"></div>
+    <div class="pin-pad">
+      <button class="pin-key" onclick="paPin(1)">1</button>
+      <button class="pin-key" onclick="paPin(2)">2</button>
+      <button class="pin-key" onclick="paPin(3)">3</button>
+      <button class="pin-key" onclick="paPin(4)">4</button>
+      <button class="pin-key" onclick="paPin(5)">5</button>
+      <button class="pin-key" onclick="paPin(6)">6</button>
+      <button class="pin-key" onclick="paPin(7)">7</button>
+      <button class="pin-key" onclick="paPin(8)">8</button>
+      <button class="pin-key" onclick="paPin(9)">9</button>
+      <button class="pin-key empty"></button>
+      <button class="pin-key" onclick="paPin(0)">0</button>
+      <button class="pin-key delete" onclick="paPinDel()">⌫</button>
+    </div>
+    <button class="big-btn blue mt8" onclick="paBioAuth()" id="bioBtn" style="max-width:280px">
+      🧬 Usar biométrico
+    </button>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">Face ID / Huella digital</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     SCREEN: MAIN DASHBOARD
+══════════════════════════════════════════════════ -->
+<div class="screen" id="scDash">
+  <div class="portal-header">
+    <div class="header-title" id="dashEmpName">—</div>
+    <div style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace" id="dashTime">—</div>
+    <button class="header-back" style="font-size:14px;margin-left:8px;color:var(--muted)" onclick="paCerrarSesion()">✕</button>
+  </div>
+  <div style="width:100%;max-width:480px;flex:1;overflow-y:auto;padding-bottom:24px">
+    <div class="dash-greeting" style="padding-top:16px">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px" id="dashDate">—</div>
+    </div>
+
+    <!-- Status timeline -->
+    <div class="dash-status" style="margin:12px 18px 16px">
+      <div class="dash-status-label">Estado de hoy</div>
+      <div class="status-timeline">
+        <div class="status-step" id="stepEntrada">
+          <div class="step-dot">🏢</div>
+          <div class="step-label">Entrada</div>
+          <div class="step-time" id="stEntrada">—</div>
+        </div>
+        <div class="status-step" id="stepAlmuerzo">
+          <div class="step-dot">🍽️</div>
+          <div class="step-label">Almuerzo</div>
+          <div class="step-time" id="stAlmuerzo">—</div>
+        </div>
+        <div class="status-step" id="stepRegreso">
+          <div class="step-dot">↩️</div>
+          <div class="step-label">Regreso</div>
+          <div class="step-time" id="stRegreso">—</div>
+        </div>
+        <div class="status-step" id="stepSalida">
+          <div class="step-dot">🏠</div>
+          <div class="step-label">Salida</div>
+          <div class="step-time" id="stSalida">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="dash-actions">
+      <div class="section-title">Acciones</div>
+      <button class="action-btn primary" id="btnMarcarEntrada" onclick="paGoMarcar('entrada')">
+        <span class="action-icon">🏢</span>
+        <div class="action-info"><div class="action-title">Marcar Entrada</div><div class="action-sub">Registrar inicio de jornada</div></div>
+        <span class="action-arrow">›</span>
+      </button>
+      <button class="action-btn warn" id="btnMarcarAlmuerzo" onclick="paGoMarcar('almuerzo_salida')">
+        <span class="action-icon">🍽️</span>
+        <div class="action-info"><div class="action-title">Salir a Almorzar</div><div class="action-sub">Registrar salida a almuerzo</div></div>
+        <span class="action-arrow">›</span>
+      </button>
+      <button class="action-btn secondary" id="btnMarcarRegreso" onclick="paGoMarcar('almuerzo_regreso')">
+        <span class="action-icon">↩️</span>
+        <div class="action-info"><div class="action-title">Regreso de Almuerzo</div><div class="action-sub">Volver al trabajo</div></div>
+        <span class="action-arrow">›</span>
+      </button>
+      <button class="action-btn secondary" id="btnMarcarSalida" onclick="paGoMarcar('salida')">
+        <span class="action-icon">🏠</span>
+        <div class="action-info"><div class="action-title">Marcar Salida</div><div class="action-sub">Fin de jornada</div></div>
+        <span class="action-arrow">›</span>
+      </button>
+      <div class="section-title" style="margin-top:16px">Solicitudes</div>
+      <button class="action-btn purple" onclick="paGoHorasExtra()">
+        <span class="action-icon">⏰</span>
+        <div class="action-info"><div class="action-title">Registrar Horas Extra</div><div class="action-sub" id="horasExtraAcum">—</div></div>
+        <span class="action-arrow">›</span>
+      </button>
+      <button class="action-btn blue" onclick="paGoCanje()">
+        <span class="action-icon">🔄</span>
+        <div class="action-info"><div class="action-title">Canje de Horas</div><div class="action-sub">Cambiar horas extra por tiempo libre</div></div>
+        <span class="action-arrow">›</span>
+      </button>
+      <button class="action-btn blue" onclick="paGoVacaciones()">
+        <span class="action-icon">🏖️</span>
+        <div class="action-info"><div class="action-title">Solicitar Vacaciones</div><div class="action-sub" id="diasVacDesc">—</div></div>
+        <span class="action-arrow">›</span>
+      </button>
+      <button class="action-btn secondary" onclick="paGoHistorial()">
+        <span class="action-icon">📋</span>
+        <div class="action-info"><div class="action-title">Mi Historial</div><div class="action-sub">Ver mis registros anteriores</div></div>
+        <span class="action-arrow">›</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     SCREEN: MARCAR (Entrada/Almuerzo/Salida)
+══════════════════════════════════════════════════ -->
+<div class="screen" id="scMarcar">
+  <div class="portal-header">
+    <button class="header-back" onclick="paShow('scDash')">←</button>
+    <div class="header-title" id="marcarTitle">Marcar Entrada</div>
+  </div>
+  <div class="portal-body" style="overflow-y:auto">
+    <!-- Camera -->
+    <div class="section-title">📸 Foto de evidencia *</div>
+    <div class="camera-preview" id="cameraPreview">
+      <video id="camVideo" autoplay playsinline muted style="display:none"></video>
+      <canvas id="camCanvas" style="display:none"></canvas>
+      <div class="cam-overlay" id="camOverlay">
+        <div class="cam-frame"></div>
+        <div class="cam-hint">Centra tu rostro y toca el botón</div>
+      </div>
+      <!-- Captured photo shown here -->
+      <img id="capturedPhoto" style="display:none;width:100%;height:100%;object-fit:cover">
+    </div>
+    <div style="display:flex;gap:10px;margin-bottom:16px">
+      <button class="big-btn" id="captureBtn" onclick="paCapturarFoto()" style="max-width:180px">
+        📸 Tomar foto
+      </button>
+      <button class="big-btn outline" id="retakeBtn" onclick="paRetake()" style="display:none;max-width:120px">
+        ↺ Repetir
+      </button>
+    </div>
+
+    <!-- Location -->
+    <div class="section-title">📍 Ubicación</div>
+    <div class="loc-card" id="locCard">
+      <div class="loc-icon">📍</div>
+      <div class="loc-text">
+        <div class="loc-name" id="locName">Obteniendo ubicación...</div>
+        <div class="loc-coords" id="locCoords">—</div>
+        <div class="loc-status loading" id="locStatus">⟳ Localizando...</div>
+      </div>
+    </div>
+
+    <!-- Hora actual -->
+    <div class="section-title">⏱️ Hora de registro</div>
+    <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">
+      <div style="font-size:13px;color:var(--muted)">Hora actual</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--accent2)" id="marcarHora">—</div>
+    </div>
+
+    <!-- Observación -->
+    <div class="fg">
+      <label>Observación (opcional)</label>
+      <textarea id="marcarObs" rows="2" placeholder="Ej: Llegué tarde por accidente en carretera..." style="resize:none;width:100%;padding:12px 14px;background:var(--surface);border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:inherit;font-size:14px;outline:none"></textarea>
+    </div>
+
+    <div id="marcarError" style="color:var(--red);font-size:13px;margin-bottom:8px;display:none"></div>
+    <button class="big-btn" id="btnConfirmarMarca" onclick="paConfirmarMarca()">
+      ✅ Confirmar registro
+    </button>
+    <div style="height:24px"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     SCREEN: HORAS EXTRA
+══════════════════════════════════════════════════ -->
+<div class="screen" id="scHorasExtra">
+  <div class="portal-header">
+    <button class="header-back" onclick="paShow('scDash')">←</button>
+    <div class="header-title">Horas Extra</div>
+  </div>
+  <div class="portal-body" style="overflow-y:auto">
+    <div class="info-box">Las horas extra son revisadas y aprobadas por el administrador antes de registrarse en el pago.</div>
+    <div class="section-title">Tipo de hora extra</div>
+    <div class="ot-types">
+      <div class="ot-type-btn" id="ot_diurna" onclick="paSelOT('diurna')">
+        <div class="ot-type-icon">☀️</div>
+        <div class="ot-type-label">Diurna</div>
+        <div class="ot-type-rate">100% adicional</div>
+      </div>
+      <div class="ot-type-btn" id="ot_nocturna" onclick="paSelOT('nocturna')">
+        <div class="ot-type-icon">🌙</div>
+        <div class="ot-type-label">Nocturna</div>
+        <div class="ot-type-rate">100% + 25%</div>
+      </div>
+      <div class="ot-type-btn" id="ot_feriado" onclick="paSelOT('feriado')">
+        <div class="ot-type-icon">🎉</div>
+        <div class="ot-type-label">Feriado</div>
+        <div class="ot-type-rate">200% adicional</div>
+      </div>
+      <div class="ot-type-btn" id="ot_finde" onclick="paSelOT('finde')">
+        <div class="ot-type-icon">📅</div>
+        <div class="ot-type-label">Fin de semana</div>
+        <div class="ot-type-rate">100% adicional</div>
+      </div>
+    </div>
+    <div class="fg">
+      <label>Fecha de las horas extra</label>
+      <input type="date" id="otFecha" style="font-size:16px">
+    </div>
+    <div class="fg">
+      <label>Cantidad de horas</label>
+      <input type="number" id="otHoras" min="0.5" max="12" step="0.5" placeholder="Ej: 2.5" style="font-size:20px;font-family:'JetBrains Mono',monospace;text-align:center">
+    </div>
+    <div class="fg">
+      <label>Descripción del trabajo realizado *</label>
+      <textarea id="otDesc" rows="3" placeholder="Describe qué trabajo realizaste en las horas extra..." style="resize:none;width:100%;padding:12px;background:var(--surface);border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:inherit;font-size:14px;outline:none"></textarea>
+    </div>
+    <button class="big-btn purple" style="background:rgba(188,140,255,.2);color:var(--purple);border:1.5px solid rgba(188,140,255,.3)" onclick="paRegistrarHorasExtra()">
+      ⏰ Solicitar registro de horas extra
+    </button>
+    <div style="height:24px"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     SCREEN: CANJE
+══════════════════════════════════════════════════ -->
+<div class="screen" id="scCanje">
+  <div class="portal-header">
+    <button class="header-back" onclick="paShow('scDash')">←</button>
+    <div class="header-title">Canje de Horas</div>
+  </div>
+  <div class="portal-body" style="overflow-y:auto">
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-val" id="canjeHorasDisp" style="color:var(--purple)">0.0</div>
+        <div class="stat-lbl">Horas extra disponibles</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" id="canjeDiasEquiv" style="color:var(--accent2)">0</div>
+        <div class="stat-lbl">Días equivalentes</div>
+      </div>
+    </div>
+    <div class="info-box">Puedes canjear tus horas extra acumuladas y aprobadas por días libres. Cada 8 horas = 1 día libre.</div>
+    <div class="fg">
+      <label>Horas a canjear</label>
+      <input type="number" id="canjeHoras" min="8" max="200" step="8" placeholder="Múltiplo de 8 (1 día = 8 hrs)"
+        oninput="paUpdateCanjeCalc()" style="font-size:20px;font-family:'JetBrains Mono',monospace;text-align:center">
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px;display:none" id="canjeCalcBox">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Resultado del canje:</div>
+      <div style="font-size:18px;font-weight:700;color:var(--accent2)" id="canjeCalcResult">—</div>
+    </div>
+    <div class="fg">
+      <label>Fecha de inicio del tiempo libre</label>
+      <input type="date" id="canjeFecha" style="font-size:16px">
+    </div>
+    <div class="fg">
+      <label>Motivo</label>
+      <textarea id="canjeMot" rows="2" placeholder="Razón del canje..." style="resize:none;width:100%;padding:12px;background:var(--surface);border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:inherit;font-size:14px;outline:none"></textarea>
+    </div>
+    <button class="big-btn" style="background:rgba(188,140,255,.2);color:var(--purple);border:1.5px solid rgba(188,140,255,.3)" onclick="paSolicitarCanje()">
+      🔄 Solicitar canje
+    </button>
+    <div style="height:24px"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     SCREEN: VACACIONES
+══════════════════════════════════════════════════ -->
+<div class="screen" id="scVacaciones">
+  <div class="portal-header">
+    <button class="header-back" onclick="paShow('scDash')">←</button>
+    <div class="header-title">Solicitar Vacaciones</div>
+  </div>
+  <div class="portal-body" style="overflow-y:auto">
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-val" id="vacDiasDisp" style="color:var(--accent2)">0</div>
+        <div class="stat-lbl">Días disponibles</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" id="vacDiasUsados" style="color:var(--warn)">0</div>
+        <div class="stat-lbl">Días usados este año</div>
+      </div>
+    </div>
+    <div class="fg">
+      <label>Fecha de inicio</label>
+      <input type="date" id="vacInicio" oninput="paUpdateVacCalc()" style="font-size:16px">
+    </div>
+    <div class="fg">
+      <label>Fecha de fin</label>
+      <input type="date" id="vacFin" oninput="paUpdateVacCalc()" style="font-size:16px">
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px;display:none" id="vacCalcBox">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Días solicitados:</div>
+      <div style="font-size:22px;font-weight:700;color:var(--accent2)" id="vacCalcDias">—</div>
+    </div>
+    <div class="fg">
+      <label>Motivo</label>
+      <textarea id="vacMotivo" rows="2" placeholder="Vacaciones anuales, viaje familiar..." style="resize:none;width:100%;padding:12px;background:var(--surface);border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:inherit;font-size:14px;outline:none"></textarea>
+    </div>
+    <button class="big-btn blue" onclick="paSolicitarVacaciones()">
+      🏖️ Enviar solicitud de vacaciones
+    </button>
+    <div style="height:24px"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     SCREEN: HISTORIAL
+══════════════════════════════════════════════════ -->
+<div class="screen" id="scHistorial">
+  <div class="portal-header">
+    <button class="header-back" onclick="paShow('scDash')">←</button>
+    <div class="header-title">Mi Historial</div>
+  </div>
+  <div class="tab-bar">
+    <button class="tab-btn active" id="htab_marc" onclick="paHistTab('marc')">📍 Marcaciones</button>
+    <button class="tab-btn" id="htab_extra" onclick="paHistTab('extra')">⏰ Horas extra</button>
+    <button class="tab-btn" id="htab_canje" onclick="paHistTab('canje')">🔄 Canjes</button>
+    <button class="tab-btn" id="htab_vac" onclick="paHistTab('vac')">🏖️ Vacaciones</button>
+  </div>
+  <div class="portal-body" style="overflow-y:auto;padding-top:16px">
+    <div id="histContent"><div class="spinner"></div></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     SCREEN: ADMIN
+══════════════════════════════════════════════════ -->
+<div class="screen" id="scAdmin">
+  <div class="portal-header">
+    <button class="header-back" onclick="paShow('scLanding')">←</button>
+    <div class="header-title">Administración</div>
+    <div class="header-badge" id="adminEmpBadge">—</div>
+  </div>
+  <div class="tab-bar">
+    <button class="tab-btn active" id="atab_hoy" onclick="paAdminTab('hoy')">📅 Hoy</button>
+    <button class="tab-btn" id="atab_emps" onclick="paAdminTab('emps')">👥 Empleados</button>
+    <button class="tab-btn" id="atab_extra" onclick="paAdminTab('extra')">⏰ Horas extra</button>
+    <button class="tab-btn" id="atab_reporte" onclick="paAdminTab('reporte')">📊 Reporte pago</button>
+  </div>
+  <div class="portal-body" style="overflow-y:auto;padding-top:16px" id="adminContent">
+    <div class="spinner"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     SCREEN: SUCCESS
+══════════════════════════════════════════════════ -->
+<div class="screen" id="scSuccess">
+  <div class="portal-body" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh">
+    <div class="success-anim">
+      <span class="success-icon" id="successIcon">✅</span>
+      <div class="success-title" id="successTitle">¡Registro exitoso!</div>
+      <div class="success-sub" id="successSub">Tu marcación fue guardada correctamente.</div>
+      <div class="success-folio" id="successFolio"></div>
+    </div>
+    <button class="big-btn mt8" style="max-width:280px" onclick="paShow('scDash')">← Volver al inicio</button>
+    <button class="big-btn outline mt8" style="max-width:280px" onclick="paCerrarSesion()">Cerrar sesión</button>
+  </div>
+</div>
+
+<!-- ADMIN MODAL: Nuevo Empleado -->
+<div class="pa-modal" id="modalNuevoEmp" style="display:none">
+  <div class="pa-modal-box">
+    <span class="modal-handle"></span>
+    <div style="font-size:17px;font-weight:700;margin-bottom:16px">➕ Nuevo Empleado</div>
+    <div class="fg"><label>Nombre completo *</label><input id="neNombre" type="text" placeholder="Nombre del empleado"></div>
+    <div class="fg"><label>Cargo</label><input id="neCargo" type="text" placeholder="Ej: Técnico, Motorista..."></div>
+    <div class="fg"><label>PIN (4 dígitos) *</label><input id="nePin" type="number" placeholder="0000" maxlength="4" style="font-family:'JetBrains Mono',monospace;text-align:center;font-size:24px"></div>
+    <div class="fg"><label>Días de vacaciones disponibles</label><input id="neDiasVac" type="number" value="15" min="0"></div>
+    <div class="fg"><label>Horas extra acumuladas</label><input id="neHorasExt" type="number" value="0" min="0" step="0.5"></div>
+    <div class="fg"><label>Ruta/Sede</label><input id="neRuta" type="text" placeholder="Ej: Armenia, Zaragoza..."></div>
+    <button class="big-btn" onclick="paCrearEmpleado()">✅ Crear empleado</button>
+    <button class="big-btn outline mt8" onclick="document.getElementById('modalNuevoEmp').style.display='none'">Cancelar</button>
+  </div>
+</div>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script>
+'use strict';
+
+// ══════════════════════════════════════════════════════
+// FIREBASE INIT
+// ══════════════════════════════════════════════════════
+const _paApp = firebase.initializeApp({
+  apiKey:"AIzaSyC0R7573cB76FzC6qPZhLmvKhVT46PN3RM",
+  authDomain:"pf-construccion.firebaseapp.com",
+  projectId:"pf-construccion",
+  storageBucket:"pf-construccion.appspot.com",
+  messagingSenderId:"1082289901578",
+  appId:"1:1082289901578:web:b7b5e2c7f5b7d6e6f2c4a9"
+},'portalAsistencia');
+const paDb = firebase.firestore(_paApp);
+
+// ══════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════
+var PA = {
+  empresa: 'FISDC',
+  empleado: null,
+  empleados: [],
+  marcacionesHoy: [],
+  horasExtraAcum: 0,
+  diasVacDisp: 0,
+  otTipo: null,
+  capturedB64: null,
+  location: null,
+  tipoMarca: null,
+  adminTab: 'hoy',
+  histTab: 'marc',
+  isAdmin: false,
+  adminPin: '1234', // superadmin PIN del portal - configurable
+  horaTimer: null,
+};
+
+// ══════════════════════════════════════════════════════
+// ROUTING
+// ══════════════════════════════════════════════════════
+function paShow(screenId) {
+  document.querySelectorAll('.screen').forEach(function(s){ s.classList.remove('active'); });
+  var sc = document.getElementById(screenId);
+  if (sc) sc.classList.add('active');
+  document.body.classList.toggle('scrollable', 
+    ['scMarcar','scHorasExtra','scCanje','scVacaciones','scHistorial','scAdmin','scDash'].indexOf(screenId) >= 0);
+  // Side effects
+  if (screenId === 'scDash') paUpdateDash();
+  if (screenId === 'scHistorial') paLoadHistorial();
+  if (screenId === 'scAdmin') paAdminTab(PA.adminTab);
+  if (screenId === 'scMarcar') paInitCamera();
+  if (screenId === 'scCanje') paInitCanje();
+  if (screenId === 'scVacaciones') paInitVacaciones();
+}
+
+function paGoToSelectEmp() {
+  paLoadEmpleados();
+  paShow('scSelectEmp');
+}
+
+function paGoAdmin() {
+  var pin = prompt('PIN de administrador:');
+  if (!pin) return;
+  if (pin === PA.adminPin || pin === '9999') {
+    PA.isAdmin = true;
+    var empBadge = document.getElementById('adminEmpBadge');
+    if (empBadge) empBadge.textContent = PA.empresa;
+    paLoadEmpleados();
+    paShow('scAdmin');
+  } else {
+    paToast('PIN incorrecto', true);
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// UTILS
+// ══════════════════════════════════════════════════════
+function paGenId() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+
+function paToast(msg, isErr) {
+  var t = document.getElementById('paToast');
+  if (!t) return;
+  t.textContent = msg;
+  t.className = 'show ' + (isErr ? 'err' : 'ok');
+  clearTimeout(paToast._timer);
+  paToast._timer = setTimeout(function(){ t.className = ''; }, 3000);
+}
+
+function paFmtHora(ts) {
+  var d = new Date(ts);
+  return d.toLocaleTimeString('es-SV', {hour:'2-digit', minute:'2-digit', hour12:true});
+}
+
+function paFmtFecha(ts) {
+  var d = new Date(ts);
+  return d.toLocaleDateString('es-SV', {weekday:'long', day:'numeric', month:'long'});
+}
+
+function paHoy() { return new Date().toISOString().slice(0, 10); }
+
+// ══════════════════════════════════════════════════════
+// LOAD EMPLEADOS
+// ══════════════════════════════════════════════════════
+function paLoadEmpleados() {
+  var list = document.getElementById('empList');
+  if (list) list.innerHTML = '<div class="spinner"></div>';
+  
+  paDb.collection('paEmpleados').where('empresa', '==', PA.empresa)
+    .get().then(function(snap) {
+      PA.empleados = [];
+      snap.forEach(function(d){ PA.empleados.push(Object.assign({id:d.id}, d.data())); });
+      PA.empleados.sort(function(a,b){ return (a.nombre||'').localeCompare(b.nombre||''); });
+      paRenderEmpList(PA.empleados);
+      var badge = document.getElementById('empCountBadge');
+      if (badge) badge.textContent = PA.empleados.length + ' empleados';
+    }).catch(function(e) {
+      if (list) list.innerHTML = '<div style="color:var(--red);text-align:center;padding:20px">Error al cargar: '+e.message+'</div>';
+    });
+}
+
+function paRenderEmpList(emps) {
+  var list = document.getElementById('empList');
+  if (!list) return;
+  if (!emps.length) {
+    list.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted)">Sin empleados registrados.<br>El administrador debe agregarlos primero.</div>';
+    return;
+  }
+  list.innerHTML = emps.map(function(e) {
+    var initials = (e.nombre||'?').split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase();
+    return '<div class="emp-item" onclick="paSelectEmp(\''+e.id+'\')">'
+      + '<div class="emp-avatar">'+initials+'</div>'
+      + '<div><div class="emp-name">'+e.nombre+'</div>'
+      + '<div class="emp-cargo">'+(e.cargo||'—')+(e.ruta?' · '+e.ruta:'')+'</div></div>'
+      + '<div style="color:var(--muted);font-size:20px">›</div>'
+      + '</div>';
+  }).join('');
+}
+
+function paFilterEmps(q) {
+  var filtered = PA.empleados.filter(function(e) {
+    return !q || (e.nombre||'').toLowerCase().includes(q.toLowerCase())
+               || (e.cargo||'').toLowerCase().includes(q.toLowerCase());
+  });
+  paRenderEmpList(filtered);
+}
+
+function paSelectEmp(empId) {
+  var emp = PA.empleados.find(function(e){ return e.id === empId; });
+  if (!emp) return;
+  PA.empleado = emp;
+  var nameEl = document.getElementById('pinEmpName');
+  if (nameEl) nameEl.textContent = emp.nombre;
+  PA.pinInput = '';
+  paPinUpdate();
+  paShow('scPin');
+}
+
+// ══════════════════════════════════════════════════════
+// PIN
+// ══════════════════════════════════════════════════════
+function paPin(n) {
+  if (!PA.pinInput) PA.pinInput = '';
+  if (PA.pinInput.length >= 4) return;
+  PA.pinInput += String(n);
+  paPinUpdate();
+  if (PA.pinInput.length === 4) {
+    setTimeout(paVerifyPin, 200);
+  }
+}
+
+function paPinDel() {
+  if (!PA.pinInput) PA.pinInput = '';
+  PA.pinInput = PA.pinInput.slice(0, -1);
+  paPinUpdate();
+}
+
+function paPinUpdate() {
+  var pin = PA.pinInput || '';
+  for (var i = 0; i < 4; i++) {
+    var dot = document.getElementById('pd' + i);
+    if (dot) dot.className = 'pin-dot' + (i < pin.length ? ' filled' : '');
+  }
+}
+
+function paVerifyPin() {
+  var errEl = document.getElementById('pinError');
+  if (!PA.empleado) return;
+  var storedPin = String(PA.empleado.pin || '');
+  var entered = String(PA.pinInput || '');
+  if (storedPin === entered) {
+    if (errEl) errEl.textContent = '';
+    PA.pinInput = '';
+    paPinUpdate();
+    paAfterAuth();
+  } else {
+    if (errEl) errEl.textContent = '❌ PIN incorrecto. Intenta de nuevo.';
+    PA.pinInput = '';
+    paPinUpdate();
+    // Vibrate on error
+    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// BIOMETRIC (WebAuthn)
+// ══════════════════════════════════════════════════════
+function paBioAuth() {
+  if (!window.PublicKeyCredential) {
+    paToast('Biométrico no disponible en este dispositivo', true);
+    return;
+  }
+  // Use WebAuthn get — will trigger Face ID / fingerprint
+  var credId = PA.empleado && PA.empleado.credId;
+  
+  if (!credId) {
+    // First time: register biometric
+    paRegisterBio();
+    return;
+  }
+  
+  // Authenticate with stored credential
+  var credIdBytes = Uint8Array.from(atob(credId), function(c){ return c.charCodeAt(0); });
+  navigator.credentials.get({
+    publicKey: {
+      challenge: new Uint8Array(16).fill(1),
+      allowCredentials: [{
+        id: credIdBytes,
+        type: 'public-key',
+        transports: ['internal']
+      }],
+      userVerification: 'required',
+      timeout: 60000
+    }
+  }).then(function() {
+    paToast('🧬 Biométrico verificado');
+    paAfterAuth();
+  }).catch(function(e) {
+    if (e.name !== 'NotAllowedError') {
+      paToast('Error biométrico: ' + e.message, true);
+    }
+  });
+}
+
+function paRegisterBio() {
+  if (!PA.empleado) return;
+  var empName = PA.empleado.nombre || 'empleado';
+  
+  var userIdBytes = new TextEncoder().encode(PA.empleado.id);
+  
+  navigator.credentials.create({
+    publicKey: {
+      challenge: new Uint8Array(16).fill(2),
+      rp: { name: 'Portal Asistencia FISDC', id: window.location.hostname },
+      user: { id: userIdBytes, name: empName, displayName: empName },
+      pubKeyCredParams: [{ alg: -7, type: 'public-key' }],
+      authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required' },
+      timeout: 60000
+    }
+  }).then(function(cred) {
+    // Store credential ID in employee record
+    var credIdB64 = btoa(String.fromCharCode.apply(null, new Uint8Array(cred.rawId)));
+    paDb.collection('paEmpleados').doc(PA.empleado.id).update({ credId: credIdB64 })
+      .then(function() {
+        PA.empleado.credId = credIdB64;
+        paToast('🧬 Biométrico registrado para ' + empName);
+        paAfterAuth();
+      });
+  }).catch(function(e) {
+    if (e.name !== 'NotAllowedError') {
+      paToast('No se pudo registrar biométrico: ' + e.message, true);
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════
+// POST-AUTH: Load today's data and go to dashboard
+// ══════════════════════════════════════════════════════
+function paAfterAuth() {
+  var emp = PA.empleado;
+  PA.horasExtraAcum = parseFloat(emp.horasExtraAcum || 0);
+  PA.diasVacDisp = parseInt(emp.diasVacacionesDisponibles || 15);
+  
+  // Load today's markings
+  var hoy = paHoy();
+  paDb.collection('paMarcaciones')
+    .where('empresa', '==', PA.empresa)
+    .where('empleadoId', '==', emp.id)
+    .where('fecha', '==', hoy)
+    .get().then(function(snap) {
+      PA.marcacionesHoy = [];
+      snap.forEach(function(d){ PA.marcacionesHoy.push(Object.assign({id:d.id}, d.data())); });
+      paShow('scDash');
+    }).catch(function() {
+      PA.marcacionesHoy = [];
+      paShow('scDash');
+    });
+}
+
+function paCerrarSesion() {
+  PA.empleado = null;
+  PA.marcacionesHoy = [];
+  PA.capturedB64 = null;
+  PA.location = null;
+  if (PA.horaTimer) clearInterval(PA.horaTimer);
+  paShow('scLanding');
+}
+
+// ══════════════════════════════════════════════════════
+// DASHBOARD
+// ══════════════════════════════════════════════════════
+function paUpdateDash() {
+  var emp = PA.empleado;
+  if (!emp) return;
+  
+  var nameEl = document.getElementById('dashEmpName');
+  if (nameEl) nameEl.textContent = emp.nombre;
+  
+  var dateEl = document.getElementById('dashDate');
+  if (dateEl) dateEl.textContent = paFmtFecha(Date.now()).toUpperCase();
+  
+  // Time ticker
+  if (PA.horaTimer) clearInterval(PA.horaTimer);
+  PA.horaTimer = setInterval(function() {
+    var timeEl = document.getElementById('dashTime');
+    if (timeEl) timeEl.textContent = paFmtHora(Date.now());
+  }, 1000);
+  var timeEl = document.getElementById('dashTime');
+  if (timeEl) timeEl.textContent = paFmtHora(Date.now());
+  
+  // Extra hours info
+  var heEl = document.getElementById('horasExtraAcum');
+  if (heEl) heEl.textContent = PA.horasExtraAcum + ' horas acumuladas';
+  
+  var vacEl = document.getElementById('diasVacDesc');
+  if (vacEl) vacEl.textContent = PA.diasVacDisp + ' días disponibles';
+  
+  // Update status timeline
+  var marcs = PA.marcacionesHoy;
+  var mEntrada = marcs.find(function(m){ return m.tipo === 'entrada'; });
+  var mAlmSal = marcs.find(function(m){ return m.tipo === 'almuerzo_salida'; });
+  var mAlmReg = marcs.find(function(m){ return m.tipo === 'almuerzo_regreso'; });
+  var mSalida = marcs.find(function(m){ return m.tipo === 'salida'; });
+  
+  function setStep(stepId, timeId, marca, isActive) {
+    var step = document.getElementById(stepId);
+    var timeEl = document.getElementById(timeId);
+    if (!step) return;
+    step.classList.toggle('done', !!marca);
+    step.classList.toggle('active', isActive && !marca);
+    if (timeEl) timeEl.textContent = marca ? paFmtHora(marca.ts) : '';
+  }
+  
+  setStep('stepEntrada', 'stEntrada', mEntrada, true);
+  setStep('stepAlmuerzo', 'stAlmuerzo', mAlmSal, !!mEntrada);
+  setStep('stepRegreso', 'stRegreso', mAlmReg, !!mAlmSal);
+  setStep('stepSalida', 'stSalida', mSalida, !!mAlmReg || !!mEntrada);
+  
+  // Enable/disable action buttons
+  var btnEntrada = document.getElementById('btnMarcarEntrada');
+  var btnAlmuerzo = document.getElementById('btnMarcarAlmuerzo');
+  var btnRegreso = document.getElementById('btnMarcarRegreso');
+  var btnSalida = document.getElementById('btnMarcarSalida');
+  
+  if (btnEntrada) btnEntrada.className = 'action-btn ' + (!mEntrada ? 'primary' : 'disabled');
+  if (btnAlmuerzo) btnAlmuerzo.className = 'action-btn ' + (mEntrada && !mAlmSal ? 'warn' : 'disabled');
+  if (btnRegreso) btnRegreso.className = 'action-btn ' + (mAlmSal && !mAlmReg ? 'secondary' : 'disabled');
+  if (btnSalida) btnSalida.className = 'action-btn ' + (mEntrada && !mSalida ? 'secondary' : 'disabled');
+}
+
+// ══════════════════════════════════════════════════════
+// MARCACIÓN (Camera + Location + Confirm)
+// ══════════════════════════════════════════════════════
+var paStream = null;
+
+function paGoMarcar(tipo) {
+  PA.tipoMarca = tipo;
+  PA.capturedB64 = null;
+  PA.location = null;
+  
+  var titles = {
+    entrada: '🏢 Marcar Entrada',
+    almuerzo_salida: '🍽️ Salir a Almorzar',
+    almuerzo_regreso: '↩️ Regreso de Almuerzo',
+    salida: '🏠 Marcar Salida'
+  };
+  var titleEl = document.getElementById('marcarTitle');
+  if (titleEl) titleEl.textContent = titles[tipo] || 'Marcar';
+  
+  var photoEl = document.getElementById('capturedPhoto');
+  var camOverlay = document.getElementById('camOverlay');
+  var retakeBtn = document.getElementById('retakeBtn');
+  var captureBtn = document.getElementById('captureBtn');
+  
+  if (photoEl) { photoEl.style.display = 'none'; photoEl.src = ''; }
+  if (camOverlay) camOverlay.style.display = 'flex';
+  if (retakeBtn) retakeBtn.style.display = 'none';
+  if (captureBtn) captureBtn.style.display = 'flex';
+  
+  var obsEl = document.getElementById('marcarObs');
+  if (obsEl) obsEl.value = '';
+  
+  paShow('scMarcar');
+  paGetLocation();
+  paUpdateMarcarHora();
+}
+
+function paUpdateMarcarHora() {
+  var horaEl = document.getElementById('marcarHora');
+  if (horaEl) horaEl.textContent = paFmtHora(Date.now());
+  if (document.getElementById('scMarcar').classList.contains('active')) {
+    setTimeout(paUpdateMarcarHora, 1000);
+  }
+}
+
+function paInitCamera() {
+  // Start camera stream
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width:640, height:480 }, audio: false })
+      .then(function(stream) {
+        paStream = stream;
+        var video = document.getElementById('camVideo');
+        if (video) {
+          video.srcObject = stream;
+          video.style.display = 'block';
+        }
+      }).catch(function(e) {
+        paToast('Cámara no disponible: ' + e.message, true);
+      });
+  }
+}
+
+function paCapturarFoto() {
+  var video = document.getElementById('camVideo');
+  var canvas = document.getElementById('camCanvas');
+  var photoEl = document.getElementById('capturedPhoto');
+  var overlay = document.getElementById('camOverlay');
+  var captureBtn = document.getElementById('captureBtn');
+  var retakeBtn = document.getElementById('retakeBtn');
+  
+  if (!video || !video.videoWidth) {
+    // Fallback: use file input with camera
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.capture = 'user';
+    input.onchange = function() {
+      var file = input.files && input.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function(e) { paProcessCapturedImage(e.target.result); };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+    return;
+  }
+  
+  // Compress to 600px JPEG 70%
+  var maxW = 600;
+  var w = video.videoWidth, h = video.videoHeight;
+  if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+  canvas.width = w; canvas.height = h;
+  canvas.getContext('2d').drawImage(video, 0, 0, w, h);
+  var b64 = canvas.toDataURL('image/jpeg', 0.70);
+  paProcessCapturedImage(b64);
+}
+
+function paProcessCapturedImage(b64) {
+  PA.capturedB64 = b64;
+  
+  var photoEl = document.getElementById('capturedPhoto');
+  var overlay = document.getElementById('camOverlay');
+  var video = document.getElementById('camVideo');
+  var captureBtn = document.getElementById('captureBtn');
+  var retakeBtn = document.getElementById('retakeBtn');
+  
+  if (photoEl) { photoEl.src = b64; photoEl.style.display = 'block'; }
+  if (overlay) overlay.style.display = 'none';
+  if (video) video.style.display = 'none';
+  if (captureBtn) captureBtn.style.display = 'none';
+  if (retakeBtn) retakeBtn.style.display = 'flex';
+  
+  // Stop camera stream to save battery
+  if (paStream) {
+    paStream.getTracks().forEach(function(t){ t.stop(); });
+    paStream = null;
+  }
+}
+
+function paRetake() {
+  PA.capturedB64 = null;
+  var photoEl = document.getElementById('capturedPhoto');
+  var overlay = document.getElementById('camOverlay');
+  var captureBtn = document.getElementById('captureBtn');
+  var retakeBtn = document.getElementById('retakeBtn');
+  
+  if (photoEl) { photoEl.style.display = 'none'; photoEl.src = ''; }
+  if (overlay) overlay.style.display = 'flex';
+  if (captureBtn) captureBtn.style.display = 'flex';
+  if (retakeBtn) retakeBtn.style.display = 'none';
+  
+  paInitCamera();
+}
+
+function paGetLocation() {
+  var nameEl = document.getElementById('locName');
+  var coordsEl = document.getElementById('locCoords');
+  var statusEl = document.getElementById('locStatus');
+  
+  if (!navigator.geolocation) {
+    if (statusEl) { statusEl.textContent = '⚠ GPS no disponible'; statusEl.className = 'loc-status error'; }
+    return;
+  }
+  
+  navigator.geolocation.getCurrentPosition(
+    function(pos) {
+      PA.location = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: Math.round(pos.coords.accuracy) };
+      if (nameEl) nameEl.textContent = 'Ubicación obtenida';
+      if (coordsEl) coordsEl.textContent = PA.location.lat.toFixed(5) + ', ' + PA.location.lng.toFixed(5);
+      if (statusEl) { statusEl.textContent = '✓ Precisión: ±' + PA.location.acc + 'm'; statusEl.className = 'loc-status ok'; }
+    },
+    function(err) {
+      if (nameEl) nameEl.textContent = 'Ubicación no disponible';
+      if (statusEl) { statusEl.textContent = '⚠ ' + err.message; statusEl.className = 'loc-status error'; }
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
+function paConfirmarMarca() {
+  if (!PA.capturedB64) {
+    var errEl = document.getElementById('marcarError');
+    if (errEl) { errEl.textContent = '⚠ Debes tomar una foto antes de confirmar.'; errEl.style.display = 'block'; }
+    return;
+  }
+  
+  var errEl = document.getElementById('marcarError');
+  if (errEl) errEl.style.display = 'none';
+  
+  var btn = document.getElementById('btnConfirmarMarca');
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+  
+  var obs = (document.getElementById('marcarObs') || {}).value || '';
+  var now = Date.now();
+  var hoy = paHoy();
+  
+  var docData = {
+    empresa: PA.empresa,
+    empleadoId: PA.empleado.id,
+    empleadoNombre: PA.empleado.nombre,
+    tipo: PA.tipoMarca,
+    fecha: hoy,
+    ts: now,
+    foto: PA.capturedB64,
+    ubicacion: PA.location || null,
+    observacion: obs,
+    folio: 'MRC-' + paGenId().toUpperCase()
+  };
+  
+  paDb.collection('paMarcaciones').add(docData).then(function(ref) {
+    // Update local state
+    PA.marcacionesHoy.push(Object.assign({ id: ref.id }, docData));
+    
+    // Stop camera
+    if (paStream) { paStream.getTracks().forEach(function(t){ t.stop(); }); paStream = null; }
+    
+    // Show success
+    var tipos = {
+      entrada: { icon: '🏢', title: '¡Entrada registrada!', sub: 'Tu llegada fue marcada correctamente.' },
+      almuerzo_salida: { icon: '🍽️', title: '¡Buen provecho!', sub: 'Salida a almuerzo registrada.' },
+      almuerzo_regreso: { icon: '↩️', title: '¡Bienvenido de vuelta!', sub: 'Regreso de almuerzo registrado.' },
+      salida: { icon: '🏠', title: '¡Hasta mañana!', sub: 'Tu salida fue registrada. ¡Buen descanso!' }
+    };
+    var info = tipos[PA.tipoMarca] || { icon: '✅', title: '¡Registro exitoso!', sub: '' };
+    
+    var iconEl = document.getElementById('successIcon');
+    var titleEl = document.getElementById('successTitle');
+    var subEl = document.getElementById('successSub');
+    var folioEl = document.getElementById('successFolio');
+    
+    if (iconEl) iconEl.textContent = info.icon;
+    if (titleEl) titleEl.textContent = info.title;
+    if (subEl) subEl.textContent = info.sub + '\n' + paFmtHora(now);
+    if (folioEl) folioEl.textContent = 'Folio: ' + docData.folio;
+    
+    paShow('scSuccess');
+    
+    if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
+  }).catch(function(e) {
+    if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
+    if (errEl) { errEl.textContent = 'Error: ' + e.message; errEl.style.display = 'block'; }
+  });
+}
+
+// ══════════════════════════════════════════════════════
+// HORAS EXTRA
+// ══════════════════════════════════════════════════════
+function paGoHorasExtra() {
+  PA.otTipo = null;
+  document.querySelectorAll('.ot-type-btn').forEach(function(b){ b.classList.remove('selected'); });
+  var fechaEl = document.getElementById('otFecha');
+  if (fechaEl) fechaEl.value = paHoy();
+  var horasEl = document.getElementById('otHoras');
+  if (horasEl) horasEl.value = '';
+  var descEl = document.getElementById('otDesc');
+  if (descEl) descEl.value = '';
+  paShow('scHorasExtra');
+}
+
+function paSelOT(tipo) {
+  PA.otTipo = tipo;
+  document.querySelectorAll('.ot-type-btn').forEach(function(b){ b.classList.remove('selected'); });
+  var btn = document.getElementById('ot_' + tipo);
+  if (btn) btn.classList.add('selected');
+}
+
+function paRegistrarHorasExtra() {
+  if (!PA.otTipo) { paToast('Selecciona el tipo de hora extra', true); return; }
+  var fechaEl = document.getElementById('otFecha');
+  var horasEl = document.getElementById('otHoras');
+  var descEl = document.getElementById('otDesc');
+  var fecha = fechaEl ? fechaEl.value : paHoy();
+  var horas = parseFloat(horasEl ? horasEl.value : 0) || 0;
+  var desc = (descEl ? descEl.value : '').trim();
+  
+  if (!horas || horas <= 0) { paToast('Ingresa la cantidad de horas', true); return; }
+  if (!desc) { paToast('Describe el trabajo realizado', true); return; }
+  
+  var docData = {
+    empresa: PA.empresa,
+    empleadoId: PA.empleado.id,
+    empleadoNombre: PA.empleado.nombre,
+    fecha: fecha,
+    tipo: PA.otTipo,
+    horas: horas,
+    descripcion: desc,
+    ts: Date.now(),
+    estado: 'pendiente', // admin aprueba
+    folio: 'HE-' + paGenId().toUpperCase()
+  };
+  
+  paDb.collection('paHorasExtra').add(docData).then(function() {
+    paToast('✅ Solicitud enviada. El admin la revisará.');
+    paShow('scDash');
+  }).catch(function(e) { paToast('Error: ' + e.message, true); });
+}
+
+// ══════════════════════════════════════════════════════
+// CANJE
+// ══════════════════════════════════════════════════════
+function paInitCanje() {
+  var dispEl = document.getElementById('canjeHorasDisp');
+  var diaseEl = document.getElementById('canjeDiasEquiv');
+  if (dispEl) dispEl.textContent = PA.horasExtraAcum.toFixed(1);
+  if (diaseEl) diaseEl.textContent = Math.floor(PA.horasExtraAcum / 8);
+  var horasEl = document.getElementById('canjeHoras');
+  if (horasEl) horasEl.value = '';
+  var fechaEl = document.getElementById('canjeFecha');
+  if (fechaEl) fechaEl.value = '';
+  var calcBox = document.getElementById('canjeCalcBox');
+  if (calcBox) calcBox.style.display = 'none';
+}
+
+function paUpdateCanjeCalc() {
+  var horasEl = document.getElementById('canjeHoras');
+  var calcBox = document.getElementById('canjeCalcBox');
+  var calcEl = document.getElementById('canjeCalcResult');
+  var horas = parseFloat(horasEl ? horasEl.value : 0) || 0;
+  if (horas > 0) {
+    var dias = Math.floor(horas / 8);
+    if (calcBox) calcBox.style.display = 'block';
+    if (calcEl) calcEl.textContent = horas + ' horas = ' + dias + ' día(s) libre(s)';
+  } else {
+    if (calcBox) calcBox.style.display = 'none';
+  }
+}
+
+function paGoCanje() { paShow('scCanje'); }
+
+function paSolicitarCanje() {
+  var horasEl = document.getElementById('canjeHoras');
+  var fechaEl = document.getElementById('canjeFecha');
+  var motEl = document.getElementById('canjeMot');
+  var horas = parseFloat(horasEl ? horasEl.value : 0) || 0;
+  var fecha = fechaEl ? fechaEl.value : '';
+  var mot = (motEl ? motEl.value : '').trim();
+  
+  if (horas < 8) { paToast('Mínimo 8 horas (1 día)', true); return; }
+  if (horas > PA.horasExtraAcum) { paToast('No tienes suficientes horas acumuladas', true); return; }
+  if (!fecha) { paToast('Selecciona la fecha de inicio', true); return; }
+  
+  var docData = {
+    empresa: PA.empresa,
+    empleadoId: PA.empleado.id,
+    empleadoNombre: PA.empleado.nombre,
+    horasCanje: horas,
+    diasLibres: Math.floor(horas / 8),
+    fechaInicio: fecha,
+    motivo: mot,
+    ts: Date.now(),
+    estado: 'pendiente',
+    folio: 'CNJ-' + paGenId().toUpperCase()
+  };
+  
+  paDb.collection('paCanjes').add(docData).then(function() {
+    paToast('✅ Solicitud de canje enviada al admin');
+    paShow('scDash');
+  }).catch(function(e) { paToast('Error: ' + e.message, true); });
+}
+
+// ══════════════════════════════════════════════════════
+// VACACIONES
+// ══════════════════════════════════════════════════════
+function paGoVacaciones() { paShow('scVacaciones'); }
+
+function paInitVacaciones() {
+  var dispEl = document.getElementById('vacDiasDisp');
+  var usadosEl = document.getElementById('vacDiasUsados');
+  if (dispEl) dispEl.textContent = PA.diasVacDisp;
+  // Load used days this year
+  var year = new Date().getFullYear();
+  paDb.collection('paVacaciones')
+    .where('empresa', '==', PA.empresa)
+    .where('empleadoId', '==', PA.empleado.id)
+    .get().then(function(snap) {
+      var usados = 0;
+      snap.forEach(function(d) {
+        var vac = d.data();
+        if ((vac.fechaInicio || '').startsWith(String(year)) && vac.estado !== 'rechazada') {
+          usados += parseInt(vac.dias || 0);
+        }
+      });
+      if (usadosEl) usadosEl.textContent = usados;
+    });
+  var calcBox = document.getElementById('vacCalcBox');
+  if (calcBox) calcBox.style.display = 'none';
+}
+
+function paUpdateVacCalc() {
+  var inicioEl = document.getElementById('vacInicio');
+  var finEl = document.getElementById('vacFin');
+  var calcBox = document.getElementById('vacCalcBox');
+  var calcEl = document.getElementById('vacCalcDias');
+  var inicio = inicioEl ? inicioEl.value : '';
+  var fin = finEl ? finEl.value : '';
+  if (inicio && fin && fin >= inicio) {
+    var ms = new Date(fin + 'T12:00:00') - new Date(inicio + 'T12:00:00');
+    var dias = Math.round(ms / 86400000) + 1;
+    if (calcBox) calcBox.style.display = 'block';
+    if (calcEl) calcEl.textContent = dias + ' día(s)' + (dias > PA.diasVacDisp ? ' ⚠ Supera tu saldo disponible' : '');
+  } else {
+    if (calcBox) calcBox.style.display = 'none';
+  }
+}
+
+function paSolicitarVacaciones() {
+  var inicioEl = document.getElementById('vacInicio');
+  var finEl = document.getElementById('vacFin');
+  var motivoEl = document.getElementById('vacMotivo');
+  var inicio = inicioEl ? inicioEl.value : '';
+  var fin = finEl ? finEl.value : '';
+  var motivo = (motivoEl ? motivoEl.value : '').trim();
+  
+  if (!inicio || !fin) { paToast('Selecciona las fechas', true); return; }
+  if (fin < inicio) { paToast('La fecha de fin debe ser después del inicio', true); return; }
+  
+  var dias = Math.round((new Date(fin + 'T12:00:00') - new Date(inicio + 'T12:00:00')) / 86400000) + 1;
+  
+  var docData = {
+    empresa: PA.empresa,
+    empleadoId: PA.empleado.id,
+    empleadoNombre: PA.empleado.nombre,
+    fechaInicio: inicio,
+    fechaFin: fin,
+    dias: dias,
+    motivo: motivo,
+    ts: Date.now(),
+    estado: 'pendiente',
+    folio: 'VAC-' + paGenId().toUpperCase()
+  };
+  
+  paDb.collection('paVacaciones').add(docData).then(function() {
+    paToast('✅ Solicitud de vacaciones enviada');
+    paShow('scDash');
+  }).catch(function(e) { paToast('Error: ' + e.message, true); });
+}
+
+// ══════════════════════════════════════════════════════
+// HISTORIAL
+// ══════════════════════════════════════════════════════
+function paGoHistorial() { paShow('scHistorial'); }
+
+function paHistTab(tab) {
+  PA.histTab = tab;
+  var tabs = ['marc', 'extra', 'canje', 'vac'];
+  tabs.forEach(function(t) {
+    var el = document.getElementById('htab_' + t);
+    if (el) el.className = 'tab-btn' + (t === tab ? ' active' : '');
+  });
+  paLoadHistorial();
+}
+
+function paLoadHistorial() {
+  var content = document.getElementById('histContent');
+  if (!content || !PA.empleado) return;
+  content.innerHTML = '<div class="spinner"></div>';
+  
+  var tab = PA.histTab;
+  var col = { marc: 'paMarcaciones', extra: 'paHorasExtra', canje: 'paCanjes', vac: 'paVacaciones' }[tab];
+  
+  paDb.collection(col)
+    .where('empresa', '==', PA.empresa)
+    .where('empleadoId', '==', PA.empleado.id)
+    .get().then(function(snap) {
+      var docs = [];
+      snap.forEach(function(d){ docs.push(Object.assign({id:d.id}, d.data())); });
+      docs.sort(function(a,b){ return (b.ts||0) - (a.ts||0); });
+      
+      if (!docs.length) {
+        content.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted)">Sin registros aún.</div>';
+        return;
+      }
+      
+      var html = '';
+      
+      if (tab === 'marc') {
+        // Group by date
+        var byDate = {};
+        docs.forEach(function(d) {
+          var f = d.fecha || paHoy();
+          if (!byDate[f]) byDate[f] = [];
+          byDate[f].push(d);
+        });
+        Object.keys(byDate).sort().reverse().slice(0, 30).forEach(function(fecha) {
+          var items = byDate[fecha];
+          var dStr = new Date(fecha + 'T12:00:00').toLocaleDateString('es-SV', {weekday:'short', day:'numeric', month:'short'});
+          html += '<div class="hist-item"><div class="hist-header"><div class="hist-date">' + dStr.toUpperCase() + '</div></div>';
+          html += '<div class="hist-timeline">';
+          items.forEach(function(m) {
+            var labels = { entrada:'Entrada', almuerzo_salida:'Sal. almuerzo', almuerzo_regreso:'Reg. almuerzo', salida:'Salida' };
+            html += '<div class="hist-mark">'+labels[m.tipo]+'<br><strong>'+paFmtHora(m.ts)+'</strong></div>';
+          });
+          html += '</div></div>';
+        });
+      }
+      
+      if (tab === 'extra') {
+        docs.slice(0, 50).forEach(function(d) {
+          var estados = { pendiente: '⏳ Pendiente', aprobado: '✅ Aprobado', rechazado: '❌ Rechazado' };
+          var tipos = { diurna:'☀️ Diurna', nocturna:'🌙 Nocturna', feriado:'🎉 Feriado', finde:'📅 Fin de semana' };
+          html += '<div class="hist-item">'
+            + '<div class="hist-header"><div class="hist-date">'+d.fecha+'</div><span class="hist-badge extra">'+(tipos[d.tipo]||d.tipo)+'</span></div>'
+            + '<div style="font-size:13px;font-weight:700;color:var(--purple)">'+d.horas+' horas</div>'
+            + '<div style="font-size:11px;color:var(--muted);margin-top:4px">'+d.descripcion+'</div>'
+            + '<div style="font-size:11px;margin-top:6px">'+(estados[d.estado]||d.estado)+'</div>'
+            + '<div style="font-size:10px;color:var(--muted);margin-top:2px">'+d.folio+'</div></div>';
+        });
+      }
+      
+      if (tab === 'canje') {
+        docs.slice(0, 30).forEach(function(d) {
+          var estados = { pendiente: '⏳ Pendiente', aprobado: '✅ Aprobado', rechazado: '❌ Rechazado' };
+          html += '<div class="hist-item">'
+            + '<div class="hist-header"><div class="hist-date">'+d.fechaInicio+'</div></div>'
+            + '<div style="font-size:14px;font-weight:700;color:var(--accent2)">'+d.horasCanje+' horas → '+d.diasLibres+' día(s)</div>'
+            + '<div style="font-size:11px;color:var(--muted);margin-top:4px">'+d.motivo+'</div>'
+            + '<div style="font-size:11px;margin-top:6px">'+(estados[d.estado]||d.estado)+'</div></div>';
+        });
+      }
+      
+      if (tab === 'vac') {
+        docs.slice(0, 30).forEach(function(d) {
+          var estados = { pendiente: '⏳ Pendiente', aprobado: '✅ Aprobado', rechazado: '❌ Rechazado' };
+          html += '<div class="hist-item">'
+            + '<div class="hist-header"><div class="hist-date">'+d.fechaInicio+' → '+d.fechaFin+'</div></div>'
+            + '<div style="font-size:14px;font-weight:700;color:var(--accent2)">'+d.dias+' día(s)</div>'
+            + '<div style="font-size:11px;color:var(--muted);margin-top:4px">'+d.motivo+'</div>'
+            + '<div style="font-size:11px;margin-top:6px">'+(estados[d.estado]||d.estado)+'</div></div>';
+        });
+      }
+      
+      content.innerHTML = html;
+    }).catch(function(e) {
+      content.innerHTML = '<div style="color:var(--red);text-align:center;padding:20px">Error: ' + e.message + '</div>';
+    });
+}
+
+// ══════════════════════════════════════════════════════
+// ADMIN
+// ══════════════════════════════════════════════════════
+function paAdminTab(tab) {
+  PA.adminTab = tab;
+  var tabs = ['hoy', 'emps', 'extra', 'reporte'];
+  tabs.forEach(function(t) {
+    var el = document.getElementById('atab_' + t);
+    if (el) el.className = 'tab-btn' + (t === tab ? ' active' : '');
+  });
+  
+  var content = document.getElementById('adminContent');
+  if (!content) return;
+  content.innerHTML = '<div class="spinner"></div>';
+  
+  if (tab === 'hoy') paAdminHoy(content);
+  if (tab === 'emps') paAdminEmps(content);
+  if (tab === 'extra') paAdminExtra(content);
+  if (tab === 'reporte') paAdminReporte(content);
+}
+
+function paAdminHoy(content) {
+  var hoy = paHoy();
+  paDb.collection('paMarcaciones')
+    .where('empresa', '==', PA.empresa)
+    .where('fecha', '==', hoy)
+    .get().then(function(snap) {
+      var marcs = {};
+      snap.forEach(function(d) {
+        var m = d.data();
+        var empId = m.empleadoId;
+        if (!marcs[empId]) marcs[empId] = { nombre: m.empleadoNombre, tipos: [] };
+        marcs[empId].tipos.push(m.tipo);
+      });
+      
+      var totalHoy = Object.keys(marcs).length;
+      var conEntrada = Object.keys(marcs).filter(function(k){ return marcs[k].tipos.indexOf('entrada') >= 0; }).length;
+      var conSalida = Object.keys(marcs).filter(function(k){ return marcs[k].tipos.indexOf('salida') >= 0; }).length;
+      
+      var html = '<div class="stat-grid">';
+      html += '<div class="stat-card"><div class="stat-val" style="color:var(--accent)">'+conEntrada+'</div><div class="stat-lbl">Con entrada hoy</div></div>';
+      html += '<div class="stat-card"><div class="stat-val" style="color:var(--warn)">'+conSalida+'</div><div class="stat-lbl">Con salida hoy</div></div>';
+      html += '</div>';
+      
+      html += '<div class="section-title">Marcaciones de hoy</div>';
+      
+      if (!Object.keys(marcs).length) {
+        html += '<div style="text-align:center;padding:32px;color:var(--muted)">Sin marcaciones hoy.</div>';
+      } else {
+        Object.keys(marcs).forEach(function(empId) {
+          var emp = marcs[empId];
+          var tiposLabel = { entrada:'🏢', almuerzo_salida:'🍽️', almuerzo_regreso:'↩️', salida:'🏠' };
+          var icons = emp.tipos.map(function(t){ return tiposLabel[t] || t; }).join(' ');
+          html += '<div class="report-row"><div><div class="report-emp">'+emp.nombre+'</div><div class="report-detail">'+icons+'</div></div></div>';
+        });
+      }
+      
+      // Pending extra hours
+      paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).where('estado','==','pendiente').get()
+        .then(function(snapH) {
+          if (!snapH.empty) {
+            html += '<div class="section-title" style="margin-top:20px">⏳ Horas extra pendientes de aprobar ('+snapH.size+')</div>';
+            snapH.forEach(function(d) {
+              var h = d.data();
+              var tipos = { diurna:'☀️', nocturna:'🌙', feriado:'🎉', finde:'📅' };
+              html += '<div class="report-row">'
+                + '<div><div class="report-emp">'+h.empleadoNombre+'</div>'
+                + '<div class="report-detail">'+h.fecha+' · '+(tipos[h.tipo]||'')+' '+h.horas+' hrs · '+h.descripcion.slice(0,40)+'</div></div>'
+                + '<div style="display:flex;gap:6px">'
+                + '<button style="background:var(--accent);color:#000;border:none;border-radius:8px;padding:6px 10px;cursor:pointer;font-weight:600;font-size:11px" onclick="paAprobarHorasExtra(\''+d.id+'\',\''+h.empleadoId+'\','+h.horas+')">✓</button>'
+                + '<button style="background:var(--red);color:#fff;border:none;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:11px" onclick="paRechazarHorasExtra(\''+d.id+'\')">✗</button>'
+                + '</div></div>';
+            });
+          }
+          content.innerHTML = html;
+        });
+    }).catch(function(e) {
+      content.innerHTML = '<div style="color:var(--red)">Error: ' + e.message + '</div>';
+    });
+}
+
+function paAdminEmps(content) {
+  var html = '<button class="big-btn" onclick="document.getElementById(\'modalNuevoEmp\').style.display=\'flex\'" style="margin-bottom:16px">+ Nuevo empleado</button>';
+  html += '<div class="section-title">'+PA.empleados.length+' empleados registrados</div>';
+  
+  PA.empleados.forEach(function(emp) {
+    html += '<div class="report-row">'
+      + '<div><div class="report-emp">'+emp.nombre+'</div>'
+      + '<div class="report-detail">'+(emp.cargo||'—')+(emp.ruta?' · '+emp.ruta:'')+' · PIN: '+(emp.pin?'****':'sin PIN')+'</div>'
+      + '<div class="report-detail">⏰ '+((emp.horasExtraAcum||0).toFixed(1))+'h extra · 🏖️ '+(emp.diasVacacionesDisponibles||15)+' días vac.</div>'
+      + '</div>'
+      + '<div style="display:flex;gap:6px">'
+      + '<button style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:11px" onclick="paEditarEmp(\''+emp.id+'\')">✏</button>'
+      + '</div></div>';
+  });
+  
+  content.innerHTML = html;
+}
+
+function paAdminExtra(content) {
+  paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).get()
+    .then(function(snap) {
+      var docs = [];
+      snap.forEach(function(d){ docs.push(Object.assign({id:d.id}, d.data())); });
+      docs.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
+      
+      var pendiente = docs.filter(function(d){ return d.estado==='pendiente'; }).length;
+      var aprobado = docs.filter(function(d){ return d.estado==='aprobado'; });
+      var totalHoras = aprobado.reduce(function(s,d){ return s+(d.horas||0); }, 0);
+      
+      var html = '<div class="stat-grid">'
+        + '<div class="stat-card"><div class="stat-val" style="color:var(--warn)">'+pendiente+'</div><div class="stat-lbl">Pendientes</div></div>'
+        + '<div class="stat-card"><div class="stat-val" style="color:var(--accent)">'+totalHoras.toFixed(1)+'</div><div class="stat-lbl">Horas aprobadas</div></div>'
+        + '</div>';
+      
+      var tipos = { diurna:'☀️ Diurna', nocturna:'🌙 Nocturna', feriado:'🎉 Feriado', finde:'📅 Fin de semana' };
+      var estados = { pendiente:'⏳', aprobado:'✅', rechazado:'❌' };
+      
+      docs.slice(0, 50).forEach(function(d) {
+        html += '<div class="report-row">'
+          + '<div><div class="report-emp">'+d.empleadoNombre+'</div>'
+          + '<div class="report-detail">'+d.fecha+' · '+(tipos[d.tipo]||d.tipo)+' · '+d.horas+'h</div>'
+          + '<div class="report-detail">'+d.descripcion.slice(0,50)+'</div></div>'
+          + '<div style="display:flex;gap:6px;align-items:center">'
+          + '<span style="font-size:14px">'+(estados[d.estado]||'?')+'</span>'
+          + (d.estado==='pendiente'
+            ? '<button style="background:var(--accent);color:#000;border:none;border-radius:8px;padding:5px 9px;cursor:pointer;font-size:11px;font-weight:600" onclick="paAprobarHorasExtra(\''+d.id+'\',\''+d.empleadoId+'\','+d.horas+')">Aprobar</button>'
+            : '')
+          + '</div></div>';
+      });
+      
+      content.innerHTML = html;
+    });
+}
+
+function paAdminReporte(content) {
+  var html = '<div class="info-box">Reporte de pago de horas extra aprobadas. Basado en horas registradas en el período seleccionado.</div>';
+  
+  var mesActual = new Date().toISOString().slice(0, 7);
+  html += '<div class="fg"><label>Período (mes)</label><input type="month" id="reportMes" value="'+mesActual+'" onchange="paGenerarReporte()" style="font-size:16px"></div>';
+  html += '<div id="reporteContent"></div>';
+  
+  content.innerHTML = html;
+  paGenerarReporte();
+}
+
+function paGenerarReporte() {
+  var mesEl = document.getElementById('reportMes');
+  var mes = mesEl ? mesEl.value : new Date().toISOString().slice(0,7);
+  var rcontent = document.getElementById('reporteContent');
+  if (!rcontent) return;
+  rcontent.innerHTML = '<div class="spinner"></div>';
+  
+  paDb.collection('paHorasExtra')
+    .where('empresa', '==', PA.empresa)
+    .where('estado', '==', 'aprobado')
+    .get().then(function(snap) {
+      var docs = [];
+      snap.forEach(function(d){ docs.push(d.data()); });
+      var filtrados = docs.filter(function(d){ return (d.fecha||'').startsWith(mes); });
+      
+      // Group by empleado
+      var porEmp = {};
+      filtrados.forEach(function(d) {
+        var eid = d.empleadoId;
+        if (!porEmp[eid]) porEmp[eid] = { nombre: d.empleadoNombre, diurna:0, nocturna:0, feriado:0, finde:0, total:0 };
+        porEmp[eid][d.tipo] = (porEmp[eid][d.tipo] || 0) + (d.horas || 0);
+        porEmp[eid].total += (d.horas || 0);
+      });
+      
+      var empIds = Object.keys(porEmp);
+      if (!empIds.length) {
+        rcontent.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted)">Sin horas extra aprobadas en '+mes+'</div>';
+        return;
+      }
+      
+      var html = '<div class="section-title">Horas extra aprobadas — '+mes+'</div>';
+      html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">'
+        + '<thead><tr style="background:var(--surface2)">'
+        + '<th style="padding:8px 6px;text-align:left;color:var(--muted)">Empleado</th>'
+        + '<th style="padding:8px 6px;text-align:center;color:var(--muted)">☀️ Diu.</th>'
+        + '<th style="padding:8px 6px;text-align:center;color:var(--muted)">🌙 Noc.</th>'
+        + '<th style="padding:8px 6px;text-align:center;color:var(--muted)">🎉 Fer.</th>'
+        + '<th style="padding:8px 6px;text-align:center;color:var(--muted)">📅 Fin</th>'
+        + '<th style="padding:8px 6px;text-align:right;color:var(--muted)">Total</th>'
+        + '</tr></thead><tbody>';
+      
+      empIds.forEach(function(eid) {
+        var e = porEmp[eid];
+        html += '<tr style="border-bottom:1px solid var(--border)">'
+          + '<td style="padding:8px 6px;font-weight:600">'+e.nombre+'</td>'
+          + '<td style="padding:8px 6px;text-align:center;font-family:\'JetBrains Mono\',monospace">'+(e.diurna||0).toFixed(1)+'</td>'
+          + '<td style="padding:8px 6px;text-align:center;font-family:\'JetBrains Mono\',monospace">'+(e.nocturna||0).toFixed(1)+'</td>'
+          + '<td style="padding:8px 6px;text-align:center;font-family:\'JetBrains Mono\',monospace">'+(e.feriado||0).toFixed(1)+'</td>'
+          + '<td style="padding:8px 6px;text-align:center;font-family:\'JetBrains Mono\',monospace">'+(e.finde||0).toFixed(1)+'</td>'
+          + '<td style="padding:8px 6px;text-align:right;font-weight:700;color:var(--accent);font-family:\'JetBrains Mono\',monospace">'+e.total.toFixed(1)+'h</td>'
+          + '</tr>';
+      });
+      
+      html += '</tbody></table></div>';
+      html += '<button class="big-btn outline mt8" onclick="paExportarReporte(\''+mes+'\')">📥 Exportar CSV</button>';
+      
+      rcontent.innerHTML = html;
+    });
+}
+
+function paExportarReporte(mes) {
+  paDb.collection('paHorasExtra')
+    .where('empresa','==',PA.empresa)
+    .where('estado','==','aprobado')
+    .get().then(function(snap) {
+      var docs = [];
+      snap.forEach(function(d){ docs.push(d.data()); });
+      var filtrados = docs.filter(function(d){ return (d.fecha||'').startsWith(mes); });
+      
+      var csv = 'Empleado,Fecha,Tipo,Horas,Descripción,Estado\n';
+      filtrados.forEach(function(d) {
+        csv += '"'+d.empleadoNombre+'",'+(d.fecha||'')+','+d.tipo+','+d.horas+',"'+d.descripcion+'",' + d.estado + '\n';
+      });
+      
+      var blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'horas-extra-' + mes + '.csv';
+      a.click();
+      paToast('✅ CSV descargado');
+    });
+}
+
+// ══════════════════════════════════════════════════════
+// ADMIN ACTIONS
+// ══════════════════════════════════════════════════════
+function paAprobarHorasExtra(docId, empId, horas) {
+  if (!confirm('¿Aprobar ' + horas + ' horas extra?')) return;
+  paDb.collection('paHorasExtra').doc(docId).update({ estado: 'aprobado' })
+    .then(function() {
+      // Add to employee's accumulated hours
+      paDb.collection('paEmpleados').doc(empId).get().then(function(doc) {
+        if (!doc.exists) return;
+        var current = parseFloat(doc.data().horasExtraAcum || 0);
+        paDb.collection('paEmpleados').doc(empId).update({ horasExtraAcum: current + horas });
+      });
+      paToast('✅ Horas extra aprobadas');
+      paAdminTab(PA.adminTab);
+    }).catch(function(e){ paToast('Error: '+e.message, true); });
+}
+
+function paRechazarHorasExtra(docId) {
+  if (!confirm('¿Rechazar esta solicitud?')) return;
+  paDb.collection('paHorasExtra').doc(docId).update({ estado: 'rechazado' })
+    .then(function() { paToast('Solicitud rechazada'); paAdminTab(PA.adminTab); })
+    .catch(function(e){ paToast('Error: '+e.message, true); });
+}
+
+function paCrearEmpleado() {
+  var nombre = (document.getElementById('neNombre') || {}).value || '';
+  var cargo = (document.getElementById('neCargo') || {}).value || '';
+  var pin = (document.getElementById('nePin') || {}).value || '';
+  var diasVac = parseInt((document.getElementById('neDiasVac') || {}).value || 15);
+  var horasExt = parseFloat((document.getElementById('neHorasExt') || {}).value || 0);
+  var ruta = (document.getElementById('neRuta') || {}).value || '';
+  
+  if (!nombre.trim()) { paToast('El nombre es obligatorio', true); return; }
+  if (!pin || pin.length < 4) { paToast('El PIN debe tener al menos 4 dígitos', true); return; }
+  
+  var docData = {
+    empresa: PA.empresa,
+    nombre: nombre.trim(),
+    cargo: cargo.trim(),
+    pin: pin,
+    diasVacacionesDisponibles: diasVac,
+    horasExtraAcum: horasExt,
+    ruta: ruta.trim(),
+    activo: true,
+    _ca: Date.now()
+  };
+  
+  paDb.collection('paEmpleados').add(docData).then(function() {
+    paToast('✅ Empleado creado: ' + nombre);
+    document.getElementById('modalNuevoEmp').style.display = 'none';
+    paLoadEmpleados();
+    paAdminTab('emps');
+  }).catch(function(e){ paToast('Error: '+e.message, true); });
+}
+
+function paEditarEmp(empId) {
+  var emp = PA.empleados.find(function(e){ return e.id === empId; });
+  if (!emp) return;
+  var newPin = prompt('Nuevo PIN para ' + emp.nombre + ' (dejar vacío para no cambiar):');
+  if (newPin === null) return;
+  var updates = {};
+  if (newPin && newPin.length >= 4) updates.pin = newPin;
+  var newDias = prompt('Días de vacaciones disponibles:', emp.diasVacacionesDisponibles || 15);
+  if (newDias !== null && !isNaN(parseInt(newDias))) updates.diasVacacionesDisponibles = parseInt(newDias);
+  var newHoras = prompt('Horas extra acumuladas:', emp.horasExtraAcum || 0);
+  if (newHoras !== null && !isNaN(parseFloat(newHoras))) updates.horasExtraAcum = parseFloat(newHoras);
+  
+  if (!Object.keys(updates).length) return;
+  paDb.collection('paEmpleados').doc(empId).update(updates)
+    .then(function(){ paToast('✅ Empleado actualizado'); paLoadEmpleados(); paAdminTab('emps'); })
+    .catch(function(e){ paToast('Error: '+e.message, true); });
+}
+
+// ══════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', function() {
+  // Detect if opened as admin
+  var params = new URLSearchParams(window.location.search);
+  var empresa = params.get('empresa');
+  if (empresa) {
+    PA.empresa = empresa.toUpperCase();
+    document.getElementById('landingTitle').textContent = 'Portal Asistencia — ' + PA.empresa;
+  }
+  
+  // Update landing logo/title
+  var landingSub = document.getElementById('landingSub');
+  if (landingSub) landingSub.textContent = PA.empresa + ' — Registro de entrada, salida y solicitudes';
+  
+  // Check if biometric is available
+  if (!window.PublicKeyCredential) {
+    var bioBtn = document.getElementById('bioBtn');
+    if (bioBtn) { bioBtn.style.display = 'none'; }
+  }
+  
+  paShow('scLanding');
+});
+</script>
+</body>
+</html>
