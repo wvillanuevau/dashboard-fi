@@ -908,8 +908,12 @@ function paGoAdmin() {
     PA.isAdmin = true;
     var empBadge = document.getElementById('adminEmpBadge');
     if (empBadge) empBadge.textContent = PA.empresa;
-    paLoadEmpleados();
-    paShow('scAdmin');
+    // Cargar empleados primero, luego mostrar admin
+    if (!PA.empleados.length) {
+      paLoadEmpleados(function() { paShow('scAdmin'); });
+    } else {
+      paShow('scAdmin');
+    }
   } else {
     paToast('PIN incorrecto', true);
   }
@@ -944,7 +948,7 @@ function paHoy() { return new Date().toISOString().slice(0, 10); }
 // ══════════════════════════════════════════════════════
 // LOAD EMPLEADOS
 // ══════════════════════════════════════════════════════
-function paLoadEmpleados() {
+function paLoadEmpleados(callback) {
   var list = document.getElementById('empList');
   if (list) list.innerHTML = '<div class="spinner"></div>';
 
@@ -1009,6 +1013,7 @@ function paLoadEmpleados() {
       paRenderEmpList(PA.empleados);
       var badge = document.getElementById('empCountBadge');
       if (badge) badge.textContent = PA.empleados.length + ' empleados';
+      if (typeof callback === 'function') callback();
     });
   }).catch(function(e) {
     if (list) list.innerHTML = '<div style="color:var(--red);text-align:center;padding:20px">Error al cargar: '+e.message+'</div>';
@@ -1926,12 +1931,17 @@ function paAdminHoy(content) {
 }
 
 function paOpenPinModal() {
-  // Populate employee selector with current list
   var sel = document.getElementById('neEmpSel');
   if (sel) {
+    if (!PA.empleados.length) {
+      paToast('Cargando empleados...', false);
+      paLoadEmpleados(function() { paOpenPinModal(); });
+      return;
+    }
     sel.innerHTML = '<option value="">— Seleccionar empleado —</option>'
       + PA.empleados.map(function(e){
-          return '<option value="'+e.id+'">'+e.nombre+(e.cargo?' ('+e.cargo+')':'')+'</option>';
+          var pinInfo = e.pin ? ' ✓ PIN' : ' sin PIN';
+          return '<option value="'+e.id+'">'+e.nombre+(e.cargo?' ('+e.cargo+')':'')+pinInfo+'</option>';
         }).join('');
   }
   var pinInput = document.getElementById('nePin');
