@@ -952,61 +952,59 @@ function paLoadEmpleados(callback) {
   var list = document.getElementById('empList');
   if (list) list.innerHTML = '<div class="spinner"></div>';
 
-  // Cargar desde el documento principal de la empresa (mismo que el sistema)
-  paDb.collection('empresas').doc(PA.empresa).get().then(function(doc) {
-    if (!doc.exists) { if(list)list.innerHTML='<div style="color:var(--red);text-align:center;padding:20px">Empresa no encontrada</div>'; return; }
-    var data = doc.data();
-    var tecnicos = (data.mantenimiento && data.mantenimiento.tecnicos) || [];
-    // ── Centros de costo (sucursales) ──
-    PA.centros = (data.centros || []).map(function(c){ return {id:c.id, nombre:c.nombre}; });
-    // ── Rutas del taller ──
-    PA.rutas = (data.taller && data.taller.rutas || []).map(function(r){ return {id:r.id, nombre:r.nombre}; });
-    // También cargar PINs desde paConfig para no exponer datos del doc principal
-    // Cargar configuración del portal (horario + feriados)
+  // Leer de portalesPublicos (acceso público) en vez de empresas (requiere auth)
+  paDb.collection('portalesPublicos').doc(PA.empresa).get().then(function(doc) {
+    var tecnicos = [];
+    if (doc.exists) {
+      var data = doc.data();
+      tecnicos = data.tecnicos || [];
+      // Centros y rutas también disponibles aquí
+      PA.centros = (data.centros || []).map(function(c){ return {id:c.id, nombre:c.nombre}; });
+      PA.rutas   = (data.vehiculos || []).map(function(v){ return {id:v.id, nombre:v.placa}; });
+    }
+
+    // Cargar configuración (horario + feriados)
     paDb.collection('paConfig').doc(PA.empresa).get().then(function(cfgDoc) {
       if (cfgDoc.exists) {
         var cfg = cfgDoc.data();
         if (cfg.horario) PA.horario = Object.assign(PA.horario, cfg.horario);
         if (cfg.feriados && cfg.feriados.length) PA.feriados = cfg.feriados;
-        else {
-          // Generar feriados del año actual desde la lista base
-          var year = new Date().getFullYear();
-          PA.feriados = PA_FERIADOS_SV.map(function(md){ return year+'-'+md; });
-          // Agregar Semana Santa aproximada si no está configurada
-        }
-      } else {
-        var year2 = new Date().getFullYear();
-        PA.feriados = PA_FERIADOS_SV.map(function(md){ return year2+'-'+md; });
+        if (cfg.adminPin) PA.adminPin = cfg.adminPin;
       }
-    }).catch(function(){ 
-      var year3 = new Date().getFullYear();
-      PA.feriados = PA_FERIADOS_SV.map(function(md){ return year3+'-'+md; });
+      if (!PA.feriados.length) {
+        var yr = new Date().getFullYear();
+        PA.feriados = PA_FERIADOS_SV.map(function(md){ return yr+'-'+md; });
+      }
+    }).catch(function(){
+      var yr2 = new Date().getFullYear();
+      PA.feriados = PA_FERIADOS_SV.map(function(md){ return yr2+'-'+md; });
     });
+
+    // Cargar PINs
     paDb.collection('paPins').where('empresa','==',PA.empresa).get().then(function(snapPins) {
-      var pins = {};
-      var creds = {};
-      snapPins.forEach(function(d){ 
-        var pd = d.data();
-        pins[pd.empleadoId] = pd.pin || '';
-        creds[pd.empleadoId] = pd.credId || null;
-        if(pd.horasExtraAcum !== undefined) PA._horasMap = PA._horasMap || {};
-        if(pd.horasExtraAcum !== undefined) PA._horasMap[pd.empleadoId] = pd;
-      });
+      var pins = {}, creds = {};
       PA._pinsDocMap = {};
-      snapPins.forEach(function(d){ PA._pinsDocMap[d.data().empleadoId] = d.id; });
+      PA._horasMap   = {};
+      snapPins.forEach(function(d){
+        var pd = d.data();
+        pins[pd.empleadoId]          = pd.pin   || '';
+        creds[pd.empleadoId]         = pd.credId || null;
+        PA._pinsDocMap[pd.empleadoId] = d.id;
+        PA._horasMap[pd.empleadoId]  = pd;
+      });
 
       PA.empleados = tecnicos
         .filter(function(t){ return t.activo !== false; })
-        .map(function(t){ 
+        .map(function(t){
           return {
-            id: t.id,
+            id:    t.id,
             nombre: t.nombre || '—',
-            cargo: t.cargo || '—',
-            ruta: t.ruta || '',
-            pin: pins[t.id] || '',
+            cargo:  t.cargo  || '—',
+            ruta:   t.ruta   || '',
+            pin:    pins[t.id]  || '',
             credId: creds[t.id] || null,
-            diasVacacionesDisponibles: (PA._horasMap && PA._horasMap[t.id] && PA._horasMap[t.id].diasVacDisp) || 15,
-            horasExtraAcum: (PA._horasMap && PA._horasMap[t.id] && PA._horasMap[t.id].horasExtraAcum) || 0,
+            diasVacacionesDisponibles: (PA._horasMap[t.id] && PA._horasMap[t.id].diasVacDisp)   || 15,
+            horasExtraAcum:            (PA._horasMap[t.id] && PA._horasMap[t.id].horasExtraAcum) || 0,
           };
         });
       PA.empleados.sort(function(a,b){ return (a.nombre||'').localeCompare(b.nombre||''); });
@@ -1014,20 +1012,29 @@ function paLoadEmpleados(callback) {
       var badge = document.getElementById('empCountBadge');
       if (badge) badge.textContent = PA.empleados.length + ' empleados';
       if (typeof callback === 'function') callback();
+
     }).catch(function(e) {
-      // paPins no existe aún o reglas no aplicadas — cargar empleados sin PINs
-      console.warn('[Portal] paPins no disponible:', e.message);
+      // paPins sin reglas aún — continuar sin PINs
+      console.warn('[Portal] paPins:', e.message);
       PA.empleados = tecnicos
         .filter(function(t){ return t.activo !== false; })
-        .map(function(t){ return { id:t.id, nombre:t.nombre||'—', cargo:t.cargo||'—', ruta:t.ruta||'', pin:'', credId:null, diasVacacionesDisponibles:15, horasExtraAcum:0 }; });
+        .map(function(t){
+          return {id:t.id, nombre:t.nombre||'—', cargo:t.cargo||'—',
+                  ruta:t.ruta||'', pin:'', credId:null,
+                  diasVacacionesDisponibles:15, horasExtraAcum:0};
+        });
       PA.empleados.sort(function(a,b){ return (a.nombre||'').localeCompare(b.nombre||''); });
       paRenderEmpList(PA.empleados);
       var badge2 = document.getElementById('empCountBadge');
       if (badge2) badge2.textContent = PA.empleados.length + ' empleados';
       if (typeof callback === 'function') callback();
     });
+
   }).catch(function(e) {
-    if (list) list.innerHTML = '<div style="color:var(--red);text-align:center;padding:20px">Error al cargar: '+e.message+'</div>';
+    var msg = 'Error al cargar: ' + e.message;
+    if (list) list.innerHTML = '<div style="color:var(--red);text-align:center;padding:20px">'+msg+'</div>';
+    console.error('[Portal] portalesPublicos:', e.message);
+    if (typeof callback === 'function') callback(); // entrar igual aunque falle
   });
 }
 
