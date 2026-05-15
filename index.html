@@ -7946,6 +7946,7 @@ function renderInventario(){
           <div>
             <div style="font-weight:600">${esc(p.nombre)}</div>
             <div style="font-size:11px;color:var(--muted)">${esc(p.categoria||'—')}${p.numActivo?` · Activo: <strong>${esc(p.numActivo)}</strong>`:''}</div>
+            ${fmtCaObj(p)}
             ${asignBadge}
           </div>
         </div>
@@ -10779,7 +10780,8 @@ function renderMantEquipos(){
       rows+='<tr>'
         +'<td><div style="display:flex;align-items:flex-start">'+dot
         +'<div><div style="font-weight:600;font-size:13px">'+esc(eq.nombre)+'</div>'
-        +'<div style="font-size:11px;color:var(--muted)">'+esc(getUbLabel(eq))+'</div></div></div></td>'
+        +'<div style="font-size:11px;color:var(--muted)">'+esc(getUbLabel(eq))+'</div>'
+        +fmtCaObj(eq)+'</div></div></td>'
         +'<td><span class="badge b-neu">'+esc(catAreaLabel(eq.categoria)||eq.categoria||'—')+'</span></td>'
         +'<td>'+fmtDate(eq.ultimoMant)+'</td>'
         +'<td>'+proxBadge+'</td>'
