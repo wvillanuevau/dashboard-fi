@@ -508,12 +508,13 @@ body.scrollable{overflow-y:auto}
         <div class="action-info"><div class="action-title">Marcar Salida</div><div class="action-sub">Fin de jornada</div></div>
         <span class="action-arrow">›</span>
       </button>
-      <div class="section-title" style="margin-top:16px">Solicitudes</div>
-      <button class="action-btn purple" onclick="paGoHorasExtra()">
-        <span class="action-icon">⏰</span>
-        <div class="action-info"><div class="action-title">Registrar Horas Extra</div><div class="action-sub" id="horasExtraAcum">—</div></div>
+      <button class="action-btn secondary" id="btnTrabajoAdicional" onclick="paGoTrabajoAdicional()" style="display:none">
+        <span class="action-icon">⚡</span>
+        <div class="action-info"><div class="action-title">Trabajo adicional</div><div class="action-sub">Emergencia / llamado después de salida</div></div>
         <span class="action-arrow">›</span>
       </button>
+      <div class="section-title" style="margin-top:16px">Solicitudes</div>
+
       <button class="action-btn blue" onclick="paGoCanje()">
         <span class="action-icon">🔄</span>
         <div class="action-info"><div class="action-title">Canje de Horas</div><div class="action-sub">Cambiar horas extra por tiempo libre</div></div>
@@ -524,7 +525,6 @@ body.scrollable{overflow-y:auto}
         <div class="action-info"><div class="action-title">Solicitar Vacaciones</div><div class="action-sub" id="diasVacDesc">—</div></div>
         <span class="action-arrow">›</span>
       </button>
-      <button class="action-btn secondary" onclick="paGoHistorial()">
         <span class="action-icon">📋</span>
         <div class="action-info"><div class="action-title">Mi Historial</div><div class="action-sub">Ver mis registros anteriores</div></div>
         <span class="action-arrow">›</span>
@@ -812,6 +812,7 @@ body.scrollable{overflow-y:auto}
     <div class="fg"><label>PIN (4 dígitos) *</label><input id="nePin" type="number" placeholder="0000" style="font-family:'JetBrains Mono',monospace;text-align:center;font-size:24px"></div>
     <div class="fg"><label>Días de vacaciones disponibles</label><input id="neDiasVac" type="number" value="15" min="0"></div>
     <div class="fg"><label>Horas extra acumuladas (si aplica)</label><input id="neHorasExt" type="number" value="0" min="0" step="0.5"></div>
+    <div class="fg"><label>Fecha de contratación</label><input id="neFechaContrato" type="date" style="font-size:16px"></div>
     <button class="big-btn" onclick="paCrearEmpleado()">✅ Asignar PIN</button>
     <button class="big-btn outline mt8" onclick="document.getElementById('modalNuevoEmp').style.display='none'">Cancelar</button>
   </div>
@@ -1005,6 +1006,7 @@ function paLoadEmpleados(callback) {
             credId: creds[t.id] || null,
             diasVacacionesDisponibles: (PA._horasMap[t.id] && PA._horasMap[t.id].diasVacDisp)   || 15,
             horasExtraAcum:            (PA._horasMap[t.id] && PA._horasMap[t.id].horasExtraAcum) || 0,
+            fechaContratacion:         (PA._horasMap[t.id] && PA._horasMap[t.id].fechaContratacion) || '',
           };
         });
       PA.empleados.sort(function(a,b){ return (a.nombre||'').localeCompare(b.nombre||''); });
@@ -1256,7 +1258,22 @@ function paUpdateDash() {
   if (heEl) heEl.textContent = PA.horasExtraAcum + ' horas acumuladas';
   
   var vacEl = document.getElementById('diasVacDesc');
-  if (vacEl) vacEl.textContent = PA.diasVacDisp + ' días disponibles';
+  if (vacEl) {
+    var fcEmp = emp && (emp.fechaContratacion || emp.fechaIngreso || '');
+    if (fcEmp) {
+      var inicioV = new Date(fcEmp + 'T12:00:00');
+      var hoyV = new Date();
+      var mesesV = (hoyV.getFullYear()-inicioV.getFullYear())*12+(hoyV.getMonth()-inicioV.getMonth());
+      if (mesesV < 17) {
+        var elegibleV = new Date(inicioV); elegibleV.setMonth(inicioV.getMonth()+17);
+        vacEl.textContent = 'Elegible en ' + elegibleV.toLocaleDateString('es-SV',{month:'short',year:'numeric'}) + ' — faltan '+(17-mesesV)+' mes(es)';
+      } else {
+        vacEl.textContent = PA.diasVacDisp + ' días disponibles';
+      }
+    } else {
+      vacEl.textContent = PA.diasVacDisp + ' días disponibles';
+    }
+  }
   
   // Update status timeline
   var marcs = PA.marcacionesHoy;
@@ -1296,6 +1313,16 @@ function paUpdateDash() {
   if (btnAlmuerzo) btnAlmuerzo.className = 'action-btn ' + (mEntrada && !mAlmSal ? 'warn' : 'disabled');
   if (btnRegreso) btnRegreso.className = 'action-btn ' + (mAlmSal && !mAlmReg ? 'secondary' : 'disabled');
   if (btnSalida) btnSalida.className = 'action-btn ' + (mEntrada && !mSalida ? 'secondary' : 'disabled');
+  // Trabajo adicional: visible solo si ya marcó salida principal
+  var btnAdicional = document.getElementById('btnTrabajoAdicional');
+  if (btnAdicional) {
+    btnAdicional.style.display = mSalida ? 'flex' : 'none';
+    var adicionales = marcs.filter(function(m){ return m.tipo === 'entrada_adicional' || m.tipo === 'salida_adicional'; });
+    var subEl = btnAdicional.querySelector('.action-sub');
+    if (subEl) subEl.textContent = adicionales.length > 0
+      ? adicionales.length + ' registro(s) adicional(es) hoy'
+      : 'Emergencia / llamado después de salida';
+  }
 }
 
 // ══════════════════════════════════════════════════════
@@ -1392,13 +1419,13 @@ function paCalcularHorasExtra(entradaTs, salidaTs, fecha) {
   };
 }
 
-function paAutoRegistrarHorasExtra(salidaDocData, callback) {
-  // Buscar marcación de entrada del mismo día para calcular
+function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
+  if (typeof entradaTipo === 'function') { callback = entradaTipo; entradaTipo = 'entrada'; }
   var hoy = salidaDocData.fecha;
   var empId = salidaDocData.empleadoId;
 
   // Buscar en marcaciones locales primero
-  var mEntrada = PA.marcacionesHoy.find(function(m){ return m.tipo === 'entrada' && m.fecha === hoy; });
+  var mEntrada = PA.marcacionesHoy.find(function(m){ return m.tipo === entradaTipo && m.fecha === hoy; });
 
   var registrar = function(entradaTs) {
     var calc = paCalcularHorasExtra(entradaTs, salidaDocData.ts, hoy);
@@ -1410,7 +1437,7 @@ function paAutoRegistrarHorasExtra(salidaDocData, callback) {
         empresa: PA.empresa, empleadoId: empId,
         empleadoNombre: salidaDocData.empleadoNombre,
         fecha: hoy, tipo: 'diurna', horas: calc.diurna,
-        descripcion: 'Auto-calculado — jornada ' + hoy,
+        descripcion: (entradaTipo === 'entrada_adicional' ? 'Trabajo adicional — jornada ' : 'Auto-calculado — jornada ') + hoy,
         ts: Date.now(), estado: 'pendiente',
         origen: 'auto', folio: 'HE-AUTO-' + paGenId().toUpperCase()
       });
@@ -1420,7 +1447,7 @@ function paAutoRegistrarHorasExtra(salidaDocData, callback) {
         empresa: PA.empresa, empleadoId: empId,
         empleadoNombre: salidaDocData.empleadoNombre,
         fecha: hoy, tipo: 'nocturna', horas: calc.nocturna,
-        descripcion: 'Auto-calculado — jornada ' + hoy,
+        descripcion: (entradaTipo === 'entrada_adicional' ? 'Trabajo adicional — jornada ' : 'Auto-calculado — jornada ') + hoy,
         ts: Date.now(), estado: 'pendiente',
         origen: 'auto', folio: 'HE-AUTO-' + paGenId().toUpperCase()
       });
@@ -1527,6 +1554,51 @@ function paInitCamera() {
       });
   }
 }
+
+function paGoTrabajoAdicional() {
+  // Determinar si es entrada o salida adicional
+  var mAdicionalEntrada = PA.marcacionesHoy.find(function(m){ return m.tipo === 'entrada_adicional'; });
+  var mAdicionalSalida  = PA.marcacionesHoy.find(function(m){ return m.tipo === 'salida_adicional'; });
+  var tipo;
+  if (!mAdicionalEntrada) {
+    tipo = 'entrada_adicional';
+  } else if (!mAdicionalSalida) {
+    tipo = 'salida_adicional';
+  } else {
+    paToast('Ya registraste un período adicional completo hoy', false);
+    return;
+  }
+  var labels = {
+    entrada_adicional: '⚡ Inicio trabajo adicional',
+    salida_adicional:  '⚡ Fin trabajo adicional'
+  };
+  PA.tipoMarca = tipo;
+  var titleEl = document.getElementById('marcarTitle');
+  if (titleEl) titleEl.textContent = labels[tipo];
+  // Reutiliza el mismo flujo de marcación
+  PA.capturedB64 = null;
+  PA.location    = null;
+  var photoEl   = document.getElementById('capturedPhoto');
+  var camOverlay = document.getElementById('camOverlay');
+  var retakeBtn  = document.getElementById('retakeBtn');
+  var captureBtn = document.getElementById('captureBtn');
+  if (photoEl)   { photoEl.style.display = 'none'; photoEl.src = ''; }
+  if (camOverlay) camOverlay.style.display = 'flex';
+  if (retakeBtn)  retakeBtn.style.display  = 'none';
+  if (captureBtn) captureBtn.style.display = 'flex';
+  var obsEl = document.getElementById('marcarObs');
+  if (obsEl) obsEl.value = '';
+  // Populate centros
+  var centroSel = document.getElementById('marcarCentro');
+  if (centroSel) {
+    centroSel.innerHTML = '<option value="">— Seleccionar sucursal —</option>'
+      + PA.centros.map(function(c){ return '<option value="'+c.id+'">'+c.nombre+'</option>'; }).join('');
+  }
+  paShow('scMarcar');
+  paGetLocation();
+  paUpdateMarcarHora();
+}
+
 
 function paCapturarFoto() {
   var video = document.getElementById('camVideo');
@@ -1691,8 +1763,9 @@ function paConfirmarMarca() {
     if (paStream) { paStream.getTracks().forEach(function(t){ t.stop(); }); paStream = null; }
 
     // ── Si es salida → calcular horas extra automáticamente ──
-    if (PA.tipoMarca === 'salida') {
-      paAutoRegistrarHorasExtra(docData, function(calc) {
+    if (PA.tipoMarca === 'salida' || PA.tipoMarca === 'salida_adicional') {
+      var entradaTipo = PA.tipoMarca === 'salida_adicional' ? 'entrada_adicional' : 'entrada';
+      paAutoRegistrarHorasExtra(docData, entradaTipo, function(calc) {
         _paMostrarExito(docData, calc);
       });
     } else {
@@ -1861,7 +1934,27 @@ function paSolicitarCanje() {
 // ══════════════════════════════════════════════════════
 // VACACIONES
 // ══════════════════════════════════════════════════════
-function paGoVacaciones() { paShow('scVacaciones'); }
+function paGoVacaciones() {
+  // Verificar elegibilidad: requiere 1 año + 5 meses (17 meses) de antigüedad
+  var emp = PA.empleado;
+  var fechaContrato = emp && (emp.fechaContratacion || emp.fechaIngreso || '');
+  if (fechaContrato) {
+    var inicio = new Date(fechaContrato + 'T12:00:00');
+    var hoy = new Date();
+    var mesesTrabajados = (hoy.getFullYear() - inicio.getFullYear()) * 12
+      + (hoy.getMonth() - inicio.getMonth());
+    var MESES_MINIMOS = 17; // 1 año + 5 meses
+    if (mesesTrabajados < MESES_MINIMOS) {
+      var faltanMeses = MESES_MINIMOS - mesesTrabajados;
+      var elegibleEn = new Date(inicio);
+      elegibleEn.setMonth(elegibleEn.getMonth() + MESES_MINIMOS);
+      var elegibleStr = elegibleEn.toLocaleDateString('es-SV', {day:'2-digit', month:'long', year:'numeric'});
+      paToast('Aún no cumples el tiempo mínimo (17 meses). Faltan ' + faltanMeses + ' mes(es). Elegible desde: ' + elegibleStr, true);
+      return;
+    }
+  }
+  paShow('scVacaciones');
+}
 
 function paInitVacaciones() {
   var dispEl = document.getElementById('vacDiasDisp');
@@ -2410,6 +2503,7 @@ function paCrearEmpleado() {
   var pin = (document.getElementById('nePin') || {}).value || '';
   var diasVac = parseInt((document.getElementById('neDiasVac') || {}).value || 15);
   var horasExt = parseFloat((document.getElementById('neHorasExt') || {}).value || 0);
+  var fechaContrato = (document.getElementById('neFechaContrato') || {}).value || '';
   
   var empId = empSel ? empSel.value : '';
   if (!empId) { paToast('Selecciona un empleado', true); return; }
@@ -2421,6 +2515,7 @@ function paCrearEmpleado() {
     pin: String(pin),
     diasVacDisp: diasVac,
     horasExtraAcum: horasExt,
+    fechaContratacion: fechaContrato,
     _ca: Date.now()
   };
   
