@@ -1014,6 +1014,17 @@ function paLoadEmpleados(callback) {
       var badge = document.getElementById('empCountBadge');
       if (badge) badge.textContent = PA.empleados.length + ' empleados';
       if (typeof callback === 'function') callback();
+    }).catch(function(e) {
+      // paPins no existe aún o reglas no aplicadas — cargar empleados sin PINs
+      console.warn('[Portal] paPins no disponible:', e.message);
+      PA.empleados = tecnicos
+        .filter(function(t){ return t.activo !== false; })
+        .map(function(t){ return { id:t.id, nombre:t.nombre||'—', cargo:t.cargo||'—', ruta:t.ruta||'', pin:'', credId:null, diasVacacionesDisponibles:15, horasExtraAcum:0 }; });
+      PA.empleados.sort(function(a,b){ return (a.nombre||'').localeCompare(b.nombre||''); });
+      paRenderEmpList(PA.empleados);
+      var badge2 = document.getElementById('empCountBadge');
+      if (badge2) badge2.textContent = PA.empleados.length + ' empleados';
+      if (typeof callback === 'function') callback();
     });
   }).catch(function(e) {
     if (list) list.innerHTML = '<div style="color:var(--red);text-align:center;padding:20px">Error al cargar: '+e.message+'</div>';
