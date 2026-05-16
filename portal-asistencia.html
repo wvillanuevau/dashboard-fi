@@ -361,7 +361,7 @@ body.scrollable{overflow-y:auto}
      SCREEN: LANDING
 ══════════════════════════════════════════════════ -->
 <div class="screen active" id="scLanding">
-  <div class="landing-logo">🏢</div>
+  <div class="landing-logo" id="logoBtn" onclick="paLogoTap()" style="cursor:pointer">🏢</div>
   <div class="landing-title" id="landingTitle">Portal de Asistencia</div>
   <div class="landing-sub" id="landingSub">Registro de entrada, salida, horas extra y vacaciones</div>
   <div class="landing-features">
@@ -383,7 +383,8 @@ body.scrollable{overflow-y:auto}
     </div>
   </div>
   <button class="landing-btn" onclick="paGoToSelectEmp()">📋 Registrar Asistencia</button>
-  <button class="landing-btn secondary" onclick="paGoAdmin()">🔐 Administrador</button>
+  <!-- Admin: tap logo 5 times to reveal -->
+  <div id="adminTapHint" style="font-size:10px;color:transparent;margin-top:16px;user-select:none">.</div>
 </div>
 
 <!-- ══════════════════════════════════════════════════
@@ -824,6 +825,7 @@ body.scrollable{overflow-y:auto}
 
 <!-- Firebase -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script>
@@ -840,7 +842,8 @@ const _paApp = firebase.initializeApp({
   messagingSenderId:"1082289901578",
   appId:"1:1082289901578:web:b7b5e2c7f5b7d6e6f2c4a9"
 },'portalAsistencia');
-const paDb = firebase.firestore(_paApp);
+const paDb      = firebase.firestore(_paApp);
+const paStorage = firebase.storage(_paApp);
 
 // ══════════════════════════════════════════════════════
 // STATE
@@ -886,9 +889,26 @@ var PA = {
   _horasMap: {},
 };
 
-// ══════════════════════════════════════════════════════
-// ROUTING
-// ══════════════════════════════════════════════════════
+// ── Admin: tap logo 5 times to reveal ──────────────────────
+var _paTaps = 0, _paTapTimer = null;
+function paLogoTap() {
+  _paTaps++;
+  clearTimeout(_paTapTimer);
+  var hint = document.getElementById('adminTapHint');
+  if (_paTaps >= 3 && _paTaps < 5) {
+    if (hint) { hint.style.color = 'var(--muted)'; hint.textContent = 'Toca '+(5-_paTaps)+' vez más...'; }
+  }
+  if (_paTaps >= 5) {
+    _paTaps = 0;
+    if (hint) { hint.style.color = 'transparent'; hint.textContent = '.'; }
+    paGoAdmin();
+    return;
+  }
+  _paTapTimer = setTimeout(function() {
+    _paTaps = 0;
+    if (hint) { hint.style.color = 'transparent'; hint.textContent = '.'; }
+  }, 2000);
+}
 function paShow(screenId) {
   document.querySelectorAll('.screen').forEach(function(s){ s.classList.remove('active'); });
   var sc = document.getElementById(screenId);
@@ -1900,17 +1920,15 @@ function paConfirmarMarca() {
   if (errEl) errEl.style.display = 'none';
   
   var btn = document.getElementById('btnConfirmarMarca');
-  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
-  
+  var btn = document.getElementById('btnConfirmarMarca');
+  if (btn) { btn.disabled = true; btn.textContent = 'Subiendo foto...'; }
+
   var obs = (document.getElementById('marcarObs') || {}).value || '';
   var now = Date.now();
   var hoy = paHoy();
-  
   var centroSel2 = document.getElementById('marcarCentro');
   var centroId = centroSel2 ? centroSel2.value : '';
   var centro = PA.centros.find(function(c){ return c.id === centroId; });
-  
-  // Calcular si llegó tarde (solo en entrada)
   var minutosRetraso = 0;
   var estadoPuntualidad = 'a_tiempo';
   if (PA.tipoMarca === 'entrada' && PA.horario) {
@@ -1924,50 +1942,73 @@ function paConfirmarMarca() {
       estadoPuntualidad = 'tarde';
     }
   }
-  
-  // Detectar si es feriado o fin de semana para alertar
-  var diaSemana = new Date(now).getDay(); // 0=Dom, 6=Sab
+  var diaSemana = new Date(now).getDay();
   var esFeriado = PA.feriados.indexOf(hoy) >= 0;
   var esFinDeSemana = diaSemana === 0 || diaSemana === 6;
-  
-  var docData = {
-    empresa: PA.empresa,
-    empleadoId: PA.empleado.id,
-    empleadoNombre: PA.empleado.nombre,
-    cargo: PA.empleado.cargo || '',
-    tipo: PA.tipoMarca,
-    fecha: hoy,
-    ts: now,
-    foto: PA.capturedB64,
-    ubicacion: PA.location || null,
-    centroId: centroId,
-    centroNombre: centro ? centro.nombre : '',
-    observacion: obs,
-    minutosRetraso: minutosRetraso,
-    estadoPuntualidad: estadoPuntualidad,
-    esFeriado: esFeriado,
-    esFinDeSemana: esFinDeSemana,
-    folio: 'MRC-' + paGenId().toUpperCase()
-  };
-  
-  paDb.collection('paMarcaciones').add(docData).then(function(ref) {
-    PA.marcacionesHoy.push(Object.assign({ id: ref.id }, docData));
-    if (paStream) { paStream.getTracks().forEach(function(t){ t.stop(); }); paStream = null; }
+  var folioId = 'MRC-' + paGenId().toUpperCase();
 
-    // ── Si es salida → calcular horas extra automáticamente ──
-    if (PA.tipoMarca === 'salida' || PA.tipoMarca === 'salida_adicional') {
-      var entradaTipo = PA.tipoMarca === 'salida_adicional' ? 'entrada_adicional' : 'entrada';
-      paAutoRegistrarHorasExtra(docData, entradaTipo, function(calc) {
-        _paMostrarExito(docData, calc);
-      });
-    } else {
-      _paMostrarExito(docData, null);
-    }
-    if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
-  }).catch(function(e) {
-    if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
-    if (errEl) { errEl.textContent = 'Error: ' + e.message; errEl.style.display = 'block'; }
-  });
+  function _guardarConFotoRef(fotoRef) {
+    var docData = {
+      empresa: PA.empresa,
+      empleadoId: PA.empleado.id,
+      empleadoNombre: PA.empleado.nombre,
+      cargo: PA.empleado.cargo || '',
+      tipo: PA.tipoMarca,
+      fecha: hoy, ts: now,
+      fotoRef: fotoRef || null,  // path en Storage — NUNCA base64 en Firestore
+      ubicacion: PA.location || null,
+      centroId: centroId,
+      centroNombre: centro ? centro.nombre : '',
+      observacion: obs,
+      minutosRetraso: minutosRetraso,
+      estadoPuntualidad: estadoPuntualidad,
+      esFeriado: esFeriado,
+      esFinDeSemana: esFinDeSemana,
+      folio: folioId
+    };
+    paDb.collection('paMarcaciones').add(docData).then(function(ref) {
+      PA.marcacionesHoy.push(Object.assign({ id: ref.id, _id: ref.id }, docData));
+      if (paStream) { paStream.getTracks().forEach(function(t){ t.stop(); }); paStream = null; }
+      if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
+      if (PA.tipoMarca === 'salida' || PA.tipoMarca === 'salida_adicional') {
+        var entradaTipo = PA.tipoMarca === 'salida_adicional' ? 'entrada_adicional' : 'entrada';
+        paAutoRegistrarHorasExtra(docData, entradaTipo, function(calc) { _paMostrarExito(docData, calc); });
+      } else {
+        _paMostrarExito(docData, null);
+      }
+    }).catch(function(e) {
+      if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
+      var errEl2 = document.getElementById('marcarError');
+      if (errEl2) { errEl2.textContent = 'Error: ' + e.message; errEl2.style.display = 'block'; }
+    });
+  }
+
+  // ── Comprimir y subir foto a Firebase Storage ──
+  if (PA.capturedB64) {
+    var imgEl = new Image();
+    imgEl.onload = function() {
+      var maxW = 480;
+      var iw = imgEl.width, ih = imgEl.height;
+      if (iw > maxW) { ih = Math.round(ih * maxW / iw); iw = maxW; }
+      var cv = document.createElement('canvas');
+      cv.width = iw; cv.height = ih;
+      cv.getContext('2d').drawImage(imgEl, 0, 0, iw, ih);
+      var compressed = cv.toDataURL('image/jpeg', 0.60);
+      // path: asistencia/FISDC/2026/05/15/MRC-xxxx.jpg
+      var storagePath = 'asistencia/'+PA.empresa+'/'+hoy.replace(/-/g,'/')+'/'+folioId+'.jpg';
+      paStorage.ref(storagePath).putString(compressed, 'data_url')
+        .then(function(){ _guardarConFotoRef(storagePath); })
+        .catch(function(e){ 
+          console.warn('[Storage]', e.message);
+          paToast('Foto no guardada en nube. Registro guardado sin foto.', false);
+          _guardarConFotoRef(null);
+        });
+    };
+    imgEl.onerror = function(){ _guardarConFotoRef(null); };
+    imgEl.src = PA.capturedB64;
+  } else {
+    _guardarConFotoRef(null);
+  }
 }
 
 function _paMostrarExito(docData, calc) {
@@ -2435,9 +2476,27 @@ function paVerMarcacion(marcId) {
   var tiposLabel = { entrada:'🏢 Entrada', almuerzo_salida:'🍽️ Salida almuerzo', almuerzo_regreso:'↩️ Regreso almuerzo', salida:'🏠 Salida', entrada_adicional:'⚡ Entrada adicional', salida_adicional:'⚡ Salida adicional' };
   var hora = m.ts ? new Date(m.ts).toLocaleString('es-SV',{hour:'2-digit',minute:'2-digit',hour12:true,day:'2-digit',month:'short'}) : '—';
 
-  var fotoHtml = m.foto
-    ? '<img src="'+m.foto+'" style="width:100%;max-height:300px;object-fit:cover;border-radius:10px;margin-bottom:12px">'
-    : '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:24px;text-align:center;color:var(--muted);margin-bottom:12px">📷 Sin foto registrada</div>';
+  var fotoHtml = '';
+  if (m.fotoRef) {
+    // Load from Firebase Storage
+    fotoHtml = '<div id="fotoContainer_'+m._id+'" style="background:var(--surface2);border-radius:10px;min-height:120px;display:flex;align-items:center;justify-content:center;margin-bottom:12px">'
+      +'<div style="color:var(--muted);font-size:13px">⏳ Cargando foto...</div></div>';
+    // Will load URL after modal shown
+    setTimeout(function() {
+      paStorage.ref(m.fotoRef).getDownloadURL().then(function(url) {
+        var c = document.getElementById('fotoContainer_'+m._id);
+        if (c) c.innerHTML = '<img src="'+url+'" style="width:100%;max-height:300px;object-fit:cover;border-radius:10px">';
+      }).catch(function() {
+        var c = document.getElementById('fotoContainer_'+m._id);
+        if (c) c.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:20px">📷 No se pudo cargar la foto</div>';
+      });
+    }, 300);
+  } else if (m.foto) {
+    // Legacy base64 (registros viejos)
+    fotoHtml = '<img src="'+m.foto+'" style="width:100%;max-height:300px;object-fit:cover;border-radius:10px;margin-bottom:12px">';
+  } else {
+    fotoHtml = '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:24px;text-align:center;color:var(--muted);margin-bottom:12px">📷 Sin foto registrada</div>';
+  }
 
   var locHtml = '';
   if (m.ubicacion && m.ubicacion.lat) {
