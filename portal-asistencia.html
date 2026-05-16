@@ -2082,13 +2082,30 @@ function paConfirmarMarca() {
     for (var bi = 0; bi < byteStr.length; bi++) ia[bi] = byteStr.charCodeAt(bi);
     var fotoBlob = new Blob([ab], {type:'image/jpeg'});
 
+    // ── Diagnóstico visible ──────────────────────────────────────
+    function _setStatus(msg) {
+      if (btn) btn.textContent = msg;
+      var errEl = document.getElementById('marcarError');
+      if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; errEl.style.color = 'var(--warn)'; }
+      console.log('[Upload]', msg);
+    }
+
+    // Verificar paStorage
+    if (!paStorage) {
+      if (btn) { btn.disabled=false; btn.textContent='✅ Confirmar registro'; }
+      var errS = document.getElementById('marcarError');
+      if (errS) { errS.textContent='⚠ Firebase Storage no inicializado. Recarga la página.'; errS.style.display='block'; }
+      return;
+    }
+    _setStatus('Preparando subida...');
     var storagePath = 'asistencia/'+PA.empresa+'/'+hoy.replace(/-/g,'/')+'/'+folioId+'.jpg';
+    _setStatus('Ruta: asistencia/'+PA.empresa+'... blob:'+fotoBlob.size+'B');
     var _intentos = 0;
     var _MAX = 3;
 
     function _subir() {
       _intentos++;
-      if (btn) btn.textContent = 'Subiendo foto... ('+_intentos+'/'+_MAX+')';
+      _setStatus('Subiendo ('+_intentos+'/'+_MAX+') '+Math.round(fotoBlob.size/1024)+'KB → '+storagePath);
       var _done = false;
 
       var _t = setTimeout(function() {
@@ -2097,7 +2114,7 @@ function paConfirmarMarca() {
         else {
           if (btn) { btn.disabled=false; btn.textContent='✅ Confirmar registro'; }
           var e2=document.getElementById('marcarError');
-          if(e2){e2.textContent='⚠ Tiempo agotado al subir foto. Revisa tu conexión.';e2.style.display='block';}
+          if(e2){e2.textContent='⚠ Timeout subiendo foto. Storage bucket: pf-construccion.appspot.com. Revisa conexión.';e2.style.display='block';}
         }
       }, 15000);
 
@@ -2113,7 +2130,7 @@ function paConfirmarMarca() {
           else {
             if (btn) { btn.disabled=false; btn.textContent='✅ Confirmar registro'; }
             var e3=document.getElementById('marcarError');
-            if(e3){e3.textContent='⚠ Error subiendo foto ('+( e.code||e.message||'sin red')+').';e3.style.display='block';}
+            if(e3){e3.textContent='Error: '+(e.code||'')+' '+(e.message||'sin detalles');e3.style.display='block';}
             paToast('No se pudo subir la foto.', true);
           }
         });
