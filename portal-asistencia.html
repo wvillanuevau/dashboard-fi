@@ -2105,35 +2105,35 @@ function paConfirmarMarca() {
 
     function _subir() {
       _intentos++;
-      _setStatus('Subiendo ('+_intentos+'/'+_MAX+') '+Math.round(fotoBlob.size/1024)+'KB → '+storagePath);
-      var _done = false;
+      _setStatus('Subiendo ('+_intentos+'/'+_MAX+') — '+Math.round(fotoBlob.size/1024)+'KB');
 
-      var _t = setTimeout(function() {
-        if (_done) return; _done = true;
-        if (_intentos < _MAX) { setTimeout(_subir, 2000); }
-        else {
-          if (btn) { btn.disabled=false; btn.textContent='✅ Confirmar registro'; }
-          var e2=document.getElementById('marcarError');
-          if(e2){e2.textContent='⚠ Timeout subiendo foto. Storage bucket: pf-construccion.appspot.com. Revisa conexión.';e2.style.display='block';}
-        }
-      }, 15000);
+      var uploadTask = paStorage.ref(storagePath).put(fotoBlob, {contentType:'image/jpeg'});
 
-      paStorage.ref(storagePath).put(fotoBlob, {contentType:'image/jpeg'})
-        .then(function() {
-          if (_done) return; _done=true; clearTimeout(_t);
-          _guardarConFotoRef(storagePath);
-        })
-        .catch(function(e) {
-          if (_done) return; _done=true; clearTimeout(_t);
-          console.warn('[Storage] intento '+_intentos+':', e.code, e.message);
-          if (_intentos < _MAX) { setTimeout(_subir, 2000); }
-          else {
+      // Usar .on() en vez de .then() — más fiable en móviles iOS/Android
+      uploadTask.on(
+        firebase.storage.TaskEvent.STATE_CHANGED,
+        function(snapshot) {
+          // Progreso
+          var pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+          _setStatus('Subiendo foto... ' + pct + '%');
+        },
+        function(error) {
+          // Error
+          _setStatus('Error: ' + (error.code || error.message || 'sin detalles'));
+          console.error('[Storage]', error.code, error.message);
+          if (_intentos < _MAX) {
+            setTimeout(_subir, 2000);
+          } else {
             if (btn) { btn.disabled=false; btn.textContent='✅ Confirmar registro'; }
-            var e3=document.getElementById('marcarError');
-            if(e3){e3.textContent='Error: '+(e.code||'')+' '+(e.message||'sin detalles');e3.style.display='block';}
-            paToast('No se pudo subir la foto.', true);
+            var e3 = document.getElementById('marcarError');
+            if (e3) { e3.style.color='var(--red)'; e3.textContent='⚠ Error al subir foto: '+(error.code||error.message); e3.style.display='block'; }
           }
-        });
+        },
+        function() {
+          // Completado
+          _guardarConFotoRef(storagePath);
+        }
+      );
     }
     _subir();
   };
