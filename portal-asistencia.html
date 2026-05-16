@@ -957,7 +957,12 @@ function paVerifyAdminPwd() {
   var entered = inp.value;
   if (!entered) { if(err) err.textContent = 'Ingresa la contraseña'; return; }
 
-  // Compare against current adminPin (loaded from Firebase or default)
+  if (err) err.textContent = '';
+
+  // Debug: log what we're comparing (remove after testing)
+  console.log('[Admin] entered length:', entered.length, '| stored length:', PA.adminPin.length);
+  console.log('[Admin] match:', entered === PA.adminPin);
+
   if (entered === PA.adminPin) {
     document.getElementById('modalAdminLogin').remove();
     PA.isAdmin = true;
@@ -969,8 +974,8 @@ function paVerifyAdminPwd() {
       paShow('scAdmin');
     }
   } else {
-    if (err) err.textContent = '❌ Contraseña incorrecta';
-    if (inp) { inp.value = ''; inp.focus(); }
+    if (err) err.textContent = '❌ Contraseña incorrecta ('+entered.length+' chars ingresados)';
+    inp.select();
     if (navigator.vibrate) navigator.vibrate([100,50,100]);
   }
 }
@@ -3224,24 +3229,37 @@ function paEditarEmp(empId) {
 // INIT
 // ══════════════════════════════════════════════════════
 window.addEventListener('DOMContentLoaded', function() {
-  // Detect if opened as admin
   var params = new URLSearchParams(window.location.search);
   var empresa = params.get('empresa');
   if (empresa) {
     PA.empresa = empresa.toUpperCase();
     document.getElementById('landingTitle').textContent = 'Portal Asistencia — ' + PA.empresa;
   }
-  
-  // Update landing logo/title
   var landingSub = document.getElementById('landingSub');
   if (landingSub) landingSub.textContent = PA.empresa + ' — Registro de entrada, salida y solicitudes';
-  
-  // Check if biometric is available
+
   if (!window.PublicKeyCredential) {
     var bioBtn = document.getElementById('bioBtn');
-    if (bioBtn) { bioBtn.style.display = 'none'; }
+    if (bioBtn) bioBtn.style.display = 'none';
   }
-  
+
+  // ── Cargar paConfig al inicio para tener adminPin listo ──────────
+  paDb.collection('paConfig').doc(PA.empresa).get().then(function(cfgDoc) {
+    if (cfgDoc.exists) {
+      var cfg = cfgDoc.data();
+      if (cfg.adminPin) PA.adminPin = cfg.adminPin;
+      if (cfg.horario)  PA.horario  = Object.assign(PA.horario, cfg.horario);
+      if (cfg.feriados && cfg.feriados.length) PA.feriados = cfg.feriados;
+    }
+    if (!PA.feriados.length) {
+      var yr = new Date().getFullYear();
+      PA.feriados = PA_FERIADOS_SV.map(function(md){ return yr+'-'+md; });
+    }
+    console.log('[Portal] Config cargada. adminPin listo.');
+  }).catch(function(e) {
+    console.warn('[Portal] paConfig no disponible:', e.message, '— usando default');
+  });
+
   paShow('scLanding');
 });
 </script>
