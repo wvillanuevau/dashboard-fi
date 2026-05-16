@@ -2059,32 +2059,75 @@ function paConfirmarMarca() {
   }
 
   // ── Comprimir y subir foto a Firebase Storage ──
-  if (PA.capturedB64) {
-    var imgEl = new Image();
-    imgEl.onload = function() {
-      var maxW = 480;
-      var iw = imgEl.width, ih = imgEl.height;
-      if (iw > maxW) { ih = Math.round(ih * maxW / iw); iw = maxW; }
-      var cv = document.createElement('canvas');
-      cv.width = iw; cv.height = ih;
-      cv.getContext('2d').drawImage(imgEl, 0, 0, iw, ih);
-      var compressed = cv.toDataURL('image/jpeg', 0.60);
-      // path: asistencia/FISDC/2026/05/15/MRC-xxxx.jpg
-      var storagePath = 'asistencia/'+PA.empresa+'/'+hoy.replace(/-/g,'/')+'/'+folioId+'.jpg';
-      paStorage.ref(storagePath).putString(compressed, 'data_url')
-        .then(function(){ _guardarConFotoRef(storagePath); })
-        .catch(function(e){ 
-          console.warn('[Storage]', e.message);
-          paToast('Foto no guardada en nube. Registro guardado sin foto.', false);
-          _guardarConFotoRef(null);
-        });
-    };
-    imgEl.onerror = function(){ _guardarConFotoRef(null); };
-    imgEl.src = PA.capturedB64;
-  } else {
-    _guardarConFotoRef(null);
+  if (!PA.capturedB64) {
+    if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
+    var errElNF = document.getElementById('marcarError');
+    if (errElNF) { errElNF.textContent = '⚠ Debes tomar una foto antes de confirmar.'; errElNF.style.display = 'block'; }
+    return;
   }
+
+  var imgEl = new Image();
+  imgEl.onload = function() {
+    var maxW = 480;
+    var iw = imgEl.width, ih = imgEl.height;
+    if (iw > maxW) { ih = Math.round(ih * maxW / iw); iw = maxW; }
+    var cv = document.createElement('canvas');
+    cv.width = iw; cv.height = ih;
+    cv.getContext('2d').drawImage(imgEl, 0, 0, iw, ih);
+
+    // Convertir a Blob — más confiable que putString en iOS/Android
+    var byteStr = atob(cv.toDataURL('image/jpeg', 0.60).split(',')[1]);
+    var ab = new ArrayBuffer(byteStr.length);
+    var ia = new Uint8Array(ab);
+    for (var bi = 0; bi < byteStr.length; bi++) ia[bi] = byteStr.charCodeAt(bi);
+    var fotoBlob = new Blob([ab], {type:'image/jpeg'});
+
+    var storagePath = 'asistencia/'+PA.empresa+'/'+hoy.replace(/-/g,'/')+'/'+folioId+'.jpg';
+    var _intentos = 0;
+    var _MAX = 3;
+
+    function _subir() {
+      _intentos++;
+      if (btn) btn.textContent = 'Subiendo foto... ('+_intentos+'/'+_MAX+')';
+      var _done = false;
+
+      var _t = setTimeout(function() {
+        if (_done) return; _done = true;
+        if (_intentos < _MAX) { setTimeout(_subir, 2000); }
+        else {
+          if (btn) { btn.disabled=false; btn.textContent='✅ Confirmar registro'; }
+          var e2=document.getElementById('marcarError');
+          if(e2){e2.textContent='⚠ Tiempo agotado al subir foto. Revisa tu conexión.';e2.style.display='block';}
+        }
+      }, 15000);
+
+      paStorage.ref(storagePath).put(fotoBlob, {contentType:'image/jpeg'})
+        .then(function() {
+          if (_done) return; _done=true; clearTimeout(_t);
+          _guardarConFotoRef(storagePath);
+        })
+        .catch(function(e) {
+          if (_done) return; _done=true; clearTimeout(_t);
+          console.warn('[Storage] intento '+_intentos+':', e.code, e.message);
+          if (_intentos < _MAX) { setTimeout(_subir, 2000); }
+          else {
+            if (btn) { btn.disabled=false; btn.textContent='✅ Confirmar registro'; }
+            var e3=document.getElementById('marcarError');
+            if(e3){e3.textContent='⚠ Error subiendo foto ('+( e.code||e.message||'sin red')+').';e3.style.display='block';}
+            paToast('No se pudo subir la foto.', true);
+          }
+        });
+    }
+    _subir();
+  };
+  imgEl.onerror = function() {
+    if (btn) { btn.disabled=false; btn.textContent='✅ Confirmar registro'; }
+    var e4=document.getElementById('marcarError');
+    if(e4){e4.textContent='⚠ Error al procesar la foto. Vuelve a tomarla.';e4.style.display='block';}
+  };
+  imgEl.src = PA.capturedB64;
 }
+
 
 function _paMostrarExito(docData, calc) {
     var tipos = {
