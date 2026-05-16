@@ -23,9 +23,13 @@
   --purple:#bc8cff;
   --radius:14px;
 }
-*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:rgba(0,0,0,0);touch-action:manipulation}
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Space Grotesk',sans-serif;overflow:hidden}
 body.scrollable{overflow-y:auto}
+
+/* Global button tap feedback — iOS friendly */
+button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none;-webkit-user-select:none}
+button:active{opacity:.75;transform:scale(.96)!important;transition:opacity .08s,transform .08s!important}
 
 /* ── SCREENS ─────────────────────────────────────────── */
 .screen{display:none;min-height:100vh;flex-direction:column;align-items:center;justify-content:flex-start;padding:0}
@@ -52,10 +56,12 @@ body.scrollable{overflow-y:auto}
   width:100%;max-width:320px;padding:16px;background:var(--accent);color:#0d1117;
   font-weight:700;font-size:16px;border:none;border-radius:var(--radius);cursor:pointer;
   font-family:inherit;letter-spacing:.3px;
-  transition:transform .1s,box-shadow .1s;
+  transition:transform .08s,box-shadow .08s,background .08s;
+  box-shadow:0 4px 16px rgba(46,160,67,.3);
 }
-.landing-btn:active{transform:scale(.97)}
-.landing-btn.secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border);margin-top:10px}
+.landing-btn:active{transform:scale(.93)!important;background:#26a641;box-shadow:0 2px 6px rgba(46,160,67,.2)}
+.landing-btn.secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border);margin-top:10px;box-shadow:none}
+.landing-btn.secondary:active{background:var(--border)!important}
 .landing-features{
   display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;max-width:340px;margin-bottom:40px
 }
@@ -315,12 +321,14 @@ body.scrollable{overflow-y:auto}
 .big-btn{
   width:100%;padding:16px;background:var(--accent);color:#000;font-weight:700;
   font-size:15px;border:none;border-radius:14px;cursor:pointer;font-family:inherit;
-  transition:transform .1s;margin-top:8px;
+  transition:transform .08s,opacity .08s,background .08s;margin-top:8px;
+  box-shadow:0 3px 12px rgba(46,160,67,.25);
 }
-.big-btn:active{transform:scale(.98)}
-.big-btn.blue{background:var(--accent2);color:#fff}
-.big-btn.disabled{opacity:.5;pointer-events:none}
-.big-btn.outline{background:transparent;border:1.5px solid var(--border);color:var(--text)}
+.big-btn:active{transform:scale(.93)!important;opacity:.85}
+.big-btn.blue{background:var(--accent2);color:#fff;box-shadow:0 3px 12px rgba(56,139,253,.25)}
+.big-btn.disabled{opacity:.5;pointer-events:none;box-shadow:none}
+.big-btn.outline{background:transparent;border:1.5px solid var(--border);color:var(--text);box-shadow:none}
+.big-btn.outline:active{background:var(--surface2)!important}
 .section-title{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;
   letter-spacing:.8px;margin-bottom:12px}
 .info-box{
@@ -941,14 +949,17 @@ function paGoAdmin() {
     +' autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"'
     +' style="width:100%;padding:14px 16px;background:var(--surface2);border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:inherit;font-size:16px;outline:none;margin-bottom:8px;-webkit-user-select:text">'
     +'<div id="adminPwdError" style="color:var(--red);font-size:12px;min-height:16px;margin-bottom:12px"></div>'
-    +'<button id="adminPwdBtn" style="width:100%;padding:14px;background:var(--accent);color:#000;font-weight:700;font-size:15px;border:none;border-radius:12px;cursor:pointer;font-family:inherit;margin-bottom:8px">Entrar</button>'
-    +'<button id="adminCancelBtn" style="width:100%;padding:12px;background:transparent;border:1px solid var(--border);border-radius:12px;color:var(--muted);cursor:pointer;font-family:inherit;font-size:14px">Cancelar</button>'
+    +'<button id="adminPwdBtn" style="width:100%;padding:16px;background:var(--accent);color:#000;font-weight:700;font-size:16px;border:none;border-radius:12px;cursor:pointer;font-family:inherit;margin-bottom:8px;box-shadow:0 3px 12px rgba(46,160,67,.3);transition:transform .08s,opacity .08s">Entrar</button>'
+    +'<button id="adminCancelBtn" style="width:100%;padding:14px;background:transparent;border:1px solid var(--border);border-radius:12px;color:var(--muted);cursor:pointer;font-family:inherit;font-size:14px">Cancelar</button>'
     +'</div>';
   document.body.appendChild(div);
 
-  // Use addEventListener — more reliable on iOS than onclick in innerHTML
-  document.getElementById('adminPwdBtn').addEventListener('click', paVerifyAdminPwd);
+  // Use both touchend and click — iOS is more reliable with touchend on dynamic elements
+  var adminBtn = document.getElementById('adminPwdBtn');
+  adminBtn.addEventListener('click', paVerifyAdminPwd);
+  adminBtn.addEventListener('touchend', function(e){ e.preventDefault(); paVerifyAdminPwd(); });
   document.getElementById('adminCancelBtn').addEventListener('click', function(){ div.remove(); });
+  document.getElementById('adminCancelBtn').addEventListener('touchend', function(e){ e.preventDefault(); div.remove(); });
   document.getElementById('adminPwdInput').addEventListener('keydown', function(e){
     if (e.key === 'Enter') paVerifyAdminPwd();
   });
