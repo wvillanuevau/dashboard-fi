@@ -56,6 +56,7 @@ button:active{opacity:.8;transform:scale(.95)}
   border-radius:22px;display:flex;align-items:center;justify-content:center;
   font-size:32px;margin-bottom:24px;
   box-shadow:0 0 40px rgba(46,160,67,.3);
+  border:none;padding:0;flex-shrink:0;
 }
 .landing-title{font-size:28px;font-weight:700;text-align:center;margin-bottom:8px;letter-spacing:-.5px}
 .landing-sub{font-size:14px;color:var(--muted);text-align:center;margin-bottom:40px;line-height:1.5}
@@ -372,9 +373,9 @@ button:active{opacity:.8;transform:scale(.95)}
      SCREEN: LANDING
 ══════════════════════════════════════════════════ -->
 <div class="screen active" id="scLanding">
-  <div class="landing-logo" id="logoBtn" onclick="paLogoTap()" style="cursor:pointer">🏢</div>
+  <button class="landing-logo" id="logoBtn" onclick="paLogoTap()" aria-label="Logo">🏢</button>
   <div class="landing-title" id="landingTitle">Portal de Asistencia</div>
-  <div class="landing-sub" id="landingSub">Registro de entrada, salida, horas extra y vacaciones</div>
+  <div class="landing-sub" id="landingSub">Registro de entrada, salida y vacaciones</div>
   <div class="landing-features">
     <div class="feat-card">
       <div class="feat-icon">📍</div>
@@ -394,8 +395,7 @@ button:active{opacity:.8;transform:scale(.95)}
     </div>
   </div>
   <button class="landing-btn" onclick="paGoToSelectEmp()">📋 Registrar Asistencia</button>
-  <!-- Admin: tap logo 5 times to reveal -->
-  <div id="adminTapHint" style="font-size:10px;color:transparent;margin-top:16px;user-select:none">.</div>
+  <div id="adminTapHint" style="font-size:11px;color:transparent;margin-top:20px;min-height:18px">.</div>
 </div>
 
 <!-- ══════════════════════════════════════════════════
@@ -842,21 +842,31 @@ button:active{opacity:.8;transform:scale(.95)}
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 <script>
-'use strict';
-
 // ══════════════════════════════════════════════════════
-// FIREBASE INIT
+// FIREBASE INIT — con manejo de error y app duplicada
 // ══════════════════════════════════════════════════════
-const _paApp = firebase.initializeApp({
-  apiKey:"AIzaSyC0R7573cB76FzC6qPZhLmvKhVT46PN3RM",
-  authDomain:"pf-construccion.firebaseapp.com",
-  projectId:"pf-construccion",
-  storageBucket:"pf-construccion.appspot.com",
-  messagingSenderId:"1082289901578",
-  appId:"1:1082289901578:web:b7b5e2c7f5b7d6e6f2c4a9"
-},'portalAsistencia');
-const paDb      = firebase.firestore(_paApp);
-const paStorage = firebase.storage(_paApp);
+var paDb, paStorage;
+try {
+  var _existingApp = firebase.apps.find(function(a){ return a.name === 'portalAsistencia'; });
+  var _paApp = _existingApp || firebase.initializeApp({
+    apiKey:"AIzaSyC0R7573cB76FzC6qPZhLmvKhVT46PN3RM",
+    authDomain:"pf-construccion.firebaseapp.com",
+    projectId:"pf-construccion",
+    storageBucket:"pf-construccion.appspot.com",
+    messagingSenderId:"1082289901578",
+    appId:"1:1082289901578:web:b7b5e2c7f5b7d6e6f2c4a9"
+  },'portalAsistencia');
+  paDb      = firebase.firestore(_paApp);
+  paStorage = firebase.storage(_paApp);
+} catch(e) {
+  console.error('[Portal] Firebase init error:', e);
+  document.body.innerHTML = '<div style="padding:40px;text-align:center;color:#f85149;font-family:sans-serif">'
+    +'<div style="font-size:48px;margin-bottom:16px">⚠️</div>'
+    +'<div style="font-size:18px;font-weight:700;margin-bottom:8px">Error de conexión</div>'
+    +'<div style="font-size:13px;color:#888">'+e.message+'</div>'
+    +'<button onclick="location.reload()" style="margin-top:24px;padding:12px 24px;background:#2ea043;color:#000;border:none;border-radius:10px;font-size:16px;font-weight:700">🔄 Recargar</button>'
+    +'</div>';
+}
 
 // ══════════════════════════════════════════════════════
 // STATE
@@ -1043,6 +1053,11 @@ function paLoadEmpleados(callback) {
   var list = document.getElementById('empList');
   if (list) list.innerHTML = '<div class="spinner"></div>';
 
+  if (!paDb) {
+    if (list) list.innerHTML = '<div style="color:var(--red);text-align:center;padding:20px">⚠ Sin conexión a Firebase.<br><button onclick="location.reload()" style="margin-top:10px;padding:8px 16px;background:#2ea043;color:#000;border:none;border-radius:8px;font-size:14px;font-weight:700">Recargar</button></div>';
+    if (typeof callback === 'function') callback();
+    return;
+  }
   // Leer de portalesPublicos (acceso público) en vez de empresas (requiere auth)
   paDb.collection('portalesPublicos').doc(PA.empresa).get().then(function(doc) {
     var tecnicos = [];
@@ -3263,7 +3278,8 @@ window.addEventListener('DOMContentLoaded', function() {
   var empresa = params.get('empresa');
   if (empresa) {
     PA.empresa = empresa.toUpperCase();
-    document.getElementById('landingTitle').textContent = 'Portal Asistencia — ' + PA.empresa;
+    var lt = document.getElementById('landingTitle');
+    if (lt) lt.textContent = 'Portal Asistencia — ' + PA.empresa;
   }
   var landingSub = document.getElementById('landingSub');
   if (landingSub) landingSub.textContent = PA.empresa + ' — Registro de entrada, salida y solicitudes';
@@ -3273,22 +3289,30 @@ window.addEventListener('DOMContentLoaded', function() {
     if (bioBtn) bioBtn.style.display = 'none';
   }
 
-  // ── Cargar paConfig al inicio para tener adminPin listo ──────────
-  paDb.collection('paConfig').doc(PA.empresa).get().then(function(cfgDoc) {
-    if (cfgDoc.exists) {
-      var cfg = cfgDoc.data();
-      if (cfg.adminPin) PA.adminPin = cfg.adminPin;
-      if (cfg.horario)  PA.horario  = Object.assign(PA.horario, cfg.horario);
-      if (cfg.feriados && cfg.feriados.length) PA.feriados = cfg.feriados;
-    }
-    if (!PA.feriados.length) {
-      var yr = new Date().getFullYear();
-      PA.feriados = PA_FERIADOS_SV.map(function(md){ return yr+'-'+md; });
-    }
-    console.log('[Portal] Config cargada. adminPin listo.');
-  }).catch(function(e) {
-    console.warn('[Portal] paConfig no disponible:', e.message, '— usando default');
-  });
+  // ── Acceso admin via URL: ?admin=1 (discreto, para uso interno) ──
+  if (params.get('admin') === '1') {
+    setTimeout(paGoAdmin, 500);
+  }
+
+  // ── Cargar paConfig al inicio ────────────────────────────────────
+  if (paDb) {
+    paDb.collection('paConfig').doc(PA.empresa).get().then(function(cfgDoc) {
+      if (cfgDoc.exists) {
+        var cfg = cfgDoc.data();
+        if (cfg.adminPin) PA.adminPin = cfg.adminPin;
+        if (cfg.horario)  PA.horario  = Object.assign(PA.horario, cfg.horario);
+        if (cfg.feriados && cfg.feriados.length) PA.feriados = cfg.feriados;
+      }
+      if (!PA.feriados.length) {
+        var yr = new Date().getFullYear();
+        PA.feriados = PA_FERIADOS_SV.map(function(md){ return yr+'-'+md; });
+      }
+    }).catch(function(e) {
+      console.warn('[Portal] paConfig:', e.message);
+      var yr2 = new Date().getFullYear();
+      PA.feriados = PA_FERIADOS_SV.map(function(md){ return yr2+'-'+md; });
+    });
+  }
 
   paShow('scLanding');
 });
