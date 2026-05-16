@@ -930,20 +930,48 @@ function paGoToSelectEmp() {
 }
 
 function paGoAdmin() {
-  var pin = prompt('PIN de administrador:');
-  if (!pin) return;
-  if (pin === PA.adminPin) {
+  // Mostrar modal de login admin en vez de prompt() (que tiene problemas con símbolos)
+  var old = document.getElementById('modalAdminLogin'); if (old) old.remove();
+  var div = document.createElement('div');
+  div.id = 'modalAdminLogin';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:600;display:flex;align-items:center;justify-content:center;padding:24px';
+  div.innerHTML = '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:20px;padding:28px 24px;width:100%;max-width:340px">'
+    +'<div style="font-size:18px;font-weight:700;margin-bottom:6px;text-align:center">🔐 Administración</div>'
+    +'<div style="font-size:12px;color:var(--muted);margin-bottom:20px;text-align:center">Ingresa la contraseña de administrador</div>'
+    +'<input id="adminPwdInput" type="password" placeholder="Contraseña" autocomplete="current-password" '
+    +'style="width:100%;padding:14px 16px;background:var(--surface2);border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:inherit;font-size:16px;outline:none;margin-bottom:8px">'
+    +'<div id="adminPwdError" style="color:var(--red);font-size:12px;min-height:16px;margin-bottom:12px"></div>'
+    +'<button onclick="paVerifyAdminPwd()" style="width:100%;padding:14px;background:var(--accent);color:#000;font-weight:700;font-size:15px;border:none;border-radius:12px;cursor:pointer;font-family:inherit;margin-bottom:8px">Entrar</button>'
+    +'<button onclick="document.getElementById(\'modalAdminLogin\').remove()" style="width:100%;padding:12px;background:transparent;border:1px solid var(--border);border-radius:12px;color:var(--muted);cursor:pointer;font-family:inherit;font-size:14px">Cancelar</button>'
+    +'</div>';
+  document.body.appendChild(div);
+  setTimeout(function(){ var inp = document.getElementById('adminPwdInput'); if(inp) inp.focus(); }, 100);
+  // Allow Enter key
+  div.addEventListener('keydown', function(e){ if(e.key==='Enter') paVerifyAdminPwd(); });
+}
+
+function paVerifyAdminPwd() {
+  var inp = document.getElementById('adminPwdInput');
+  var err = document.getElementById('adminPwdError');
+  if (!inp) return;
+  var entered = inp.value;
+  if (!entered) { if(err) err.textContent = 'Ingresa la contraseña'; return; }
+
+  // Compare against current adminPin (loaded from Firebase or default)
+  if (entered === PA.adminPin) {
+    document.getElementById('modalAdminLogin').remove();
     PA.isAdmin = true;
     var empBadge = document.getElementById('adminEmpBadge');
     if (empBadge) empBadge.textContent = PA.empresa;
-    // Cargar empleados primero, luego mostrar admin
     if (!PA.empleados.length) {
       paLoadEmpleados(function() { paShow('scAdmin'); });
     } else {
       paShow('scAdmin');
     }
   } else {
-    paToast('PIN incorrecto', true);
+    if (err) err.textContent = '❌ Contraseña incorrecta';
+    if (inp) { inp.value = ''; inp.focus(); }
+    if (navigator.vibrate) navigator.vibrate([100,50,100]);
   }
 }
 
