@@ -2341,24 +2341,61 @@ function startListening(){
 
     // No sobreescribir secciones con cambios locales pendientes (multi-usuario)
     var localDirty=Object.keys(S._dirtySections||{});
-    if(localDirty.length>0){
+
+    // Tampoco sobreescribir si el usuario tiene el foco en un input activo
+    // (está en medio de escribir aunque aún no haya llamado markDirty)
+    var activeEl=document.activeElement;
+    var isEditing=activeEl&&(activeEl.tagName==='INPUT'||activeEl.tagName==='TEXTAREA'||activeEl.tagName==='SELECT');
+
+    if(localDirty.length>0||isEditing){
+      // Guardar valores locales de secciones activas
       var savedSections={};
-      localDirty.forEach(function(sec){
-        if(S[sec]!==undefined){try{savedSections[sec]=JSON.parse(JSON.stringify(S[sec]));}catch(e){}}
+      var sectionsToProtect=localDirty.slice();
+
+      // Si está editando, inferir qué sección está tocando por el módulo activo
+      if(isEditing&&sectionsToProtect.length===0){
+        var mod=S._activeModule||'';
+        if(mod==='inventario')sectionsToProtect.push('inventario');
+        else if(mod==='gastos')sectionsToProtect.push('gastos');
+        else if(mod==='asistencia')sectionsToProtect.push('asistencia');
+        else if(mod==='taller')sectionsToProtect.push('taller');
+        else if(mod==='centros'||mod==='proveedores'||mod==='proyectos')sectionsToProtect.push(mod);
+      }
+
+      sectionsToProtect.forEach(function(sec){
+        var val=sec==='inventario'?S.inventario:sec==='taller'?S.taller:S[sec];
+        if(val!==undefined){try{savedSections[sec]=JSON.parse(JSON.stringify(val));}catch(e){}}
       });
+
+      // Aplicar datos remotos (actualiza secciones que otros cambiaron)
       applyData(remoteData,true);
-      localDirty.forEach(function(sec){if(savedSections[sec]!==undefined)S[sec]=savedSections[sec];});
+
+      // Restaurar secciones que el usuario local está editando
+      sectionsToProtect.forEach(function(sec){
+        if(savedSections[sec]!==undefined){
+          if(sec==='inventario')S.inventario=savedSections[sec];
+          else if(sec==='taller')S.taller=savedSections[sec];
+          else S[sec]=savedSections[sec];
+        }
+      });
+
+      // Solo re-renderizar si NO está editando activamente
+      if(!isEditing&&S.currentUser){render();setSyncUI('ok','Actualizado');}
+      else{setSyncUI('ok','Actualizado');}
+
     } else if(remoteData._gastosChunked){
       clearTimeout(_listenReloadTimer);
       _listenReloadTimer=setTimeout(async ()=>{
         try{const full=await window.FB.load(S.empresa);if(full&&!S._saving){applyData(full,false);if(S.currentUser)render();setSyncUI('ok','Actualizado');}}catch(e){}
       },800);
       applyData(remoteData,true);
+      if(S.currentUser)render();
+      setSyncUI('ok','Actualizado');
     } else {
       applyData(remoteData,true);
+      if(S.currentUser)render();
+      setSyncUI('ok','Actualizado');
     }
-    if(S.currentUser)render();
-    setSyncUI('ok','Actualizado');
   });
 }
 
@@ -2407,7 +2444,13 @@ document.addEventListener('visibilitychange', function(){
   }
 });
 
-async function saveData(){
+async function saveData(seccion){
+  // Si se pasa sección, marcarla dirty automáticamente
+  if(seccion){markDirty(seccion);}
+  // Si no se pasa sección pero hay un módulo activo, inferirlo
+  else if(S._activeModule&&!Object.keys(S._dirtySections||{}).length){
+    markDirty(S._activeModule);
+  }
   _invalidateOpts();
   _invalidateGastosCache();
   // Marcar dashboard como sucio si hay un modal de proyecto abierto
@@ -4577,6 +4620,7 @@ function onGastoProyChange(){
 }
 
 function renderGastos(){
+  S._activeModule='gastos';
   var _qGastos=(S._srchGastos||'').toLowerCase();
   const total=S.gastos.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
   var gastosF=[...S.gastos].reverse().filter(function(g){
@@ -5542,6 +5586,7 @@ function editarGasto(id){
 //  PROVEEDORES
 // ═══════════════════════════════════════════════════════
 function renderProveedores(){
+  S._activeModule='proveedores';
   var _q=(S._srchProv||'').toLowerCase();
   var provF=S.proveedores.filter(function(p){
     if(!_q)return true;
@@ -5577,6 +5622,7 @@ function delProv(id){if(!confirm('¿Eliminar proveedor?'))return;var p=S.proveed
 //  CENTROS DE COSTO
 // ═══════════════════════════════════════════════════════
 function renderCentros(){
+  S._activeModule='centros';
   var _q=(S._srchCentros||'').toLowerCase();
   var centrosF=S.centros.filter(function(c){
     if(!_q)return true;
@@ -7403,6 +7449,7 @@ async function diagForceSave(){
 //  INVENTARIO
 // ═══════════════════════════════════════════════════════
 function renderInventario(){
+  S._activeModule='inventario';
   const inv=S.inventario||{bodegas:[],productos:[],movimientos:[]};
   const bodegas=inv.bodegas||[];
   const prods=inv.productos||[];
@@ -14065,6 +14112,7 @@ function asistEstadoColor(estado){
 }
 
 function renderAsistencia(){
+  S._activeModule='asistencia';
   if(!S._asistTab)S._asistTab='registro';
   var tab=S._asistTab;
   var m=mantData();
@@ -14818,6 +14866,7 @@ function tallerEstadoColor(id){return otEstadoColor(id);}
 
 // ─── DASHBOARD (ENRIQUECIDO) ────────────────────────
 function renderTallerDashboard(){
+  S._activeModule='taller';
   var t=tallerData();
   var vehs=t.vehiculos||[];
   var nVeh=vehs.length;
@@ -15314,6 +15363,7 @@ function renderTallerDashboard(){
 
 // ─── VEHÍCULOS (ENRIQUECIDO) ─────────────────────────
 function renderTallerVehiculos(){
+  S._activeModule='taller';
   var t=tallerData();
   var q=(S._tallerVehSrch||'').toLowerCase();
   var vehs=t.vehiculos.filter(function(v){
@@ -16366,6 +16416,7 @@ function delVehiculo(id){
 
 // ─── ÓRDENES DE TRABAJO ────────────────────────────
 function renderTallerOTs(){
+  S._activeModule='taller';
   var t=tallerData();
   if(!S._tallerOTFiltro)S._tallerOTFiltro='';
   var ots=[].concat(t.ots).sort(function(a,b){return (b.creadoEn||0)-(a.creadoEn||0);});
