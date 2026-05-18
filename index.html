@@ -19101,7 +19101,12 @@ function _renderReportesChoferes(reportes){
     var semGal=semDiasStr.reduce(function(s,f){
       var r=repMap[v.id+'|'+f];return s+(r&&r.galonesCargados?r.galonesCargados:0);
     },0);
-    var semKm=semDiasStr.reduce(function(s,f){var r=repMap[v.id+'|'+f];return s+(r&&r.kmRecorridos?r.kmRecorridos:0);},0);
+    var semKm=semDiasStr.reduce(function(s,f){
+      var r=repMap[v.id+'|'+f];
+      // Usar kmRecorridos si existe, si no usar kmOdometro como referencia (portal solo envía odómetro)
+      var km=(r&&r.kmRecorridos)?r.kmRecorridos:(r&&r.kmOdometro&&r.kmOdometro>0?r.kmOdometro:0);
+      return s+km;
+    },0);
     var diasRep=semDiasStr.filter(function(f){return !!repMap[v.id+'|'+f];}).length;
     var nombreMot='';
     // Tomar nombre del primer reporte de la semana
@@ -19170,9 +19175,9 @@ function _renderReportesChoferes(reportes){
     +'<div><div style="font-weight:700;font-size:14px">📋 CONTROL SEMANAL DE KM</div>'
     +'<div style="font-size:12px;color:var(--muted)">'+mesesN[semDias[0].getMonth()]+' '+semDias[0].getFullYear()+'</div></div>'
     +'<div style="display:flex;align-items:center;gap:8px">'
-    +'<button class="btn btn-secondary btn-sm" onclick="S._rdcSemana=\''+prevLun2.toISOString().slice(0,10)+'\'\';renderTallerReportesChoferes()">‹</button>'
+    +'<button class="btn btn-secondary btn-sm" data-sem="'+prevLun2.toISOString().slice(0,10)+'" onclick="S._rdcSemana=this.getAttribute(\'data-sem\');renderTallerReportesChoferes()">‹</button>'
     +'<span style="font-weight:700;color:var(--accent);font-size:13px;min-width:180px;text-align:center">'+semLabel+'</span>'
-    +'<button class="btn btn-secondary btn-sm" onclick="S._rdcSemana=\''+nextLun2.toISOString().slice(0,10)+'\'\';renderTallerReportesChoferes()">›</button>'
+    +'<button class="btn btn-secondary btn-sm" data-sem="'+nextLun2.toISOString().slice(0,10)+'" onclick="S._rdcSemana=this.getAttribute(\'data-sem\');renderTallerReportesChoferes()">›</button>'
     +'</div></div>'
     +'<div class="tbl-wrap asist-semanal-wrap" style="border:none;border-radius:0"><table>'
     +'<thead><tr>'
