@@ -546,6 +546,11 @@ button:active{opacity:.8;transform:scale(.95)}
         <div class="action-info"><div class="action-title">Mi Historial</div><div class="action-sub">Ver mis registros anteriores</div></div>
         <span class="action-arrow">›</span>
       </button>
+      <button class="action-btn secondary" id="btnTestNotif" onclick="paTestNotificacion()">
+        <span class="action-icon">🔔</span>
+        <div class="action-info"><div class="action-title">Probar notificación</div><div class="action-sub" id="notifStatus">Toca para probar</div></div>
+        <span class="action-arrow">›</span>
+      </button>
     </div>
   </div>
 </div>
@@ -945,6 +950,130 @@ function paShow(screenId) {
   if (screenId === 'scMarcar') paInitCamera();
   if (screenId === 'scCanje') paInitCanje();
   if (screenId === 'scVacaciones') paInitVacaciones();
+}
+
+// ══════════════════════════════════════════════════════
+// NOTIFICACIONES — Service Worker
+// ══════════════════════════════════════════════════════
+
+// Lista de motoristas conocidos (nombre contiene estas palabras)
+var PA_MOTORISTAS = ['galileo barrera', 'enrique flores', 'motorista', 'chofer', 'conductor'];
+
+function paEsMotorista(emp) {
+  if (!emp) return false;
+  var nombre = (emp.nombre || '').toLowerCase();
+  var cargo  = (emp.cargo  || '').toLowerCase();
+  return PA_MOTORISTAS.some(function(m) {
+    return nombre.indexOf(m) >= 0 || cargo.indexOf(m) >= 0;
+  });
+}
+
+function paConfigurarNotificaciones() {
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+    console.log('[Notif] No soportado en este dispositivo');
+    return;
+  }
+
+  if (Notification.permission === 'denied') {
+    console.log('[Notif] Permiso denegado por el usuario');
+    return;
+  }
+
+  var _programar = function() {
+    if (!PA._swReg) {
+      // Intentar obtener el SW registrado
+      navigator.serviceWorker.ready.then(function(reg) {
+        PA._swReg = reg;
+        _enviarConfigSW();
+      });
+    } else {
+      _enviarConfigSW();
+    }
+  };
+
+  if (Notification.permission === 'granted') {
+    _programar();
+  } else {
+    // Pedir permiso con explicación amigable
+    setTimeout(function() {
+      if (!PA.empleado) return;
+      Notification.requestPermission().then(function(perm) {
+        if (perm === 'granted') {
+          paToast('🔔 Notificaciones activadas', false);
+          _programar();
+        }
+      });
+    }, 2000); // esperar 2s para no molestar al inicio
+  }
+}
+
+function _enviarConfigSW() {
+  if (!PA._swReg || !PA._swReg.active) {
+    navigator.serviceWorker.ready.then(function(reg) {
+      PA._swReg = reg;
+      _enviarConfigSW();
+    });
+    return;
+  }
+
+  var emp = PA.empleado;
+  var h   = PA.horario;
+  var esMotorista = paEsMotorista(emp);
+
+  // Calcular hora de almuerzo y regreso desde configuración
+  var entradaMins = _hhmm2min(h.horaEntrada || '07:00');
+  var salidaMins  = _hhmm2min(h.horaSalida  || '17:00');
+  // Almuerzo ≈ mitad de la jornada
+  var midMins = Math.round((entradaMins + salidaMins) / 2);
+  var horaAlmuerzo  = _min2hhmm(midMins);
+  var horaRegresoAlm = _min2hhmm(midMins + (h.minutosAlmuerzo || 60));
+  // Recordatorio 15 min antes de salida
+  var horaAviso = _min2hhmm(salidaMins - 15);
+
+  var config = {
+    esEmpleado:        true,
+    nombreEmpleado:    emp.nombre,
+    horaEntrada:       h.horaEntrada || '07:00',
+    horaAlmuerzo:      horaAlmuerzo,
+    horaRegresoAlm:    horaRegresoAlm,
+    horaSalida:        horaAviso,
+    esMotorista:       esMotorista,
+    nombreMotorista:   esMotorista ? emp.nombre.split(' ')[0] : '',
+    horaKm:            '16:00',
+    portalUrl:         window.location.href,
+    portalMotoristaUrl: window.location.origin + '/dashboard-fi/'
+  };
+
+  PA._swReg.active.postMessage({ tipo: 'PROGRAMAR_NOTIFS', config: config });
+  console.log('[Notif] Config enviada al SW —',
+    'empleado:', emp.nombre,
+    '| motorista:', esMotorista,
+    '| entrada:', config.horaEntrada,
+    '| almuerzo:', config.horaAlmuerzo);
+}
+
+function _hhmm2min(hhmm) {
+  var p = (hhmm || '00:00').split(':');
+  return parseInt(p[0]) * 60 + parseInt(p[1] || 0);
+}
+function _min2hhmm(mins) {
+  var h = Math.floor(mins / 60) % 24;
+  var m = mins % 60;
+  return (h<10?'0':'')+h+':'+(m<10?'0':'')+m;
+}
+
+function paTestNotificacion() {
+  if (!PA._swReg || !PA._swReg.active) {
+    paToast('Service Worker no listo', true); return;
+  }
+  PA._swReg.active.postMessage({ tipo: 'TEST' });
+  paToast('🔔 Notificación de prueba enviada');
+}
+
+function paCancelarNotificaciones() {
+  if (PA._swReg && PA._swReg.active) {
+    PA._swReg.active.postMessage({ tipo: 'CANCELAR_NOTIFS' });
+  }
 }
 
 function paGoToSelectEmp() {
@@ -1493,6 +1622,9 @@ function paAfterAuth() {
   var emp = PA.empleado;
   PA.horasExtraAcum = parseFloat(emp.horasExtraAcum || 0);
   PA.diasVacDisp = parseInt(emp.diasVacacionesDisponibles || 15);
+
+  // ── Configurar notificaciones ────────────────────────────────────
+  paConfigurarNotificaciones();
   
   // Load today's markings
   var hoy = paHoy();
@@ -1563,6 +1695,20 @@ function paUpdateDash() {
     }
   }
   
+  // Notification status button
+  var notifEl = document.getElementById('notifStatus');
+  if (notifEl) {
+    if (!('Notification' in window)) {
+      notifEl.textContent = 'No disponible en este navegador';
+    } else if (Notification.permission === 'granted') {
+      notifEl.textContent = '✓ Activas — recordatorios programados';
+    } else if (Notification.permission === 'denied') {
+      notifEl.textContent = '✗ Bloqueadas en ajustes del navegador';
+    } else {
+      notifEl.textContent = 'Toca para activar recordatorios';
+    }
+  }
+
   // Update status timeline
   var marcs = PA.marcacionesHoy;
   var mEntrada = marcs.find(function(m){ return m.tipo === 'entrada'; });
@@ -3499,9 +3645,18 @@ window.addEventListener('DOMContentLoaded', function() {
     if (bioBtn) bioBtn.style.display = 'none';
   }
 
-  // ── Acceso admin via URL: ?admin=1 (discreto, para uso interno) ──
   if (params.get('admin') === '1') {
     setTimeout(paGoAdmin, 500);
+  }
+
+  // ── Registrar Service Worker ─────────────────────────────────────
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').then(function(reg) {
+      console.log('[Portal] SW registrado:', reg.scope);
+      PA._swReg = reg;
+    }).catch(function(e) {
+      console.warn('[Portal] SW no registrado:', e.message);
+    });
   }
 
   // ── Cargar paConfig al inicio ────────────────────────────────────
