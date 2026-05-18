@@ -1405,8 +1405,8 @@ var _portalModeActive = (function(){
 //  DEFINICIÓN DE ROLES Y PERMISOS
 // ═══════════════════════════════════════════════════════
 const ROLES={
-  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','usuarios','config','log','mant_panel','mant_equipos','mant_solicitudes','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_reportes','taller_solicitudes','taller_revisiones','taller_reportes_choferes','importar']},
-  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','log','mant_panel','mant_equipos','mant_solicitudes','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_reportes','taller_solicitudes','taller_revisiones','taller_reportes_choferes']},
+  admin:{label:'Admin',color:'b-warn',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','usuarios','config','log','mant_panel','mant_equipos','mant_solicitudes','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_reportes','taller_solicitudes','taller_trabajos','taller_revisiones','taller_reportes_choferes','importar']},
+  supervisor:{label:'Supervisor',color:'b-blue',modulos:['dashboard','proyectos','gastos','proveedores','centros','reportes','inventario','bodegas','log','mant_panel','mant_equipos','mant_solicitudes','mant_checklists','mant_tecnicos','mant_reportes','ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist','gz_gerentes','gz_dashboard','asistencia','auditoria_herr','taller_dashboard','taller_vehiculos','taller_ots','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_reportes','taller_solicitudes','taller_trabajos','taller_revisiones','taller_reportes_choferes']},
   empleado:{label:'Empleado',color:'b-ok',modulos:[]}, // permisos individuales
   viewer:{label:'Viewer',color:'b-neu',modulos:['dashboard','proyectos']},
   cliente:{label:'Cliente',color:'b-purple',modulos:['proyectos']}, // solo general, planificacion, cronograma
@@ -1447,6 +1447,7 @@ const MODULOS=[
   {id:'asistencia',label:'Asistencia',ic:'📋'},
   {id:'auditoria_herr',label:'Auditoría de Herramientas',ic:'🔍'},
   {id:'taller_dashboard',label:'Dashboard Taller',ic:'📊'},
+  {id:'taller_trabajos',label:'Trabajos Pendientes',ic:'🔧'},
   {id:'taller_vehiculos',label:'Vehículos',ic:'🚚'},
   {id:'taller_ots',label:'Órdenes de Trabajo',ic:'📋'},
   {id:'taller_servicios',label:'Servicios',ic:'🔧'},
@@ -1466,7 +1467,7 @@ const SB_GRUPOS=[
   {id:'empresa_grp',label:'Gestión de Empresa',ic:'🏢',items:['gastos','inventario','asistencia','auditoria_herr','gz_dashboard','proveedores','centros','bodegas','gz_gerentes','reportes']},
   {id:'mant_grp',label:'Mantenimiento',ic:'🔧',items:['mant_equipos','mant_solicitudes','mant_panel','mant_tecnicos']},
   {id:'energy_grp',label:'Energy Intelligence',ic:'⚡',items:['ei_dashboard','ei_modelo','ei_alertas','ei_ranking','ei_prediccion','ei_checklist']},
-  {id:'taller_grp',label:'Taller Mecánico',ic:'🚚',items:['taller_dashboard','taller_vehiculos','taller_ots','taller_solicitudes','taller_revisiones','taller_reportes_choferes','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_reportes']},
+  {id:'taller_grp',label:'Taller Mecánico',ic:'🚚',items:['taller_dashboard','taller_trabajos','taller_vehiculos','taller_ots','taller_solicitudes','taller_revisiones','taller_reportes_choferes','taller_servicios','taller_repuestos','taller_programado','taller_rutas','taller_reportes']},
   {id:'config_grp',label:'Configuración General',ic:'⚙',items:['log','usuarios','config','importar']},
 ];
 // Estado de grupos colapsados (persistir en sessionStorage)
@@ -9154,7 +9155,7 @@ function render(){
     navHtml+='</div>';
   });
   document.getElementById('nav').innerHTML=navHtml;
-  const titles={home:'🏠 Inicio',dashboard:'Dashboard',proyectos:'Proyectos',gastos:'Gastos',proveedores:'Proveedores',centros:'Centros de Costo',reportes:'Reportes',inventario:'Inventario',bodegas:'Gestión de Bodegas',cajachica:'Caja Chica',log:'Registro de Actividad',usuarios:'Usuarios',config:'Configuración',mant_panel:'📋 Historial de Mantenimiento',mant_equipos:'⚙️ Equipos',mant_solicitudes:'📩 Solicitudes de Mantenimiento',mant_checklists:'Checklists',mant_tecnicos:'👥 Empleados',mant_reportes:'Reportes Mantenimiento',ei_dashboard:'⚡ Energy Intelligence',ei_modelo:'Modelo de Consumo',ei_alertas:'Alertas Energéticas',ei_ranking:'Ranking de Tiendas',ei_prediccion:'Predicción de Factura',ei_checklist:'Checklist Operativo',gz_gerentes:'Gerentes de Zona',gz_dashboard:'Dashboard Gerentes de Zona',asistencia:'📋 Asistencia',auditoria_herr:'🔍 Auditoría de Herramientas',taller_dashboard:'🚚 Dashboard Taller',taller_vehiculos:'🚚 Vehículos',taller_ots:'📋 Órdenes de Trabajo',taller_servicios:'🔧 Catálogo de Servicios',taller_repuestos:'📦 Repuestos del Taller',taller_programado:'⏰ Mantenimiento Programado',taller_rutas:'🗺️ Rutas',taller_combustible:'⛽ Combustible',taller_reportes:'📈 Reportes Taller',taller_reportes_choferes:'🚛 Reportes de Motoristas',importar:'📥 Importar Datos'};
+  const titles={home:'🏠 Inicio',dashboard:'Dashboard',proyectos:'Proyectos',gastos:'Gastos',proveedores:'Proveedores',centros:'Centros de Costo',reportes:'Reportes',inventario:'Inventario',bodegas:'Gestión de Bodegas',cajachica:'Caja Chica',log:'Registro de Actividad',usuarios:'Usuarios',config:'Configuración',mant_panel:'📋 Historial de Mantenimiento',mant_equipos:'⚙️ Equipos',mant_solicitudes:'📩 Solicitudes de Mantenimiento',mant_checklists:'Checklists',mant_tecnicos:'👥 Empleados',mant_reportes:'Reportes Mantenimiento',ei_dashboard:'⚡ Energy Intelligence',ei_modelo:'Modelo de Consumo',ei_alertas:'Alertas Energéticas',ei_ranking:'Ranking de Tiendas',ei_prediccion:'Predicción de Factura',ei_checklist:'Checklist Operativo',gz_gerentes:'Gerentes de Zona',gz_dashboard:'Dashboard Gerentes de Zona',asistencia:'📋 Asistencia',auditoria_herr:'🔍 Auditoría de Herramientas',taller_dashboard:'🚚 Dashboard Taller',taller_trabajos:'🔧 Trabajos Pendientes',taller_vehiculos:'🚚 Vehículos',taller_ots:'📋 Órdenes de Trabajo',taller_servicios:'🔧 Catálogo de Servicios',taller_repuestos:'📦 Repuestos del Taller',taller_programado:'⏰ Mantenimiento Programado',taller_rutas:'🗺️ Rutas',taller_combustible:'⛽ Combustible',taller_reportes:'📈 Reportes Taller',taller_reportes_choferes:'🚛 Reportes de Motoristas',importar:'📥 Importar Datos'};
   document.getElementById('pageTitle').textContent=titles[S.activeTab]||S.activeTab;
   // Mostrar botón Home solo cuando no estás en home (y no eres chofer — ellos no tienen home)
   var homeBtnEl=document.getElementById('homeBtn');
@@ -9209,6 +9210,7 @@ function render(){
   else if(S.activeTab==='taller_combustible')renderTallerCombustible();
   else if(S.activeTab==='taller_reportes')renderTallerReportes();
   else if(S.activeTab==='taller_solicitudes')renderTallerSolicitudes();
+  else if(S.activeTab==='taller_trabajos')renderTallerTrabajos();
   else if(S.activeTab==='taller_revisiones')renderTallerRevisiones();
   else if(S.activeTab==='taller_reportes_choferes')renderTallerReportesChoferes();
   else if(S.activeTab==='importar')renderImportar();
@@ -16788,6 +16790,8 @@ function guardarOT(id){
     t.ots.push(datos);
     if(datos.kmIngreso&&veh&&datos.kmIngreso>(veh.kmActuales||veh.kmActual||0)){veh.kmActuales=datos.kmIngreso;veh.kmActual=datos.kmIngreso;}
     logAction('CREAR','taller','OT-'+datos.numero+' · '+(veh?veh.placa:'')+' · '+descAuto.slice(0,40));
+    // Crear en Trabajos Pendientes
+    tjCrearDesdeOT(datos, veh);
   }
   markDirty('taller');
   saveData();
@@ -17178,9 +17182,9 @@ function renderTallerProgramado(){
         +'<td><strong>'+(p.proximoKm||0).toLocaleString('en-US')+' km</strong></td>'
         +'<td>'+estadoBadge+'</td>'
         +'<td><div class="td-act">'
+          +'<button class="btn btn-primary btn-xs" onclick="tjCrearDesdeProgramadoId(\''+p.id+'\')">▶ Activar</button> '
           +'<button class="btn btn-secondary btn-xs" onclick="modalProgramado(\''+p.id+'\')">✏</button>'
           +'<button class="btn btn-danger btn-xs" onclick="delProgramado(\''+p.id+'\')">✕</button>'
-        +'</div></td></tr>';
     });
   }
 
@@ -18185,6 +18189,10 @@ function tallerSolConfAsignar(solId){
       var old=document.getElementById('tallerSolAsigMod');if(old)old.remove();
       toast('✅ Solicitud asignada');
       loadBadges();
+      // Crear en Trabajos Pendientes
+      firebase.firestore().collection('solicitudesTaller').doc(solId).get().then(function(doc){
+        if(doc.exists) tjCrearDesdeSolicitud(Object.assign({id:doc.id},doc.data()));
+      });
       renderTallerSolicitudes();
     }).catch(function(e){toast('Error: '+e.message,true);});
 }
@@ -18352,6 +18360,9 @@ function solAprobarYCrearOT(solId){
   s.fechaRespuesta=Date.now();
   s.mecanicoId=mecId||null;
 
+  // Crear en Trabajos Pendientes
+  tjCrearDesdeOT(ot, t.vehiculos.find(function(x){return x.id===ot.vehiculoId;}));
+
   saveData();
   logAction('APROBAR','chofer_solicitud','Solicitud aprobada → OT-'+ot.numero);
   document.getElementById('modalSolDet').remove();
@@ -18439,6 +18450,243 @@ function _diasSinRevision(vehId){
   var ult=t.revisiones.filter(function(r){return r.vehiculoId===vehId;}).sort(function(a,b){return (b.ts||0)-(a.ts||0);})[0];
   if(!ult)return null;
   return Math.floor((Date.now()-ult.ts)/(1000*60*60*24));
+}
+
+// ══════════════════════════════════════════════════════
+// TALLER TRABAJOS — Vista unificada de trabajos pendientes
+// Lee de colección Firestore 'tallerTrabajos' — no toca
+// t.ots, t.solicitudes ni t.programado
+// ══════════════════════════════════════════════════════
+function renderTallerTrabajos(){
+  S._activeModule='taller';
+  var content=document.getElementById('content');
+  if(content)content.innerHTML='<div style="padding:40px;text-align:center;color:var(--muted)">Cargando trabajos...</div>';
+
+  firebase.firestore().collection('tallerTrabajos')
+    .where('empresa','==',S.empresa)
+    .get().then(function(snap){
+      var trabajos=[];
+      snap.forEach(function(d){trabajos.push(Object.assign({_docId:d.id},d.data()));});
+      trabajos.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+      _renderTrabajosLista(trabajos);
+    }).catch(function(e){
+      if(content)content.innerHTML='<div style="padding:40px;text-align:center;color:var(--red)">Error cargando trabajos: '+e.message+'</div>';
+    });
+}
+
+function _renderTrabajosLista(trabajos){
+  var content=document.getElementById('content');
+  if(!content)return;
+  var t=tallerData();
+  var tecnicos=(S.mantenimiento&&S.mantenimiento.tecnicos)||[];
+  var esAdmin=S.currentUser&&(S.currentUser.rol==='admin'||S.currentUser.rol==='supervisor');
+
+  if(!S._tjFiltroEtapa)S._tjFiltroEtapa='pendientes';
+
+  // Separar por etapa
+  var pendientes =trabajos.filter(function(j){return j.etapa==='asignado';});
+  var enProceso  =trabajos.filter(function(j){return j.etapa==='en_proceso';});
+  var historico  =trabajos.filter(function(j){return j.etapa==='finalizado';});
+
+  var tabActiva=S._tjFiltroEtapa;
+
+  var tabs='<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">'
+    +['pendientes','en_proceso','historico'].map(function(tab){
+      var label={pendientes:'⏳ Asignados ('+pendientes.length+')',en_proceso:'🔧 En proceso ('+enProceso.length+')',historico:'✅ Histórico ('+historico.length+')'}[tab];
+      var active=tab===tabActiva;
+      return '<button onclick="S._tjFiltroEtapa=\''+tab+'\';renderTallerTrabajos()" style="padding:10px 18px;background:none;border:none;border-bottom:'+(active?'3px solid var(--accent)':'3px solid transparent')+';color:'+(active?'var(--accent)':'var(--muted)')+';font-weight:'+(active?'700':'400')+';font-family:inherit;cursor:pointer;font-size:13px">'+label+'</button>';
+    }).join('')+'</div>';
+
+  var lista=tabActiva==='pendientes'?pendientes:tabActiva==='en_proceso'?enProceso:historico;
+
+  var btnNuevo=esAdmin?'<button class="btn btn-primary" onclick="modalNuevoTrabajo()">+ Nueva OT directa</button>':'';
+
+  var rows='';
+  if(!lista.length){
+    rows='<div style="text-align:center;padding:40px;color:var(--muted)">Sin trabajos en esta etapa</div>';
+  } else {
+    lista.forEach(function(j){
+      var v=t.vehiculos.find(function(x){return x.id===j.vehiculoId;});
+      var mec=tecnicos.find(function(x){return x.id===j.mecanicoId;});
+      var origenBadge={ot:'<span class="badge b-blue">OT</span>',solicitud:'<span class="badge b-warn">Solicitud</span>',programado:'<span class="badge b-purple">Programado</span>'}[j.origen]||'<span class="badge b-neu">Manual</span>';
+
+      var acciones='';
+      if(j.etapa==='asignado'){
+        acciones='<button class="btn btn-primary btn-xs" onclick="tjAvanzar(\''+j._docId+'\',\'en_proceso\')">▶ Iniciar</button>';
+        if(esAdmin) acciones+=' <button class="btn btn-danger btn-xs" onclick="tjEliminar(\''+j._docId+'\')">✕</button>';
+      } else if(j.etapa==='en_proceso'){
+        acciones='<button class="btn btn-secondary btn-xs" onclick="tjAvanzar(\''+j._docId+'\',\'finalizado\')">✓ Finalizar</button>';
+      } else {
+        acciones='<span style="font-size:11px;color:var(--muted)">'+fmtDate(j.fechaFin||'')+'</span>';
+      }
+
+      // Selector de mecánico (solo admin, solo si asignado o en proceso)
+      var mecSel='';
+      if(esAdmin && j.etapa!=='finalizado'){
+        mecSel='<select onchange="tjAsignarMec(\''+j._docId+'\',this.value)" style="font-size:11px;padding:3px 6px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);margin-top:4px">'
+          +'<option value="">Sin asignar</option>'
+          +tecnicos.map(function(m){return '<option value="'+m.id+'"'+(j.mecanicoId===m.id?' selected':'')+'>'+esc(m.nombre)+'</option>';}).join('')
+          +'</select>';
+      } else if(mec){
+        mecSel='<div style="font-size:11px;color:var(--muted);margin-top:2px">👤 '+esc(mec.nombre)+'</div>';
+      }
+
+      rows+='<div class="card" style="margin-bottom:10px;padding:14px 16px">'
+        +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">'
+        +'<div style="flex:1">'
+        +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'+origenBadge
+        +(v?'<strong>'+esc(v.placa)+'</strong><span style="font-size:12px;color:var(--muted)">'+esc(v.marca||'')+' '+esc(v.modelo||'')+'</span>':'<span style="color:var(--muted)">Vehículo no encontrado</span>')
+        +'</div>'
+        +'<div style="font-size:13px;margin-bottom:4px">'+esc(j.descripcion||'Sin descripción')+'</div>'
+        +(j.servicios&&j.servicios.length?'<div style="font-size:11px;color:var(--muted)">'+j.servicios.map(function(s){return esc(s);}).join(' · ')+'</div>':'')
+        +mecSel
+        +'<div style="font-size:10px;color:var(--muted);margin-top:4px">'+fmtDate(j.fechaCreacion||'')+' · '+esc(j.creadoPor||'')+'</div>'
+        +'</div>'
+        +'<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">'+acciones+'</div>'
+        +'</div></div>';
+    });
+  }
+
+  content.innerHTML=
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">'
+    +'<div style="font-size:13px;color:var(--muted)">Trabajos de todas las fuentes (OT, Solicitudes, Programados)</div>'
+    +btnNuevo
+    +'</div>'
+    +tabs+rows;
+}
+
+// ── Avanzar etapa ─────────────────────────────────────────────────
+function tjAvanzar(docId, nuevaEtapa){
+  var updates={etapa:nuevaEtapa,_ts:Date.now()};
+  if(nuevaEtapa==='en_proceso')updates.fechaInicio=new Date().toISOString().slice(0,10);
+  if(nuevaEtapa==='finalizado')updates.fechaFin=new Date().toISOString().slice(0,10);
+  firebase.firestore().collection('tallerTrabajos').doc(docId)
+    .update(updates).then(function(){
+      toast('✓ Estado actualizado');
+      renderTallerTrabajos();
+    }).catch(function(e){toast('Error: '+e.message,true);});
+}
+
+// ── Asignar mecánico ──────────────────────────────────────────────
+function tjAsignarMec(docId, mecId){
+  firebase.firestore().collection('tallerTrabajos').doc(docId)
+    .update({mecanicoId:mecId,_ts:Date.now()}).then(function(){
+      toast('✓ Mecánico asignado');
+    }).catch(function(e){toast('Error: '+e.message,true);});
+}
+
+// ── Eliminar trabajo ──────────────────────────────────────────────
+function tjEliminar(docId){
+  if(!confirm('¿Eliminar este trabajo de la lista?'))return;
+  firebase.firestore().collection('tallerTrabajos').doc(docId)
+    .delete().then(function(){toast('Eliminado');renderTallerTrabajos();})
+    .catch(function(e){toast('Error: '+e.message,true);});
+}
+
+// ── Crear trabajo desde OT (llamar al guardar nueva OT) ───────────
+function tjCrearDesdeOT(ot, vehiculo){
+  if(!ot||!ot.id)return;
+  var t=tallerData();
+  var v=vehiculo||(t.vehiculos.find(function(x){return x.id===ot.vehiculoId;}));
+  firebase.firestore().collection('tallerTrabajos').add({
+    empresa:S.empresa,
+    origen:'ot',
+    otId:ot.id,
+    vehiculoId:ot.vehiculoId,
+    mecanicoId:ot.mecanicoId||'',
+    descripcion:ot.descripcion||ot.tipo||'Orden de trabajo',
+    servicios:(ot.servicios||[]).map(function(s){return s.nombre||s;}),
+    etapa:'asignado',
+    fechaCreacion:new Date().toISOString().slice(0,10),
+    creadoPor:(S.currentUser&&S.currentUser.nombre)||'',
+    ts:Date.now()
+  }).catch(function(e){console.warn('[TJ] Error creando desde OT:',e.message);});
+}
+
+// ── Crear trabajo desde solicitud aprobada ────────────────────────
+function tjCrearDesdeSolicitud(sol){
+  if(!sol)return;
+  firebase.firestore().collection('tallerTrabajos').add({
+    empresa:S.empresa,
+    origen:'solicitud',
+    solicitudId:sol.id||'',
+    vehiculoId:sol.vehiculoId||'',
+    mecanicoId:'',
+    descripcion:sol.descripcion||'Revisión solicitada por motorista',
+    etapa:'asignado',
+    fechaCreacion:new Date().toISOString().slice(0,10),
+    creadoPor:'Portal motorista',
+    motoristaNombre:sol.motoristaNombre||sol.choferNombre||'',
+    ts:Date.now()
+  }).catch(function(e){console.warn('[TJ] Error desde solicitud:',e.message);});
+}
+
+// ── Crear trabajo desde mantenimiento programado ──────────────────
+function tjCrearDesdeProgramadoId(progId){
+  var t=tallerData();
+  var prog=(t.programado||[]).find(function(p){return p.id===progId;});
+  if(!prog){toast('Mantenimiento no encontrado',true);return;}
+  tjCrearDesdeProgramado(prog);
+}
+
+function tjCrearDesdeProgramado(prog){
+  if(!prog)return;
+  var t=tallerData();
+  var v=t.vehiculos.find(function(x){return x.id===prog.vehiculoId;});
+  firebase.firestore().collection('tallerTrabajos').add({
+    empresa:S.empresa,
+    origen:'programado',
+    programadoId:prog.id,
+    vehiculoId:prog.vehiculoId,
+    mecanicoId:S.currentUser&&S.currentUser.mecanicoId||'',
+    descripcion:'Mantenimiento programado: '+esc(prog.servicio||''),
+    servicios:[prog.servicio||''],
+    etapa:'asignado',
+    fechaCreacion:new Date().toISOString().slice(0,10),
+    creadoPor:(S.currentUser&&S.currentUser.nombre)||'Mecánico',
+    ts:Date.now()
+  }).then(function(){
+    toast('✓ Trabajo creado — ver en Trabajos Pendientes');
+  }).catch(function(e){toast('Error: '+e.message,true);});
+}
+
+// ── Modal nueva OT directa ────────────────────────────────────────
+function modalNuevoTrabajo(){
+  var t=tallerData();
+  var tecnicos=(S.mantenimiento&&S.mantenimiento.tecnicos)||[];
+  var vehOpts=t.vehiculos.filter(function(v){return v.estado!=='baja';})
+    .map(function(v){return '<option value="'+v.id+'">'+esc(v.placa)+' '+esc(v.marca||'')+'</option>';}).join('');
+  var mecOpts=tecnicos.map(function(m){return '<option value="'+m.id+'">'+esc(m.nombre)+'</option>';}).join('');
+
+  var html='<div class="fg"><label>Vehículo *</label><select id="tjVeh"><option value="">— Seleccionar —</option>'+vehOpts+'</select></div>'
+    +'<div class="fg"><label>Mecánico asignado *</label><select id="tjMec"><option value="">— Seleccionar —</option>'+mecOpts+'</select></div>'
+    +'<div class="fg"><label>Descripción del trabajo *</label><textarea id="tjDesc" rows="3" style="width:100%;resize:none"></textarea></div>'
+    +'<button class="btn btn-primary" onclick="tjGuardarNuevo()">✓ Crear trabajo</button>';
+
+  openModal('modalGenerico','Nueva OT directa',html);
+}
+
+function tjGuardarNuevo(){
+  var vehId=(document.getElementById('tjVeh')||{}).value||'';
+  var mecId=(document.getElementById('tjMec')||{}).value||'';
+  var desc=((document.getElementById('tjDesc')||{}).value||'').trim();
+  if(!vehId){toast('Selecciona un vehículo',true);return;}
+  if(!desc){toast('Ingresa la descripción',true);return;}
+  firebase.firestore().collection('tallerTrabajos').add({
+    empresa:S.empresa,
+    origen:'ot',
+    vehiculoId:vehId,
+    mecanicoId:mecId,
+    descripcion:desc,
+    etapa:'asignado',
+    fechaCreacion:new Date().toISOString().slice(0,10),
+    creadoPor:(S.currentUser&&S.currentUser.nombre)||'',
+    ts:Date.now()
+  }).then(function(){
+    closeModal('modalGenerico');
+    toast('✓ Trabajo creado');
+    renderTallerTrabajos();
+  }).catch(function(e){toast('Error: '+e.message,true);});
 }
 
 function renderTallerRevisiones(){
