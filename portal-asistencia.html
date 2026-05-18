@@ -969,32 +969,27 @@ function paEsMotorista(emp) {
 }
 
 function paConfigurarNotificaciones() {
-  if (!('Notification' in window) || !('serviceWorker' in navigator)) {
-    console.log('[Notif] No soportado en este dispositivo');
-    return;
-  }
-
-  if (Notification.permission === 'denied') {
-    console.log('[Notif] Permiso denegado por el usuario');
-    return;
-  }
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
+  if (Notification.permission === 'denied') return;
 
   var _programar = function() {
-    if (!PA._swReg) {
-      // Intentar obtener el SW registrado
-      navigator.serviceWorker.ready.then(function(reg) {
-        PA._swReg = reg;
+    navigator.serviceWorker.ready.then(function(reg) {
+      PA._swReg = reg;
+      if (reg.active) {
         _enviarConfigSW();
-      });
-    } else {
-      _enviarConfigSW();
-    }
+      } else {
+        // SW instalado pero no activo aún — esperar
+        reg.installing && reg.installing.addEventListener('statechange', function(e) {
+          if (e.target.state === 'activated') _enviarConfigSW();
+        });
+      }
+    });
   };
 
   if (Notification.permission === 'granted') {
     _programar();
   } else {
-    // Pedir permiso con explicación amigable
+    // Pedir permiso después de 3 segundos para no molestar al inicio
     setTimeout(function() {
       if (!PA.empleado) return;
       Notification.requestPermission().then(function(perm) {
@@ -1003,7 +998,7 @@ function paConfigurarNotificaciones() {
           _programar();
         }
       });
-    }, 2000); // esperar 2s para no molestar al inicio
+    }, 3000);
   }
 }
 
@@ -1063,11 +1058,51 @@ function _min2hhmm(mins) {
 }
 
 function paTestNotificacion() {
-  if (!PA._swReg || !PA._swReg.active) {
-    paToast('Service Worker no listo', true); return;
+  if (!('Notification' in window)) {
+    paToast('Tu navegador no soporta notificaciones', true);
+    return;
   }
-  PA._swReg.active.postMessage({ tipo: 'TEST' });
-  paToast('🔔 Notificación de prueba enviada');
+
+  var _enviarTest = function() {
+    if (!PA._swReg) {
+      navigator.serviceWorker.ready.then(function(reg) {
+        PA._swReg = reg;
+        _enviarTest();
+      });
+      return;
+    }
+    // Intentar con SW primero, fallback a Notification directa
+    if (PA._swReg.active) {
+      PA._swReg.active.postMessage({ tipo: 'TEST' });
+    } else {
+      // Fallback: notificación directa sin SW
+      new Notification('🔔 FISDC — Notificaciones activas', {
+        body: 'Las notificaciones están funcionando correctamente.',
+        icon: '/dashboard-fi/icon-192.png'
+      });
+    }
+    paToast('🔔 Notificación enviada — revisa la barra de notificaciones', false);
+
+    // Actualizar estado en UI
+    var notifEl = document.getElementById('notifStatus');
+    if (notifEl) notifEl.textContent = '✓ Activas — recordatorios programados';
+  };
+
+  if (Notification.permission === 'granted') {
+    _enviarTest();
+  } else if (Notification.permission === 'denied') {
+    paToast('Notificaciones bloqueadas. Ve a Ajustes del navegador → Notificaciones y actívalas para este sitio.', true);
+  } else {
+    // Pedir permiso explícitamente
+    Notification.requestPermission().then(function(perm) {
+      if (perm === 'granted') {
+        paConfigurarNotificaciones();
+        setTimeout(_enviarTest, 800);
+      } else {
+        paToast('Permiso de notificaciones denegado', true);
+      }
+    });
+  }
 }
 
 function paCancelarNotificaciones() {
