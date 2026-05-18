@@ -18462,16 +18462,112 @@ function renderTallerTrabajos(){
   var content=document.getElementById('content');
   if(content)content.innerHTML='<div style="padding:40px;text-align:center;color:var(--muted)">Cargando trabajos...</div>';
 
-  firebase.firestore().collection('tallerTrabajos')
-    .where('empresa','==',S.empresa)
-    .get().then(function(snap){
-      var trabajos=[];
-      snap.forEach(function(d){trabajos.push(Object.assign({_docId:d.id},d.data()));});
-      trabajos.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
-      _renderTrabajosLista(trabajos);
-    }).catch(function(e){
-      if(content)content.innerHTML='<div style="padding:40px;text-align:center;color:var(--red)">Error cargando trabajos: '+e.message+'</div>';
+  var t=tallerData();
+
+  // ── Construir lista desde las 3 fuentes locales existentes ───────
+  // Esto garantiza que siempre se vean los datos aunque tallerTrabajos esté vacío
+  function _buildFromLocal(){
+    var trabajos=[];
+    var vistos={};
+
+    // 1. OTs existentes (excluir entregadas → van a histórico)
+    (t.ots||[]).forEach(function(o){
+      var etapa='asignado';
+      var est=o.estado||'recibido';
+      if(est==='entregado')etapa='finalizado';
+      else if(est==='reparacion'||est==='diagnostico')etapa='en_proceso';
+      else if(est==='listo')etapa='en_proceso';
+      trabajos.push({
+        _docId:'ot_'+o.id, _local:true,
+        origen:'ot', otId:o.id,
+        vehiculoId:o.vehiculoId,
+        mecanicoId:o.mecanicoId||'',
+        descripcion:o.descripcion||('OT-'+o.numero+' · '+o.tipo),
+        servicios:(o.serviciosAplicados||[]).map(function(s){return s.nombre||s;}),
+        etapa:etapa,
+        fechaCreacion:o.fechaIngreso||new Date(o.creadoEn||Date.now()).toISOString().slice(0,10),
+        fechaFin:o.fechaSalida||'',
+        creadoPor:'',
+        ts:o.creadoEn||0
+      });
+      vistos['ot_'+o.id]=true;
     });
+
+    // 2. Solicitudes asignadas o en proceso (no rechazadas, no nuevas sin asignar)
+    (t.solicitudes||[]).forEach(function(s){
+      var est=solEstNorm(s.estado||'nueva');
+      if(est==='nueva'||est==='rechazada')return;
+      var etapa='asignado';
+      if(est==='en_proceso')etapa='en_proceso';
+      if(est==='finalizada')etapa='finalizado';
+      trabajos.push({
+        _docId:'sol_'+s.id, _local:true,
+        origen:'solicitud', solicitudId:s.id,
+        vehiculoId:s.vehiculoId||'',
+        mecanicoId:s.mecanicoId||'',
+        descripcion:s.descripcion||'Revisión solicitada por motorista',
+        etapa:etapa,
+        fechaCreacion:s.ts?new Date(s.ts).toISOString().slice(0,10):'',
+        creadoPor:s.choferNombre||s.choferId||'Portal motorista',
+        motoristaNombre:s.choferNombre||s.choferId||'',
+        ts:s.ts||0
+      });
+      vistos['sol_'+s.id]=true;
+    });
+
+    // 3. Solicitudes externas (Firestore solicitudesTaller) asignadas
+    return firebase.firestore().collection('solicitudesTaller')
+      .where('empresa','==',S.empresa)
+      .get().then(function(snap){
+        snap.forEach(function(d){
+          var s=d.data();
+          var est=solEstNorm(s.estado||'nueva');
+          if(est==='nueva'||est==='rechazada')return;
+          var etapa='asignado';
+          if(est==='en_proceso')etapa='en_proceso';
+          if(est==='finalizada')etapa='finalizado';
+          if(!vistos['sol_'+d.id]){
+            trabajos.push({
+              _docId:'sol_'+d.id, _local:true,
+              origen:'solicitud', solicitudId:d.id,
+              vehiculoId:s.vehiculoId||'',
+              mecanicoId:s.mecanicoId||'',
+              descripcion:s.descripcion||'Revisión solicitada por motorista',
+              etapa:etapa,
+              fechaCreacion:s.ts?new Date(s.ts).toISOString().slice(0,10):'',
+              creadoPor:s.motoristaNombre||'Portal motorista',
+              motoristaNombre:s.motoristaNombre||'',
+              ts:s.ts||0
+            });
+          }
+        });
+
+        // 4. Programados vencidos o próximos (solo si el mecánico los activó via tallerTrabajos)
+        // Los no activados no aparecen aquí — se activan desde la página de Programados
+
+        // Obtener también los de tallerTrabajos (los recién creados)
+        return firebase.firestore().collection('tallerTrabajos')
+          .where('empresa','==',S.empresa)
+          .get();
+      }).then(function(snapTJ){
+        // Agregar los de tallerTrabajos que no estén ya en la lista
+        snapTJ.forEach(function(d){
+          var j=Object.assign({_docId:d.id},d.data());
+          // Evitar duplicar OTs que ya están por local
+          var yaEsta=false;
+          if(j.otId) yaEsta=trabajos.some(function(x){return x.otId===j.otId&&x._local;});
+          if(j.solicitudId) yaEsta=yaEsta||trabajos.some(function(x){return x.solicitudId===j.solicitudId&&x._local;});
+          if(!yaEsta) trabajos.push(j);
+        });
+
+        trabajos.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+        _renderTrabajosLista(trabajos);
+      });
+  }
+
+  _buildFromLocal().catch(function(e){
+    if(content)content.innerHTML='<div style="padding:40px;text-align:center;color:var(--red)">Error: '+e.message+'</div>';
+  });
 }
 
 function _renderTrabajosLista(trabajos){
@@ -18557,9 +18653,43 @@ function _renderTrabajosLista(trabajos){
 
 // ── Avanzar etapa ─────────────────────────────────────────────────
 function tjAvanzar(docId, nuevaEtapa){
-  var updates={etapa:nuevaEtapa,_ts:Date.now()};
-  if(nuevaEtapa==='en_proceso')updates.fechaInicio=new Date().toISOString().slice(0,10);
-  if(nuevaEtapa==='finalizado')updates.fechaFin=new Date().toISOString().slice(0,10);
+  var updates={etapa:nuevaEtapa, _ts:Date.now()};
+  if(nuevaEtapa==='en_proceso') updates.fechaInicio=new Date().toISOString().slice(0,10);
+  if(nuevaEtapa==='finalizado') updates.fechaFin=new Date().toISOString().slice(0,10);
+
+  // Item local (OT o solicitud del sistema)
+  if(docId.indexOf('ot_')===0){
+    var otId=docId.replace('ot_','');
+    var t=tallerData();
+    var o=t.ots.find(function(x){return x.id===otId;});
+    if(o){
+      var nuevoEst={asignado:'recibido',en_proceso:'reparacion',finalizado:'entregado'}[nuevaEtapa]||nuevaEtapa;
+      o.estado=nuevoEst;
+      if(nuevaEtapa==='finalizado') o.fechaSalida=updates.fechaFin;
+      markDirty('taller'); saveData();
+      toast('✓ Estado actualizado');
+      renderTallerTrabajos();
+    }
+    return;
+  }
+  if(docId.indexOf('sol_')===0){
+    var solId=docId.replace('sol_','');
+    var nuevoEst2={asignado:'asignada',en_proceso:'en_proceso',finalizado:'finalizada'}[nuevaEtapa]||nuevaEtapa;
+    // Intentar Firestore primero, luego local
+    firebase.firestore().collection('solicitudesTaller').doc(solId)
+      .update({estado:nuevoEst2}).then(function(){
+        toast('✓ Estado actualizado'); renderTallerTrabajos();
+      }).catch(function(){
+        // Fallback a local
+        var t2=tallerData();
+        var s=(t2.solicitudes||[]).find(function(x){return x.id===solId;});
+        if(s){s.estado=nuevoEst2; markDirty('taller'); saveData();}
+        toast('✓ Estado actualizado'); renderTallerTrabajos();
+      });
+    return;
+  }
+
+  // Item en tallerTrabajos (Firestore)
   firebase.firestore().collection('tallerTrabajos').doc(docId)
     .update(updates).then(function(){
       toast('✓ Estado actualizado');
@@ -18569,6 +18699,23 @@ function tjAvanzar(docId, nuevaEtapa){
 
 // ── Asignar mecánico ──────────────────────────────────────────────
 function tjAsignarMec(docId, mecId){
+  if(docId.indexOf('ot_')===0){
+    var t=tallerData();
+    var o=t.ots.find(function(x){return x.id===docId.replace('ot_','');});
+    if(o){o.mecanicoId=mecId; markDirty('taller'); saveData(); toast('✓ Mecánico asignado');}
+    return;
+  }
+  if(docId.indexOf('sol_')===0){
+    var solId=docId.replace('sol_','');
+    firebase.firestore().collection('solicitudesTaller').doc(solId)
+      .update({mecanicoId:mecId}).then(function(){toast('✓ Mecánico asignado');})
+      .catch(function(){
+        var t2=tallerData();
+        var s=(t2.solicitudes||[]).find(function(x){return x.id===solId;});
+        if(s){s.mecanicoId=mecId; markDirty('taller'); saveData(); toast('✓ Mecánico asignado');}
+      });
+    return;
+  }
   firebase.firestore().collection('tallerTrabajos').doc(docId)
     .update({mecanicoId:mecId,_ts:Date.now()}).then(function(){
       toast('✓ Mecánico asignado');
