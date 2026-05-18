@@ -19101,6 +19101,7 @@ function _renderReportesChoferes(reportes){
     var semGal=semDiasStr.reduce(function(s,f){
       var r=repMap[v.id+'|'+f];return s+(r&&r.galonesCargados?r.galonesCargados:0);
     },0);
+    var semKm=semDiasStr.reduce(function(s,f){var r=repMap[v.id+'|'+f];return s+(r&&r.kmRecorridos?r.kmRecorridos:0);},0);
     var diasRep=semDiasStr.filter(function(f){return !!repMap[v.id+'|'+f];}).length;
     var nombreMot='';
     // Tomar nombre del primer reporte de la semana
@@ -19115,7 +19116,8 @@ function _renderReportesChoferes(reportes){
       +'<td style="font-size:12px">'+esc(nombreMot)+'</td>'
       +'<td style="text-align:center"><span class="badge '+(diasRep>0?'b-ok':'b-neu')+'">'+diasRep+'/7</span></td>'
       +celdas
-      +'<td style="text-align:center;color:#facc15;font-size:12px;font-weight:700">'+(semGal>0?semGal.toFixed(1)+'gal':'—')+'</td>'
+      +'<td style="text-align:right;color:#4ea8de;font-size:12px;font-weight:700">'+(semKm>0?semKm.toLocaleString('en-US',{maximumFractionDigits:0})+' km':'—')+'</td>'
+      +'<td style="text-align:center;color:#facc15;font-size:12px;font-weight:700">'+(semGal>0?semGal.toFixed(1)+' gal':'—')+'</td>'
       +'</tr>';
   }).join('');
 
@@ -19178,13 +19180,19 @@ function _renderReportesChoferes(reportes){
     +'<th style="min-width:90px">Motorista</th>'
     +'<th style="min-width:50px;text-align:center">Días</th>'
     +thSemDias
-    +'<th style="text-align:center">Total⛽</th>'
+    +'<th style="text-align:right;color:#4ea8de">Total km</th>'
+    +'<th style="text-align:center;color:#facc15">Total⛽</th>'
     +'</tr></thead>'
     +'<tbody>'+semRows+'</tbody>'
     +'<tfoot><tr style="background:var(--surface2)">'
-    +'<td colspan="3" style="text-align:right;font-size:11px;color:var(--muted);padding:8px 12px">TOTAL GALONES DÍA:</td>'
+    +'<td colspan="3" style="text-align:right;font-size:11px;color:var(--muted);padding:8px 12px">TOTALES DÍA:</td>'
     +semTotales
-    +'<td></td></tr></tfoot>'
+    +'<td style="text-align:right;color:#4ea8de;font-weight:700;font-size:12px">'
+    +(function(){var tk=t.vehiculos.reduce(function(s,v){return s+semDiasStr.reduce(function(s2,f){var r=repMap[v.id+'|'+f];return s2+(r&&r.kmRecorridos?r.kmRecorridos:0);},0);},0);return tk>0?tk.toLocaleString('en-US',{maximumFractionDigits:0})+' km':'—';})()
+    +'</td>'
+    +'<td style="text-align:center;color:#facc15;font-weight:700;font-size:12px">'
+    +(function(){var tg=t.vehiculos.reduce(function(s,v){return s+semDiasStr.reduce(function(s2,f){var r=repMap[v.id+'|'+f];return s2+(r&&r.galonesCargados?r.galonesCargados:0);},0);},0);return tg>0?tg.toFixed(1)+' gal':'—';})()
+    +'</td></tr></tfoot>'
     +'</table></div>'
     +'<div style="display:flex;gap:16px;flex-wrap:wrap;padding:10px 14px;background:var(--surface2);font-size:11px;color:var(--muted)">'
     +'<span>Cada celda muestra <strong style="color:var(--accent)">Km odómetro</strong> + <strong style="color:#facc15">galones</strong></span>'
