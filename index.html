@@ -19101,12 +19101,20 @@ function _renderReportesChoferes(reportes){
     var semGal=semDiasStr.reduce(function(s,f){
       var r=repMap[v.id+'|'+f];return s+(r&&r.galonesCargados?r.galonesCargados:0);
     },0);
-    var semKm=semDiasStr.reduce(function(s,f){
-      var r=repMap[v.id+'|'+f];
-      // Usar kmRecorridos si existe, si no usar kmOdometro como referencia (portal solo envía odómetro)
-      var km=(r&&r.kmRecorridos)?r.kmRecorridos:(r&&r.kmOdometro&&r.kmOdometro>0?r.kmOdometro:0);
-      return s+km;
-    },0);
+    var semKm=(function(){
+      // Km recorridos = último odómetro de la semana - primer odómetro de la semana
+      var repsOrdenados=semDiasStr.map(function(f){return repMap[v.id+'|'+f];}).filter(Boolean);
+      if(!repsOrdenados.length) return 0;
+      // Si tiene kmRecorridos registrados, sumarlos directamente
+      var tieneRecorridos=repsOrdenados.some(function(r){return r.kmRecorridos>0;});
+      if(tieneRecorridos){
+        return repsOrdenados.reduce(function(s,r){return s+(r.kmRecorridos||0);},0);
+      }
+      // Si solo tiene odómetro, calcular diferencia
+      var primero=repsOrdenados[0].kmOdometro||0;
+      var ultimo=repsOrdenados[repsOrdenados.length-1].kmOdometro||0;
+      return ultimo>primero ? ultimo-primero : 0;
+    })();
     var diasRep=semDiasStr.filter(function(f){return !!repMap[v.id+'|'+f];}).length;
     var nombreMot='';
     // Tomar nombre del primer reporte de la semana
@@ -19193,7 +19201,17 @@ function _renderReportesChoferes(reportes){
     +'<td colspan="3" style="text-align:right;font-size:11px;color:var(--muted);padding:8px 12px">TOTALES DÍA:</td>'
     +semTotales
     +'<td style="text-align:right;color:#4ea8de;font-weight:700;font-size:12px">'
-    +(function(){var tk=t.vehiculos.reduce(function(s,v){return s+semDiasStr.reduce(function(s2,f){var r=repMap[v.id+'|'+f];return s2+(r&&r.kmRecorridos?r.kmRecorridos:0);},0);},0);return tk>0?tk.toLocaleString('en-US',{maximumFractionDigits:0})+' km':'—';})()
+    +(function(){
+      var totalKmSem=t.vehiculos.reduce(function(s,v){
+        var reps=semDiasStr.map(function(f){return repMap[v.id+'|'+f];}).filter(Boolean);
+        if(!reps.length)return s;
+        var tieneRec=reps.some(function(r){return r.kmRecorridos>0;});
+        if(tieneRec)return s+reps.reduce(function(s2,r){return s2+(r.kmRecorridos||0);},0);
+        var p=reps[0].kmOdometro||0,u=reps[reps.length-1].kmOdometro||0;
+        return s+(u>p?u-p:0);
+      },0);
+      return totalKmSem>0?totalKmSem.toLocaleString('en-US',{maximumFractionDigits:0})+' km':'—';
+    })()
     +'</td>'
     +'<td style="text-align:center;color:#facc15;font-weight:700;font-size:12px">'
     +(function(){var tg=t.vehiculos.reduce(function(s,v){return s+semDiasStr.reduce(function(s2,f){var r=repMap[v.id+'|'+f];return s2+(r&&r.galonesCargados?r.galonesCargados:0);},0);},0);return tg>0?tg.toFixed(1)+' gal':'—';})()
