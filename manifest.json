@@ -1,17 +1,20 @@
 {
-  "name": "Proyectos Pro",
-  "short_name": "ProyectosPro",
-  "start_url": ".",
-  "scope": ".",
+  "name": "Dashboard FI — FISDC",
+  "short_name": "Dashboard FI",
+  "description": "Sistema de gestión empresarial FISDC",
+  "start_url": "/dashboard-fi/",
+  "scope": "/dashboard-fi/",
   "display": "standalone",
-  "background_color": "#0e0d0b",
-  "theme_color": "#e8a020",
-  "description": "Dashboard de control de proyectos",
+  "orientation": "any",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
   "icons": [
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
-      "sizes": "512x512",
+      "src": "https://raw.githubusercontent.com/google/material-design-icons/master/png/action/dashboard/materialicons/48dp/2x/baseline_dashboard_black_48dp.png",
+      "sizes": "96x96",
       "type": "image/png"
     }
-  ]
+  ],
+  "categories": ["business", "productivity"],
+  "lang": "es"
 }
