@@ -1940,42 +1940,53 @@ function serializeForFirestore(){
     taller:S.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[],solicitudes:[],reportesDiarios:[],revisiones:[]}
   };
 }
-function applyData(d,fromRemote=false){
-  S.proyectos=d.proyectos||[];
-  if(d._gastosChunked&&fromRemote&&d.gastos&&d.gastos.length===0){
-    console.log('[PP] Snapshot con gastos chunkeados — preservando S.gastos en memoria');
-  } else {
-    S.gastos=d.gastos||[];
+function applyData(d,fromRemote=false,skipSections=[]){
+  var skip=skipSections||[];
+  if(skip.indexOf('proyectos')<0) S.proyectos=d.proyectos||[];
+  if(skip.indexOf('gastos')<0){
+    if(d._gastosChunked&&fromRemote&&d.gastos&&d.gastos.length===0){
+      console.log('[PP] Snapshot chunkeado — preservando S.gastos');
+    } else { S.gastos=d.gastos||[]; }
   }
-  S.proveedores=d.proveedores||[];S.centros=d.centros||[];
-  S.marcas=d.marcas||['Papa Johns','Jimmy Johns'];S.usuarios=d.usuarios||[];
-  // Fusionar config preservando catálogos: los valores remotos tienen prioridad
+  if(skip.indexOf('proveedores')<0) S.proveedores=d.proveedores||[];
+  if(skip.indexOf('centros')<0)     S.centros=d.centros||[];
+  if(skip.indexOf('marcas')<0)      S.marcas=d.marcas||['Papa Johns','Jimmy Johns'];
+  if(skip.indexOf('usuarios')<0)    S.usuarios=d.usuarios||[];
   var remCfg=d.config||{};
   S.config=Object.assign({},S.config,remCfg);
   _ensureCatalogDefaults();
-  S.inventario=d.inventario||{bodegas:[],productos:[],movimientos:[]};
-  S.cajachica=d.cajachica||{reintegros:[]};
-  S.mantenimiento=d.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[],movimientosEquipos:[],registros:[],solicitudesMant:[]};
-  if(!S.mantenimiento.movimientosEquipos)S.mantenimiento.movimientosEquipos=[];
-  if(!S.mantenimiento.registros)S.mantenimiento.registros=[];
-  if(!S.mantenimiento.solicitudesMant)S.mantenimiento.solicitudesMant=[];
-  S.energy=d.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12};
-  S.gerentesZona=d.gerentesZona||[];
-  if(fromRemote&&d.asistencia&&d.asistencia.registros&&d.asistencia.registros.length===0
-      &&S.asistencia&&S.asistencia.registros&&S.asistencia.registros.length>0){
-    console.log('[PP] Snapshot remoto con asistencia vacía — preservando registros en memoria ('+S.asistencia.registros.length+')');
-  } else {
-    S.asistencia=d.asistencia||{registros:[]};
+  if(skip.indexOf('inventario')<0)
+    S.inventario=d.inventario||{bodegas:[],productos:[],movimientos:[]};
+  if(skip.indexOf('cajachica')<0)
+    S.cajachica=d.cajachica||{reintegros:[]};
+  if(skip.indexOf('mantenimiento')<0){
+    S.mantenimiento=d.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[],movimientosEquipos:[],registros:[],solicitudesMant:[]};
+    if(!S.mantenimiento.movimientosEquipos)S.mantenimiento.movimientosEquipos=[];
+    if(!S.mantenimiento.registros)S.mantenimiento.registros=[];
+    if(!S.mantenimiento.solicitudesMant)S.mantenimiento.solicitudesMant=[];
   }
-  if(fromRemote&&d.auditorias&&d.auditorias.registros&&d.auditorias.registros.length===0
-      &&S.auditorias&&S.auditorias.registros&&S.auditorias.registros.length>0){
-  } else {
-    S.auditorias=d.auditorias||{registros:[]};
+  if(skip.indexOf('energy')<0)
+    S.energy=d.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12};
+  if(skip.indexOf('gerentesZona')<0)
+    S.gerentesZona=d.gerentesZona||[];
+  if(skip.indexOf('asistencia')<0){
+    if(fromRemote&&d.asistencia&&d.asistencia.registros&&d.asistencia.registros.length===0
+        &&S.asistencia&&S.asistencia.registros&&S.asistencia.registros.length>0){
+      console.log('[PP] asistencia remota vacía — preservando local');
+    } else { S.asistencia=d.asistencia||{registros:[]}; }
   }
-  S.taller=d.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[],solicitudes:[],reportesDiarios:[],revisiones:[]};
-  if(!S.taller.solicitudes)S.taller.solicitudes=[];
-  if(!S.taller.reportesDiarios)S.taller.reportesDiarios=[];
-  if(!S.taller.revisiones)S.taller.revisiones=[];
+  if(skip.indexOf('auditorias')<0){
+    if(!(fromRemote&&d.auditorias&&d.auditorias.registros&&d.auditorias.registros.length===0
+        &&S.auditorias&&S.auditorias.registros&&S.auditorias.registros.length>0)){
+      S.auditorias=d.auditorias||{registros:[]};
+    }
+  }
+  if(skip.indexOf('taller')<0){
+    S.taller=d.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[],solicitudes:[],reportesDiarios:[],revisiones:[]};
+    if(!S.taller.solicitudes)S.taller.solicitudes=[];
+    if(!S.taller.reportesDiarios)S.taller.reportesDiarios=[];
+    if(!S.taller.revisiones)S.taller.revisiones=[];
+  }
   migrateData();applyBranding();
 }
 // ════════════════════════════════════════════════════════════
@@ -2340,63 +2351,32 @@ function startListening(){
     if(S._saving)return;
     if(!remoteData||Object.keys(remoteData).length<=3)return;
 
-    // No sobreescribir secciones con cambios locales pendientes (multi-usuario)
-    var localDirty=Object.keys(S._dirtySections||{});
-
-    // Tampoco sobreescribir si el usuario tiene el foco en un input activo
-    // (está en medio de escribir aunque aún no haya llamado markDirty)
+    // Secciones a proteger: dirty + módulo activo si el usuario está escribiendo
+    var skip=Object.keys(S._dirtySections||{});
     var activeEl=document.activeElement;
-    var isEditing=activeEl&&(activeEl.tagName==='INPUT'||activeEl.tagName==='TEXTAREA'||activeEl.tagName==='SELECT');
-
-    if(localDirty.length>0||isEditing){
-      // Guardar valores locales de secciones activas
-      var savedSections={};
-      var sectionsToProtect=localDirty.slice();
-
-      // Si está editando, inferir qué sección está tocando por el módulo activo
-      if(isEditing&&sectionsToProtect.length===0){
-        var mod=S._activeModule||'';
-        if(mod==='inventario')sectionsToProtect.push('inventario');
-        else if(mod==='gastos')sectionsToProtect.push('gastos');
-        else if(mod==='asistencia')sectionsToProtect.push('asistencia');
-        else if(mod==='taller')sectionsToProtect.push('taller');
-        else if(mod==='centros'||mod==='proveedores'||mod==='proyectos')sectionsToProtect.push(mod);
-      }
-
-      sectionsToProtect.forEach(function(sec){
-        var val=sec==='inventario'?S.inventario:sec==='taller'?S.taller:S[sec];
-        if(val!==undefined){try{savedSections[sec]=JSON.parse(JSON.stringify(val));}catch(e){}}
-      });
-
-      // Aplicar datos remotos (actualiza secciones que otros cambiaron)
-      applyData(remoteData,true);
-
-      // Restaurar secciones que el usuario local está editando
-      sectionsToProtect.forEach(function(sec){
-        if(savedSections[sec]!==undefined){
-          if(sec==='inventario')S.inventario=savedSections[sec];
-          else if(sec==='taller')S.taller=savedSections[sec];
-          else S[sec]=savedSections[sec];
-        }
-      });
-
-      // Solo re-renderizar si NO está editando activamente
-      if(!isEditing&&S.currentUser){render();setSyncUI('ok','Actualizado');}
-      else{setSyncUI('ok','Actualizado');}
-
-    } else if(remoteData._gastosChunked){
-      clearTimeout(_listenReloadTimer);
-      _listenReloadTimer=setTimeout(async ()=>{
-        try{const full=await window.FB.load(S.empresa);if(full&&!S._saving){applyData(full,false);if(S.currentUser)render();setSyncUI('ok','Actualizado');}}catch(e){}
-      },800);
-      applyData(remoteData,true);
-      if(S.currentUser)render();
-      setSyncUI('ok','Actualizado');
-    } else {
-      applyData(remoteData,true);
-      if(S.currentUser)render();
-      setSyncUI('ok','Actualizado');
+    var isTyping=activeEl&&(activeEl.tagName==='INPUT'||activeEl.tagName==='TEXTAREA'||activeEl.tagName==='SELECT');
+    if(isTyping){
+      var mod=S._activeModule||'';
+      var secMap={inventario:'inventario',gastos:'gastos',asistencia:'asistencia',
+                  taller:'taller',centros:'centros',proveedores:'proveedores',proyectos:'proyectos'};
+      var modSec=secMap[mod];
+      if(modSec&&skip.indexOf(modSec)<0) skip.push(modSec);
     }
+
+    if(remoteData._gastosChunked){
+      clearTimeout(_listenReloadTimer);
+      _listenReloadTimer=setTimeout(async()=>{
+        try{
+          const full=await window.FB.load(S.empresa);
+          if(full&&!S._saving){applyData(full,false,skip);if(S.currentUser&&!isTyping)render();setSyncUI('ok','Actualizado');}
+        }catch(e){}
+      },800);
+      applyData(remoteData,true,skip);
+    } else {
+      applyData(remoteData,true,skip);
+    }
+    if(!isTyping&&S.currentUser) render();
+    setSyncUI('ok','Actualizado');
   });
 }
 
