@@ -18413,31 +18413,25 @@ function solBorrarTodas(){
 // ═══════════════════════════════════════════════════════════════════
 function _comprimirRevision(file,callback){
   if(!file){callback(null);return;}
-  // Usar createObjectURL en vez de FileReader/base64 — usa ~4x menos RAM en Android
   var url=null;
-  try{ url=URL.createObjectURL(file); }catch(e){callback(null);return;}
+  try{url=URL.createObjectURL(file);}catch(e){callback(null);return;}
   var img=new Image();
   img.onload=function(){
     try{
-      // Limitar a 600px de ancho máximo
-      var maxW=600;
+      // 480px máximo — balance entre calidad y RAM en Android bajo
+      var maxW=480;
       var w=img.naturalWidth||img.width;
       var h=img.naturalHeight||img.height;
       if(w>maxW){h=Math.round(h*(maxW/w));w=maxW;}
       var canvas=document.createElement('canvas');
-      canvas.width=w; canvas.height=h;
-      var ctx=canvas.getContext('2d');
-      ctx.drawImage(img,0,0,w,h);
-      var b64=canvas.toDataURL('image/jpeg',0.6);
-      // Liberar memoria inmediatamente
+      canvas.width=w;canvas.height=h;
+      canvas.getContext('2d').drawImage(img,0,0,w,h);
+      var b64=canvas.toDataURL('image/jpeg',0.55);
       URL.revokeObjectURL(url);
-      canvas.width=1; canvas.height=1; // liberar canvas
+      canvas.width=1;canvas.height=1; // liberar canvas
       img.src='';
       callback(b64);
-    }catch(ex){
-      URL.revokeObjectURL(url);
-      callback(null);
-    }
+    }catch(ex){URL.revokeObjectURL(url);callback(null);}
   };
   img.onerror=function(){URL.revokeObjectURL(url);callback(null);};
   img.src=url;
@@ -18928,22 +18922,47 @@ function revAgregarFotos(input){
   if(!input.files||input.files.length===0)return;
   var preview=document.getElementById('revFotosPreview');
   if(!preview)return;
-  Array.from(input.files).forEach(function(file){
+  S._revFotos=S._revFotos||[];
+  // Procesar en serie para no saturar RAM
+  var files=Array.from(input.files);
+  var i=0;
+  function _next(){
+    if(i>=files.length)return;
+    var file=files[i++];
+    var spinDiv=document.createElement('div');
+    spinDiv.style.cssText='width:80px;height:80px;background:var(--surface2);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0';
+    spinDiv.textContent='⏳';
+    preview.appendChild(spinDiv);
     _comprimirRevision(file,function(dataUrl){
-      if(!dataUrl)return;
-      S._revFotos=S._revFotos||[];
+      preview.removeChild(spinDiv);
+      if(!dataUrl){_next();return;}
       var idx=S._revFotos.length;
       S._revFotos.push(dataUrl);
+      // ObjectURL para preview — no duplica base64 en DOM
+      var arr=dataUrl.split(','),mime=arr[0].match(/:(.*?);/)[1],bstr=atob(arr[1]),n=bstr.length,u8=new Uint8Array(n);
+      while(n--)u8[n]=bstr.charCodeAt(n);
+      var blobUrl=URL.createObjectURL(new Blob([u8],{type:mime}));
       var div=document.createElement('div');
-      div.style.cssText='position:relative;width:80px;height:80px';
-      div.innerHTML='<img src="'+dataUrl+'" style="width:100%;height:100%;object-fit:cover;border-radius:6px;border:2px solid var(--border)">'
-        +'<button class="btn btn-danger btn-xs" onclick="revQuitarFoto('+idx+',this)" style="position:absolute;top:-6px;right:-6px;width:22px;height:22px;padding:0;border-radius:50%;font-size:10px">✕</button>';
-      div.setAttribute('data-idx',idx);
+      div.style.cssText='position:relative;width:80px;height:80px;flex-shrink:0';
+      var img=document.createElement('img');
+      img.style.cssText='width:100%;height:100%;object-fit:cover;border-radius:6px;border:2px solid var(--border)';
+      img.onload=function(){URL.revokeObjectURL(blobUrl);};
+      img.src=blobUrl;
+      var xBtn=document.createElement('button');
+      xBtn.className='btn btn-danger btn-xs';
+      xBtn.setAttribute('data-idx',String(idx));
+      xBtn.style.cssText='position:absolute;top:-6px;right:-6px;width:22px;height:22px;padding:0;border-radius:50%;font-size:10px';
+      xBtn.textContent='✕';
+      xBtn.addEventListener('click',function(){revQuitarFoto(parseInt(this.getAttribute('data-idx')),this);});
+      div.appendChild(img);div.appendChild(xBtn);
       preview.appendChild(div);
+      setTimeout(_next,100); // delay para que el GC libere memoria
     });
-  });
-  input.value=''; // limpiar para permitir volver a seleccionar las mismas
+  }
+  _next();
+  input.value='';
 }
+
 
 function revQuitarFoto(idx,btn){
   S._revFotos=S._revFotos||[];
