@@ -2694,7 +2694,7 @@ function recuperarDesdeLogs(){
       var logsDelDia=logs.filter(function(l){
         return (l.fecha||'').startsWith(fechaRec)||(l.ts&&new Date(l.ts).toISOString().startsWith(fechaRec));
       }).sort(function(a,b){return (a.ts||0)-(b.ts||0);});
-      if(!logsDelDia.length){alert('No se encontraron logs para '+fechaRec);return;}
+      if(!logsDelDia.length){toast('No se encontraron logs para '+fechaRec, true);return;}
 
       // Parsear logs de inventario CREAR → reconstruir productos
       var logsInv=logsDelDia.filter(function(l){return l.accion==='CREAR'&&l.modulo==='inventario';});
@@ -2822,7 +2822,8 @@ function exportarLogsDia(fecha){
       });
       var blob=new Blob([txt],{type:'text/plain;charset=utf-8'});
       var a=document.createElement('a');
-      a.href=URL.createObjectURL(blob);
+      var _dlUrl1=URL.createObjectURL(blob);
+      a.href=_dlUrl1;
       a.download='logs_'+fecha+'.txt';
       a.click();
       toast('✅ Archivo descargado');
@@ -2833,7 +2834,7 @@ function recuperarDesdeLocalStorage(){
   if(!S.empresa){toast('Sin empresa activa',true);return;}
   try{
     var raw=localStorage.getItem('pp3_'+S.empresa);
-    if(!raw){alert('No hay datos en localStorage para esta empresa.');return;}
+    if(!raw){toast('No hay datos en localStorage para esta empresa.', true);return;}
     var local=JSON.parse(raw);
     var tsLocal=local._ts?new Date(local._ts).toLocaleString('es-SV',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit',year:'numeric'}):'desconocida';
     var gasLocal=(local.gastos||[]).length;
@@ -2857,7 +2858,7 @@ function recuperarDesdeLocalStorage(){
       render();
       toast('✅ Datos restaurados. Guardando a Firestore...');
     }
-  }catch(e){alert('Error al leer localStorage: '+e.message);}
+  }catch(e){toast('Error al leer localStorage: '+e.message, true);}
 }
 
 function _syncPortalPublico(){
@@ -4884,13 +4885,14 @@ function abrirArchivoConCallback(inputEl, callback){
 function leerArchivoBase64(file, onDone, maxMB=8){
   // Para imágenes: comprimir con Canvas antes de guardar
   if(file.type.startsWith('image/')){
-    const reader=new FileReader();
-    reader.onload=e=>{
-      const img=new Image();
-      img.onload=()=>{
-        // Redimensionar a máx 1200px manteniendo proporción
+    // Usar createObjectURL en vez de FileReader — usa ~4x menos RAM en Android
+    var _imgUrl=null;
+    try{_imgUrl=URL.createObjectURL(file);}catch(e){toast('Error cargando imagen',true);return;}
+    const img=new Image();
+    img.onload=()=>{
+      try{
         const MAX=1200;
-        let w=img.width,h=img.height;
+        let w=img.naturalWidth||img.width,h=img.naturalHeight||img.height;
         if(w>MAX||h>MAX){
           if(w>h){h=Math.round(h*(MAX/w));w=MAX;}
           else{w=Math.round(w*(MAX/h));h=MAX;}
@@ -4899,20 +4901,27 @@ function leerArchivoBase64(file, onDone, maxMB=8){
         canvas.width=w;canvas.height=h;
         const ctx=canvas.getContext('2d');
         ctx.drawImage(img,0,0,w,h);
-        // Comprimir a JPEG calidad 0.72 (reduce ~80% del tamaño)
         const b64=canvas.toDataURL('image/jpeg',0.72);
         const kb=Math.round(b64.length*0.75/1024);
-        console.info('[IMG] Comprimida:',img.width+'x'+img.height,'→',w+'x'+h,'~'+kb+'KB');
+        console.info('[IMG] Comprimida:',img.naturalWidth+'x'+img.naturalHeight,'→',w+'x'+h,'~'+kb+'KB');
+        // Liberar memoria
+        URL.revokeObjectURL(_imgUrl);
+        canvas.width=1;canvas.height=1;
+        img.src='';
         onDone(b64,file);
-      };
-      img.onerror=()=>{
-        // Si falla la compresión, intentar con el archivo original
+      }catch(ex){
+        URL.revokeObjectURL(_imgUrl);
         if(file.size>2*1024*1024){toast('Imagen muy grande — máx 2MB',true);return;}
-        onDone(e.target.result,file);
-      };
-      img.src=e.target.result;
+        // Fallback a FileReader solo si falla el canvas
+        const r=new FileReader();r.onload=e=>onDone(e.target.result,file);r.readAsDataURL(file);
+      }
     };
-    reader.readAsDataURL(file);
+    img.onerror=()=>{
+      URL.revokeObjectURL(_imgUrl);
+      if(file.size>2*1024*1024){toast('Imagen muy grande — máx 2MB',true);return;}
+      const r=new FileReader();r.onload=e=>onDone(e.target.result,file);r.readAsDataURL(file);
+    };
+    img.src=_imgUrl;
     return;
   }
   // Para PDFs y otros: sin compresión, solo verificar tamaño
@@ -6601,7 +6610,7 @@ function exportarReporteCSV(){
     csv+=`"${g.factura}","${g.descripcion||''}","${g.proveedor}",${g.valor},"${g.fecha}","${pname}"\n`;
   });
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`reporte_${tipo}_${new Date().toISOString().slice(0,10)}.csv`;a.click();
+  const a=document.createElement('a');var _dlUrl2=URL.createObjectURL(blob);a.href=_dlUrl2;a.download=`reporte_${tipo}_${new Date().toISOString().slice(0,10)}.csv`;a.click();
   toast('✓ CSV exportado');
 }
 
@@ -10981,36 +10990,37 @@ function portalPreviewFotos() {
   var files = Array.prototype.slice.call(input.files||[]).slice(0,2);
   preview.innerHTML = '';
   files.forEach(function(file) {
-    var reader = new FileReader();
-    reader.onload = function(e) {
-      var img = document.createElement('img');
-      img.src = e.target.result;
-      img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid #333';
-      preview.appendChild(img);
-    };
-    reader.readAsDataURL(file);
+    var url = URL.createObjectURL(file);
+    var img = document.createElement('img');
+    img.src = url;
+    img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid #333';
+    img.onload = function(){ URL.revokeObjectURL(url); };
+    preview.appendChild(img);
   });
 }
 
 function _comprimirPortalFoto(file, callback) {
   if (!file) { callback(null); return; }
-  var reader = new FileReader();
-  reader.onload = function(e) {
-    var img = new Image();
-    img.onload = function() {
+  var url = null;
+  try { url = URL.createObjectURL(file); } catch(e) { callback(null); return; }
+  var img = new Image();
+  img.onload = function() {
+    try {
       var maxW = 600;
-      var w = img.width, h = img.height;
+      var w = img.naturalWidth||img.width, h = img.naturalHeight||img.height;
       if (w > maxW) { h = Math.round(h*(maxW/w)); w = maxW; }
       var canvas = document.createElement('canvas');
       canvas.width = w; canvas.height = h;
       canvas.getContext('2d').drawImage(img,0,0,w,h);
-      callback(canvas.toDataURL('image/jpeg', 0.5));
-    };
-    img.onerror = function(){ callback(null); };
-    img.src = e.target.result;
+      var b64 = canvas.toDataURL('image/jpeg', 0.5);
+      URL.revokeObjectURL(url);
+      canvas.width=1; canvas.height=1;
+      img.src='';
+      callback(b64);
+    } catch(ex) { URL.revokeObjectURL(url); callback(null); }
   };
-  reader.onerror = function(){ callback(null); };
-  reader.readAsDataURL(file);
+  img.onerror = function(){ URL.revokeObjectURL(url); callback(null); };
+  img.src = url;
 }
 
 // ── Enviar solicitud ──────────────────────────────────────
@@ -11534,7 +11544,7 @@ function renderTecnicoSeleccion() {
 function portalTecVerMisOTs() {
   var sel = document.getElementById('tecSelNombre');
   var tecId = sel ? sel.value : '';
-  if(!tecId){ alert('Selecciona tu nombre primero'); return; }
+  if(!tecId){ toast('Selecciona tu nombre primero', true); return; }
   _tecSelId = tecId;
   // Store data globally so named functions can access it
   window._tecPortalState = {
@@ -11814,8 +11824,8 @@ function _motGetSeleccion(){
   } else if(nomTxt){
     nombre = (nomTxt.value||'').trim();
   }
-  if(!vehId){ alert('Selecciona tu vehículo'); return null; }
-  if(!nombre){ alert('Selecciona o ingresa tu nombre'); return null; }
+  if(!vehId){ toast('Selecciona tu vehículo', true); return null; }
+  if(!nombre){ toast('Selecciona o ingresa tu nombre', true); return null; }
   _motVehId  = vehId;
   _motNombre = nombre;
   _motId     = motId;
@@ -18423,24 +18433,34 @@ function solBorrarTodas(){
 // ═══════════════════════════════════════════════════════════════════
 function _comprimirRevision(file,callback){
   if(!file){callback(null);return;}
-  var reader=new FileReader();
-  reader.onload=function(e){
-    var img=new Image();
-    img.onload=function(){
+  // Usar createObjectURL en vez de FileReader/base64 — usa ~4x menos RAM en Android
+  var url=null;
+  try{ url=URL.createObjectURL(file); }catch(e){callback(null);return;}
+  var img=new Image();
+  img.onload=function(){
+    try{
+      // Limitar a 600px de ancho máximo
       var maxW=600;
-      var w=img.width,h=img.height;
-      if(w>maxW){h=h*(maxW/w);w=maxW;}
+      var w=img.naturalWidth||img.width;
+      var h=img.naturalHeight||img.height;
+      if(w>maxW){h=Math.round(h*(maxW/w));w=maxW;}
       var canvas=document.createElement('canvas');
-      canvas.width=w;canvas.height=h;
+      canvas.width=w; canvas.height=h;
       var ctx=canvas.getContext('2d');
       ctx.drawImage(img,0,0,w,h);
-      callback(canvas.toDataURL('image/jpeg',0.6));
-    };
-    img.onerror=function(){callback(null);};
-    img.src=e.target.result;
+      var b64=canvas.toDataURL('image/jpeg',0.6);
+      // Liberar memoria inmediatamente
+      URL.revokeObjectURL(url);
+      canvas.width=1; canvas.height=1; // liberar canvas
+      img.src='';
+      callback(b64);
+    }catch(ex){
+      URL.revokeObjectURL(url);
+      callback(null);
+    }
   };
-  reader.onerror=function(){callback(null);};
-  reader.readAsDataURL(file);
+  img.onerror=function(){URL.revokeObjectURL(url);callback(null);};
+  img.src=url;
 }
 
 // Días desde la última revisión de un vehículo
