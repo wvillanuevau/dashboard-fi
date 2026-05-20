@@ -948,7 +948,7 @@ function paShow(screenId) {
   try {
     if (screenId === 'scDash')      paUpdateDash();
     if (screenId === 'scHistorial') paLoadHistorial();
-    if (screenId === 'scAdmin')     paAdminTab(PA.adminTab);
+    if (screenId === 'scAdmin')     { console.log('[Admin] paShow scAdmin — PA.adminTab:', PA.adminTab); paAdminTab(PA.adminTab); }
     if (screenId === 'scMarcar')    paInitCamera();
     if (screenId === 'scCanje')     paInitCanje();
     if (screenId === 'scVacaciones') paInitVacaciones();
@@ -1217,9 +1217,15 @@ function paVerifyAdminPwd() {
     PA.isAdmin = true;
     var empBadge = document.getElementById('adminEmpBadge');
     if (empBadge) empBadge.textContent = PA.empresa;
+    console.log('[Admin] Login OK — PA.empleados.length:', PA.empleados.length);
     if (!PA.empleados.length) {
-      paLoadEmpleados(function() { paShow('scAdmin'); });
+      console.log('[Admin] Cargando empleados...');
+      paLoadEmpleados(function() {
+        console.log('[Admin] Empleados cargados — llamando paShow scAdmin');
+        paShow('scAdmin');
+      });
     } else {
+      console.log('[Admin] Empleados ya cargados — llamando paShow scAdmin');
       paShow('scAdmin');
     }
   } else {
@@ -2777,6 +2783,7 @@ function paLoadHistorial() {
 // ══════════════════════════════════════════════════════
 function paAdminTab(tab) {
   PA.adminTab = tab || 'hoy';
+  console.log('[Admin] paAdminTab:', tab);
   var tabs = ['hoy', 'hist', 'emps', 'extra', 'reporte', 'config'];
   tabs.forEach(function(t) {
     var el = document.getElementById('atab_' + t);
@@ -2785,6 +2792,7 @@ function paAdminTab(tab) {
 
   var content = document.getElementById('adminContent');
   if (!content) {
+  console.log('[Admin] adminContent:', !!document.getElementById('adminContent'));
     console.error('[Admin] adminContent div not found');
     return;
   }
@@ -2810,6 +2818,7 @@ function paAdminTab(tab) {
 
 function paAdminHoy(content) {
   var hoy = paHoy();
+  console.log('[Admin] paAdminHoy — fecha:', hoy, '| empresa:', PA.empresa);
   paDb.collection('paMarcaciones')
     .where('empresa', '==', PA.empresa)
     .where('fecha', '==', hoy)
