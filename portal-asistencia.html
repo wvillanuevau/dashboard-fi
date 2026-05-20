@@ -692,9 +692,8 @@ button:active{opacity:.8;transform:scale(.95)}
         <div class="stat-lbl">HE diurnas disponibles</div>
       </div>
       <div class="stat-card">
+        <div class="stat-val" id="canjeDiasEquiv" style="color:var(--accent2)">0</div>
         <div class="stat-lbl">Días equivalentes (×2)</div>
-        <div class="stat-lbl">Días equivalentes</div>
-      </div>
     </div>
     <div id="canjePendBox" style="display:none;background:rgba(56,139,253,.08);border:1px solid rgba(56,139,253,.2);border-radius:10px;padding:12px;font-size:13px;color:var(--accent2);margin-bottom:8px"></div>
     <div class="info-box">Solicita canjear tus horas extra acumuladas por un día libre. Cada 8 horas = 1 día libre. El administrador también puede asignarte días compensatorios directamente.<br><br>⚠ La solicitud debe ser aprobada por el administrador antes de hacerse efectiva.</div>
@@ -847,6 +846,7 @@ button:active{opacity:.8;transform:scale(.95)}
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"></script>
 <script>
 // ══════════════════════════════════════════════════════
 // FIREBASE INIT — con manejo de error y app duplicada
@@ -1154,7 +1154,7 @@ function paGoAdmin() {
 function paVerifyAdminPwd() {
   var inp = document.getElementById('adminPwdInput');
   var err = document.getElementById('adminPwdError');
-  if (!inp) { alert('Error: campo no encontrado'); return; }
+  if (!inp) { paToast('Error: campo no encontrado', true); return; }
   var entered = inp.value || '';
   if (err) err.textContent = '';
 
@@ -2176,7 +2176,6 @@ function paConfirmarMarca() {
   var errEl = document.getElementById('marcarError');
   if (errEl) errEl.style.display = 'none';
   
-  var btn = document.getElementById('btnConfirmarMarca');
   var btn = document.getElementById('btnConfirmarMarca');
   if (btn) { btn.disabled = true; btn.textContent = 'Subiendo foto...'; }
 
@@ -3608,7 +3607,7 @@ function _hhmm(mins) {
 }
 
 function paExportarExcel() {
-  if (!window.XLSX) { alert('Librería Excel no cargada. Refresca la página.'); return; }
+  if (!window.XLSX) { paToast('Librería Excel no cargada. Refresca la página.', true); return; }
   var data = PA._rptData;
   if (!data) return;
 
@@ -3894,6 +3893,39 @@ window.addEventListener('DOMContentLoaded', function() {
       PA._swReg = reg;
     }).catch(function(e) {
       console.warn('[Portal] SW no registrado:', e.message);
+    });
+  }
+
+  // ── Registrar token FCM para push con navegador cerrado ──────────
+  if (paDb && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.ready.then(function(reg) {
+      try {
+        var messaging = firebase.messaging(_paApp);
+        // VAPID key pública para Web Push
+        messaging.getToken({
+          vapidKey: 'BCIbsKUQr1w9l_AdRE45cI7BGrimc_m25_YSBwAxk6vgNaGURHSdBZ6pYGavFD8I6IlNaFklw3pMZ7CQhSqYtHA',
+          serviceWorkerRegistration: reg
+        }).then(function(token) {
+          if (!token) return;
+          console.log('[FCM] Token obtenido:', token.slice(0,20)+'...');
+          // Guardar token en Firestore con empresa y dispositivo
+          paDb.collection('fcmTokens').doc(token.slice(-20)).set({
+            token: token,
+            empresa: PA.empresa,
+            empleadoId: PA.empleado ? PA.empleado.id : 'anonimo',
+            empleadoNombre: PA.empleado ? PA.empleado.nombre : '',
+            portal: 'asistencia',
+            ua: navigator.userAgent.slice(0,80),
+            ts: Date.now()
+          }, { merge: true }).then(function() {
+            console.log('[FCM] Token guardado en Firestore');
+          });
+        }).catch(function(e) {
+          console.warn('[FCM] getToken error:', e.message);
+        });
+      } catch(e) {
+        console.warn('[FCM] Messaging no disponible:', e.message);
+      }
     });
   }
 

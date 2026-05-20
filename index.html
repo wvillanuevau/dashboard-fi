@@ -1976,10 +1976,15 @@ function applyData(d,fromRemote=false,skipSections=[]){
   if(skip.indexOf('gerentesZona')<0)
     S.gerentesZona=d.gerentesZona||[];
   if(skip.indexOf('asistencia')<0){
-    if(fromRemote&&d.asistencia&&d.asistencia.registros&&d.asistencia.registros.length===0
-        &&S.asistencia&&S.asistencia.registros&&S.asistencia.registros.length>0){
-      console.log('[PP] asistencia remota vacía — preservando local');
-    } else { S.asistencia=d.asistencia||{registros:[]}; }
+    var remAsis=d.asistencia||{registros:[]};
+    var remRegs=(remAsis.registros||[]).length;
+    var locRegs=(S.asistencia&&S.asistencia.registros||[]).length;
+    if(fromRemote && locRegs > remRegs){
+      // Remoto tiene menos registros — proteger datos locales
+      console.log('[PP] asistencia: local='+locRegs+' > remoto='+remRegs+' — preservando local');
+    } else {
+      S.asistencia=remAsis;
+    }
   }
   if(skip.indexOf('auditorias')<0){
     if(!(fromRemote&&d.auditorias&&d.auditorias.registros&&d.auditorias.registros.length===0
@@ -2489,6 +2494,19 @@ async function _doSaveFirebase(){
     var hasGastosDirty=dirtySections.indexOf('gastos')>=0;
     // Secciones no-gastos que están sucias
     var otherDirtySections=dirtySections.filter(function(s){return s!=='gastos';});
+
+    // ── Verificar tamaño de asistencia antes de guardar ──
+    if(dirtySections.indexOf('asistencia')>=0){
+      var asisSize=JSON.stringify(S.asistencia||{}).length;
+      if(asisSize>500000){
+        console.warn('[PP] asistencia muy grande:',Math.round(asisSize/1024)+'KB — truncando >90 días');
+        var cutoff=new Date();cutoff.setDate(cutoff.getDate()-90);
+        var cutStr=cutoff.toISOString().slice(0,10);
+        if(S.asistencia&&S.asistencia.registros)
+          S.asistencia.registros=S.asistencia.registros.filter(function(r){return(r.fecha||'')>=cutStr;});
+        toast('ℹ Historial de asistencia compactado para optimizar el guardado',false);
+      }
+    }
 
     var result;
     if(otherDirtySections.length>0&&otherDirtySections.length<=4&&window.FB.saveSection){
@@ -7001,6 +7019,94 @@ async function toggleUsuario(uid,activo){
 // ═══════════════════════════════════════════════════════
 //  CONFIGURACIÓN
 // ═══════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════
+// FCM — Envío de notificaciones push desde el admin
+// ══════════════════════════════════════════════════════
+function _fcmServerKey(){ return S.config.fcmServerKey||''; }
+
+function modalEnviarNotif(){
+  var html='<div class="fg"><label>Destinatarios</label>'
+    +'<select id="notifDest" style="width:100%">'
+    +'<option value="todos">📢 Todos los dispositivos</option>'
+    +'<option value="portal">🏢 Solo Portal Asistencia</option>'
+    +'<option value="motoristas">🚛 Solo Motoristas</option>'
+    +'</select></div>'
+    +'<div class="fg"><label>Título *</label><input id="notifTitulo" placeholder="Ej: Recordatorio importante" style="width:100%"></div>'
+    +'<div class="fg"><label>Mensaje *</label><textarea id="notifCuerpo" rows="3" placeholder="Texto de la notificación..." style="width:100%;resize:none"></textarea></div>'
+    +'<div class="fg"><label>URL al tocar (opcional)</label><input id="notifUrl" placeholder="https://wvillanuevau.github.io/dashboard-fi/" style="width:100%"></div>'
+    +'<div id="notifStatus" style="font-size:12px;color:var(--muted);min-height:20px;margin-top:8px"></div>'
+    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">'
+    +'<button class="btn btn-secondary" onclick="closeModal(\'modalGenerico\')">Cancelar</button>'
+    +'<button class="btn btn-primary" onclick="enviarNotifFCM()">📢 Enviar</button>'
+    +'</div>';
+  openModal('modalGenerico','📢 Enviar notificación push',html);
+}
+
+async function enviarNotifFCM(){
+  var titulo   = (document.getElementById('notifTitulo')||{}).value||'';
+  var cuerpo   = (document.getElementById('notifCuerpo')||{}).value||'';
+  var url      = (document.getElementById('notifUrl')||{}).value||'https://wvillanuevau.github.io/dashboard-fi/';
+  var dest     = (document.getElementById('notifDest')||{}).value||'todos';
+  var statusEl = document.getElementById('notifStatus');
+  if(!titulo){toast('Ingresa un título',true);return;}
+  if(!cuerpo){toast('Ingresa el mensaje',true);return;}
+  var serverKey=_fcmServerKey();
+  if(!serverKey){
+    if(statusEl)statusEl.innerHTML='⚠ Configura la <strong>fcmServerKey</strong> en Configuración → Catálogos → variables. La encuentras en Firebase Console → Configuración del proyecto → Cloud Messaging → Clave del servidor legacy.';
+    return;
+  }
+  if(statusEl)statusEl.textContent='⏳ Obteniendo dispositivos...';
+  try{
+    var snap=await firebase.firestore().collection('fcmTokens').where('empresa','==',S.empresa).get();
+    var tokens=[];
+    snap.forEach(function(d){
+      var tk=d.data();
+      if(dest==='todos')tokens.push(tk.token);
+      else if(dest==='portal'&&tk.portal==='asistencia')tokens.push(tk.token);
+      else if(dest==='motoristas'&&(tk.esMotorista||tk.portal==='motorista'))tokens.push(tk.token);
+    });
+    if(!tokens.length){if(statusEl)statusEl.textContent='⚠ No hay dispositivos registrados para este filtro.';return;}
+    if(statusEl)statusEl.textContent='📢 Enviando a '+tokens.length+' dispositivo(s)...';
+    var ok=0,fail=0;
+    for(var i=0;i<tokens.length;i++){
+      try{
+        var res=await fetch('https://fcm.googleapis.com/fcm/send',{
+          method:'POST',
+          headers:{'Content-Type':'application/json','Authorization':'key='+serverKey},
+          body:JSON.stringify({
+            to:tokens[i],
+            notification:{title:titulo,body:cuerpo,icon:'https://wvillanuevau.github.io/dashboard-fi/icon-192.png',click_action:url},
+            data:{url:url}
+          })
+        });
+        var json=await res.json();
+        if(json.success===1)ok++;else fail++;
+      }catch(e){fail++;}
+    }
+    if(statusEl)statusEl.textContent='✅ '+ok+' enviadas, '+fail+' fallidas de '+tokens.length+' total.';
+    logAction('NOTIF','admin',titulo.slice(0,40)+' → '+tokens.length+' dispositivos');
+  }catch(e){
+    if(statusEl)statusEl.textContent='❌ Error: '+e.message;
+  }
+}
+
+function verTokensFCM(){
+  firebase.firestore().collection('fcmTokens').where('empresa','==',S.empresa).get()
+    .then(function(snap){
+      if(snap.empty){toast('No hay dispositivos registrados',false);return;}
+      var rows='';
+      snap.forEach(function(d){
+        var tk=d.data();
+        rows+='<tr><td>'+esc(tk.empleadoNombre||'—')+'</td><td>'+esc(tk.portal||'—')+'</td>'
+          +'<td style="font-size:10px;font-family:monospace">...'+tk.token.slice(-16)+'</td>'
+          +'<td>'+(tk.ts?new Date(tk.ts).toLocaleDateString('es-SV'):'—')+'</td></tr>';
+      });
+      var html='<div class="tbl-wrap"><table><thead><tr><th>Empleado</th><th>Portal</th><th>Token</th><th>Fecha</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+        +'<div style="font-size:11px;color:var(--muted);margin-top:8px">'+snap.size+' dispositivo(s) registrado(s)</div>';
+      openModal('modalGenerico','📱 Dispositivos registrados',html);
+    });
+}
+
 function renderConfig(){
   const cfg=S.config||{};
   const mH=S.marcas.map((m,i)=>`<div style="display:flex;gap:8px;margin-bottom:8px"><input value="${esc(m)}" onchange="S.marcas[${i}]=this.value;saveData();refreshMarcaSel()"><button class="btn btn-danger btn-sm" onclick="S.marcas.splice(${i},1);saveData();render()">✕</button></div>`).join('');
@@ -7121,6 +7227,14 @@ function renderConfig(){
       </div>
       <div style="font-size:10.5px;color:var(--muted);margin-top:6px;line-height:1.4">
         💡 La migración mueve archivos pesados (imágenes, PDFs) que están guardados directamente en el documento principal hacia Firebase Storage, reemplazándolos por enlaces. Esto puede reducir el tamaño del documento en cientos de KB.
+      </div>
+    </div>
+
+    <div class="ha-block" style="margin-bottom:14px">
+      <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:8px">🔔 Notificaciones Push</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <button class="btn btn-secondary btn-sm" onclick="modalEnviarNotif()">📢 Enviar notificación</button>
+        <button class="btn btn-secondary btn-sm" onclick="verTokensFCM()">📱 Ver dispositivos registrados</button>
       </div>
     </div>
 
