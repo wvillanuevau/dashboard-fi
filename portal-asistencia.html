@@ -969,6 +969,46 @@ function paEsMotorista(emp) {
   });
 }
 
+function paRegistrarFCMToken() {
+  // Solo registrar si hay empleado logueado, HTTPS y soporte de messaging
+  if (!PA.empleado || !paDb) return;
+  if (!('serviceWorker' in navigator)) return;
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost') return;
+
+  try {
+    if (!firebase.messaging) return;
+    navigator.serviceWorker.ready.then(function(reg) {
+      try {
+        var messaging = firebase.messaging(_paApp);
+        messaging.getToken({
+          vapidKey: 'BCIbsKUQr1w9l_AdRE45cI7BGrimc_m25_YSBwAxk6vgNaGURHSdBZ6pYGavFD8I6IlNaFklw3pMZ7CQhSqYtHA',
+          serviceWorkerRegistration: reg
+        }).then(function(token) {
+          if (!token) return;
+          paDb.collection('fcmTokens').doc(token.slice(-20)).set({
+            token: token,
+            empresa: PA.empresa,
+            empleadoId: PA.empleado.id,
+            empleadoNombre: PA.empleado.nombre,
+            portal: 'asistencia',
+            ua: navigator.userAgent.slice(0,80),
+            ts: Date.now()
+          }, { merge: true });
+          console.log('[FCM] Token registrado');
+        }).catch(function(e) {
+          console.warn('[FCM] getToken:', e.message);
+        });
+      } catch(e2) {
+        console.warn('[FCM] messaging init:', e2.message);
+      }
+    }).catch(function(e) {
+      console.warn('[FCM] SW ready:', e.message);
+    });
+  } catch(e) {
+    console.warn('[FCM]', e.message);
+  }
+}
+
 function paConfigurarNotificaciones() {
   if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
   if (Notification.permission === 'denied') return;
@@ -1661,6 +1701,8 @@ function paAfterAuth() {
 
   // ── Configurar notificaciones ────────────────────────────────────
   paConfigurarNotificaciones();
+  // Registrar token FCM para push con navegador cerrado (seguro, después del login)
+  setTimeout(paRegistrarFCMToken, 2000);
   
   // Load today's markings
   var hoy = paHoy();
@@ -4099,38 +4141,8 @@ window.addEventListener('DOMContentLoaded', function() {
     });
   }
 
-  // ── Registrar token FCM para push con navegador cerrado ──────────
-  if (paDb && 'serviceWorker' in navigator) {
-    navigator.serviceWorker.ready.then(function(reg) {
-      try {
-        var messaging = firebase.messaging(_paApp);
-        // VAPID key pública para Web Push
-        messaging.getToken({
-          vapidKey: 'BCIbsKUQr1w9l_AdRE45cI7BGrimc_m25_YSBwAxk6vgNaGURHSdBZ6pYGavFD8I6IlNaFklw3pMZ7CQhSqYtHA',
-          serviceWorkerRegistration: reg
-        }).then(function(token) {
-          if (!token) return;
-          console.log('[FCM] Token obtenido:', token.slice(0,20)+'...');
-          // Guardar token en Firestore con empresa y dispositivo
-          paDb.collection('fcmTokens').doc(token.slice(-20)).set({
-            token: token,
-            empresa: PA.empresa,
-            empleadoId: PA.empleado ? PA.empleado.id : 'anonimo',
-            empleadoNombre: PA.empleado ? PA.empleado.nombre : '',
-            portal: 'asistencia',
-            ua: navigator.userAgent.slice(0,80),
-            ts: Date.now()
-          }, { merge: true }).then(function() {
-            console.log('[FCM] Token guardado en Firestore');
-          });
-        }).catch(function(e) {
-          console.warn('[FCM] getToken error:', e.message);
-        });
-      } catch(e) {
-        console.warn('[FCM] Messaging no disponible:', e.message);
-      }
-    });
-  }
+  // ── FCM token se registra DESPUÉS del login, no aquí ────────────
+  // Ver paRegistrarFCMToken() llamado desde paAfterAuth
 
   // ── Cargar paConfig al inicio ────────────────────────────────────
   if (paDb) {
