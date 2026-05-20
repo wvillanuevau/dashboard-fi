@@ -2819,14 +2819,18 @@ function paAdminTab(tab) {
 function paAdminHoy(content) {
   var hoy = paHoy();
   console.log('[Admin] paAdminHoy — fecha:', hoy, '| empresa:', PA.empresa);
+  // Usar solo where('fecha') para evitar requerir índice compuesto
   paDb.collection('paMarcaciones')
-    .where('empresa', '==', PA.empresa)
     .where('fecha', '==', hoy)
     .get().then(function(snap) {
+      console.log('[Admin] paMarcaciones query OK — docs:', snap.size);
+      // Filtrar por empresa en cliente
       var marcs = {};
       PA._marcacionesDetalle = {}; // store full records for viewer
       snap.forEach(function(d) {
         var m = Object.assign({ _id: d.id }, d.data());
+        // Filtrar por empresa en cliente (evita índice compuesto)
+        if (m.empresa !== PA.empresa) return;
         var empId = m.empleadoId;
         if (!marcs[empId]) marcs[empId] = { nombre: m.empleadoNombre, tipos: [], tarde: 0, centro: '', registros: [] };
         marcs[empId].tipos.push(m.tipo);
@@ -2890,10 +2894,13 @@ function paAdminHoy(content) {
                 + '</div></div>';
             });
           }
+          console.log('[Admin] paAdminHoy renderizando HTML, longitud:', html.length);
           content.innerHTML = html;
+          console.log('[Admin] paAdminHoy HTML renderizado OK');
         });
     }).catch(function(e) {
-      content.innerHTML = '<div style="color:var(--red)">Error: ' + e.message + '</div>';
+      console.error('[Admin] paAdminHoy ERROR:', e.code, e.message);
+      content.innerHTML = '<div style="color:var(--red);padding:20px;text-align:center">Error Firebase: ' + (e.code||'') + '<br>' + e.message + '</div>';
     });
 }
 
@@ -3017,7 +3024,6 @@ function paCargarHistorialRango() {
   rc.innerHTML = '<div class="spinner"></div>';
 
   paDb.collection('paMarcaciones')
-    .where('empresa','==',PA.empresa)
     .where('fecha','>=',desde)
     .where('fecha','<=',hasta)
     .get().then(function(snap) {
@@ -3026,6 +3032,7 @@ function paCargarHistorialRango() {
       var byFecha = {};
       snap.forEach(function(d) {
         var m = Object.assign({ _id: d.id }, d.data());
+        if (m.empresa !== PA.empresa) return;
         PA._marcacionesDetalle[m._id] = m;
         if (!byFecha[m.fecha]) byFecha[m.fecha] = {};
         if (!byFecha[m.fecha][m.empleadoId]) byFecha[m.fecha][m.empleadoId] = { nombre: m.empleadoNombre, registros: [] };
