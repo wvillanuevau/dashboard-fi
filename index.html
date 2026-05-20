@@ -11944,83 +11944,90 @@ function motIrReportar(){
   area.innerHTML =
     '<div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">'
     +'<button onclick="renderMotSeleccion()" style="background:none;border:none;color:#888;cursor:pointer;font-size:20px;padding:0">←</button>'
-    +'<div><div style="font-size:16px;font-weight:700">Reporte del día</div>'
+    +'<div><div style="font-size:16px;font-weight:700">¿Qué deseas reportar?</div>'
     +'<div style="font-size:12px;color:#888">'+veh.placa+' · '+sel.nombre+'</div></div>'
     +'</div>'
-
-    +'<div style="background:#111128;border:1px solid #232338;border-radius:12px;padding:18px;margin-bottom:14px">'
-    +'<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#555;margin-bottom:12px">📊 Kilometraje</div>'
+    +'<div style="background:#111128;border:1px solid #1a2a3a;border-radius:12px;padding:18px;margin-bottom:14px">'
+    +'<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#4ea8de;margin-bottom:12px">📊 Reporte de kilometraje</div>'
     +'<div style="margin-bottom:12px"><label style="font-size:12px;color:#888;display:block;margin-bottom:5px">Fecha *</label>'
     +'<input type="date" id="motFecha" value="'+hoy+'" style="'+MOT_ESTILOS+'"></div>'
     +'<div style="margin-bottom:12px"><label style="font-size:12px;color:#888;display:block;margin-bottom:5px">Km del odómetro al finalizar *</label>'
     +'<input type="number" id="motKmOdo" min="0" placeholder="Ej: 145230" style="'+MOT_ESTILOS+'"></div>'
-    +'<div><label style="font-size:12px;color:#888;display:block;margin-bottom:5px">Galones cargados hoy</label>'
+    +'<div style="margin-bottom:14px"><label style="font-size:12px;color:#888;display:block;margin-bottom:5px">Galones cargados hoy (opcional)</label>'
     +'<input type="number" id="motGal" min="0" step="0.01" placeholder="0.00" style="'+MOT_ESTILOS+'"></div>'
+    +'<div id="motErrKm" style="color:#e84040;font-size:13px;margin-bottom:10px;display:none;padding:8px;background:rgba(232,64,64,.1);border-radius:8px;text-align:center"></div>'
+    +'<button id="motBtnKm" onclick="motEnviarKm()" style="width:100%;padding:14px;background:#4ea8de;color:#000;font-weight:700;border:none;border-radius:10px;cursor:pointer;font-size:15px">📊 Enviar km</button>'
     +'</div>'
-
-    +'<div style="background:#111128;border:1px solid #232338;border-radius:12px;padding:18px;margin-bottom:14px">'
-    +'<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#555;margin-bottom:12px">🔧 ¿Tienes algo que reportar del vehículo?</div>'
-    +'<textarea id="motNovedad" rows="2" placeholder="Ej: Falla en el freno izquierdo, fuga de aceite... (opcional)" style="'+MOT_ESTILOS+';resize:vertical"></textarea>'
+    +'<div style="background:#111128;border:1px solid #2a1a1a;border-radius:12px;padding:18px;margin-bottom:14px">'
+    +'<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#e84040;margin-bottom:12px">🔧 Reportar falla o problema</div>'
+    +'<div style="margin-bottom:12px"><label style="font-size:12px;color:#888;display:block;margin-bottom:5px">Descripción de la falla *</label>'
+    +'<textarea id="motNovedad" rows="3" placeholder="Ej: Falla en el freno izquierdo, fuga de aceite..." style="'+MOT_ESTILOS+';resize:vertical"></textarea></div>'
+    +'<div id="motErrFalla" style="color:#e84040;font-size:13px;margin-bottom:10px;display:none;padding:8px;background:rgba(232,64,64,.1);border-radius:8px;text-align:center"></div>'
+    +'<button id="motBtnFalla" onclick="motEnviarFalla()" style="width:100%;padding:14px;background:rgba(232,64,64,.12);color:#e84040;font-weight:700;border:1px solid rgba(232,64,64,.35);border-radius:10px;cursor:pointer;font-size:15px">🔧 Reportar falla</button>'
     +'</div>'
+    +'<div style="text-align:center;margin-top:8px"><button onclick="motIrHistorial()" style="background:none;border:none;color:#888;font-size:12px;cursor:pointer;text-decoration:underline">Ver mi historial →</button></div>';
+}
 
-    +'<div id="motErr" style="color:#e84040;font-size:13px;margin-bottom:12px;display:none;padding:10px;background:rgba(232,64,64,.1);border-radius:8px;text-align:center"></div>'
-    +'<button id="motSubmitBtn" onclick="motEnviarReporte()" style="width:100%;padding:16px;background:#4ea8de;color:#000;font-weight:700;border:none;border-radius:12px;cursor:pointer;font-size:16px">📊 Enviar reporte</button>'
-    +'<div style="text-align:center;margin-top:14px"><button onclick="motIrHistorial()" style="background:none;border:none;color:#888;font-size:12px;cursor:pointer;text-decoration:underline">Ver mi historial →</button></div>';
+function motEnviarKm(){
+  var fecha=((document.getElementById('motFecha')||{}).value||'').trim();
+  var kmOdo=parseFloat((document.getElementById('motKmOdo')||{}).value)||0;
+  var gal=parseFloat((document.getElementById('motGal')||{}).value)||0;
+  var btn=document.getElementById('motBtnKm');
+  var errEl=document.getElementById('motErrKm');
+  if(errEl)errEl.style.display='none';
+  if(!fecha){if(errEl){errEl.textContent='Selecciona la fecha';errEl.style.display='block';}return;}
+  if(!kmOdo){if(errEl){errEl.textContent='Ingresa el km del odómetro';errEl.style.display='block';}return;}
+  if(btn){btn.disabled=true;btn.textContent='Enviando...';}
+  var folio='REP-'+Date.now().toString(36).toUpperCase();
+  firebase.firestore().collection('reportesMotoristas').doc(folio).set({
+    id:folio,empresa:_motData.empresa,
+    vehiculoId:_motVehId,motoristaId:_motId||'',motoristaNombre:_motNombre,
+    fecha:fecha,kmOdometro:kmOdo,galonesCargados:gal,
+    novedad:'',ts:Date.now(),tipo:'reporte_diario'
+  }).then(function(){
+    var area=document.getElementById('portalMotArea');
+    if(area)area.innerHTML='<div style="text-align:center;padding:50px 20px">'
+      +'<div style="font-size:52px;margin-bottom:16px">✅</div>'
+      +'<div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:8px">¡Km registrado!</div>'
+      +'<div style="font-size:14px;color:#888;margin-bottom:24px">Tu reporte de kilometraje quedó guardado.</div>'
+      +'<button onclick="motIrReportar()" style="padding:12px 28px;background:#232338;color:#e4e2dd;border:1px solid #333;border-radius:10px;cursor:pointer;font-size:14px">← Volver</button>'
+      +'</div>';
+  }).catch(function(e){
+    if(btn){btn.disabled=false;btn.textContent='📊 Enviar km';}
+    if(errEl){errEl.textContent='Error: '+e.message;errEl.style.display='block';}
+  });
+}
+
+function motEnviarFalla(){
+  var novedad=((document.getElementById('motNovedad')||{}).value||'').trim();
+  var btn=document.getElementById('motBtnFalla');
+  var errEl=document.getElementById('motErrFalla');
+  if(errEl)errEl.style.display='none';
+  if(!novedad){if(errEl){errEl.textContent='Describe la falla antes de enviar';errEl.style.display='block';}return;}
+  if(btn){btn.disabled=true;btn.textContent='Enviando...';}
+  var veh2=_motData.vehiculos.find(function(v){return v.id===_motVehId;})||{placa:_motVehId};
+  var solId='SOL-TLR-'+Date.now().toString(36).toUpperCase();
+  firebase.firestore().collection('solicitudesTaller').doc(solId).set({
+    id:solId,empresa:_motData.empresa,
+    vehiculoId:_motVehId,vehiculoPlaca:veh2.placa||'',
+    motoristaNombre:_motNombre,motoristaId:_motId||'',
+    descripcion:novedad,fotos:[],ts:Date.now(),estado:'nueva'
+  }).then(function(){
+    var area=document.getElementById('portalMotArea');
+    if(area)area.innerHTML='<div style="text-align:center;padding:50px 20px">'
+      +'<div style="font-size:52px;margin-bottom:16px">🔧</div>'
+      +'<div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:8px">¡Falla reportada!</div>'
+      +'<div style="font-size:14px;color:#888;margin-bottom:24px">El taller fue notificado. Revisarán tu vehículo a la brevedad.</div>'
+      +'<button onclick="motIrReportar()" style="padding:12px 28px;background:#232338;color:#e4e2dd;border:1px solid #333;border-radius:10px;cursor:pointer;font-size:14px">← Volver</button>'
+      +'</div>';
+  }).catch(function(e){
+    if(btn){btn.disabled=false;btn.textContent='🔧 Reportar falla';}
+    if(errEl){errEl.textContent='Error: '+e.message;errEl.style.display='block';}
+  });
 }
 
 function motEnviarReporte(){
-  var fecha  = ((document.getElementById('motFecha')||{}).value||'').trim();
-  var kmOdo  = parseFloat((document.getElementById('motKmOdo')||{}).value)||0;
-  var gal    = parseFloat((document.getElementById('motGal')||{}).value)||0;
-  var novedad= ((document.getElementById('motNovedad')||{}).value||'').trim();
-  var btn    = document.getElementById('motSubmitBtn');
-  var errEl  = document.getElementById('motErr');
-  if(errEl) errEl.style.display='none';
-
-  if(!fecha){ _motErr('Selecciona la fecha'); return; }
-  if(!kmOdo){ _motErr('Ingresa el km del odómetro'); return; }
-
-  if(btn){ btn.disabled=true; btn.textContent='Enviando...'; }
-
-  var folio = 'REP-'+Date.now().toString(36).toUpperCase();
-  var doc = {
-    id:folio, empresa:_motData.empresa,
-    vehiculoId:_motVehId, motoristaId:_motId||'', motoristaNombre:_motNombre,
-    fecha:fecha, kmOdometro:kmOdo, galonesCargados:gal,
-    novedad:novedad, ts:Date.now(), tipo:'reporte_diario'
-  };
-
-  firebase.firestore().collection('reportesMotoristas').doc(folio).set(doc).then(function(){
-    // Si hay novedad, crear también solicitud de revisión en solicitudesTaller
-    if(novedad){
-      var veh=_motData.vehiculos.find(function(v){return v.id===_motVehId;})||{placa:_motVehId};
-      var solId='SOL-TLR-'+Date.now().toString(36).toUpperCase();
-      var solDoc={
-        id:solId, empresa:_motData.empresa,
-        vehiculoId:_motVehId, vehiculoPlaca:veh.placa||'',
-        motoristaNombre:_motNombre, motoristaId:_motId||'',
-        descripcion:novedad, fotos:[], ts:Date.now(),
-        estado:'nueva', origenReporteId:folio
-      };
-      firebase.firestore().collection('solicitudesTaller').doc(solId).set(solDoc)
-        .catch(function(e){console.warn('[MotPortal] Error creando solicitud taller:',e);});
-    }
-    var area = document.getElementById('portalMotArea');
-    if(area) area.innerHTML =
-      '<div style="text-align:center;padding:50px 20px">'
-      +'<div style="font-size:52px;margin-bottom:16px">✅</div>'
-      +'<div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:8px">¡Reporte enviado!</div>'
-      +'<div style="font-size:14px;color:#888;margin-bottom:20px">Tu reporte del día quedó registrado correctamente.</div>'
-      +'<div style="background:#111128;border:1px solid #232338;border-radius:10px;padding:14px;margin-bottom:24px">'
-      +'<div style="font-size:11px;color:#666;margin-bottom:4px">Folio</div>'
-      +'<div style="font-size:18px;font-weight:700;color:#4ea8de">'+folio+'</div></div>'
-      +'<button onclick="renderMotSeleccion()" style="padding:12px 24px;background:#4ea8de;color:#000;font-weight:700;border:none;border-radius:10px;cursor:pointer;font-size:14px">Nuevo reporte</button>'
-      +' <button onclick="motIrHistorial()" style="padding:12px 24px;background:#111128;color:#fff;font-weight:600;border:1px solid #232338;border-radius:10px;cursor:pointer;font-size:14px;margin-left:8px">Ver historial</button>'
-      +'</div>';
-  }).catch(function(e){
-    if(btn){ btn.disabled=false; btn.textContent='📊 Enviar reporte'; }
-    _motErr('Error al enviar. Intenta de nuevo.');
-  });
+  // Legacy — use motEnviarKm() or motEnviarFalla() instead
 }
 
 // ── Historial por vehículo ────────────────────────────────

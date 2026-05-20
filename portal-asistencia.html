@@ -942,15 +942,19 @@ function paShow(screenId) {
   document.querySelectorAll('.screen').forEach(function(s){ s.classList.remove('active'); });
   var sc = document.getElementById(screenId);
   if (sc) sc.classList.add('active');
-  document.body.classList.toggle('scrollable', 
+  document.body.classList.toggle('scrollable',
     ['scMarcar','scHorasExtra','scCanje','scVacaciones','scHistorial','scAdmin','scDash'].indexOf(screenId) >= 0);
-  // Side effects
-  if (screenId === 'scDash') paUpdateDash();
-  if (screenId === 'scHistorial') paLoadHistorial();
-  if (screenId === 'scAdmin') paAdminTab(PA.adminTab);
-  if (screenId === 'scMarcar') paInitCamera();
-  if (screenId === 'scCanje') paInitCanje();
-  if (screenId === 'scVacaciones') paInitVacaciones();
+  // Side effects — wrapped in try/catch to prevent blank screens
+  try {
+    if (screenId === 'scDash')      paUpdateDash();
+    if (screenId === 'scHistorial') paLoadHistorial();
+    if (screenId === 'scAdmin')     paAdminTab(PA.adminTab);
+    if (screenId === 'scMarcar')    paInitCamera();
+    if (screenId === 'scCanje')     paInitCanje();
+    if (screenId === 'scVacaciones') paInitVacaciones();
+  } catch(e) {
+    console.error('[paShow] Error en side effect de', screenId, ':', e.message);
+  }
 }
 
 // ══════════════════════════════════════════════════════
@@ -2772,22 +2776,36 @@ function paLoadHistorial() {
 // ADMIN
 // ══════════════════════════════════════════════════════
 function paAdminTab(tab) {
-  PA.adminTab = tab;
+  PA.adminTab = tab || 'hoy';
   var tabs = ['hoy', 'hist', 'emps', 'extra', 'reporte', 'config'];
   tabs.forEach(function(t) {
     var el = document.getElementById('atab_' + t);
     if (el) el.className = 'tab-btn' + (t === tab ? ' active' : '');
   });
-  
+
   var content = document.getElementById('adminContent');
-  if (!content) return;
+  if (!content) {
+    console.error('[Admin] adminContent div not found');
+    return;
+  }
   content.innerHTML = '<div class="spinner"></div>';
-  
-  if (tab === 'hoy')     paAdminHoy(content);
-  if (tab === 'hist')    paAdminHistorial(content);
-  if (tab === 'emps')    paAdminEmps(content);  if (tab === 'extra')   paAdminExtra(content);
-  if (tab === 'reporte') paAdminReporte(content);
-  if (tab === 'config')  paAdminConfig(content);
+
+  try {
+    if (tab === 'hoy')     paAdminHoy(content);
+    if (tab === 'hist')    paAdminHistorial(content);
+    if (tab === 'emps')    paAdminEmps(content);
+    if (tab === 'extra')   paAdminExtra(content);
+    if (tab === 'reporte') paAdminReporte(content);
+    if (tab === 'config')  paAdminConfig(content);
+  } catch(e) {
+    console.error('[Admin] paAdminTab error:', e);
+    content.innerHTML = '<div style="color:var(--red);padding:20px;text-align:center">'
+      +'<div style="font-size:24px;margin-bottom:8px">⚠</div>'
+      +'<div style="font-weight:700;margin-bottom:6px">Error al cargar</div>'
+      +'<div style="font-size:12px;opacity:.7">'+e.message+'</div>'
+      +'<button onclick="paAdminTab(\''+tab+'\')" style="margin-top:14px;padding:8px 16px;background:var(--accent2);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px">🔄 Reintentar</button>'
+      +'</div>';
+  }
 }
 
 function paAdminHoy(content) {
