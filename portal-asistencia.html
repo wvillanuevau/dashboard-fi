@@ -785,7 +785,7 @@ button:active{opacity:.8;transform:scale(.95)}
 <!-- ══════════════════════════════════════════════════
      SCREEN: ADMIN
 ══════════════════════════════════════════════════ -->
-<div class="screen" id="scAdmin">
+<div class="screen" id="scAdmin" style="background:var(--bg);color:var(--text)">
   <div class="portal-header">
     <button class="header-back" onclick="paShow('scLanding')">←</button>
     <div class="header-title">Administración</div>
@@ -941,7 +941,12 @@ function paLogoTap() {
 function paShow(screenId) {
   document.querySelectorAll('.screen').forEach(function(s){ s.classList.remove('active'); });
   var sc = document.getElementById(screenId);
-  if (sc) sc.classList.add('active');
+  if (sc) {
+    sc.classList.add('active');
+    console.log('[paShow] screen', screenId, 'display:', window.getComputedStyle(sc).display, '| classes:', sc.className);
+  } else {
+    console.error('[paShow] screen NOT FOUND:', screenId);
+  }
   document.body.classList.toggle('scrollable',
     ['scMarcar','scHorasExtra','scCanje','scVacaciones','scHistorial','scAdmin','scDash'].indexOf(screenId) >= 0);
   // Side effects — wrapped in try/catch to prevent blank screens
@@ -1212,8 +1217,8 @@ function paVerifyAdminPwd() {
   console.log('[Admin] entered:', JSON.stringify(entered), '| adminPin:', JSON.stringify(PA.adminPin), '| match:', match);
 
   if (match) {
-    var modal = document.getElementById('modalAdminLogin');
-    if (modal) modal.remove();
+    // Remove ALL admin login modals (handles multiple taps)
+    document.querySelectorAll('#modalAdminLogin').forEach(function(m){ m.remove(); });
     PA.isAdmin = true;
     var empBadge = document.getElementById('adminEmpBadge');
     if (empBadge) empBadge.textContent = PA.empresa;
