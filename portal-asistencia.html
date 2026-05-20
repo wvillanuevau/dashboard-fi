@@ -2743,8 +2743,7 @@ function paAdminTab(tab) {
   
   if (tab === 'hoy')     paAdminHoy(content);
   if (tab === 'hist')    paAdminHistorial(content);
-  if (tab === 'emps')    paAdminEmps(content);
-  if (tab === 'extra')   paAdminExtra(content);
+  if (tab === 'emps')    paAdminEmps(content);  if (tab === 'extra')   paAdminExtra(content);
   if (tab === 'reporte') paAdminReporte(content);
   if (tab === 'config')  paAdminConfig(content);
 }
@@ -2922,61 +2921,265 @@ function paVerMarcacion(marcId) {
 }
 function paAdminHistorial(content) {
   var hoy = paHoy();
-  var html = '<div class="fg"><label>Fecha a revisar</label>'
-    +'<input type="date" id="histFecha" value="'+hoy+'" max="'+hoy+'" style="font-size:16px" onchange="paCargarHistorialFecha(this.value)">'
-    +'</div><div id="histFechaContent"><div class="spinner"></div></div>';
+  var hace7 = new Date(); hace7.setDate(hace7.getDate()-6);
+  var desde = hace7.toISOString().slice(0,10);
+
+  var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">'
+    +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">DESDE</label>'
+    +'<input type="date" id="histDesde" value="'+desde+'" max="'+hoy+'" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px"></div>'
+    +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">HASTA</label>'
+    +'<input type="date" id="histHasta" value="'+hoy+'" max="'+hoy+'" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px"></div>'
+    +'</div>'
+    +'<button onclick="paCargarHistorialRango()" style="width:100%;padding:12px;background:var(--accent2);color:#fff;border:none;border-radius:10px;font-weight:700;font-size:14px;font-family:inherit;margin-bottom:14px">🔍 Buscar registros</button>'
+    +'<div id="histFechaContent"><div style="text-align:center;padding:20px;color:var(--muted);font-size:13px">Selecciona un rango y presiona Buscar</div></div>';
   content.innerHTML = html;
-  paCargarHistorialFecha(hoy);
+  paCargarHistorialRango();
 }
 
-function paCargarHistorialFecha(fecha) {
+function paCargarHistorialRango() {
   var rc = document.getElementById('histFechaContent');
   if (!rc) return;
+  var desdeEl = document.getElementById('histDesde');
+  var hastaEl = document.getElementById('histHasta');
+  var desde = desdeEl ? desdeEl.value : paHoy();
+  var hasta = hastaEl ? hastaEl.value : paHoy();
+  if (!desde || !hasta) { rc.innerHTML = '<div style="color:var(--red)">Selecciona ambas fechas</div>'; return; }
+  if (desde > hasta) { rc.innerHTML = '<div style="color:var(--red)">La fecha inicial debe ser anterior a la final</div>'; return; }
   rc.innerHTML = '<div class="spinner"></div>';
 
   paDb.collection('paMarcaciones')
     .where('empresa','==',PA.empresa)
-    .where('fecha','==',fecha)
+    .where('fecha','>=',desde)
+    .where('fecha','<=',hasta)
     .get().then(function(snap) {
       PA._marcacionesDetalle = PA._marcacionesDetalle || {};
-      var byEmp = {};
+      // Agrupar por fecha → empleado
+      var byFecha = {};
       snap.forEach(function(d) {
         var m = Object.assign({ _id: d.id }, d.data());
         PA._marcacionesDetalle[m._id] = m;
-        if (!byEmp[m.empleadoId]) byEmp[m.empleadoId] = { nombre: m.empleadoNombre, registros: [] };
-        byEmp[m.empleadoId].registros.push(m);
+        if (!byFecha[m.fecha]) byFecha[m.fecha] = {};
+        if (!byFecha[m.fecha][m.empleadoId]) byFecha[m.fecha][m.empleadoId] = { nombre: m.empleadoNombre, registros: [] };
+        byFecha[m.fecha][m.empleadoId].registros.push(m);
       });
 
-      if (!Object.keys(byEmp).length) {
-        rc.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted)">Sin marcaciones para '+fecha+'</div>';
+      var fechas = Object.keys(byFecha).sort().reverse(); // más reciente primero
+      if (!fechas.length) {
+        rc.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted)">Sin marcaciones en este rango</div>';
         return;
       }
 
-      var tiposLabel = { entrada:'🏢 Entrada', almuerzo_salida:'🍽️ Sal. almuerzo', almuerzo_regreso:'↩️ Reg. almuerzo', salida:'🏠 Salida', entrada_adicional:'⚡ Entrada adicional', salida_adicional:'⚡ Sal. adicional' };
-      var html = '<div class="section-title">'+Object.keys(byEmp).length+' empleado(s) con registro el '+fecha+'</div>';
+      var tiposLabel = {
+        entrada:'🏢 Entrada', almuerzo_salida:'🍽️ Sal. almuerzo',
+        almuerzo_regreso:'↩️ Reg. almuerzo', salida:'🏠 Salida',
+        entrada_adicional:'⚡ Ent. adicional', salida_adicional:'⚡ Sal. adicional'
+      };
+      var tiposColor = {
+        entrada:'var(--accent)', salida:'#f85149',
+        almuerzo_salida:'var(--warn)', almuerzo_regreso:'var(--accent2)',
+        entrada_adicional:'var(--purple)', salida_adicional:'var(--purple)'
+      };
 
-      Object.keys(byEmp).forEach(function(eid) {
-        var emp = byEmp[eid];
-        html += '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:8px">'
-          +'<div style="font-weight:700;margin-bottom:8px">'+emp.nombre+'</div>'
-          +'<div style="display:flex;flex-wrap:wrap;gap:8px">';
-        emp.registros.sort(function(a,b){ return (a.ts||0)-(b.ts||0); }).forEach(function(r) {
-          var hora = r.ts ? paFmtHora(r.ts) : '—';
-          var hasFoto = !!r.foto;
-          var hasLoc  = !!(r.ubicacion && r.ubicacion.lat);
-          html += '<button onclick="paVerMarcacion(\''+r._id+'\')" '
-            +'style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:8px 12px;cursor:pointer;text-align:left;color:var(--text);font-family:inherit">'
-            +'<div style="font-size:11px;font-weight:700;color:var(--accent2)">'+(tiposLabel[r.tipo]||r.tipo)+'</div>'
-            +'<div style="font-size:12px;font-family:\'JetBrains Mono\',monospace;margin:2px 0">'+hora+'</div>'
-            +'<div style="font-size:11px;color:var(--muted)">'+(hasFoto?'📸 ':'')+(hasLoc?'📍':'')+(r.minutosRetraso>0?' ⚠+'+r.minutosRetraso+'min':'')+'</div>'
-            +'</button>';
+      var html = '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">'+snap.size+' registros en '+fechas.length+' día(s)</div>';
+
+      fechas.forEach(function(fecha) {
+        var empIds = Object.keys(byFecha[fecha]);
+        // Encabezado del día
+        var fechaObj = new Date(fecha+'T12:00:00');
+        var diasSem = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+        var meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+        var fechaLabel = diasSem[fechaObj.getDay()]+' '+fechaObj.getDate()+' '+meses[fechaObj.getMonth()]+' '+fechaObj.getFullYear();
+
+        html += '<div style="margin-bottom:16px">'
+          +'<div style="font-size:12px;font-weight:700;color:var(--accent2);text-transform:uppercase;letter-spacing:.8px;padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:8px">📅 '+fechaLabel+'</div>';
+
+        empIds.forEach(function(eid) {
+          var emp = byFecha[fecha][eid];
+          emp.registros.sort(function(a,b){ return (a.ts||0)-(b.ts||0); });
+          html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:8px">'
+            +'<div style="font-weight:700;font-size:13px;margin-bottom:10px;color:var(--text)">👤 '+emp.nombre+'</div>'
+            +'<table style="width:100%;border-collapse:collapse;font-size:13px">'
+            +'<thead><tr style="border-bottom:1px solid var(--border)">'
+            +'<th style="text-align:left;padding:4px 8px;font-size:11px;color:var(--muted);font-weight:600">TIPO</th>'
+            +'<th style="text-align:left;padding:4px 8px;font-size:11px;color:var(--muted);font-weight:600">HORA</th>'
+            +'<th style="text-align:left;padding:4px 8px;font-size:11px;color:var(--muted);font-weight:600">INFO</th>'
+            +'<th style="text-align:right;padding:4px 8px;font-size:11px;color:var(--muted);font-weight:600">ACCIONES</th>'
+            +'</tr></thead><tbody>';
+
+          emp.registros.forEach(function(r) {
+            var hora = r.ts ? paFmtHora(r.ts) : '—';
+            var color = tiposColor[r.tipo] || 'var(--text)';
+            var retraso = r.minutosRetraso > 0 ? '<span style="color:var(--warn);font-size:11px"> ⚠+'+r.minutosRetraso+'min</span>' : '';
+            var badges = (r.fotoRef||r.foto?'📸 ':'')+(r.ubicacion&&r.ubicacion.lat?'📍':'');
+            html += '<tr style="border-bottom:1px solid var(--border)">'
+              +'<td style="padding:8px;color:'+color+';font-weight:600">'+( tiposLabel[r.tipo]||r.tipo)+'</td>'
+              +'<td style="padding:8px;font-family:\'JetBrains Mono\',monospace;font-weight:700">'+hora+retraso+'</td>'
+              +'<td style="padding:8px;font-size:11px;color:var(--muted)">'+badges+(r.centroNombre?' · '+r.centroNombre:'')+(r.observacion?' · '+r.observacion.slice(0,30):'')+'</td>'
+              +'<td style="padding:8px;text-align:right;white-space:nowrap">'
+              +'<button onclick="paVerMarcacion(\''+r._id+'\')" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;color:var(--text);margin-right:4px">👁 Ver</button>'
+              +'<button onclick="paEditarMarcacion(\''+r._id+'\')" style="background:rgba(56,139,253,.1);border:1px solid rgba(56,139,253,.3);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;color:var(--accent2);margin-right:4px">✏ Editar</button>'
+              +'<button onclick="paEliminarMarcacion(\''+r._id+'\')" style="background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;color:var(--red)">✕</button>'
+              +'</td></tr>';
+          });
+
+          // Fila para agregar marcación manual
+          html += '<tr><td colspan="4" style="padding:6px 4px">'
+            +'<button onclick="paAgregarMarcacion(\''+eid+'\',\''+emp.nombre+'\',\''+fecha+'\')" style="background:rgba(46,160,67,.08);border:1px dashed rgba(46,160,67,.3);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;color:var(--accent);width:100%">+ Agregar marcación manual</button>'
+            +'</td></tr>';
+          html += '</tbody></table></div>';
         });
-        html += '</div></div>';
+        html += '</div>';
       });
+
       rc.innerHTML = html;
     }).catch(function(e) {
       rc.innerHTML = '<div style="color:var(--red)">Error: '+e.message+'</div>';
     });
+}
+
+function paEditarMarcacion(marcId) {
+  var m = PA._marcacionesDetalle && PA._marcacionesDetalle[marcId];
+  if (!m) { paToast('Registro no encontrado', true); return; }
+
+  var tiposOpts = ['entrada','almuerzo_salida','almuerzo_regreso','salida','entrada_adicional','salida_adicional']
+    .map(function(t){ return '<option value="'+t+'"'+(m.tipo===t?' selected':'')+'>'+t+'</option>'; }).join('');
+
+  // Hora actual del registro
+  var horaActual = m.ts ? new Date(m.ts).toTimeString().slice(0,5) : '08:00';
+  var fechaActual = m.fecha || paHoy();
+
+  var old = document.getElementById('modalEditMarca'); if (old) old.remove();
+  var div = document.createElement('div');
+  div.id = 'modalEditMarca';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:600;display:flex;align-items:flex-end;justify-content:center;padding:0';
+  div.innerHTML = '<div style="background:var(--surface);border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:20px 18px 36px;max-height:90vh;overflow-y:auto">'
+    +'<span style="display:block;width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px"></span>'
+    +'<div style="font-size:16px;font-weight:700;margin-bottom:16px">✏ Editar marcación — '+m.empleadoNombre+'</div>'
+    +'<div class="fg"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">TIPO</label>'
+    +'<select id="editTipo" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px">'+tiposOpts+'</select></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">'
+    +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">FECHA</label>'
+    +'<input type="date" id="editFecha" value="'+fechaActual+'" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px"></div>'
+    +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">HORA</label>'
+    +'<input type="time" id="editHora" value="'+horaActual+'" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px"></div>'
+    +'</div>'
+    +'<div style="margin-top:10px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">OBSERVACIÓN</label>'
+    +'<input type="text" id="editObs" value="'+(m.observacion||'')+'" placeholder="Motivo de la corrección..." style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px"></div>'
+    +'<div style="display:flex;gap:10px;margin-top:16px">'
+    +'<button id="editCancelBtn" style="flex:1;padding:14px;background:transparent;border:1px solid var(--border);border-radius:12px;color:var(--muted);font-family:inherit;font-size:14px">Cancelar</button>'
+    +'<button id="editSaveBtn" style="flex:2;padding:14px;background:var(--accent2);color:#fff;border:none;border-radius:12px;font-weight:700;font-size:15px;font-family:inherit">✓ Guardar cambios</button>'
+    +'</div></div>';
+  document.body.appendChild(div);
+
+  document.getElementById('editCancelBtn').addEventListener('click', function(){ div.remove(); });
+  document.getElementById('editSaveBtn').addEventListener('click', function() {
+    var nuevoTipo  = document.getElementById('editTipo').value;
+    var nuevaFecha = document.getElementById('editFecha').value;
+    var nuevaHora  = document.getElementById('editHora').value;
+    var nuevaObs   = document.getElementById('editObs').value.trim();
+    if (!nuevaFecha || !nuevaHora) { paToast('Completa fecha y hora', true); return; }
+
+    // Construir nuevo timestamp
+    var nuevoTs = new Date(nuevaFecha+'T'+nuevaHora+':00').getTime();
+    var updates = {
+      tipo: nuevoTipo,
+      fecha: nuevaFecha,
+      ts: nuevoTs,
+      observacion: nuevaObs,
+      _editadoPor: PA.adminPin ? 'admin' : 'sistema',
+      _editadoTs: Date.now()
+    };
+
+    // Recalcular minutosRetraso si es entrada
+    if (nuevoTipo === 'entrada' && PA.horario) {
+      var partes = (PA.horario.horaEntrada||'07:00').split(':');
+      var espMs = parseInt(partes[0])*3600000 + parseInt(partes[1]||0)*60000;
+      var midnight = new Date(nuevoTs); midnight.setHours(0,0,0,0);
+      var actualMs = nuevoTs - midnight.getTime();
+      var tolMs = (PA.horario.minutosTolerancia||10)*60000;
+      updates.minutosRetraso = actualMs > espMs+tolMs ? Math.round((actualMs-espMs)/60000) : 0;
+      updates.estadoPuntualidad = updates.minutosRetraso > 0 ? 'tarde' : 'a_tiempo';
+    }
+
+    paDb.collection('paMarcaciones').doc(marcId).update(updates)
+      .then(function() {
+        // Actualizar en memoria
+        Object.assign(PA._marcacionesDetalle[marcId], updates);
+        div.remove();
+        paToast('✅ Marcación actualizada');
+        paCargarHistorialRango();
+      })
+      .catch(function(e) { paToast('Error: '+e.message, true); });
+  });
+}
+
+function paEliminarMarcacion(marcId) {
+  var m = PA._marcacionesDetalle && PA._marcacionesDetalle[marcId];
+  var nom = m ? m.empleadoNombre+' — '+(m.tipo||'')+(m.ts?' '+paFmtHora(m.ts):'') : marcId;
+  if (!confirm('¿Eliminar este registro?\n'+nom+'\n\nEsta acción no se puede deshacer.')) return;
+  paDb.collection('paMarcaciones').doc(marcId).delete()
+    .then(function() {
+      delete PA._marcacionesDetalle[marcId];
+      paToast('Registro eliminado');
+      paCargarHistorialRango();
+    })
+    .catch(function(e) { paToast('Error: '+e.message, true); });
+}
+
+function paAgregarMarcacion(empId, empNom, fecha) {
+  var old = document.getElementById('modalAddMarca'); if (old) old.remove();
+  var div = document.createElement('div');
+  div.id = 'modalAddMarca';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:600;display:flex;align-items:flex-end;justify-content:center;padding:0';
+
+  var tiposOpts = ['entrada','almuerzo_salida','almuerzo_regreso','salida','entrada_adicional','salida_adicional']
+    .map(function(t){ return '<option value="'+t+'">'+t+'</option>'; }).join('');
+
+  div.innerHTML = '<div style="background:var(--surface);border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:20px 18px 36px">'
+    +'<span style="display:block;width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px"></span>'
+    +'<div style="font-size:16px;font-weight:700;margin-bottom:4px">+ Agregar marcación</div>'
+    +'<div style="font-size:13px;color:var(--muted);margin-bottom:16px">'+empNom+' · '+fecha+'</div>'
+    +'<div class="fg"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">TIPO</label>'
+    +'<select id="addTipo" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px">'+tiposOpts+'</select></div>'
+    +'<div style="margin-top:10px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">HORA</label>'
+    +'<input type="time" id="addHora" value="08:00" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px"></div>'
+    +'<div style="margin-top:10px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">MOTIVO</label>'
+    +'<input type="text" id="addObs" placeholder="Ej: Corrección manual por admin" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px"></div>'
+    +'<div style="display:flex;gap:10px;margin-top:16px">'
+    +'<button id="addCancelBtn" style="flex:1;padding:14px;background:transparent;border:1px solid var(--border);border-radius:12px;color:var(--muted);font-family:inherit;font-size:14px">Cancelar</button>'
+    +'<button id="addSaveBtn" style="flex:2;padding:14px;background:var(--accent);color:#000;border:none;border-radius:12px;font-weight:700;font-size:15px;font-family:inherit">+ Agregar</button>'
+    +'</div></div>';
+  document.body.appendChild(div);
+
+  document.getElementById('addCancelBtn').addEventListener('click', function(){ div.remove(); });
+  document.getElementById('addSaveBtn').addEventListener('click', function() {
+    var tipo  = document.getElementById('addTipo').value;
+    var hora  = document.getElementById('addHora').value;
+    var obs   = document.getElementById('addObs').value.trim();
+    if (!hora) { paToast('Ingresa la hora', true); return; }
+    var ts = new Date(fecha+'T'+hora+':00').getTime();
+    var docData = {
+      empresa: PA.empresa,
+      empleadoId: empId,
+      empleadoNombre: empNom,
+      tipo: tipo, fecha: fecha, ts: ts,
+      observacion: obs || 'Agregado manualmente por admin',
+      fotoRef: null, ubicacion: null,
+      minutosRetraso: 0, estadoPuntualidad: 'a_tiempo',
+      esFeriado: false, esFinDeSemana: false,
+      folio: 'MRC-ADM-'+paGenId().toUpperCase(),
+      _agregadoPor: 'admin', _agregadoTs: Date.now()
+    };
+    paDb.collection('paMarcaciones').add(docData)
+      .then(function(ref) {
+        PA._marcacionesDetalle = PA._marcacionesDetalle || {};
+        PA._marcacionesDetalle[ref.id] = Object.assign({_id:ref.id}, docData);
+        div.remove();
+        paToast('✅ Marcación agregada');
+        paCargarHistorialRango();
+      })
+      .catch(function(e) { paToast('Error: '+e.message, true); });
+  });
 }
 
 function paAdminConfig(content) {
