@@ -785,7 +785,7 @@ button:active{opacity:.8;transform:scale(.95)}
 <!-- ══════════════════════════════════════════════════
      SCREEN: ADMIN
 ══════════════════════════════════════════════════ -->
-<div class="screen" id="scAdmin" style="position:fixed;inset:0;background:var(--bg);color:var(--text);z-index:50;overflow-y:auto;flex-direction:column;align-items:center;justify-content:flex-start">
+<div class="screen" id="scAdmin" style="position:fixed;inset:0;background:#1a1a2e;color:#ffffff;z-index:50;overflow-y:auto;display:none;flex-direction:column;align-items:center;justify-content:flex-start">
   <div class="portal-header">
     <button class="header-back" onclick="paShow('scLanding')">←</button>
     <div class="header-title">Administración</div>
@@ -939,19 +939,25 @@ function paLogoTap() {
   }, 2000);
 }
 function paShow(screenId) {
-  document.querySelectorAll('.screen').forEach(function(s){ s.classList.remove('active'); });
+  // Ocultar todas las pantallas con display:none directo
+  document.querySelectorAll('.screen').forEach(function(s){
+    s.classList.remove('active');
+    s.style.display = 'none';
+  });
+
   var sc = document.getElementById(screenId);
   if (sc) {
     sc.classList.add('active');
-    console.log('[paShow] screen', screenId, 'display:', window.getComputedStyle(sc).display, '| classes:', sc.className);
+    sc.style.display = 'flex';
+    console.log('[paShow]', screenId, 'display:', sc.style.display, '| offsetHeight:', sc.offsetHeight);
   } else {
     console.error('[paShow] screen NOT FOUND:', screenId);
   }
-  // Forzar scroll al inicio — el modal de login puede haber desplazado el viewport
+
+  // Forzar scroll al inicio
   window.scrollTo(0, 0);
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
-  if (sc) sc.scrollTop = 0;
 
   document.body.classList.toggle('scrollable',
     ['scMarcar','scHorasExtra','scCanje','scVacaciones','scHistorial','scAdmin','scDash'].indexOf(screenId) >= 0);
