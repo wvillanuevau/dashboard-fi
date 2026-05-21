@@ -2835,10 +2835,10 @@ function _paShowAdminPanel() {
     +'<div style="position:absolute;top:48px;left:0;right:0;height:44px;background:#161b22;border-bottom:1px solid #30363d;display:flex;overflow-x:auto;z-index:1">'
     +tabsHtml+'</div>'
     // Content — top:92px, bottom:0, scrollable
-    +'<div id="adminContent" style="position:absolute;top:92px;left:0;right:0;bottom:0;width:100%;height:calc(100% - 92px);overflow-y:auto;padding:16px 18px;color:#e6edf3;box-sizing:border-box"></div>';
+    +'<div id="paAdminContent" style="position:absolute;top:92px;left:0;right:0;bottom:0;width:100%;height:calc(100% - 92px);overflow-y:auto;padding:16px 18px;color:#e6edf3;box-sizing:border-box"></div>';
 
   document.body.appendChild(panel);
-  console.log('[Admin] Panel creado — offsetHeight:', panel.offsetHeight, 'adminContent height:', (document.getElementById('adminContent')||{}).offsetHeight);
+  console.log('[Admin] Panel creado — offsetHeight:', panel.offsetHeight, 'paAdminContent height:', (document.getElementById('paAdminContent')||{}).offsetHeight);
   paAdminTab(PA.adminTab || 'hoy');
 }
 
@@ -2864,9 +2864,10 @@ function paAdminTab(tab) {
     }
   });
 
-  var content = document.getElementById('adminContent');
+  // Buscar el contenedor del panel dinámico (paAdminContent), no el estático (adminContent)
+  var content = document.getElementById('paAdminContent') || document.getElementById('adminContent');
   if (!content) {
-    console.error('[Admin] adminContent NO encontrado');
+    console.error('[Admin] No se encontró paAdminContent ni adminContent');
     return;
   }
   content.innerHTML = '<div style="text-align:center;padding:40px;color:#7d8590">Cargando...</div>';
@@ -3833,12 +3834,12 @@ function paAddFeriado() {
   PA.feriados.push(val);
   PA.feriados.sort();
   if (el) el.value = '';
-  paAdminConfig(document.getElementById('adminContent'));
+  paAdminConfig(document.getElementById('paAdminContent')||document.getElementById('adminContent'));
 }
 
 function paDelFeriado(btn, fecha) {
   PA.feriados = PA.feriados.filter(function(f){ return f !== fecha; });
-  paAdminConfig(document.getElementById('adminContent'));
+  paAdminConfig(document.getElementById('paAdminContent')||document.getElementById('adminContent'));
 }
 
 function paGuardarFeriados() {
