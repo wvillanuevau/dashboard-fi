@@ -2296,6 +2296,7 @@ function paConfirmarMarca() {
       folio: folioId
     };
     paDb.collection('paMarcaciones').add(docData).then(function(ref) {
+      console.log('[Marca] Marcación guardada OK — ref:', ref.id, '| tipo:', docData.tipo);
       PA.marcacionesHoy.push(Object.assign({ id: ref.id, _id: ref.id }, docData));
       if (paStream) { paStream.getTracks().forEach(function(t){ t.stop(); }); paStream = null; }
       if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
@@ -2348,11 +2349,12 @@ function paConfirmarMarca() {
         foto: compressed,
         ts: Date.now()
       }).then(function() {
+        console.log('[Marca] Foto guardada OK — procediendo a guardar marcación');
         _guardarConFotoRef('paFotos/' + fotoDocRef.id);
       }).catch(function(e) {
-        if (btn) { btn.disabled=false; btn.textContent='✅ Confirmar registro'; }
-        var errEl = document.getElementById('marcarError');
-        if (errEl) { errEl.textContent='⚠ Error guardando foto: '+e.message; errEl.style.display='block'; }
+        console.warn('[Marca] Error foto, guardando sin fotoRef:', e.message);
+        // Guardar la marcación de todos modos aunque falle la foto
+        _guardarConFotoRef(null);
       });
     } catch(ex) {
       if (btn) { btn.disabled=false; btn.textContent='✅ Confirmar registro'; }
@@ -2371,57 +2373,56 @@ function paConfirmarMarca() {
 
 function _paMostrarExito(docData, calc) {
   var tipos = {
-    entrada:          { icon:'🏢', title:'¡Entrada registrada!',      sub:'Tu llegada fue marcada correctamente.',      bg:'#0a1a0a' },
-    almuerzo_salida:  { icon:'🍽️', title:'¡Buen provecho!',           sub:'Salida a almuerzo registrada.',              bg:'#1a140a' },
-    almuerzo_regreso: { icon:'↩️', title:'¡Bienvenido de vuelta!',    sub:'Regreso de almuerzo registrado.',            bg:'#0a0f1a' },
-    salida:           { icon:'🏠', title:'¡Hasta mañana!',            sub:'Tu salida fue registrada. ¡Buen descanso!',  bg:'#0d0a1a' },
-    entrada_adicional:{ icon:'⚡', title:'¡Trabajo adicional iniciado!',sub:'Entrada adicional registrada.',            bg:'#1a0a1a' },
-    salida_adicional: { icon:'⚡', title:'¡Trabajo adicional finalizado!',sub:'Salida adicional registrada.',           bg:'#1a0a1a' }
+    entrada:          { icon:'🏢', title:'¡Entrada registrada!',         sub:'Tu llegada fue marcada correctamente.' },
+    almuerzo_salida:  { icon:'🍽️', title:'¡Buen provecho!',              sub:'Salida a almuerzo registrada.' },
+    almuerzo_regreso: { icon:'↩️', title:'¡Bienvenido de vuelta!',       sub:'Regreso de almuerzo registrado.' },
+    salida:           { icon:'🏠', title:'¡Hasta mañana!',               sub:'Tu salida fue registrada. ¡Buen descanso!' },
+    entrada_adicional:{ icon:'⚡', title:'¡Trabajo adicional iniciado!', sub:'Entrada adicional registrada.' },
+    salida_adicional: { icon:'⚡', title:'¡Trabajo adicional finalizado!',sub:'Salida adicional registrada.' }
   };
-  var info = tipos[docData.tipo] || { icon:'✅', title:'¡Registro exitoso!', sub:'', bg:'#0d1117' };
-
+  var info = tipos[docData.tipo] || { icon:'✅', title:'¡Registro exitoso!', sub:'' };
   var hora = paFmtHora(docData.ts);
+
   var extra = '';
   if (docData.tipo==='entrada' && docData.minutosRetraso>0)
-    extra += '<div style="color:#e8a020;font-size:13px;margin-top:8px">⚠ Llegada con '+docData.minutosRetraso+' min de retraso</div>';
-  if (docData.esFeriado)
-    extra += '<div style="color:#bc8cff;font-size:13px;margin-top:4px">🎉 Día feriado</div>';
-  if (docData.esFinDeSemana && !docData.esFeriado)
-    extra += '<div style="color:#388bfd;font-size:13px;margin-top:4px">📅 Fin de semana</div>';
-
+    extra += '<div style="background:rgba(232,160,32,.1);border:1px solid rgba(232,160,32,.3);border-radius:10px;padding:10px;margin-top:12px;font-size:13px;color:#e8a020">⚠ Llegada con '+docData.minutosRetraso+' minutos de retraso</div>';
   if (calc && calc.total>0) {
-    extra += '<div style="background:rgba(46,160,67,.1);border:1px solid rgba(46,160,67,.3);border-radius:10px;padding:12px;margin-top:14px;text-align:left">'
-      +'<div style="font-size:11px;font-weight:700;color:#2ea043;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">⏰ Horas extra calculadas</div>';
-    if (calc.diurna>0)   extra += '<div style="font-size:13px">☀️ Diurnas: <strong>'+calc.diurna.toFixed(2)+'h</strong></div>';
-    if (calc.nocturna>0) extra += '<div style="font-size:13px">🌙 Nocturnas: <strong>'+calc.nocturna.toFixed(2)+'h</strong></div>';
-    extra += '<div style="font-size:12px;color:#7d8590;margin-top:4px">Total: '+calc.total.toFixed(2)+'h — pendiente de aprobación</div></div>';
-  } else if (docData.tipo==='salida' || docData.tipo==='salida_adicional') {
-    extra += '<div style="font-size:12px;color:#7d8590;margin-top:8px">✓ Sin horas extra en esta jornada</div>';
+    extra += '<div style="background:rgba(46,160,67,.1);border:1px solid rgba(46,160,67,.3);border-radius:10px;padding:10px;margin-top:12px;text-align:left">'
+      +'<div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:6px">⏰ HORAS EXTRA CALCULADAS</div>';
+    if(calc.diurna>0)   extra+='<div>☀️ Diurnas: <strong>'+calc.diurna.toFixed(2)+'h</strong></div>';
+    if(calc.nocturna>0) extra+='<div>🌙 Nocturnas: <strong>'+calc.nocturna.toFixed(2)+'h</strong></div>';
+    extra+='<div style="font-size:11px;color:var(--muted);margin-top:4px">Pendiente de aprobación</div></div>';
   }
 
-  // Eliminar overlay previo si existe
-  var old = document.getElementById('paExitoOverlay'); if(old) old.remove();
+  // Ir al dashboard e inyectar banner de éxito arriba
+  paShow('scDash');
+  paUpdateDash();
 
-  var overlay = document.createElement('div');
-  overlay.id = 'paExitoOverlay';
-  overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:'+info.bg+';z-index:300;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;font-family:\'Space Grotesk\',system-ui,sans-serif;text-align:center;overflow-y:auto';
-
-  overlay.innerHTML =
-    '<div style="font-size:72px;margin-bottom:16px;animation:none">'+info.icon+'</div>'
-    +'<div style="font-size:26px;font-weight:700;color:#e6edf3;margin-bottom:8px">'+info.title+'</div>'
-    +'<div style="font-size:15px;color:#7d8590;margin-bottom:4px">'+info.sub+'</div>'
-    +'<div style="font-size:18px;font-weight:700;color:#e6edf3;margin:12px 0">🕐 '+hora+'</div>'
+  // Insertar banner al tope del dashboard
+  var dash = document.getElementById('scDash');
+  if (!dash) return;
+  var banner = document.createElement('div');
+  banner.id = 'paBannerExito';
+  banner.style.cssText = 'background:var(--surface);border:2px solid var(--accent);border-radius:16px;padding:24px 20px;margin:16px 18px;text-align:center';
+  banner.innerHTML =
+    '<div style="font-size:56px;margin-bottom:10px">'+info.icon+'</div>'
+    +'<div style="font-size:22px;font-weight:700;color:var(--text);margin-bottom:6px">'+info.title+'</div>'
+    +'<div style="font-size:14px;color:var(--muted);margin-bottom:4px">'+info.sub+'</div>'
+    +'<div style="font-size:18px;font-weight:700;color:var(--accent);margin:10px 0">🕐 '+hora+'</div>'
     +extra
-    +'<div style="font-size:11px;color:#30363d;margin:16px 0 24px;font-family:monospace">'+docData.folio+'</div>'
-    +'<button onclick="document.getElementById(\'paExitoOverlay\').remove();paUpdateDash();" '
-    +'style="width:100%;max-width:280px;padding:14px;background:#2ea043;color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:12px">'
-    +'← Volver al inicio</button>'
-    +'<button onclick="document.getElementById(\'paExitoOverlay\').remove();paCerrarSesion();" '
-    +'style="width:100%;max-width:280px;padding:14px;background:transparent;color:#7d8590;border:1px solid #30363d;border-radius:12px;font-size:14px;cursor:pointer;font-family:inherit">'
-    +'Cerrar sesión</button>';
+    +'<div style="font-size:11px;color:var(--muted);font-family:monospace;margin:12px 0">'+docData.folio+'</div>'
+    +'<button onclick="document.getElementById(\'paBannerExito\').remove()" '
+    +'style="padding:8px 24px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;font-family:inherit">✕ Cerrar</button>';
 
-  document.body.appendChild(overlay);
+  // Insertar antes del primer hijo del dash
+  dash.insertBefore(banner, dash.firstChild);
   window.scrollTo(0,0);
+
+  // Auto-cerrar después de 8 segundos
+  setTimeout(function(){
+    var b = document.getElementById('paBannerExito');
+    if (b) b.remove();
+  }, 8000);
 }
 
 // ══════════════════════════════════════════════════════
