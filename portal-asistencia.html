@@ -2849,20 +2849,26 @@ function _paCerrarAdmin() {
 
 function paAdminTab(tab) {
   PA.adminTab = tab || 'hoy';
-  console.log('[Admin] paAdminTab:', tab);
-  var tabs = ['hoy', 'hist', 'emps', 'extra', 'reporte', 'config'];
-  tabs.forEach(function(t) {
+
+  // Resaltar tab activo — usar style directo ya que los botones tienen estilos inline
+  ['hoy','hist','emps','extra','reporte','config'].forEach(function(t) {
     var el = document.getElementById('atab_' + t);
-    if (el) el.className = 'tab-btn' + (t === tab ? ' active' : '');
+    if (!el) return;
+    if (t === tab) {
+      el.style.color = '#388bfd';
+      el.style.borderBottomColor = '#388bfd';
+    } else {
+      el.style.color = '#7d8590';
+      el.style.borderBottomColor = 'transparent';
+    }
   });
 
   var content = document.getElementById('adminContent');
   if (!content) {
-  console.log('[Admin] adminContent:', !!document.getElementById('adminContent'));
-    console.error('[Admin] adminContent div not found');
+    console.error('[Admin] adminContent NO encontrado');
     return;
   }
-  content.innerHTML = '<div class="spinner"></div>';
+  content.innerHTML = '<div style="text-align:center;padding:40px;color:#7d8590">Cargando...</div>';
 
   try {
     if (tab === 'hoy')     paAdminHoy(content);
@@ -2872,19 +2878,23 @@ function paAdminTab(tab) {
     if (tab === 'reporte') paAdminReporte(content);
     if (tab === 'config')  paAdminConfig(content);
   } catch(e) {
-    console.error('[Admin] paAdminTab error:', e);
-    content.innerHTML = '<div style="color:var(--red);padding:20px;text-align:center">'
+    console.error('[Admin] error en tab', tab, ':', e.message, e.stack);
+    content.innerHTML = '<div style="color:#f85149;padding:20px;text-align:center">'
       +'<div style="font-size:24px;margin-bottom:8px">⚠</div>'
-      +'<div style="font-weight:700;margin-bottom:6px">Error al cargar</div>'
-      +'<div style="font-size:12px;opacity:.7">'+e.message+'</div>'
-      +'<button onclick="paAdminTab(\''+tab+'\')" style="margin-top:14px;padding:8px 16px;background:var(--accent2);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px">🔄 Reintentar</button>'
+      +'<strong>Error al cargar</strong><br>'
+      +'<span style="font-size:12px;opacity:.7">'+e.message+'</span><br>'
+      +'<button onclick="paAdminTab(\''+tab+'\')" style="margin-top:14px;padding:8px 16px;background:#388bfd;color:#fff;border:none;border-radius:8px;cursor:pointer">🔄 Reintentar</button>'
       +'</div>';
   }
 }
 
 function paAdminHoy(content) {
+  if (!paDb) {
+    content.innerHTML = '<div style="color:#f85149;padding:20px;text-align:center">⚠ Sin conexión a Firebase.<br><small>Recarga la página e intenta de nuevo.</small></div>';
+    return;
+  }
   var hoy = paHoy();
-  console.log('[Admin] paAdminHoy — fecha:', hoy, '| empresa:', PA.empresa);
+  console.log('[Admin] paAdminHoy — fecha:', hoy, '| empresa:', PA.empresa, '| paDb:', !!paDb);
   // Usar solo where('fecha') para evitar requerir índice compuesto
   paDb.collection('paMarcaciones')
     .where('fecha', '==', hoy)
