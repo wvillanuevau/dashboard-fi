@@ -799,7 +799,7 @@ button:active{opacity:.8;transform:scale(.95)}
     <button class="tab-btn" id="atab_reporte" onclick="paAdminTab('reporte')">📊 Reporte pago</button>
     <button class="tab-btn" id="atab_config" onclick="paAdminTab('config')">⚙️ Config</button>
   </div>
-  <div class="portal-body" style="overflow-y:auto;padding-top:16px;background:red;min-height:200px" id="adminContent">
+  <div class="portal-body" style="overflow-y:auto;padding-top:16px" id="adminContent">
     <div class="spinner"></div>
   </div>
 </div>
@@ -947,6 +947,12 @@ function paShow(screenId) {
   } else {
     console.error('[paShow] screen NOT FOUND:', screenId);
   }
+  // Forzar scroll al inicio — el modal de login puede haber desplazado el viewport
+  window.scrollTo(0, 0);
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
+  if (sc) sc.scrollTop = 0;
+
   document.body.classList.toggle('scrollable',
     ['scMarcar','scHorasExtra','scCanje','scVacaciones','scHistorial','scAdmin','scDash'].indexOf(screenId) >= 0);
   // Side effects — wrapped in try/catch to prevent blank screens
@@ -1219,6 +1225,9 @@ function paVerifyAdminPwd() {
   if (match) {
     // Remove ALL admin login modals (handles multiple taps)
     document.querySelectorAll('#modalAdminLogin').forEach(function(m){ m.remove(); });
+    // Resetear scroll que pudo haber dejado el modal
+    window.scrollTo(0,0);
+    document.body.scrollTop = 0;
     PA.isAdmin = true;
     var empBadge = document.getElementById('adminEmpBadge');
     if (empBadge) empBadge.textContent = PA.empresa;
