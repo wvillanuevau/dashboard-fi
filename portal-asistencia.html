@@ -913,6 +913,8 @@ var PA = {
   histTab: 'marc',
   isAdmin: false,
   adminPin: 'Fisdc@2026!',
+  horariosRol: {},
+  horariosEmp: {},
   horaTimer: null,
   _pinsDocMap: {},
   _horasMap: {},
@@ -3096,99 +3098,163 @@ function paCargarHistorialRango() {
   var desdeEl = document.getElementById('histDesde');
   var hastaEl = document.getElementById('histHasta');
   var desde = desdeEl ? desdeEl.value : paHoy();
-  var hasta = hastaEl ? hastaEl.value : paHoy();
+  var hasta  = hastaEl ? hastaEl.value : paHoy();
   if (!desde || !hasta) { rc.innerHTML = '<div style="color:var(--red)">Selecciona ambas fechas</div>'; return; }
-  if (desde > hasta) { rc.innerHTML = '<div style="color:var(--red)">La fecha inicial debe ser anterior a la final</div>'; return; }
-  rc.innerHTML = '<div class="spinner"></div>';
+  if (desde > hasta)    { rc.innerHTML = '<div style="color:var(--red)">La fecha inicial debe ser anterior a la final</div>'; return; }
+  rc.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted)">Buscando...</div>';
 
   paDb.collection('paMarcaciones')
     .where('fecha','>=',desde)
     .where('fecha','<=',hasta)
     .get().then(function(snap) {
       PA._marcacionesDetalle = PA._marcacionesDetalle || {};
-      // Agrupar por fecha → empleado
-      var byFecha = {};
+
+      // Agrupar por empleado → fecha → registros
+      var byEmp = {};  // empId → { nombre, fechas: { fecha → [registros] } }
       snap.forEach(function(d) {
         var m = Object.assign({ _id: d.id }, d.data());
         if (m.empresa !== PA.empresa) return;
         PA._marcacionesDetalle[m._id] = m;
-        if (!byFecha[m.fecha]) byFecha[m.fecha] = {};
-        if (!byFecha[m.fecha][m.empleadoId]) byFecha[m.fecha][m.empleadoId] = { nombre: m.empleadoNombre, registros: [] };
-        byFecha[m.fecha][m.empleadoId].registros.push(m);
+        if (!byEmp[m.empleadoId]) byEmp[m.empleadoId] = { nombre: m.empleadoNombre, fechas: {} };
+        if (!byEmp[m.empleadoId].fechas[m.fecha]) byEmp[m.empleadoId].fechas[m.fecha] = [];
+        byEmp[m.empleadoId].fechas[m.fecha].push(m);
       });
 
-      var fechas = Object.keys(byFecha).sort().reverse(); // más reciente primero
-      if (!fechas.length) {
+      var empIds = Object.keys(byEmp).sort(function(a,b){
+        return byEmp[a].nombre.localeCompare(byEmp[b].nombre);
+      });
+
+      if (!empIds.length) {
         rc.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted)">Sin marcaciones en este rango</div>';
         return;
       }
 
+      var diasSem = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+      var meses   = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
       var tiposLabel = {
-        entrada:'🏢 Entrada', almuerzo_salida:'🍽️ Sal. almuerzo',
-        almuerzo_regreso:'↩️ Reg. almuerzo', salida:'🏠 Salida',
-        entrada_adicional:'⚡ Ent. adicional', salida_adicional:'⚡ Sal. adicional'
+        entrada:'🏢 Entrada', almuerzo_salida:'🍽️ Sal. alm.',
+        almuerzo_regreso:'↩️ Reg. alm.', salida:'🏠 Salida',
+        entrada_adicional:'⚡ Ent. adic.', salida_adicional:'⚡ Sal. adic.'
       };
       var tiposColor = {
-        entrada:'var(--accent)', salida:'#f85149',
-        almuerzo_salida:'var(--warn)', almuerzo_regreso:'var(--accent2)',
-        entrada_adicional:'var(--purple)', salida_adicional:'var(--purple)'
+        entrada:'#2ea043', salida:'#f85149',
+        almuerzo_salida:'#e8a020', almuerzo_regreso:'#388bfd',
+        entrada_adicional:'#bc8cff', salida_adicional:'#bc8cff'
       };
 
-      var html = '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">'+snap.size+' registros en '+fechas.length+' día(s)</div>';
+      var totalReg = snap.size;
+      var html = '<div style="font-size:12px;color:#7d8590;margin-bottom:14px">'+totalReg+' registros · '+empIds.length+' empleado(s)</div>';
 
-      fechas.forEach(function(fecha) {
-        var empIds = Object.keys(byFecha[fecha]);
-        // Encabezado del día
-        var fechaObj = new Date(fecha+'T12:00:00');
-        var diasSem = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
-        var meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-        var fechaLabel = diasSem[fechaObj.getDay()]+' '+fechaObj.getDate()+' '+meses[fechaObj.getMonth()]+' '+fechaObj.getFullYear();
+      // ── POR EMPLEADO ──────────────────────────────────────────────
+      empIds.forEach(function(eid) {
+        var emp = byEmp[eid];
+        var fechas = Object.keys(emp.fechas).sort().reverse();
+        var totalEmp = fechas.reduce(function(s,f){ return s + emp.fechas[f].length; }, 0);
 
-        html += '<div style="margin-bottom:16px">'
-          +'<div style="font-size:12px;font-weight:700;color:var(--accent2);text-transform:uppercase;letter-spacing:.8px;padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:8px">📅 '+fechaLabel+'</div>';
+        // Sección de empleado
+        var empUid = 'emp_'+eid.replace(/[^a-z0-9]/gi,'_');
+        html += '<div style="margin-bottom:16px;border:1.5px solid #30363d;border-radius:14px;overflow:hidden">'
+          // Header del empleado — siempre visible
+          +'<div style="background:#161b22;padding:12px 14px;display:flex;align-items:center;justify-content:space-between">'
+          +'<div>'
+          +'<div style="font-weight:700;font-size:14px;color:#e6edf3">👤 '+emp.nombre+'</div>'
+          +'<div style="font-size:11px;color:#7d8590;margin-top:2px">'+totalEmp+' marcaciones en '+fechas.length+' día(s)</div>'
+          +'</div>'
+          +'<div style="display:flex;gap:6px;align-items:center">'
+          +'<button onclick="paToggleEmpHist(\''+empUid+'\')" id="btn_'+empUid+'" '
+          +'style="background:#21262d;border:1px solid #30363d;color:#7d8590;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer">▼ Ver días</button>'
+          +'</div></div>';
 
-        empIds.forEach(function(eid) {
-          var emp = byFecha[fecha][eid];
-          emp.registros.sort(function(a,b){ return (a.ts||0)-(b.ts||0); });
-          html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:8px">'
-            +'<div style="font-weight:700;font-size:13px;margin-bottom:10px;color:var(--text)">👤 '+emp.nombre+'</div>'
-            +'<table style="width:100%;border-collapse:collapse;font-size:13px">'
-            +'<thead><tr style="border-bottom:1px solid var(--border)">'
-            +'<th style="text-align:left;padding:4px 8px;font-size:11px;color:var(--muted);font-weight:600">TIPO</th>'
-            +'<th style="text-align:left;padding:4px 8px;font-size:11px;color:var(--muted);font-weight:600">HORA</th>'
-            +'<th style="text-align:left;padding:4px 8px;font-size:11px;color:var(--muted);font-weight:600">INFO</th>'
-            +'<th style="text-align:right;padding:4px 8px;font-size:11px;color:var(--muted);font-weight:600">ACCIONES</th>'
+        // Días — colapsados por defecto (display:none)
+        html += '<div id="'+empUid+'" style="display:none">';
+
+        fechas.forEach(function(fecha, fi) {
+          var registros = emp.fechas[fecha].slice().sort(function(a,b){ return (a.ts||0)-(b.ts||0); });
+          var fechaObj  = new Date(fecha+'T12:00:00');
+          var fechaLabel = diasSem[fechaObj.getDay()]+' '+fechaObj.getDate()+' '+meses[fechaObj.getMonth()]+' '+fechaObj.getFullYear();
+          var diaUid    = empUid+'_dia_'+fecha.replace(/-/g,'');
+
+          // Resumen del día (marcaciones en chips)
+          var chips = registros.map(function(r){
+            var h = r.ts ? paFmtHora(r.ts) : '—';
+            var col = tiposColor[r.tipo]||'#7d8590';
+            return '<span style="background:'+col+'20;border:1px solid '+col+'40;border-radius:6px;padding:2px 7px;font-size:11px;color:'+col+';font-family:monospace;white-space:nowrap">'
+              +(tiposLabel[r.tipo]||r.tipo)+' '+h+'</span>';
+          }).join(' ');
+
+          var retrasos = registros.filter(function(r){ return r.minutosRetraso>0; });
+          var tardeBadge = retrasos.length ? ' <span style="color:#e8a020;font-size:10px">⚠ +'+retrasos[0].minutosRetraso+'min</span>' : '';
+
+          // Header del día — colapsable
+          var bgDia = fi%2===0 ? '#0d1117' : '#0a0f16';
+          html += '<div style="border-top:1px solid #30363d">'
+            +'<div onclick="paToggleDiaHist(\''+diaUid+'\')" '
+            +'style="padding:10px 14px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;background:'+bgDia+'">'
+            +'<div>'
+            +'<div style="font-size:12px;font-weight:600;color:#e6edf3">📅 '+fechaLabel+tardeBadge+'</div>'
+            +'<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">'+chips+'</div>'
+            +'</div>'
+            +'<span id="ico_'+diaUid+'" style="color:#7d8590;font-size:14px;margin-left:8px;flex-shrink:0">›</span>'
+            +'</div>';
+
+          // Detalle del día — colapsado por defecto
+          html += '<div id="'+diaUid+'" style="display:none;padding:0 14px 10px;background:'+bgDia+'">';
+          html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:4px">'
+            +'<thead><tr style="border-bottom:1px solid #30363d">'
+            +'<th style="text-align:left;padding:4px 6px;font-size:10px;color:#7d8590;font-weight:600">TIPO</th>'
+            +'<th style="text-align:left;padding:4px 6px;font-size:10px;color:#7d8590;font-weight:600">HORA</th>'
+            +'<th style="text-align:left;padding:4px 6px;font-size:10px;color:#7d8590;font-weight:600">INFO</th>'
+            +'<th style="text-align:right;padding:4px 6px;font-size:10px;color:#7d8590;font-weight:600">ACCIONES</th>'
             +'</tr></thead><tbody>';
 
-          emp.registros.forEach(function(r) {
-            var hora = r.ts ? paFmtHora(r.ts) : '—';
-            var color = tiposColor[r.tipo] || 'var(--text)';
-            var retraso = r.minutosRetraso > 0 ? '<span style="color:var(--warn);font-size:11px"> ⚠+'+r.minutosRetraso+'min</span>' : '';
-            var badges = (r.fotoRef||r.foto?'📸 ':'')+(r.ubicacion&&r.ubicacion.lat?'📍':'');
-            html += '<tr style="border-bottom:1px solid var(--border)">'
-              +'<td style="padding:8px;color:'+color+';font-weight:600">'+( tiposLabel[r.tipo]||r.tipo)+'</td>'
-              +'<td style="padding:8px;font-family:\'JetBrains Mono\',monospace;font-weight:700">'+hora+retraso+'</td>'
-              +'<td style="padding:8px;font-size:11px;color:var(--muted)">'+badges+(r.centroNombre?' · '+r.centroNombre:'')+(r.observacion?' · '+r.observacion.slice(0,30):'')+'</td>'
-              +'<td style="padding:8px;text-align:right;white-space:nowrap">'
-              +'<button onclick="paVerMarcacion(\''+r._id+'\')" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;color:var(--text);margin-right:4px">👁 Ver</button>'
-              +'<button onclick="paEditarMarcacion(\''+r._id+'\')" style="background:rgba(56,139,253,.1);border:1px solid rgba(56,139,253,.3);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;color:var(--accent2);margin-right:4px">✏ Editar</button>'
-              +'<button onclick="paEliminarMarcacion(\''+r._id+'\')" style="background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;color:var(--red)">✕</button>'
+          registros.forEach(function(r) {
+            var hora  = r.ts ? paFmtHora(r.ts) : '—';
+            var color = tiposColor[r.tipo]||'#e6edf3';
+            var retr  = r.minutosRetraso>0 ? ' <span style="color:#e8a020;font-size:10px">+'+r.minutosRetraso+'min</span>' : '';
+            var badges = (r.fotoRef||r.foto?'📸':'')+(r.ubicacion&&r.ubicacion.lat?'📍':'');
+            html += '<tr style="border-bottom:1px solid #21262d">'
+              +'<td style="padding:6px;color:'+color+';font-weight:600">'+( tiposLabel[r.tipo]||r.tipo)+'</td>'
+              +'<td style="padding:6px;font-family:monospace;font-weight:700;color:#e6edf3">'+hora+retr+'</td>'
+              +'<td style="padding:6px;color:#7d8590">'+badges+(r.centroNombre?' '+r.centroNombre:'')+'</td>'
+              +'<td style="padding:6px;text-align:right;white-space:nowrap">'
+              +'<button onclick="paVerMarcacion(\''+r._id+'\')" style="background:#21262d;border:1px solid #30363d;border-radius:5px;padding:3px 7px;font-size:10px;cursor:pointer;color:#e6edf3;margin-right:3px">👁</button>'
+              +'<button onclick="paEditarMarcacion(\''+r._id+'\')" style="background:rgba(56,139,253,.1);border:1px solid rgba(56,139,253,.3);border-radius:5px;padding:3px 7px;font-size:10px;cursor:pointer;color:#388bfd;margin-right:3px">✏</button>'
+              +'<button onclick="paEliminarMarcacion(\''+r._id+'\')" style="background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);border-radius:5px;padding:3px 7px;font-size:10px;cursor:pointer;color:#f85149">✕</button>'
               +'</td></tr>';
           });
 
-          // Fila para agregar marcación manual
-          html += '<tr><td colspan="4" style="padding:6px 4px">'
-            +'<button onclick="paAgregarMarcacion(\''+eid+'\',\''+emp.nombre+'\',\''+fecha+'\')" style="background:rgba(46,160,67,.08);border:1px dashed rgba(46,160,67,.3);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;color:var(--accent);width:100%">+ Agregar marcación manual</button>'
+          html += '<tr><td colspan="4" style="padding:4px 0">'
+            +'<button onclick="paAgregarMarcacion(\''+eid+'\',\''+emp.nombre+'\',\''+fecha+'\')" '
+            +'style="background:rgba(46,160,67,.08);border:1px dashed rgba(46,160,67,.3);border-radius:5px;padding:4px 10px;font-size:11px;cursor:pointer;color:#2ea043;width:100%">+ Agregar marcación</button>'
             +'</td></tr>';
-          html += '</tbody></table></div>';
+          html += '</tbody></table></div></div>'; // cierra día
         });
-        html += '</div>';
+
+        html += '</div></div>'; // cierra días + empleado
       });
 
       rc.innerHTML = html;
     }).catch(function(e) {
-      rc.innerHTML = '<div style="color:var(--red)">Error: '+e.message+'</div>';
+      rc.innerHTML = '<div style="color:#f85149;padding:20px">Error: '+e.message+'</div>';
     });
+}
+
+function paToggleEmpHist(empUid) {
+  var div = document.getElementById(empUid);
+  var btn = document.getElementById('btn_'+empUid);
+  if (!div) return;
+  var showing = div.style.display !== 'none';
+  div.style.display = showing ? 'none' : 'block';
+  if (btn) btn.textContent = showing ? '▼ Ver días' : '▲ Ocultar';
+}
+
+function paToggleDiaHist(diaUid) {
+  var div = document.getElementById(diaUid);
+  var ico = document.getElementById('ico_'+diaUid);
+  if (!div) return;
+  var showing = div.style.display !== 'none';
+  div.style.display = showing ? 'none' : 'block';
+  if (ico) ico.textContent = showing ? '›' : '∨';
 }
 
 function paEditarMarcacion(marcId) {
@@ -3343,57 +3409,184 @@ function paAdminConfig(content) {
     PA.feriados = PA_FERIADOS_SV.map(function(md){ return yr+'-'+md; });
   }
 
-  var diasOpts = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'].map(function(d,i){
-    var sel = PA.horario.diasLaborales.indexOf(i) >= 0 ? ' selected' : '';
-    return '<option value="'+i+'"'+sel+'>'+d+'</option>';
-  }).join('');
+  // Horarios por rol actuales
+  var horRoles = PA.horariosRol || {};
+  var roles = ['admin','supervisor','empleado','motorista','tecnico','vigilante','cocinero','limpieza','otro'];
+
+  function _horCard(titulo, prefix, src) {
+    return '<div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:14px;margin-bottom:10px">'
+      +'<div style="font-size:12px;font-weight:700;color:#388bfd;text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">'+titulo+'</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">ENTRADA</label>'
+      +'<input type="time" id="'+prefix+'_entrada" value="'+(src.horaEntrada||'07:00')+'" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:14px"></div>'
+      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">SALIDA</label>'
+      +'<input type="time" id="'+prefix+'_salida" value="'+(src.horaSalida||'17:00')+'" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:14px"></div>'
+      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">TOLERANCIA (min)</label>'
+      +'<input type="number" id="'+prefix+'_tol" value="'+(src.minutosTolerancia||10)+'" min="0" max="60" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:14px"></div>'
+      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">ALMUERZO (min)</label>'
+      +'<input type="number" id="'+prefix+'_alm" value="'+(src.minutosAlmuerzo||60)+'" min="0" max="120" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:14px"></div>'
+      +'</div></div>';
+  }
+
+  // Horarios por empleado individuales
+  var horEmpHtml = '';
+  PA.empleados.forEach(function(emp) {
+    var empHor = (PA.horariosEmp || {})[emp.id] || {};
+    var hasCustom = Object.keys(empHor).length > 0;
+    var badgeStyle = hasCustom
+      ? 'background:rgba(46,160,67,.15);color:#2ea043;border:1px solid rgba(46,160,67,.3)'
+      : 'background:#21262d;color:#7d8590;border:1px solid #30363d';
+    horEmpHtml += '<div style="border:1px solid #30363d;border-radius:10px;margin-bottom:8px;overflow:hidden">'
+      +'<div onclick="paToglHorEmp(\'hor_'+emp.id+'\')" style="padding:10px 14px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;background:#161b22">'
+      +'<div style="font-size:13px;font-weight:600;color:#e6edf3">'+emp.nombre+'</div>'
+      +'<div style="display:flex;gap:8px;align-items:center">'
+      +'<span style="font-size:10px;padding:2px 8px;border-radius:10px;'+badgeStyle+'">'+(hasCustom?'Horario propio':'Usa el del rol')+'</span>'
+      +'<span style="color:#7d8590;font-size:14px">›</span>'
+      +'</div></div>'
+      +'<div id="hor_'+emp.id+'" style="display:none;padding:12px 14px;background:#0d1117">'
+      +'<div style="font-size:11px;color:#7d8590;margin-bottom:10px">Si defines aquí, tiene prioridad sobre el horario del rol.</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">'
+      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">ENTRADA</label>'
+      +'<input type="time" id="hemp_'+emp.id+'_entrada" value="'+(empHor.horaEntrada||'')+'" placeholder="07:00" style="width:100%;padding:8px;background:#161b22;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:13px"></div>'
+      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">SALIDA</label>'
+      +'<input type="time" id="hemp_'+emp.id+'_salida" value="'+(empHor.horaSalida||'')+'" placeholder="17:00" style="width:100%;padding:8px;background:#161b22;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:13px"></div>'
+      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">TOLERANCIA (min)</label>'
+      +'<input type="number" id="hemp_'+emp.id+'_tol" value="'+(empHor.minutosTolerancia||'')+'" placeholder="10" min="0" max="60" style="width:100%;padding:8px;background:#161b22;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:13px"></div>'
+      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">ALMUERZO (min)</label>'
+      +'<input type="number" id="hemp_'+emp.id+'_alm" value="'+(empHor.minutosAlmuerzo||'')+'" placeholder="60" min="0" max="120" style="width:100%;padding:8px;background:#161b22;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:13px"></div>'
+      +'</div>'
+      +'<div style="display:flex;gap:8px">'
+      +'<button onclick="paGuardarHorEmp(\''+emp.id+'\',\''+emp.nombre+'\')" style="flex:2;padding:8px;background:#388bfd;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">💾 Guardar</button>'
+      +'<button onclick="paBorrarHorEmp(\''+emp.id+'\')" style="flex:1;padding:8px;background:rgba(248,81,73,.1);color:#f85149;border:1px solid rgba(248,81,73,.3);border-radius:8px;font-size:12px;cursor:pointer;font-family:inherit">✕ Quitar</button>'
+      +'</div>'
+      +'</div></div>';
+  });
 
   var ferHTML = PA.feriados.slice().sort().map(function(f){
-    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">'
-      +'<span style="font-size:13px;font-family:\'JetBrains Mono\',monospace">'+f+'</span>'
-      +'<button style="background:none;border:none;color:var(--red);cursor:pointer;font-size:16px" onclick="paDelFeriado(this,\''+f+'\')">✕</button></div>';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #30363d">'
+      +'<span style="font-size:13px;font-family:monospace">'+f+'</span>'
+      +'<button style="background:none;border:none;color:#f85149;cursor:pointer;font-size:16px" onclick="paDelFeriado(this,\''+f+'\')">✕</button></div>';
   }).join('');
 
-  var html = '<div class="section-title">⏰ Horario laboral</div>'
-    +'<div class="info-box">Este horario se usa para calcular llegadas tardías y horas extra automáticamente.</div>'
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
-    +'<div class="fg" style="margin:0"><label>Hora entrada</label><input type="time" id="cfgEntrada" value="'+(h.horaEntrada||'07:00')+'" style="font-size:16px"></div>'
-    +'<div class="fg" style="margin:0"><label>Hora salida</label><input type="time" id="cfgSalida" value="'+(h.horaSalida||'17:00')+'" style="font-size:16px"></div>'
-    +'<div class="fg" style="margin:0"><label>Tolerancia (min)</label><input type="number" id="cfgTol" value="'+(h.minutosTolerancia||10)+'" min="0" max="60" style="font-size:16px"></div>'
-    +'<div class="fg" style="margin:0"><label>Almuerzo (min)</label><input type="number" id="cfgAlm" value="'+(h.minutosAlmuerzo||60)+'" min="0" max="120" style="font-size:16px"></div>'
+  var html =
+    // ── 1. HORARIO POR ROL ──────────────────────────────────────
+    '<div style="font-size:13px;font-weight:700;color:#e6edf3;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid #30363d">⏰ Horarios por Rol</div>'
+    +'<div style="font-size:12px;color:#7d8590;margin-bottom:12px">Cada rol puede tener su propio horario de entrada y tolerancia.</div>'
+    +_horCard('🏢 Horario General (predeterminado)', 'hor_general', h)
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px">'
+    + roles.map(function(rol){
+        var src = horRoles[rol] || {};
+        return '<button onclick="paToglHorRol(\'hor_rol_'+rol+'\')" style="padding:8px;background:#161b22;border:1px solid '+(Object.keys(src).length?'#388bfd':'#30363d')+';border-radius:8px;cursor:pointer;font-size:12px;color:'+(Object.keys(src).length?'#388bfd':'#7d8590')+';text-align:left">'+rol+'</button>';
+      }).join('')
     +'</div>'
-    +'<div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px">'
-    +'<div style="font-size:11px;font-weight:700;color:var(--warn);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px">📅 Horario Sábado</div>'
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
-    +'<div class="fg" style="margin:0"><label>Entrada sábado</label><input type="time" id="cfgSabEntrada" value="'+(h.sabadoEntrada||'08:00')+'" style="font-size:16px"></div>'
-    +'<div class="fg" style="margin:0"><label>Salida sábado</label><input type="time" id="cfgSabSalida" value="'+(h.sabadoSalida||'12:00')+'" style="font-size:16px"></div>'
-    +'</div>'
-    +'<div style="font-size:11px;color:var(--muted);margin-top:6px">Todo lo que exceda este horario se calculará como horas extra.</div>'
-    +'</div>'
-    +'<div class="fg"><label>Días laborales</label>'
-    +'<select id="cfgDias" multiple size="4" style="font-size:14px;width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:12px;color:var(--text)">'+diasOpts+'</select>'
-    +'<div style="font-size:11px;color:var(--muted);margin-top:4px">Mantén Ctrl/Cmd para seleccionar varios</div></div>'
-    +'<div style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);border-radius:12px;padding:12px;margin-bottom:12px">'
-    +'<div style="font-size:11px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">🔐 Contraseña de administrador</div>'
-    +'<input type="password" id="cfgAdminPin" placeholder="Nueva contraseña (8+ chars, mayúsculas, números, 2+ símbolos)" style="width:100%;padding:12px;background:var(--surface);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:15px;outline:none">'
-    +'<div style="font-size:11px;color:var(--muted);margin-top:6px">Ejemplo: Admin@Fisdc2026! — Dejar vacío para no cambiar.</div>'
-    +'</div>'
-    +'<button class="big-btn" onclick="paGuardarHorario()">💾 Guardar configuración</button>'
+    + roles.map(function(rol){
+        var src = horRoles[rol] || {};
+        return '<div id="hor_rol_'+rol+'" style="display:none">'+_horCard('Horario: '+rol, 'hrol_'+rol, src)+'</div>';
+      }).join('')
+    +'<button onclick="paGuardarHorariosRol()" style="width:100%;padding:12px;background:#388bfd;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:20px">💾 Guardar horarios por rol</button>'
 
-    +'<div class="section-title" style="margin-top:24px">🗓️ Días feriados ('+PA.feriados.length+')</div>'
-    +'<div class="info-box">Feriados de El Salvador precargados. Agrega o elimina según el año.</div>'
+    // ── 2. HORARIO POR EMPLEADO ──────────────────────────────────
+    +'<div style="font-size:13px;font-weight:700;color:#e6edf3;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid #30363d">👤 Horario individual por empleado</div>'
+    +'<div style="font-size:12px;color:#7d8590;margin-bottom:12px">Sobreescribe el horario del rol para ese empleado específico.</div>'
+    +horEmpHtml
+
+    // ── 3. CONTRASEÑA ADMIN ──────────────────────────────────────
+    +'<div style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);border-radius:12px;padding:14px;margin-top:20px;margin-bottom:12px">'
+    +'<div style="font-size:11px;font-weight:700;color:#f85149;text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">🔐 Contraseña de administrador</div>'
+    +'<input type="password" id="cfgAdminPin" placeholder="Nueva contraseña (8+ chars, mayúsculas, números, 2+ símbolos)" style="width:100%;padding:12px;background:#161b22;border:1.5px solid #30363d;border-radius:10px;color:#e6edf3;font-family:inherit;font-size:14px;outline:none">'
+    +'<div style="font-size:11px;color:#7d8590;margin-top:6px">Dejar vacío para no cambiar.</div>'
+    +'</div>'
+    +'<button onclick="paGuardarHorario()" style="width:100%;padding:12px;background:#2ea043;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:20px">💾 Guardar horario general + contraseña</button>'
+
+    // ── 4. FERIADOS ──────────────────────────────────────────────
+    +'<div style="font-size:13px;font-weight:700;color:#e6edf3;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #30363d">🗓️ Días feriados ('+PA.feriados.length+')</div>'
     +'<div id="ferListEl">'+ferHTML+'</div>'
     +'<div style="display:flex;gap:8px;margin-top:12px">'
-    +'<input type="date" id="nuevoFeriado" style="flex:1;font-size:14px;padding:10px;background:var(--surface);border:1.5px solid var(--border);border-radius:10px;color:var(--text)">'
-    +'<button class="big-btn" style="flex:0;padding:10px 16px;font-size:13px" onclick="paAddFeriado()">+ Agregar</button>'
+    +'<input type="date" id="nuevoFeriado" style="flex:1;font-size:14px;padding:10px;background:#161b22;border:1.5px solid #30363d;border-radius:10px;color:#e6edf3">'
+    +'<button onclick="paAddFeriado()" style="padding:10px 16px;background:#388bfd;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">+ Agregar</button>'
     +'</div>'
-    +'<button class="big-btn outline mt8" onclick="paGuardarFeriados()">💾 Guardar feriados</button>'
+    +'<button onclick="paGuardarFeriados()" style="width:100%;padding:10px;background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:8px;margin-bottom:20px">💾 Guardar feriados</button>'
 
-    +'<div class="section-title" style="margin-top:24px">📋 Datos vinculados del sistema</div>'
-    +'<div class="report-row"><div><div class="report-emp">Centros de costo</div><div class="report-detail">'+PA.centros.length+' cargados desde portalesPublicos</div></div><span style="color:var(--accent)">✓</span></div>'
-    +'<div class="report-row"><div><div class="report-emp">Empleados</div><div class="report-detail">'+PA.empleados.length+' cargados desde mantenimiento.tecnicos</div></div><span style="color:var(--accent)">✓</span></div>';
+    // ── 5. DATOS SISTEMA ──────────────────────────────────────────
+    +'<div style="font-size:13px;font-weight:700;color:#e6edf3;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #30363d">📋 Datos del sistema</div>'
+    +'<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #21262d"><span style="color:#7d8590;font-size:13px">Centros de costo</span><span style="color:#2ea043;font-size:13px">'+PA.centros.length+' cargados ✓</span></div>'
+    +'<div style="display:flex;justify-content:space-between;padding:8px 0"><span style="color:#7d8590;font-size:13px">Empleados</span><span style="color:#2ea043;font-size:13px">'+PA.empleados.length+' cargados ✓</span></div>';
 
   content.innerHTML = html;
+}
+
+function paToglHorRol(id) {
+  var el = document.getElementById(id);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function paToglHorEmp(id) {
+  var el = document.getElementById(id);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function _leerHorForm(prefix) {
+  var e = function(id){ return document.getElementById(prefix+id); };
+  var entrada = e('_entrada') ? e('_entrada').value : '';
+  var salida  = e('_salida')  ? e('_salida').value  : '';
+  if (!entrada && !salida) return null;
+  return {
+    horaEntrada:       entrada || '07:00',
+    horaSalida:        salida  || '17:00',
+    minutosTolerancia: parseInt((e('_tol')||{}).value||10)||10,
+    minutosAlmuerzo:   parseInt((e('_alm')||{}).value||60)||60
+  };
+}
+
+function paGuardarHorariosRol() {
+  var horRoles = {};
+  var roles = ['admin','supervisor','empleado','motorista','tecnico','vigilante','cocinero','limpieza','otro'];
+  roles.forEach(function(rol){
+    var src = _leerHorForm('hrol_'+rol);
+    if (src) horRoles[rol] = src;
+  });
+  // Horario general
+  var general = _leerHorForm('hor_general');
+  if (general) {
+    PA.horario.horaEntrada = general.horaEntrada;
+    PA.horario.horaSalida  = general.horaSalida;
+    PA.horario.minutosTolerancia = general.minutosTolerancia;
+    PA.horario.minutosAlmuerzo   = general.minutosAlmuerzo;
+  }
+  PA.horariosRol = horRoles;
+  // Guardar en paConfig
+  paDb.collection('paConfig').doc(PA.empresa).set({
+    horario: PA.horario,
+    horariosRol: horRoles
+  }, { merge: true }).then(function(){
+    paToast('✅ Horarios por rol guardados');
+  }).catch(function(e){ paToast('Error: '+e.message, true); });
+}
+
+function paGuardarHorEmp(empId, empNombre) {
+  var entrada = (document.getElementById('hemp_'+empId+'_entrada')||{}).value||'';
+  var salida  = (document.getElementById('hemp_'+empId+'_salida') ||{}).value||'';
+  if (!entrada && !salida) { paToast('Ingresa al menos entrada y salida', true); return; }
+  var horEmp = PA.horariosEmp || {};
+  horEmp[empId] = {
+    horaEntrada:       entrada||'07:00',
+    horaSalida:        salida||'17:00',
+    minutosTolerancia: parseInt((document.getElementById('hemp_'+empId+'_tol')||{}).value||10)||10,
+    minutosAlmuerzo:   parseInt((document.getElementById('hemp_'+empId+'_alm')||{}).value||60)||60
+  };
+  PA.horariosEmp = horEmp;
+  paDb.collection('paConfig').doc(PA.empresa).set({ horariosEmp: horEmp }, { merge: true })
+    .then(function(){ paToast('✅ Horario guardado para '+empNombre); })
+    .catch(function(e){ paToast('Error: '+e.message, true); });
+}
+
+function paBorrarHorEmp(empId) {
+  var horEmp = PA.horariosEmp || {};
+  delete horEmp[empId];
+  PA.horariosEmp = horEmp;
+  paDb.collection('paConfig').doc(PA.empresa).set({ horariosEmp: horEmp }, { merge: true })
+    .then(function(){ paToast('Horario individual eliminado'); paAdminTab('config'); })
+    .catch(function(e){ paToast('Error: '+e.message, true); });
 }
 
 
@@ -4264,6 +4457,8 @@ window.addEventListener('DOMContentLoaded', function() {
         if (cfg.adminPin) PA.adminPin = cfg.adminPin;
         if (cfg.horario)  PA.horario  = Object.assign(PA.horario, cfg.horario);
         if (cfg.feriados && cfg.feriados.length) PA.feriados = cfg.feriados;
+        if (cfg.horariosRol) PA.horariosRol = cfg.horariosRol;
+        if (cfg.horariosEmp) PA.horariosEmp = cfg.horariosEmp;
       }
       if (!PA.feriados.length) {
         var yr = new Date().getFullYear();
