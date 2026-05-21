@@ -807,7 +807,7 @@ button:active{opacity:.8;transform:scale(.95)}
 <!-- ══════════════════════════════════════════════════
      SCREEN: SUCCESS
 ══════════════════════════════════════════════════ -->
-<div class="screen" id="scSuccess">
+<div class="screen" id="scSuccess" style="background:var(--bg);min-height:100vh">
   <div class="portal-body" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh">
     <div class="success-anim">
       <span class="success-icon" id="successIcon">✅</span>
@@ -962,7 +962,7 @@ function paShow(screenId) {
   document.body.scrollTop = 0;
 
   document.body.classList.toggle('scrollable',
-    ['scMarcar','scHorasExtra','scCanje','scVacaciones','scHistorial','scAdmin','scDash'].indexOf(screenId) >= 0);
+    ['scMarcar','scHorasExtra','scCanje','scVacaciones','scHistorial','scAdmin','scDash','scSuccess'].indexOf(screenId) >= 0);
   // Side effects — wrapped in try/catch to prevent blank screens
   try {
     if (screenId === 'scDash')      paUpdateDash();
