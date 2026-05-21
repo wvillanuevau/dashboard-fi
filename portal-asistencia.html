@@ -1231,22 +1231,21 @@ function paVerifyAdminPwd() {
   if (match) {
     // Remove ALL admin login modals (handles multiple taps)
     document.querySelectorAll('#modalAdminLogin').forEach(function(m){ m.remove(); });
-    // Resetear scroll que pudo haber dejado el modal
     window.scrollTo(0,0);
     document.body.scrollTop = 0;
     PA.isAdmin = true;
     var empBadge = document.getElementById('adminEmpBadge');
     if (empBadge) empBadge.textContent = PA.empresa;
-    console.log('[Admin] Login OK — PA.empleados.length:', PA.empleados.length);
+    console.log('[Admin] Login OK — creando panel admin dinámico');
     if (!PA.empleados.length) {
       console.log('[Admin] Cargando empleados...');
       paLoadEmpleados(function() {
-        console.log('[Admin] Empleados cargados — llamando paShow scAdmin');
-        paShow('scAdmin');
+        console.log('[Admin] Empleados cargados — mostrando admin');
+        _paShowAdminPanel();
       });
     } else {
-      console.log('[Admin] Empleados ya cargados — llamando paShow scAdmin');
-      paShow('scAdmin');
+      console.log('[Admin] Empleados ya cargados — mostrando admin');
+      _paShowAdminPanel();
     }
   } else {
     if (err) err.textContent = '❌ Incorrecta — ' + entered.length + ' chars ingresados';
@@ -2801,6 +2800,53 @@ function paLoadHistorial() {
 // ══════════════════════════════════════════════════════
 // ADMIN
 // ══════════════════════════════════════════════════════
+// ── Panel admin dinámico (evita problemas con sistema .screen) ──────
+function _paShowAdminPanel() {
+  // Eliminar panel existente si hay
+  var old = document.getElementById('paAdminPanel'); if(old) old.remove();
+
+  // Crear div fullscreen igual que los modales (que siempre se ven)
+  var panel = document.createElement('div');
+  panel.id = 'paAdminPanel';
+  panel.style.cssText = 'position:fixed;inset:0;background:#0d1117;color:#e6edf3;z-index:200;display:flex;flex-direction:column;overflow:hidden;font-family:\'Space Grotesk\',sans-serif';
+
+  // Header
+  var tabs = [
+    {id:'hoy',    label:'📅 Hoy'},
+    {id:'hist',   label:'🔍 Historial'},
+    {id:'emps',   label:'👥 Empleados'},
+    {id:'extra',  label:'⏰ Horas extra'},
+    {id:'reporte',label:'📊 Reporte'},
+    {id:'config', label:'⚙️ Config'}
+  ];
+
+  var tabsHtml = tabs.map(function(t){
+    return '<button id="atab_'+t.id+'" onclick="paAdminTab(\''+t.id+'\')" '
+      +'style="flex:1;min-width:70px;padding:10px 6px;background:none;border:none;border-bottom:2px solid transparent;'
+      +'color:#7d8590;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap">'
+      +t.label+'</button>';
+  }).join('');
+
+  panel.innerHTML =
+    '<div style="background:#161b22;border-bottom:1px solid #30363d;padding:12px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0">'
+    +'<button onclick="_paCerrarAdmin()" style="background:none;border:none;color:#7d8590;cursor:pointer;font-size:20px;padding:4px">←</button>'
+    +'<div style="font-weight:700;font-size:15px;flex:1">Administración</div>'
+    +'<div style="font-size:11px;background:#21262d;border:1px solid #30363d;padding:3px 10px;border-radius:20px;color:#7d8590">'+PA.empresa+'</div>'
+    +'</div>'
+    +'<div style="display:flex;background:#161b22;border-bottom:1px solid #30363d;overflow-x:auto;flex-shrink:0">'+tabsHtml+'</div>'
+    +'<div id="adminContent" style="flex:1;overflow-y:auto;padding:16px 18px;max-width:600px;width:100%;margin:0 auto"></div>';
+
+  document.body.appendChild(panel);
+  console.log('[Admin] Panel creado — offsetHeight:', panel.offsetHeight);
+  paAdminTab(PA.adminTab || 'hoy');
+}
+
+function _paCerrarAdmin() {
+  var panel = document.getElementById('paAdminPanel');
+  if(panel) panel.remove();
+  PA.isAdmin = false;
+}
+
 function paAdminTab(tab) {
   PA.adminTab = tab || 'hoy';
   console.log('[Admin] paAdminTab:', tab);
