@@ -2401,9 +2401,12 @@ function _paMostrarExito(docData, calc) {
   // Insertar banner al tope del dashboard
   var dash = document.getElementById('scDash');
   if (!dash) return;
+  var old2 = document.getElementById('paBannerExito'); if(old2) old2.remove();
   var banner = document.createElement('div');
   banner.id = 'paBannerExito';
   banner.style.cssText = 'background:var(--surface);border:2px solid var(--accent);border-radius:16px;padding:24px 20px;margin:16px 18px;text-align:center';
+
+  var cuenta = 5;
   banner.innerHTML =
     '<div style="font-size:56px;margin-bottom:10px">'+info.icon+'</div>'
     +'<div style="font-size:22px;font-weight:700;color:var(--text);margin-bottom:6px">'+info.title+'</div>'
@@ -2411,18 +2414,23 @@ function _paMostrarExito(docData, calc) {
     +'<div style="font-size:18px;font-weight:700;color:var(--accent);margin:10px 0">🕐 '+hora+'</div>'
     +extra
     +'<div style="font-size:11px;color:var(--muted);font-family:monospace;margin:12px 0">'+docData.folio+'</div>'
-    +'<button onclick="document.getElementById(\'paBannerExito\').remove()" '
-    +'style="padding:8px 24px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;font-family:inherit">✕ Cerrar</button>';
+    +'<div id="paBannerCuenta" style="font-size:12px;color:var(--muted);margin-top:8px">Regresando en '+cuenta+'...</div>';
 
-  // Insertar antes del primer hijo del dash
   dash.insertBefore(banner, dash.firstChild);
   window.scrollTo(0,0);
 
-  // Auto-cerrar después de 8 segundos
-  setTimeout(function(){
-    var b = document.getElementById('paBannerExito');
-    if (b) b.remove();
-  }, 8000);
+  // Cuenta regresiva y redirigir a scLanding (cierra sesión) en 5 segundos
+  var interval = setInterval(function(){
+    cuenta--;
+    var cEl = document.getElementById('paBannerCuenta');
+    if (cEl) cEl.textContent = 'Regresando en '+cuenta+'...';
+    if (cuenta <= 0) {
+      clearInterval(interval);
+      var b = document.getElementById('paBannerExito');
+      if (b) b.remove();
+      paCerrarSesion();
+    }
+  }, 1000);
 }
 
 // ══════════════════════════════════════════════════════
