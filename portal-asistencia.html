@@ -1280,7 +1280,12 @@ function paFmtFecha(ts) {
   return d.toLocaleDateString('es-SV', {weekday:'long', day:'numeric', month:'long'});
 }
 
-function paHoy() { return new Date().toISOString().slice(0, 10); }
+function paHoy() {
+  var d = new Date();
+  var mm = String(d.getMonth()+1).padStart(2,'0');
+  var dd = String(d.getDate()).padStart(2,'0');
+  return d.getFullYear()+'-'+mm+'-'+dd;
+}
 
 // ══════════════════════════════════════════════════════
 // LOAD EMPLEADOS
@@ -2394,43 +2399,41 @@ function _paMostrarExito(docData, calc) {
     extra+='<div style="font-size:11px;color:var(--muted);margin-top:4px">Pendiente de aprobación</div></div>';
   }
 
-  // Ir al dashboard e inyectar banner de éxito arriba
   paShow('scDash');
-  paUpdateDash();
 
-  // Insertar banner al tope del dashboard
-  var dash = document.getElementById('scDash');
-  if (!dash) return;
-  var old2 = document.getElementById('paBannerExito'); if(old2) old2.remove();
-  var banner = document.createElement('div');
-  banner.id = 'paBannerExito';
-  banner.style.cssText = 'background:var(--surface);border:2px solid var(--accent);border-radius:16px;padding:24px 20px;margin:16px 18px;text-align:center';
+  setTimeout(function(){
+    var dash = document.getElementById('scDash');
+    if (!dash) return;
+    var old2 = document.getElementById('paBannerExito'); if(old2) old2.remove();
+    var banner = document.createElement('div');
+    banner.id = 'paBannerExito';
+    banner.style.cssText = 'background:var(--surface);border:2px solid var(--accent);border-radius:16px;padding:24px 20px;margin:16px 18px;text-align:center';
 
-  var cuenta = 5;
-  banner.innerHTML =
-    '<div style="font-size:56px;margin-bottom:10px">'+info.icon+'</div>'
-    +'<div style="font-size:22px;font-weight:700;color:var(--text);margin-bottom:6px">'+info.title+'</div>'
-    +'<div style="font-size:14px;color:var(--muted);margin-bottom:4px">'+info.sub+'</div>'
-    +'<div style="font-size:18px;font-weight:700;color:var(--accent);margin:10px 0">🕐 '+hora+'</div>'
-    +extra
-    +'<div style="font-size:11px;color:var(--muted);font-family:monospace;margin:12px 0">'+docData.folio+'</div>'
-    +'<div id="paBannerCuenta" style="font-size:12px;color:var(--muted);margin-top:8px">Regresando en '+cuenta+'...</div>';
+    var cuenta = 5;
+    banner.innerHTML =
+      '<div style="font-size:56px;margin-bottom:10px">'+info.icon+'</div>'
+      +'<div style="font-size:22px;font-weight:700;color:var(--text);margin-bottom:6px">'+info.title+'</div>'
+      +'<div style="font-size:14px;color:var(--muted);margin-bottom:4px">'+info.sub+'</div>'
+      +'<div style="font-size:18px;font-weight:700;color:var(--accent);margin:10px 0">🕐 '+hora+'</div>'
+      +extra
+      +'<div style="font-size:11px;color:var(--muted);font-family:monospace;margin:12px 0">'+docData.folio+'</div>'
+      +'<div id="paBannerCuenta" style="font-size:12px;color:var(--muted);margin-top:8px">Regresando en '+cuenta+'...</div>';
 
-  dash.insertBefore(banner, dash.firstChild);
-  window.scrollTo(0,0);
+    dash.insertBefore(banner, dash.firstChild);
+    window.scrollTo(0,0);
 
-  // Cuenta regresiva y redirigir a scLanding (cierra sesión) en 5 segundos
-  var interval = setInterval(function(){
-    cuenta--;
-    var cEl = document.getElementById('paBannerCuenta');
-    if (cEl) cEl.textContent = 'Regresando en '+cuenta+'...';
-    if (cuenta <= 0) {
-      clearInterval(interval);
-      var b = document.getElementById('paBannerExito');
-      if (b) b.remove();
-      paCerrarSesion();
-    }
-  }, 1000);
+    var interval = setInterval(function(){
+      cuenta--;
+      var cEl = document.getElementById('paBannerCuenta');
+      if (cEl) cEl.textContent = 'Regresando en '+cuenta+'...';
+      if (cuenta <= 0) {
+        clearInterval(interval);
+        var b = document.getElementById('paBannerExito');
+        if (b) b.remove();
+        paCerrarSesion();
+      }
+    }, 1000);
+  }, 300);
 }
 
 // ══════════════════════════════════════════════════════
@@ -3105,7 +3108,7 @@ function paVerMarcacion(marcId) {
 function paAdminHistorial(content) {
   var hoy = paHoy();
   var hace7 = new Date(); hace7.setDate(hace7.getDate()-6);
-  var desde = hace7.toISOString().slice(0,10);
+  var desde = (function(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');})(hace7);
 
   var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">'
     +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">DESDE</label>'
@@ -3987,7 +3990,7 @@ function paAdminAsignarCompensatorio() {
 }
 
 function paAdminReporte(content) {
-  var hoy  = new Date().toISOString().slice(0,10);
+  var hoy  = paHoy();
   // Default: quincena actual (1-15 o 16-fin del mes)
   var dia  = new Date().getDate();
   var defDesde, defHasta;
@@ -4073,16 +4076,16 @@ function paSetPeriodo(tipo) {
   var y = hoy.getFullYear(), m = hoy.getMonth();
   var desde, hasta;
   if (tipo === 'q1') {
-    desde = new Date(y,m,1).toISOString().slice(0,10);
-    hasta = new Date(y,m,15).toISOString().slice(0,10);
+    desde = (function(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');})(new Date(y,m,1));
+    hasta = (function(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');})(new Date(y,m,15));
   } else if (tipo === 'q2') {
     var ultimo = new Date(y,m+1,0).getDate();
-    desde = new Date(y,m,16).toISOString().slice(0,10);
-    hasta = new Date(y,m,ultimo).toISOString().slice(0,10);
+    desde = (function(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');})(new Date(y,m,16));
+    hasta = (function(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');})(new Date(y,m,ultimo));
   } else {
     var ultimo2 = new Date(y,m+1,0).getDate();
-    desde = new Date(y,m,1).toISOString().slice(0,10);
-    hasta = new Date(y,m,ultimo2).toISOString().slice(0,10);
+    desde = (function(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');})(new Date(y,m,1));
+    hasta = (function(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');})(new Date(y,m,ultimo2));
   }
   var d = document.getElementById('rptDesde');
   var h = document.getElementById('rptHasta');
@@ -4201,7 +4204,7 @@ function paExportarExcel() {
     var fin    = new Date(data.hasta+'T12:00:00');
 
     while (cursor <= fin) {
-      var fechaStr = cursor.toISOString().slice(0,10);
+      var fechaStr = (function(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');})(cursor);
       var diaMarca = marc[fechaStr] || [];
       var mEntrada  = diaMarca.find(function(m){ return m.tipo==='entrada'; });
       var mSalida   = diaMarca.find(function(m){ return m.tipo==='salida'; });
