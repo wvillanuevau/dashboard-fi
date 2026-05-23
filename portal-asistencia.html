@@ -3446,7 +3446,9 @@ function paAdminConfig(content) {
   function _horCard(titulo, prefix, src) {
     return '<div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:14px;margin-bottom:10px">'
       +'<div style="font-size:12px;font-weight:700;color:#388bfd;text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">'+titulo+'</div>'
-      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+      // Lunes-viernes
+      +'<div style="font-size:11px;color:#7d8590;margin-bottom:6px;font-weight:600">📅 LUNES – VIERNES</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px">'
       +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">ENTRADA</label>'
       +'<input type="time" id="'+prefix+'_entrada" value="'+(src.horaEntrada||'07:00')+'" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:14px"></div>'
       +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">SALIDA</label>'
@@ -3455,7 +3457,23 @@ function paAdminConfig(content) {
       +'<input type="number" id="'+prefix+'_tol" value="'+(src.minutosTolerancia||10)+'" min="0" max="60" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:14px"></div>'
       +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">ALMUERZO (min)</label>'
       +'<input type="number" id="'+prefix+'_alm" value="'+(src.minutosAlmuerzo||60)+'" min="0" max="120" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:14px"></div>'
-      +'</div></div>';
+      +'</div>'
+      // Sábado
+      +'<div style="font-size:11px;color:#e8a020;margin-bottom:6px;font-weight:600">📅 SÁBADO</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:8px">'
+      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">ENTRADA</label>'
+      +'<input type="time" id="'+prefix+'_sabEntrada" value="'+(src.sabadoEntrada||'08:00')+'" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:14px"></div>'
+      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">SALIDA</label>'
+      +'<input type="time" id="'+prefix+'_sabSalida" value="'+(src.sabadoSalida||'12:00')+'" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:14px"></div>'
+      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">TOLERANCIA (min)</label>'
+      +'<input type="number" id="'+prefix+'_sabTol" value="'+(src.sabadoTolerancia||10)+'" min="0" max="60" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:14px"></div>'
+      +'<div><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#e6edf3;cursor:pointer;padding-bottom:8px">'
+      +'<input type="checkbox" id="'+prefix+'_trabSab" '+(src.trabajaSabado?'checked':'')+' style="width:15px;height:15px"> Labora</label></div>'
+      +'</div>'
+      // Domingo
+      +'<div style="margin-bottom:4px"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#e6edf3;cursor:pointer">'
+      +'<input type="checkbox" id="'+prefix+'_trabDom" '+(src.trabajaDomingo?'checked':'')+' style="width:15px;height:15px"> Trabaja domingo (genera compensatorio)</label></div>'
+      +'</div>';
   }
 
   // Horarios por empleado individuales
@@ -3463,28 +3481,65 @@ function paAdminConfig(content) {
   PA.empleados.forEach(function(emp) {
     var empHor = (PA.horariosEmp || {})[emp.id] || {};
     var hasCustom = Object.keys(empHor).length > 0;
+    // Determinar qué horario de rol aplica
+    var rolHor = (PA.horariosRol || {})[emp.cargo] || PA.horario;
+    var rolLabel = emp.cargo || 'general';
     var badgeStyle = hasCustom
       ? 'background:rgba(46,160,67,.15);color:#2ea043;border:1px solid rgba(46,160,67,.3)'
       : 'background:#21262d;color:#7d8590;border:1px solid #30363d';
+    var rolInfo = hasCustom
+      ? 'Horario propio'
+      : 'Rol: '+rolLabel+' ('+( rolHor.horaEntrada||'07:00')+' – '+(rolHor.horaSalida||'17:00')+')';
+
+    var INPUT = function(id, val, ph, type, min, max){
+      type=type||'time'; min=min||''; max=max||'';
+      return '<input type="'+type+'" id="hemp_'+emp.id+'_'+id+'" value="'+(val||'')+'" placeholder="'+ph+'" '
+        +(min?'min="'+min+'" ':'' )+(max?'max="'+max+'" ':'')
+        +'style="width:100%;padding:8px;background:#161b22;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:13px">';
+    };
+
     horEmpHtml += '<div style="border:1px solid #30363d;border-radius:10px;margin-bottom:8px;overflow:hidden">'
+      // Header — nombre + cargo + badge horario
       +'<div onclick="paToglHorEmp(\'hor_'+emp.id+'\')" style="padding:10px 14px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;background:#161b22">'
+      +'<div>'
       +'<div style="font-size:13px;font-weight:600;color:#e6edf3">'+emp.nombre+'</div>'
+      +'<div style="font-size:11px;color:#7d8590;margin-top:2px">'+rolLabel+'</div>'
+      +'</div>'
       +'<div style="display:flex;gap:8px;align-items:center">'
-      +'<span style="font-size:10px;padding:2px 8px;border-radius:10px;'+badgeStyle+'">'+(hasCustom?'Horario propio':'Usa el del rol')+'</span>'
+      +'<span style="font-size:10px;padding:2px 8px;border-radius:10px;'+badgeStyle+'">'+rolInfo+'</span>'
       +'<span style="color:#7d8590;font-size:14px">›</span>'
       +'</div></div>'
+      // Cuerpo expandible
       +'<div id="hor_'+emp.id+'" style="display:none;padding:12px 14px;background:#0d1117">'
-      +'<div style="font-size:11px;color:#7d8590;margin-bottom:10px">Si defines aquí, tiene prioridad sobre el horario del rol.</div>'
-      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">'
-      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">ENTRADA</label>'
-      +'<input type="time" id="hemp_'+emp.id+'_entrada" value="'+(empHor.horaEntrada||'')+'" placeholder="07:00" style="width:100%;padding:8px;background:#161b22;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:13px"></div>'
-      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">SALIDA</label>'
-      +'<input type="time" id="hemp_'+emp.id+'_salida" value="'+(empHor.horaSalida||'')+'" placeholder="17:00" style="width:100%;padding:8px;background:#161b22;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:13px"></div>'
-      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">TOLERANCIA (min)</label>'
-      +'<input type="number" id="hemp_'+emp.id+'_tol" value="'+(empHor.minutosTolerancia||'')+'" placeholder="10" min="0" max="60" style="width:100%;padding:8px;background:#161b22;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:13px"></div>'
-      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">ALMUERZO (min)</label>'
-      +'<input type="number" id="hemp_'+emp.id+'_alm" value="'+(empHor.minutosAlmuerzo||'')+'" placeholder="60" min="0" max="120" style="width:100%;padding:8px;background:#161b22;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:13px"></div>'
+      +'<div style="font-size:11px;color:#7d8590;margin-bottom:12px">Sobreescribe el horario del rol <strong>'+rolLabel+'</strong>. Deja vacío para usar el del rol.</div>'
+
+      // ── Días de semana ────────────────────────────────────────
+      +'<div style="font-size:11px;font-weight:700;color:#388bfd;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">📅 Lunes – Viernes</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px">'
+      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">ENTRADA</label>'+INPUT('entrada', empHor.horaEntrada,'07:00')+'</div>'
+      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">SALIDA</label>'+INPUT('salida', empHor.horaSalida,'17:00')+'</div>'
+      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">TOLERANCIA (min)</label>'+INPUT('tol', empHor.minutosTolerancia,'10','number','0','60')+'</div>'
+      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">ALMUERZO (min)</label>'+INPUT('alm', empHor.minutosAlmuerzo,'60','number','0','120')+'</div>'
       +'</div>'
+
+      // ── Sábado ────────────────────────────────────────────────
+      +'<div style="font-size:11px;font-weight:700;color:#e8a020;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">📅 Sábado</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">'
+      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">ENTRADA</label>'+INPUT('sabEntrada', empHor.sabadoEntrada,'08:00')+'</div>'
+      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">SALIDA</label>'+INPUT('sabSalida', empHor.sabadoSalida,'12:00')+'</div>'
+      +'<div><label style="font-size:10px;color:#7d8590;font-weight:600;display:block;margin-bottom:4px">TOLERANCIA (min)</label>'+INPUT('sabTol', empHor.sabadoTolerancia,'10','number','0','60')+'</div>'
+      +'</div>'
+      +'<div style="margin-bottom:12px">'
+      +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:#e6edf3">'
+      +'<input type="checkbox" id="hemp_'+emp.id+'_trabSabado" '+(empHor.trabajaSabado?'checked':'')+' style="width:16px;height:16px;cursor:pointer"> Trabaja sábado'
+      +'</label></div>'
+
+      // ── Domingo ───────────────────────────────────────────────
+      +'<div style="margin-bottom:14px">'
+      +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:#e6edf3">'
+      +'<input type="checkbox" id="hemp_'+emp.id+'_trabDomingo" '+(empHor.trabajaDomingo?'checked':'')+' style="width:16px;height:16px;cursor:pointer"> Trabaja domingo (genera compensatorio)'
+      +'</label></div>'
+
       +'<div style="display:flex;gap:8px">'
       +'<button onclick="paGuardarHorEmp(\''+emp.id+'\',\''+emp.nombre+'\')" style="flex:2;padding:8px;background:#388bfd;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">💾 Guardar</button>'
       +'<button onclick="paBorrarHorEmp(\''+emp.id+'\')" style="flex:1;padding:8px;background:rgba(248,81,73,.1);color:#f85149;border:1px solid rgba(248,81,73,.3);border-radius:8px;font-size:12px;cursor:pointer;font-family:inherit">✕ Quitar</button>'
@@ -3564,7 +3619,12 @@ function _leerHorForm(prefix) {
     horaEntrada:       entrada || '07:00',
     horaSalida:        salida  || '17:00',
     minutosTolerancia: parseInt((e('_tol')||{}).value||10)||10,
-    minutosAlmuerzo:   parseInt((e('_alm')||{}).value||60)||60
+    minutosAlmuerzo:   parseInt((e('_alm')||{}).value||60)||60,
+    trabajaSabado:     !!(e('_trabSab')||{}).checked,
+    sabadoEntrada:     (e('_sabEntrada')||{}).value||'08:00',
+    sabadoSalida:      (e('_sabSalida') ||{}).value||'12:00',
+    sabadoTolerancia:  parseInt((e('_sabTol')||{}).value||10)||10,
+    trabajaDomingo:    !!(e('_trabDom')||{}).checked
   };
 }
 
@@ -3599,10 +3659,17 @@ function paGuardarHorEmp(empId, empNombre) {
   if (!entrada && !salida) { paToast('Ingresa al menos entrada y salida', true); return; }
   var horEmp = PA.horariosEmp || {};
   horEmp[empId] = {
-    horaEntrada:       entrada||'07:00',
-    horaSalida:        salida||'17:00',
-    minutosTolerancia: parseInt((document.getElementById('hemp_'+empId+'_tol')||{}).value||10)||10,
-    minutosAlmuerzo:   parseInt((document.getElementById('hemp_'+empId+'_alm')||{}).value||60)||60
+    horaEntrada:        entrada||'07:00',
+    horaSalida:         salida||'17:00',
+    minutosTolerancia:  parseInt((document.getElementById('hemp_'+empId+'_tol')||{}).value||10)||10,
+    minutosAlmuerzo:    parseInt((document.getElementById('hemp_'+empId+'_alm')||{}).value||60)||60,
+    // Sábado
+    trabajaSabado:      !!(document.getElementById('hemp_'+empId+'_trabSabado')||{}).checked,
+    sabadoEntrada:      (document.getElementById('hemp_'+empId+'_sabEntrada')||{}).value||'08:00',
+    sabadoSalida:       (document.getElementById('hemp_'+empId+'_sabSalida') ||{}).value||'12:00',
+    sabadoTolerancia:   parseInt((document.getElementById('hemp_'+empId+'_sabTol')||{}).value||10)||10,
+    // Domingo
+    trabajaDomingo:     !!(document.getElementById('hemp_'+empId+'_trabDomingo')||{}).checked
   };
   PA.horariosEmp = horEmp;
   paDb.collection('paConfig').doc(PA.empresa).set({ horariosEmp: horEmp }, { merge: true })
