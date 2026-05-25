@@ -3,7 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<!-- PWA — Android -->
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="./manifest-asistencia.json">
+<!-- PWA — iOS -->
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Asistencia FISDC">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="apple-touch-icon" sizes="152x152" href="./icon-152.png">
+<link rel="apple-touch-icon" sizes="167x167" href="./icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="./icon-192.png">
+<!-- Splash screens iOS (opcional pero mejora experiencia) -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0d1117">
 <title>Portal Asistencia — FISDC</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1730,6 +1742,74 @@ function paRegisterBio() {
 // ══════════════════════════════════════════════════════
 // POST-AUTH: Load today's data and go to dashboard
 // ══════════════════════════════════════════════════════
+// ── PWA Install Prompt ─────────────────────────────────────────
+var _pwaPrompt = null;
+
+window.addEventListener('beforeinstallprompt', function(e) {
+  e.preventDefault();
+  _pwaPrompt = e;
+  // Mostrar banner de instalación después de 3 segundos en la pantalla principal
+  setTimeout(_mostrarBannerInstalar, 3000);
+});
+
+function _mostrarBannerInstalar() {
+  if (document.getElementById('pwaBanner')) return;
+  var banner = document.createElement('div');
+  banner.id = 'pwaBanner';
+  banner.style.cssText = 'position:fixed;bottom:16px;left:16px;right:16px;background:#161b22;border:1px solid #388bfd;border-radius:14px;padding:14px 16px;z-index:500;display:flex;align-items:center;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,.4)';
+  banner.innerHTML =
+    '<img src="./icon-96.png" style="width:44px;height:44px;border-radius:10px;flex-shrink:0" onerror="this.style.display=\'none\'">'
+    +'<div style="flex:1;min-width:0">'
+    +'<div style="font-size:13px;font-weight:700;color:#e6edf3">Instalar app de Asistencia</div>'
+    +'<div style="font-size:11px;color:#7d8590;margin-top:2px">Acceso rápido sin abrir el navegador</div>'
+    +'</div>'
+    +'<button onclick="_instalarPWA()" style="background:#388bfd;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0">Instalar</button>'
+    +'<button onclick="document.getElementById(\'pwaBanner\').remove()" style="background:none;border:none;color:#7d8590;font-size:18px;cursor:pointer;padding:4px;flex-shrink:0">✕</button>';
+  document.body.appendChild(banner);
+}
+
+function _instalarPWA() {
+  if (!_pwaPrompt) return;
+  _pwaPrompt.prompt();
+  _pwaPrompt.userChoice.then(function(r) {
+    if (r.outcome === 'accepted') {
+      var b = document.getElementById('pwaBanner');
+      if (b) b.remove();
+    }
+    _pwaPrompt = null;
+  });
+}
+
+// iOS: no tiene beforeinstallprompt — mostrar instrucciones manuales
+function _esIOS() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+}
+function _esPWAInstalada() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+}
+
+window.addEventListener('load', function() {
+  if (_esIOS() && !_esPWAInstalada()) {
+    setTimeout(function() {
+      if (document.getElementById('pwaBanner')) return;
+      var banner = document.createElement('div');
+      banner.id = 'pwaBanner';
+      banner.style.cssText = 'position:fixed;bottom:16px;left:16px;right:16px;background:#161b22;border:1px solid #30363d;border-radius:14px;padding:14px 16px;z-index:500;box-shadow:0 4px 20px rgba(0,0,0,.4)';
+      banner.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">'
+        +'<div style="font-size:13px;font-weight:700;color:#e6edf3">📲 Instalar en iPhone / iPad</div>'
+        +'<button onclick="document.getElementById(\'pwaBanner\').remove()" style="background:none;border:none;color:#7d8590;font-size:18px;cursor:pointer">✕</button>'
+        +'</div>'
+        +'<div style="font-size:12px;color:#7d8590;line-height:1.6">'
+        +'1. Toca el botón <strong style="color:#e6edf3">Compartir</strong> <span style="font-size:15px">⎙</span> en Safari<br>'
+        +'2. Desplázate y toca <strong style="color:#e6edf3">"Agregar a pantalla de inicio"</strong><br>'
+        +'3. Toca <strong style="color:#e6edf3">Agregar</strong> — aparecerá el ícono en tu pantalla'
+        +'</div>';
+      document.body.appendChild(banner);
+    }, 4000);
+  }
+});
+
 function paAfterAuth() {
   var emp = PA.empleado;
   PA.horasExtraAcum = parseFloat(emp.horasExtraAcum || 0);
