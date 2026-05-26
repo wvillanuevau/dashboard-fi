@@ -19403,7 +19403,8 @@ function renderTallerReportesChoferes(){
       });
       todosRep.sort(function(a,b){return (a.fecha||'').localeCompare(b.fecha||'');});
       _renderReportesChoferes(todosRep);
-    setTimeout(function(){window.scrollTo(0,window._rdcScrollY||0);},0);
+    var _sy=window._rdcScrollY||0;
+    requestAnimationFrame(function(){requestAnimationFrame(function(){window.scrollTo(0,_sy);});});
     }).catch(function(err){
       console.error('[ReportesMotoristas] Firestore error:', err);
       // Si falla Firestore, mostrar locales con aviso
@@ -19906,10 +19907,11 @@ function rdcEditInline(ci,campo){
   if(!info||!info.repId)return;
   var cell=document.getElementById('rdcCell'+ci);
   if(!cell)return;
-  var t=tallerData();
-  var rep=(t.reportesDiarios||[]).find(function(r){return r.id===info.repId;});
-  if(!rep)return;
-  var val=campo==='km'?(rep.kmOdometro||0):(rep.galonesCargados||0);
+  // Obtener valor actual del DOM (funciona para reportes locales Y del portal)
+  var cell2=document.getElementById('rdcCell'+ci);
+  var valDiv=cell2?cell2.querySelector(campo==='km'?'.rdc-km':'.rdc-gal'):null;
+  var valRaw=valDiv?valDiv.textContent.replace(/[^0-9.]/g,''):'0';
+  var val=campo==='km'?parseInt(valRaw)||0:parseFloat(valRaw)||0;
   var color=campo==='km'?'#4ea8de':'#facc15';
   var inp=document.createElement('input');
   inp.type='number';inp.min='0';
