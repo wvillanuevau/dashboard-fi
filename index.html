@@ -19641,7 +19641,7 @@ function _renderReportesChoferes(reportes){
     var celdas=semDiasStr.map(function(f){
       var r=repMap[v.id+'|'+f];
       var ci=window._rdcCells.length;
-      window._rdcCells.push({vehId:v.id,fecha:f,repId:r?r.id:null,origen:r?r.origen:null});
+      window._rdcCells.push({vehId:v.id,fecha:f,repId:r?r.id:null,origen:r?r.origen:null,km:r?r.kmOdometro:null,gal:r?r.galonesCargados:null});
       if(!r){
         var tdStyle='text-align:center;color:var(--border)';
         if(_rdcIsAdmin){
@@ -19898,36 +19898,67 @@ function rdcCellClick(el){
   rdcEditInline(ci,campo);
 }
 
+function rdcCerrarActivo(){
+  // Cerrar cualquier input inline activo antes de abrir otro
+  if(window._rdcCeldaActiva!=null){
+    var oldCell=document.getElementById('rdcCell'+window._rdcCeldaActiva);
+    if(oldCell){rdcRestaurarCelda(window._rdcCeldaActiva);}
+    window._rdcCeldaActiva=null;
+  }
+}
+
+function rdcRestaurarCelda(ci){
+  var info=window._rdcCells&&window._rdcCells[ci];
+  if(!info)return;
+  var cell=document.getElementById('rdcCell'+ci);
+  if(!cell)return;
+  var km=info.km;var gal=info.gal;
+  var kmStr=km?(km).toLocaleString('en-US'):'';
+  var galStr=gal?gal.toFixed(1):'';
+  var html='<div class="rdc-km" data-rci="'+ci+'" onclick="rdcCellClick(this)" style="font-weight:700;color:var(--accent);cursor:pointer" title="Editar km">'+kmStr+'</div>';
+  if(galStr)html+='<div class="rdc-gal" data-rci="'+ci+'" onclick="rdcCellClick(this)" style="color:#facc15;font-size:10px;cursor:pointer" title="Editar galones">⛽'+galStr+'</div>';
+  cell.innerHTML=html;
+}
+
 function rdcEditInline(ci,campo){
   if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
     toast('Solo administradores pueden editar directamente',true);return;
   }
-  window._rdcGuardando=false; // reset por si quedó bloqueado de una operación anterior
+  // Cerrar cualquier otro input activo primero
+  rdcCerrarActivo();
   var info=window._rdcCells&&window._rdcCells[ci];
   if(!info||!info.repId)return;
   var cell=document.getElementById('rdcCell'+ci);
   if(!cell)return;
-  // Obtener valor actual del DOM (funciona para reportes locales Y del portal)
-  var cell2=document.getElementById('rdcCell'+ci);
-  var valDiv=cell2?cell2.querySelector(campo==='km'?'.rdc-km':'.rdc-gal'):null;
-  var valRaw=valDiv?valDiv.textContent.replace(/[^0-9.]/g,''):'0';
-  var val=campo==='km'?parseInt(valRaw)||0:parseFloat(valRaw)||0;
+  window._rdcCeldaActiva=ci;
+  // Leer valor desde _rdcCells (siempre correcto, sin depender del DOM)
+  var val=campo==='km'?(info.km||0):(info.gal||0);
   var color=campo==='km'?'#4ea8de':'#facc15';
   var inp=document.createElement('input');
   inp.type='number';inp.min='0';
   inp.step=campo==='km'?'1':'0.01';
   inp.value=val;
   inp.style.cssText='width:72px;font-size:12px;text-align:center;background:#0d1117;border:1px solid '+color+';color:'+color+';border-radius:4px;padding:3px 4px;outline:none';
+  var committed=false;
+  function commit(v){
+    if(committed)return;committed=true;
+    window._rdcCeldaActiva=null;
+    rdcGuardarInline(ci,campo,v);
+  }
+  function cancelar(){
+    if(committed)return;committed=true;
+    window._rdcCeldaActiva=null;
+    rdcRestaurarCelda(ci);
+  }
   inp.addEventListener('keydown',function(e){
-    if(e.key==='Enter'){e.preventDefault();rdcGuardarInline(ci,campo,inp.value);}
-    if(e.key==='Escape'){renderTallerReportesChoferes();}
+    if(e.key==='Enter'){e.preventDefault();commit(inp.value);}
+    if(e.key==='Escape'){cancelar();}
   });
   inp.addEventListener('click',function(e){e.stopPropagation();});
   inp.addEventListener('blur',function(){
-    // pequeño delay para distinguir blur por Tab/click-afuera vs click-dentro-de-celda
     setTimeout(function(){
       if(document.activeElement&&cell.contains(document.activeElement))return;
-      rdcGuardarInline(ci,campo,inp.value);
+      commit(inp.value);
     },150);
   });
   cell.innerHTML='';
@@ -19936,63 +19967,51 @@ function rdcEditInline(ci,campo){
 }
 
 function rdcGuardarInline(ci,campo,valor){
-  if(window._rdcGuardando)return;
-  window._rdcGuardando=true;
-  setTimeout(function(){window._rdcGuardando=false;},600);
   var info=window._rdcCells&&window._rdcCells[ci];
-  if(!info||!info.repId){renderTallerReportesChoferes();return;}
+  if(!info||!info.repId){rdcRestaurarCelda(ci);return;}
   var nuevoVal=campo==='km'?parseInt(valor)||0:parseFloat(valor)||0;
-  if(nuevoVal<0){toast('Valor inválido',true);renderTallerReportesChoferes();return;}
+  if(nuevoVal<0){toast('Valor inválido',true);rdcRestaurarCelda(ci);return;}
+  // Sin cambio → restaurar sin guardar
+  var valorActual=campo==='km'?(info.km||0):(info.gal||0);
+  if(nuevoVal===valorActual){rdcRestaurarCelda(ci);return;}
+  // Actualizar _rdcCells inmediatamente para que restaurar muestre el nuevo valor
+  if(campo==='km')info.km=nuevoVal; else info.gal=nuevoVal;
+  rdcRestaurarCelda(ci);
+  toast('Guardando...');
 
-  // Reportes del PORTAL → guardar directo en Firestore (reportesMotoristas)
   if(info.origen==='portal'){
-    var updateData={};
-    if(campo==='km'){
-      updateData.kmOdometro=nuevoVal;
-      updateData.corregidoPor=S.currentUser.email;
-      updateData.fechaCorreccion=Date.now();
-      updateData.motivoCorreccion='Corrección directa desde tabla semanal';
-    } else {
-      updateData.galonesCargados=nuevoVal;
-      updateData.costoGasolina=nuevoVal*getPrecioGasolina();
-      updateData.corregidoPor=S.currentUser.email;
-      updateData.fechaCorreccion=Date.now();
-      updateData.motivoCorreccion='Corrección directa desde tabla semanal';
-    }
+    // Reportes del PORTAL → Firestore
+    var updateData={corregidoPor:S.currentUser.email,fechaCorreccion:Date.now(),motivoCorreccion:'Corrección desde tabla semanal'};
+    if(campo==='km'){updateData.kmOdometro=nuevoVal;}
+    else{updateData.galonesCargados=nuevoVal;updateData.costoGasolina=nuevoVal*getPrecioGasolina();}
     db.collection('reportesMotoristas').doc(info.repId).update(updateData)
-      .then(function(){toast('✓ Guardado');renderTallerReportesChoferes();})
-      .catch(function(e){toast('Error: '+e.message,true);renderTallerReportesChoferes();});
-    return;
-  }
-
-  // Reportes LOCALES → guardar en S.taller.reportesDiarios
-  var t=tallerData();
-  var rep=(t.reportesDiarios||[]).find(function(r){return r.id===info.repId;});
-  if(!rep){toast('Reporte no encontrado',true);renderTallerReportesChoferes();return;}
-  if(campo==='km'){
-    if(nuevoVal===rep.kmOdometro){renderTallerReportesChoferes();return;}
-    var repsVeh=(t.reportesDiarios||[]).filter(function(r){return r.vehiculoId===rep.vehiculoId&&r.id!==rep.id;});
-    repsVeh.sort(function(a,b){return (a.fecha+'').localeCompare(b.fecha+'');});
-    var prevRep=null;
-    for(var i=0;i<repsVeh.length;i++){if(repsVeh[i].fecha<rep.fecha){prevRep=repsVeh[i];}}
-    var kmBase=prevRep?(prevRep.kmOdometro||0):0;
-    rep.kmOdometro=nuevoVal;
-    rep.kmRecorridos=nuevoVal-kmBase;
-    rep.costoGasolina=(rep.galonesCargados||0)*getPrecioGasolina();
+      .then(function(){toast('✓ Guardado');})
+      .catch(function(e){toast('Error al guardar: '+e.message,true);});
   } else {
-    if(nuevoVal===(rep.galonesCargados||0)){renderTallerReportesChoferes();return;}
-    rep.galonesCargados=nuevoVal;
-    rep.costoGasolina=nuevoVal*getPrecioGasolina();
-    var cb=t.combustible&&t.combustible.find(function(c){return c.reporteDiarioId===rep.id;});
-    if(cb){cb.galones=nuevoVal;cb.total=rep.costoGasolina;}
+    // Reportes LOCALES → S.taller.reportesDiarios
+    var t=tallerData();
+    var rep=(t.reportesDiarios||[]).find(function(r){return r.id===info.repId;});
+    if(!rep){toast('Reporte no encontrado',true);return;}
+    if(campo==='km'){
+      var repsVeh=(t.reportesDiarios||[]).filter(function(r){return r.vehiculoId===rep.vehiculoId&&r.id!==rep.id;});
+      repsVeh.sort(function(a,b){return (a.fecha+'').localeCompare(b.fecha+'');});
+      var prevRep=null;
+      for(var ii=0;ii<repsVeh.length;ii++){if(repsVeh[ii].fecha<rep.fecha){prevRep=repsVeh[ii];}}
+      rep.kmOdometro=nuevoVal;
+      rep.kmRecorridos=nuevoVal-(prevRep?(prevRep.kmOdometro||0):0);
+      rep.costoGasolina=(rep.galonesCargados||0)*getPrecioGasolina();
+    } else {
+      rep.galonesCargados=nuevoVal;
+      rep.costoGasolina=nuevoVal*getPrecioGasolina();
+      var cb=t.combustible&&t.combustible.find(function(c){return c.reporteDiarioId===rep.id;});
+      if(cb){cb.galones=nuevoVal;cb.total=rep.costoGasolina;}
+    }
+    rep.corregidoPor=S.currentUser.email;
+    rep.fechaCorreccion=Date.now();
+    markDirty('taller');
+    saveData();
+    toast('✓ Guardado');
   }
-  rep.corregidoPor=S.currentUser.email;
-  rep.fechaCorreccion=Date.now();
-  rep.motivoCorreccion='Corrección directa desde tabla semanal';
-  markDirty('taller');
-  saveData();
-  toast('✓ Guardado');
-  renderTallerReportesChoferes();
 }
 
 function rdcCrearRep(ci){
