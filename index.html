@@ -19641,20 +19641,26 @@ function _renderReportesChoferes(reportes){
       window._rdcCells.push({vehId:v.id,fecha:f,repId:r?r.id:null});
       if(!r){
         var tdStyle='text-align:center;color:var(--border)';
-        var tdClick=_rdcIsAdmin?' onclick="rdcCrearRep('+ci+')" style="'+tdStyle+';cursor:pointer" title="Click para agregar reporte"':' style="'+tdStyle+'"';
-        return '<td'+tdClick+'>+</td>';
+        if(_rdcIsAdmin){
+          return '<td data-rci="'+ci+'" onclick="rdcCrearRep(parseInt(this.getAttribute(\'data-rci\')))" style="text-align:center;color:var(--border);cursor:pointer" title="Click para agregar reporte">+</td>';
+        }
+        return '<td style="text-align:center;color:var(--border)">—</td>';
       }
       var gal=r.galonesCargados?r.galonesCargados.toFixed(1):'';
       var kmOdo=r.kmOdometro?(r.kmOdometro).toLocaleString('en-US'):'';
       var novColor=r.novedad?'background:#fff3e0':'';
       var tip=r.motoristaNombre||r.choferNombre||'';
-      var kmClick=_rdcIsAdmin?' onclick="rdcEditInline('+ci+',\'km\')" style="font-weight:700;color:var(--accent);cursor:pointer" title="Click para editar km"':' style="font-weight:700;color:var(--accent)"';
-      var galClick=_rdcIsAdmin?' onclick="rdcEditInline('+ci+',\'gal\')" style="color:#facc15;font-size:10px;cursor:pointer" title="Click para editar galones"':' style="color:#facc15;font-size:10px"';
-      return '<td id="rdcCell'+ci+'" style="text-align:center;font-size:11px;'+novColor+';padding:6px 4px" title="'+esc(tip)+'">'
-        +'<div'+kmClick+'>'+kmOdo+'</div>'
-        +(gal?'<div'+galClick+'>⛽'+gal+'</div>':'')
-        +(r.novedad?'<div style="color:var(--accent);font-size:9px">⚠</div>':'')
-        +'</td>';
+      var tdContent='<td id="rdcCell'+ci+'" style="text-align:center;font-size:11px;'+novColor+';padding:6px 4px" title="'+esc(tip)+'">';
+      if(_rdcIsAdmin){
+        tdContent+='<div class="rdc-km" data-rci="'+ci+'" onclick="rdcCellClick(this)" style="font-weight:700;color:var(--accent);cursor:pointer" title="Editar km">'+kmOdo+'</div>';
+        if(gal)tdContent+='<div class="rdc-gal" data-rci="'+ci+'" onclick="rdcCellClick(this)" style="color:#facc15;font-size:10px;cursor:pointer" title="Editar galones">⛽'+gal+'</div>';
+      } else {
+        tdContent+='<div style="font-weight:700;color:var(--accent)">'+kmOdo+'</div>';
+        if(gal)tdContent+='<div style="color:#facc15;font-size:10px">⛽'+gal+'</div>';
+      }
+      if(r.novedad)tdContent+='<div style="color:var(--accent);font-size:9px">⚠</div>';
+      tdContent+='</td>';
+      return tdContent;
     }).join('');
     // Total galones de la semana para este vehículo
     var semGal=semDiasStr.reduce(function(s,f){
@@ -19883,6 +19889,12 @@ function guardarCorreccionReporte(repId){
 }
 
 // ── Edición inline tabla semanal km ────────────────────────────────
+function rdcCellClick(el){
+  var ci=parseInt(el.getAttribute('data-rci'));
+  var campo=el.classList.contains('rdc-gal')?'gal':'km';
+  rdcEditInline(ci,campo);
+}
+
 function rdcEditInline(ci, campo){
   if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
     toast('Solo administradores pueden editar directamente',true);return;
@@ -19896,16 +19908,21 @@ function rdcEditInline(ci, campo){
   var rep=(t.reportesDiarios||[]).find(function(r){return r.id===info.repId;});
   if(!rep)return;
   var val=campo==='km'?(rep.kmOdometro||0):(rep.galonesCargados||0);
-  var step=campo==='km'?'1':'0.01';
   var color=campo==='km'?'#4ea8de':'#facc15';
-  cell.innerHTML='<input id="rdcInlineInp" type="number" min="0" step="'+step+'" value="'+val+'"'
-    +' style="width:72px;font-size:12px;text-align:center;background:#0d1117;border:1px solid '+color+';color:'+color+';border-radius:4px;padding:3px 4px;outline:none"'
-    +' onkeydown="if(event.key===\'Enter\'){event.preventDefault();rdcGuardarInline('+ci+',\''+campo+'\',this.value);}else if(event.key===\'Escape\'){renderTallerReportesChoferes();}"'
-    +' onblur="rdcGuardarInline('+ci+',\''+campo+'\',this.value)">';
-  var inp=document.getElementById('rdcInlineInp');
-  if(inp){inp.focus();inp.select();}
+  var inp=document.createElement('input');
+  inp.type='number';inp.min='0';
+  inp.step=campo==='km'?'1':'0.01';
+  inp.value=val;
+  inp.style.cssText='width:72px;font-size:12px;text-align:center;background:#0d1117;border:1px solid '+color+';color:'+color+';border-radius:4px;padding:3px 4px;outline:none';
+  inp.addEventListener('keydown',function(e){
+    if(e.key==='Enter'){e.preventDefault();rdcGuardarInline(ci,campo,inp.value);}
+    if(e.key==='Escape'){renderTallerReportesChoferes();}
+  });
+  inp.addEventListener('blur',function(){rdcGuardarInline(ci,campo,inp.value);});
+  cell.innerHTML='';
+  cell.appendChild(inp);
+  inp.focus();inp.select();
 }
-
 function rdcGuardarInline(ci, campo, valor){
   if(window._rdcGuardando)return;
   window._rdcGuardando=true;
