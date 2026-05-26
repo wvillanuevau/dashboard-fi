@@ -19344,6 +19344,7 @@ function verFotoRevision(refId){
 //  ADMIN — REPORTES DIARIOS DE CHOFERES (vista admin)
 // ═══════════════════════════════════════════════════════════════════
 function renderTallerReportesChoferes(){
+  window._rdcScrollY=window.scrollY||window.pageYOffset||0;
   // Al ver este módulo, limpiar el badge
   if(S._badges){ S._badges.taller_reportes_choferes=0; _renderNavBadges(); }
 
@@ -19402,6 +19403,7 @@ function renderTallerReportesChoferes(){
       });
       todosRep.sort(function(a,b){return (a.fecha||'').localeCompare(b.fecha||'');});
       _renderReportesChoferes(todosRep);
+    setTimeout(function(){window.scrollTo(0,window._rdcScrollY||0);},0);
     }).catch(function(err){
       console.error('[ReportesMotoristas] Firestore error:', err);
       // Si falla Firestore, mostrar locales con aviso
@@ -19638,7 +19640,7 @@ function _renderReportesChoferes(reportes){
     var celdas=semDiasStr.map(function(f){
       var r=repMap[v.id+'|'+f];
       var ci=window._rdcCells.length;
-      window._rdcCells.push({vehId:v.id,fecha:f,repId:r?r.id:null});
+      window._rdcCells.push({vehId:v.id,fecha:f,repId:r?r.id:null,origen:r?r.origen:null});
       if(!r){
         var tdStyle='text-align:center;color:var(--border)';
         if(_rdcIsAdmin){
@@ -19899,7 +19901,7 @@ function rdcEditInline(ci,campo){
   if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
     toast('Solo administradores pueden editar directamente',true);return;
   }
-  if(window._rdcGuardando)return;
+  window._rdcGuardando=false; // reset por si quedó bloqueado de una operación anterior
   var info=window._rdcCells&&window._rdcCells[ci];
   if(!info||!info.repId)return;
   var cell=document.getElementById('rdcCell'+ci);
@@ -19914,12 +19916,18 @@ function rdcEditInline(ci,campo){
   inp.step=campo==='km'?'1':'0.01';
   inp.value=val;
   inp.style.cssText='width:72px;font-size:12px;text-align:center;background:#0d1117;border:1px solid '+color+';color:'+color+';border-radius:4px;padding:3px 4px;outline:none';
-  var saved=false;
   inp.addEventListener('keydown',function(e){
-    if(e.key==='Enter'){e.preventDefault();if(!saved){saved=true;rdcGuardarInline(ci,campo,inp.value);}}
-    if(e.key==='Escape'){saved=true;renderTallerReportesChoferes();}
+    if(e.key==='Enter'){e.preventDefault();rdcGuardarInline(ci,campo,inp.value);}
+    if(e.key==='Escape'){renderTallerReportesChoferes();}
   });
-  inp.addEventListener('blur',function(){if(!saved){saved=true;rdcGuardarInline(ci,campo,inp.value);}});
+  inp.addEventListener('click',function(e){e.stopPropagation();});
+  inp.addEventListener('blur',function(){
+    // pequeño delay para distinguir blur por Tab/click-afuera vs click-dentro-de-celda
+    setTimeout(function(){
+      if(document.activeElement&&cell.contains(document.activeElement))return;
+      rdcGuardarInline(ci,campo,inp.value);
+    },150);
+  });
   cell.innerHTML='';
   cell.appendChild(inp);
   inp.focus();inp.select();
@@ -19931,11 +19939,34 @@ function rdcGuardarInline(ci,campo,valor){
   setTimeout(function(){window._rdcGuardando=false;},600);
   var info=window._rdcCells&&window._rdcCells[ci];
   if(!info||!info.repId){renderTallerReportesChoferes();return;}
-  var t=tallerData();
-  var rep=(t.reportesDiarios||[]).find(function(r){return r.id===info.repId;});
-  if(!rep){renderTallerReportesChoferes();return;}
   var nuevoVal=campo==='km'?parseInt(valor)||0:parseFloat(valor)||0;
   if(nuevoVal<0){toast('Valor inválido',true);renderTallerReportesChoferes();return;}
+
+  // Reportes del PORTAL → guardar directo en Firestore (reportesMotoristas)
+  if(info.origen==='portal'){
+    var updateData={};
+    if(campo==='km'){
+      updateData.kmOdometro=nuevoVal;
+      updateData.corregidoPor=S.currentUser.email;
+      updateData.fechaCorreccion=Date.now();
+      updateData.motivoCorreccion='Corrección directa desde tabla semanal';
+    } else {
+      updateData.galonesCargados=nuevoVal;
+      updateData.costoGasolina=nuevoVal*getPrecioGasolina();
+      updateData.corregidoPor=S.currentUser.email;
+      updateData.fechaCorreccion=Date.now();
+      updateData.motivoCorreccion='Corrección directa desde tabla semanal';
+    }
+    db.collection('reportesMotoristas').doc(info.repId).update(updateData)
+      .then(function(){toast('✓ Guardado');renderTallerReportesChoferes();})
+      .catch(function(e){toast('Error: '+e.message,true);renderTallerReportesChoferes();});
+    return;
+  }
+
+  // Reportes LOCALES → guardar en S.taller.reportesDiarios
+  var t=tallerData();
+  var rep=(t.reportesDiarios||[]).find(function(r){return r.id===info.repId;});
+  if(!rep){toast('Reporte no encontrado',true);renderTallerReportesChoferes();return;}
   if(campo==='km'){
     if(nuevoVal===rep.kmOdometro){renderTallerReportesChoferes();return;}
     var repsVeh=(t.reportesDiarios||[]).filter(function(r){return r.vehiculoId===rep.vehiculoId&&r.id!==rep.id;});
@@ -19971,6 +20002,7 @@ function rdcCrearRep(ci){
   // El td tiene id="rdcEmpty{ci}"
   var cell=document.getElementById('rdcEmpty'+ci);
   if(!cell)return;
+  cell.removeAttribute('onclick'); // evitar que clicks en inputs re-disparen rdcCrearRep
   cell.style.minWidth='90px';
   cell.style.padding='4px';
   cell.style.cursor='default';
@@ -19978,10 +20010,12 @@ function rdcCrearRep(ci){
   var inpKm=document.createElement('input');
   inpKm.type='number';inpKm.min='0';inpKm.placeholder='km';
   inpKm.style.cssText='width:70px;font-size:11px;text-align:center;background:#0d1117;border:1px solid #4ea8de;color:#4ea8de;border-radius:4px;padding:2px 3px;outline:none;display:block;margin-bottom:3px';
+  inpKm.addEventListener('click',function(e){e.stopPropagation();});
   // Gal input
   var inpGal=document.createElement('input');
   inpGal.type='number';inpGal.min='0';inpGal.step='0.01';inpGal.placeholder='gal';
   inpGal.style.cssText='width:70px;font-size:11px;text-align:center;background:#0d1117;border:1px solid #facc15;color:#facc15;border-radius:4px;padding:2px 3px;outline:none;display:block';
+  inpGal.addEventListener('click',function(e){e.stopPropagation();});
   // Buttons row
   var btnRow=document.createElement('div');
   btnRow.style.cssText='display:flex;gap:3px;margin-top:3px';
