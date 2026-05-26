@@ -542,6 +542,11 @@ button:active{opacity:.8;transform:scale(.95)}
       </button>
       <div class="section-title" style="margin-top:16px">Solicitudes</div>
 
+      <button class="action-btn" style="background:rgba(248,81,73,.08);border-color:rgba(248,81,73,.2)" onclick="paGoIncapacidad()">
+        <span class="action-icon">🏥</span>
+        <div class="action-info"><div class="action-title">Reportar Incapacidad</div><div class="action-sub" id="incapacidadDesc">Adjuntar constancia médica</div></div>
+        <span class="action-arrow">›</span>
+      </button>
       <button class="action-btn blue" onclick="paGoCanje()">
         <span class="action-icon">🔄</span>
         <div class="action-info"><div class="action-title">Canje de Horas</div><div class="action-sub">Cambiar horas extra por tiempo libre</div></div>
@@ -927,6 +932,7 @@ var PA = {
   adminPin: 'Fisdc@2026!',
   horariosRol: {},
   horariosEmp: {},
+  _incapacidades: [],
   horaTimer: null,
   _pinsDocMap: {},
   _horasMap: {},
@@ -1819,6 +1825,8 @@ function paAfterAuth() {
   paConfigurarNotificaciones();
   // Registrar token FCM para push con navegador cerrado (seguro, después del login)
   setTimeout(paRegistrarFCMToken, 2000);
+  // Cargar incapacidades activas
+  _cargarIncapacidades();
   
   // Load today's markings
   var hoy = paHoy();
@@ -1931,6 +1939,41 @@ function paUpdateDash() {
   setStep('stepRegreso', 'stRegreso', mAlmReg, !!mAlmSal);
   setStep('stepSalida', 'stSalida', mSalida, !!mAlmReg || !!mEntrada);
   
+  // ── Verificar incapacidad activa ─────────────────────────────
+  var hoyStr = paHoy();
+  var incActiva = (PA._incapacidades || []).find(function(inc) {
+    return inc.empleadoId === emp.id
+      && inc.estado !== 'rechazada'
+      && inc.fechaInicio <= hoyStr
+      && inc.fechaFin >= hoyStr;
+  });
+
+  if (incActiva) {
+    // Mostrar banner de incapacidad y bloquear todos los botones de marcación
+    var existing = document.getElementById('incapacidadBanner');
+    if (!existing) {
+      var banner = document.createElement('div');
+      banner.id = 'incapacidadBanner';
+      banner.style.cssText = 'background:rgba(248,81,73,.1);border:1.5px solid rgba(248,81,73,.3);border-radius:14px;padding:14px 16px;margin:0 18px 16px;text-align:center';
+      banner.innerHTML =
+        '<div style="font-size:24px;margin-bottom:6px">🏥</div>'
+        +'<div style="font-weight:700;color:#f85149;font-size:15px;margin-bottom:4px">Incapacidad activa</div>'
+        +'<div style="font-size:13px;color:var(--muted);margin-bottom:4px">'+incActiva.motivo+'</div>'
+        +'<div style="font-size:12px;color:var(--muted)">Desde <strong>'+incActiva.fechaInicio+'</strong> hasta <strong>'+incActiva.fechaFin+'</strong> ('+incActiva.dias+' día(s))</div>';
+      var actions = document.querySelector('.dash-actions');
+      if (actions) actions.insertBefore(banner, actions.firstChild);
+    }
+    // Bloquear todos los botones de marcación
+    ['btnMarcarEntrada','btnMarcarAlmuerzo','btnMarcarRegreso','btnMarcarSalida'].forEach(function(id) {
+      var btn = document.getElementById(id);
+      if (btn) btn.className = 'action-btn disabled';
+    });
+    return; // No procesar el estado normal de botones
+  } else {
+    // Quitar banner si no hay incapacidad
+    var b = document.getElementById('incapacidadBanner'); if (b) b.remove();
+  }
+
   // Enable/disable action buttons
   var btnEntrada = document.getElementById('btnMarcarEntrada');
   var btnAlmuerzo = document.getElementById('btnMarcarAlmuerzo');
@@ -1954,8 +1997,179 @@ function paUpdateDash() {
 }
 
 // ══════════════════════════════════════════════════════
-// CÁLCULO AUTOMÁTICO DE HORAS EXTRA
+// INCAPACIDADES
 // ══════════════════════════════════════════════════════
+function paGoIncapacidad() {
+  var old = document.getElementById('incapacidadOverlay'); if (old) old.remove();
+  var overlay = document.createElement('div');
+  overlay.id = 'incapacidadOverlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:var(--bg);z-index:300;display:flex;flex-direction:column;overflow-y:auto;font-family:\'Space Grotesk\',system-ui,sans-serif';
+
+  var hoy = paHoy();
+  overlay.innerHTML =
+    '<div style="background:var(--surface);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0">'
+    +'<button onclick="document.getElementById(\'incapacidadOverlay\').remove()" style="background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1">←</button>'
+    +'<div style="font-weight:700;font-size:16px;color:var(--text)">🏥 Reportar Incapacidad</div>'
+    +'</div>'
+    +'<div style="padding:20px 18px;max-width:480px;width:100%;margin:0 auto">'
+    +'<div style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);border-radius:12px;padding:12px;font-size:13px;color:var(--muted);margin-bottom:18px">'
+    +'Durante los días de incapacidad <strong style="color:var(--text)">no podrás registrar marcaciones</strong>. El admin podrá ver y aprobar tu constancia.'
+    +'</div>'
+
+    // Fecha inicio
+    +'<div style="margin-bottom:14px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:5px">FECHA DE INICIO *</label>'
+    +'<input type="date" id="incFechaInicio" value="'+hoy+'" style="width:100%;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit" onchange="incCalcFechaFin()"></div>'
+
+    // Cantidad de días
+    +'<div style="margin-bottom:14px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:5px">DÍAS DE INCAPACIDAD *</label>'
+    +'<input type="number" id="incDias" value="1" min="1" max="365" style="width:100%;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit" oninput="incCalcFechaFin()">'
+    +'<div id="incFechaFinLabel" style="font-size:12px;color:var(--accent2);margin-top:5px">Hasta: '+hoy+'</div></div>'
+
+    // Motivo
+    +'<div style="margin-bottom:14px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:5px">MOTIVO / DIAGNÓSTICO *</label>'
+    +'<textarea id="incMotivo" rows="3" placeholder="Ej: Gripe, dolor abdominal, fractura de muñeca..." style="width:100%;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;resize:vertical"></textarea></div>'
+
+    // Foto de la constancia
+    +'<div style="margin-bottom:20px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:5px">FOTO DE LA CONSTANCIA MÉDICA *</label>'
+    +'<input type="file" id="incFoto" accept="image/*" capture="environment" onchange="incPreviewFoto(this)" style="display:none">'
+    +'<button onclick="document.getElementById(\'incFoto\').click()" style="width:100%;padding:14px;background:var(--surface2);border:2px dashed var(--border);border-radius:10px;color:var(--muted);font-size:14px;cursor:pointer;font-family:inherit">📷 Tomar / adjuntar foto</button>'
+    +'<div id="incFotoPreview" style="margin-top:8px"></div></div>'
+
+    +'<div id="incError" style="color:#f85149;font-size:13px;margin-bottom:10px;display:none;padding:8px;background:rgba(248,81,73,.08);border-radius:8px;text-align:center"></div>'
+    +'<button id="incBtnGuardar" onclick="paGuardarIncapacidad()" style="width:100%;padding:14px;background:#f85149;color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit">🏥 Enviar incapacidad</button>'
+    +'</div>';
+
+  document.body.appendChild(overlay);
+  incCalcFechaFin();
+}
+
+function incCalcFechaFin() {
+  var fechaEl = document.getElementById('incFechaInicio');
+  var diasEl  = document.getElementById('incDias');
+  var label   = document.getElementById('incFechaFinLabel');
+  if (!fechaEl || !diasEl || !label) return;
+  var fecha = fechaEl.value;
+  var dias  = parseInt(diasEl.value) || 1;
+  if (!fecha) return;
+  // Calcular días hábiles (saltar domingos)
+  var d = new Date(fecha + 'T12:00:00');
+  var contados = 0;
+  var fechaFin = new Date(d);
+  while (contados < dias - 1) {
+    fechaFin.setDate(fechaFin.getDate() + 1);
+    if (fechaFin.getDay() !== 0) contados++; // saltar domingos
+  }
+  var ff = fechaFin.getFullYear()+'-'+String(fechaFin.getMonth()+1).padStart(2,'0')+'-'+String(fechaFin.getDate()).padStart(2,'0');
+  label.textContent = 'Hasta: '+ff+' ('+dias+' día(s) hábil(es))';
+  label.setAttribute('data-fechafin', ff);
+}
+
+function incPreviewFoto(input) {
+  var preview = document.getElementById('incFotoPreview');
+  if (!preview || !input.files || !input.files[0]) return;
+  var url = URL.createObjectURL(input.files[0]);
+  preview.innerHTML = '<img src="'+url+'" style="width:100%;max-height:200px;object-fit:contain;border-radius:10px;border:1px solid var(--border)" onload="URL.revokeObjectURL(this.src)">';
+}
+
+function paGuardarIncapacidad() {
+  var fechaInicio = (document.getElementById('incFechaInicio')||{}).value||'';
+  var dias        = parseInt((document.getElementById('incDias')||{}).value)||0;
+  var motivo      = ((document.getElementById('incMotivo')||{}).value||'').trim();
+  var fotoInput   = document.getElementById('incFoto');
+  var label       = document.getElementById('incFechaFinLabel');
+  var errEl       = document.getElementById('incError');
+  var btn         = document.getElementById('incBtnGuardar');
+  var fechaFin    = label ? label.getAttribute('data-fechafin') : fechaInicio;
+
+  if (errEl) errEl.style.display = 'none';
+
+  if (!fechaInicio) { if(errEl){errEl.textContent='Selecciona la fecha de inicio';errEl.style.display='block';} return; }
+  if (!dias || dias < 1) { if(errEl){errEl.textContent='Ingresa la cantidad de días';errEl.style.display='block';} return; }
+  if (!motivo) { if(errEl){errEl.textContent='Describe el motivo de la incapacidad';errEl.style.display='block';} return; }
+  if (!fotoInput || !fotoInput.files || !fotoInput.files[0]) { if(errEl){errEl.textContent='Adjunta la foto de la constancia médica';errEl.style.display='block';} return; }
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+
+  var file = fotoInput.files[0];
+  var url = URL.createObjectURL(file);
+  var img = new Image();
+  img.onload = function() {
+    try {
+      var maxW = 800;
+      var w = img.naturalWidth, h = img.naturalHeight;
+      if (w > maxW) { h = Math.round(h*(maxW/w)); w = maxW; }
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      var b64 = canvas.toDataURL('image/jpeg', 0.65);
+      URL.revokeObjectURL(url);
+      canvas.width = 1; canvas.height = 1;
+
+      var folio = 'INC-'+paGenId().toUpperCase();
+      var docData = {
+        empresa:       PA.empresa,
+        empleadoId:    PA.empleado.id,
+        empleadoNombre:PA.empleado.nombre,
+        motivo:        motivo,
+        dias:          dias,
+        fechaInicio:   fechaInicio,
+        fechaFin:      fechaFin,
+        foto:          b64,
+        ts:            Date.now(),
+        estado:        'pendiente',
+        folio:         folio
+      };
+
+      paDb.collection('paIncapacidades').add(docData).then(function() {
+        // Agregar a cache local para bloqueo inmediato
+        PA._incapacidades = PA._incapacidades || [];
+        PA._incapacidades.push(Object.assign({ id: folio }, docData));
+        var ov = document.getElementById('incapacidadOverlay');
+        if (ov) ov.remove();
+        paToast('✅ Incapacidad reportada — '+dias+' día(s) desde '+fechaInicio);
+        paUpdateDash();
+      }).catch(function(e) {
+        if (btn) { btn.disabled = false; btn.textContent = '🏥 Enviar incapacidad'; }
+        if (errEl) { errEl.textContent = 'Error: '+e.message; errEl.style.display = 'block'; }
+      });
+    } catch(ex) {
+      URL.revokeObjectURL(url);
+      if (btn) { btn.disabled = false; btn.textContent = '🏥 Enviar incapacidad'; }
+      if (errEl) { errEl.textContent = 'Error al procesar la foto'; errEl.style.display = 'block'; }
+    }
+  };
+  img.onerror = function() {
+    URL.revokeObjectURL(url);
+    if (btn) { btn.disabled = false; btn.textContent = '🏥 Enviar incapacidad'; }
+  };
+  img.src = url;
+}
+
+function _cargarIncapacidades() {
+  if (!paDb || !PA.empleado) return;
+  var hoy = paHoy();
+  paDb.collection('paIncapacidades')
+    .where('empresa', '==', PA.empresa)
+    .where('empleadoId', '==', PA.empleado.id)
+    .where('fechaFin', '>=', hoy)
+    .get().then(function(snap) {
+      PA._incapacidades = [];
+      snap.forEach(function(d) {
+        PA._incapacidades.push(Object.assign({ id: d.id }, d.data()));
+      });
+      // Actualizar descripción del botón
+      var incActiva = PA._incapacidades.find(function(inc) {
+        return inc.estado !== 'rechazada' && inc.fechaInicio <= hoy && inc.fechaFin >= hoy;
+      });
+      var descEl = document.getElementById('incapacidadDesc');
+      if (descEl) descEl.textContent = incActiva
+        ? '🏥 Activa hasta '+incActiva.fechaFin+' ('+incActiva.dias+'d)'
+        : 'Adjuntar constancia médica';
+      paUpdateDash();
+    }).catch(function() {
+      PA._incapacidades = [];
+    });
+}
 
 // Clasifica minutos de un rango como diurnos o nocturnos
 // Diurna:   5:01 AM (301 min) – 7:00 PM (1200 min)
@@ -3009,11 +3223,15 @@ function paAdminHoy(content) {
   }
   var hoy = paHoy();
   console.log('[Admin] paAdminHoy — fecha:', hoy, '| empresa:', PA.empresa, '| paDb:', !!paDb);
-  // Usar solo where('fecha') para evitar requerir índice compuesto
-  paDb.collection('paMarcaciones')
-    .where('fecha', '==', hoy)
-    .get().then(function(snap) {
-      console.log('[Admin] paMarcaciones query OK — docs:', snap.size);
+
+  // Cargar marcaciones + incapacidades en paralelo
+  Promise.all([
+    paDb.collection('paMarcaciones').where('fecha','==',hoy).get(),
+    paDb.collection('paIncapacidades').where('empresa','==',PA.empresa).where('fechaFin','>=',hoy).get()
+  ]).then(function(results) {
+    var snap = results[0];
+    var snapInc = results[1];
+    console.log('[Admin] paMarcaciones query OK — docs:', snap.size);
       // Filtrar por empresa en cliente
       var marcs = {};
       PA._marcacionesDetalle = {}; // store full records for viewer
@@ -3084,6 +3302,29 @@ function paAdminHoy(content) {
                 + '</div></div>';
             });
           }
+          // ── Incapacidades activas hoy ───────────────────────────
+          var incsHoy = [];
+          snapInc.forEach(function(d) {
+            var inc = Object.assign({ id: d.id }, d.data());
+            if (inc.fechaInicio <= hoy && inc.fechaFin >= hoy) incsHoy.push(inc);
+          });
+          if (incsHoy.length) {
+            html += '<div class="section-title" style="margin-top:16px">🏥 Incapacidades activas hoy ('+incsHoy.length+')</div>';
+            incsHoy.forEach(function(inc) {
+              html += '<div class="report-row">'
+                +'<div style="flex:1">'
+                +'<div class="report-emp">'+inc.empleadoNombre+'</div>'
+                +'<div class="report-detail">'+inc.motivo+'</div>'
+                +'<div class="report-detail" style="color:var(--muted)">'+inc.fechaInicio+' → '+inc.fechaFin+' · '+inc.dias+' día(s) · Estado: <strong>'+inc.estado+'</strong></div>'
+                +'</div>'
+                +'<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">'
+                +(inc.foto?'<button onclick="paVerFotoInc(\''+inc.id+'\')" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;color:var(--text)">📷 Ver</button>':'')
+                +(inc.estado==='pendiente'?'<button onclick="paAprobarInc(\''+inc.id+'\')" style="background:var(--accent);color:#000;border:none;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer">✓ Aprobar</button>':'')
+                +(inc.estado==='pendiente'?'<button onclick="paRechazarInc(\''+inc.id+'\')" style="background:var(--red);color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer">✗</button>':'')
+                +'</div></div>';
+            });
+          }
+
           console.log('[Admin] paAdminHoy renderizando HTML, longitud:', html.length, '| adminContent.clientHeight:', content.clientHeight);
           content.innerHTML = html;
           console.log('[Admin] paAdminHoy HTML renderizado OK | adminContent.scrollHeight:', content.scrollHeight);
@@ -3092,6 +3333,36 @@ function paAdminHoy(content) {
       console.error('[Admin] paAdminHoy ERROR:', e.code, e.message);
       content.innerHTML = '<div style="color:var(--red);padding:20px;text-align:center">Error Firebase: ' + (e.code||'') + '<br>' + e.message + '</div>';
     });
+}
+
+function paVerFotoInc(incId) {
+  paDb.collection('paIncapacidades').doc(incId).get().then(function(d) {
+    if (!d.exists) return;
+    var inc = d.data();
+    if (!inc.foto) { paToast('Sin foto adjunta', false); return; }
+    var old = document.getElementById('paFotoIncModal'); if (old) old.remove();
+    var div = document.createElement('div');
+    div.id = 'paFotoIncModal';
+    div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:600;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px';
+    div.innerHTML = '<img src="'+inc.foto+'" style="max-width:100%;max-height:80vh;border-radius:12px;object-fit:contain">'
+      +'<div style="color:#fff;margin-top:12px;font-size:13px">'+inc.empleadoNombre+' · '+inc.motivo+'</div>'
+      +'<button onclick="document.getElementById(\'paFotoIncModal\').remove()" style="margin-top:14px;padding:10px 24px;background:#388bfd;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer">Cerrar</button>';
+    document.body.appendChild(div);
+  });
+}
+
+function paAprobarInc(incId) {
+  if (!confirm('¿Aprobar esta incapacidad?')) return;
+  paDb.collection('paIncapacidades').doc(incId).update({ estado: 'aprobada' })
+    .then(function() { paToast('✅ Incapacidad aprobada'); paAdminTab('hoy'); })
+    .catch(function(e) { paToast('Error: '+e.message, true); });
+}
+
+function paRechazarInc(incId) {
+  if (!confirm('¿Rechazar esta incapacidad?')) return;
+  paDb.collection('paIncapacidades').doc(incId).update({ estado: 'rechazada' })
+    .then(function() { paToast('Incapacidad rechazada'); paAdminTab('hoy'); })
+    .catch(function(e) { paToast('Error: '+e.message, true); });
 }
 
 function paVerMarcacion(marcId) {
