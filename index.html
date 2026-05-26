@@ -10009,6 +10009,7 @@ function eliminarRegistroMant(id){
   m.registros=m.registros.filter(function(r){return r.id!==id;});
   var eq=reg?(m.equipos||[]).find(function(e){return e.id===reg.equipoId;}):null;
   logAction('ELIMINAR','mantenimiento','Registro de: '+(eq?eq.nombre:id));
+  markDirty('mantenimiento');
   saveData();
   renderMantPanel();
   toast('Registro eliminado');
@@ -10634,6 +10635,7 @@ function guardarEquipo(id){
       (datos.origen==='compra_local'?'Compra local':'Equipo preexistente'));
     logAction('CREAR','mant_equipo','Equipo: '+nombre);
   }
+  markDirty('mantenimiento');
   saveData();
   var div=document.getElementById('modalEquipoDiv');
   if(div)div.remove();
@@ -10765,6 +10767,7 @@ function delEquipo(id){
   var eq=(m.equipos||[]).find(function(e){return e.id===id;});
   m.equipos=m.equipos.filter(function(e){return e.id!==id;});
   if(eq)logAction('ELIMINAR','mantenimiento','Equipo: '+eq.nombre);
+  markDirty('mantenimiento');
   saveData();renderMantEquipos();toast('Equipo eliminado');
 }
 
@@ -10843,6 +10846,7 @@ function guardarRegistroMant(eqId){
   if(!eq.ultimoMant||fecha>eq.ultimoMant){
     eq.ultimoMant=fecha;
   }
+  markDirty('mantenimiento');
   saveData();
   var modal=document.getElementById('modalRegMant');
   if(modal)modal.remove();
@@ -11560,6 +11564,7 @@ function mantNuevoChecklist(){
 function mantEliminarCL(ci){
   if(!confirm('¿Eliminar checklist?'))return;
   mantData().checklists.splice(ci,1);
+  markDirty('mantenimiento');
   saveData();renderMantChecklists();
 }
 function mantActualizarCL(ci,campo,val){
@@ -11990,7 +11995,7 @@ function motEnviarKm(){
       +'<div style="font-size:52px;margin-bottom:16px">✅</div>'
       +'<div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:8px">¡Km registrado!</div>'
       +'<div style="font-size:14px;color:#888;margin-bottom:24px">Tu reporte de kilometraje quedó guardado.</div>'
-      +'<button onclick="motIrReportar()" style="padding:12px 28px;background:#232338;color:#e4e2dd;border:1px solid #333;border-radius:10px;cursor:pointer;font-size:14px">← Volver</button>'
+      +'<button onclick="renderMotSeleccion()" style="padding:12px 28px;background:#232338;color:#e4e2dd;border:1px solid #333;border-radius:10px;cursor:pointer;font-size:14px">← Volver</button>'
       +'</div>';
   }).catch(function(e){
     if(btn){btn.disabled=false;btn.textContent='📊 Enviar km';}
@@ -12018,7 +12023,7 @@ function motEnviarFalla(){
       +'<div style="font-size:52px;margin-bottom:16px">🔧</div>'
       +'<div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:8px">¡Falla reportada!</div>'
       +'<div style="font-size:14px;color:#888;margin-bottom:24px">El taller fue notificado. Revisarán tu vehículo a la brevedad.</div>'
-      +'<button onclick="motIrReportar()" style="padding:12px 28px;background:#232338;color:#e4e2dd;border:1px solid #333;border-radius:10px;cursor:pointer;font-size:14px">← Volver</button>'
+      +'<button onclick="renderMotSeleccion()" style="padding:12px 28px;background:#232338;color:#e4e2dd;border:1px solid #333;border-radius:10px;cursor:pointer;font-size:14px">← Volver</button>'
       +'</div>';
   }).catch(function(e){
     if(btn){btn.disabled=false;btn.textContent='🔧 Reportar falla';}
@@ -12297,6 +12302,7 @@ function guardarTecnico(id){
     logAction('CREAR','tecnicos','Nuevo t\u00e9cnico: '+nombre);
     toast('\u2713 T\u00e9cnico creado');
   }
+  markDirty('mantenimiento');
   saveData();
   (function(_e){if(_e)_e.remove();})(document.getElementById('modalTecDiv'));
   renderMantTecnicos();
@@ -12422,6 +12428,7 @@ function delTecnico(id){
   m.tecnicos=m.tecnicos.filter(function(t){return t.id!==id;});
   var tx=(mantData().tecnicos||[]).find(function(t){return t.id===id;});
   if(tx)logAction('ELIMINAR','empleados','Empleado: '+tx.nombre);
+  markDirty('mantenimiento');
   saveData();renderMantTecnicos();toast('Técnico eliminado');
 }
 
@@ -12582,6 +12589,7 @@ function mantEliminarOT(otId){
   if(!confirm('¿Eliminar esta OT?'))return;
   var m=mantData();
   m.ots=m.ots.filter(function(o){return o.id!==otId;});
+  markDirty('mantenimiento');
   saveData();
   var div=document.getElementById('modalOTDiv');
   if(div)div.remove();
@@ -19624,17 +19632,27 @@ function _renderReportesChoferes(reportes){
   });
 
   // Filas: un vehículo por fila
+  window._rdcCells=[];
+  var _rdcIsAdmin=S.currentUser&&(S.currentUser.rol==='admin'||S.currentUser.rol==='supervisor');
   var semRows=t.vehiculos.filter(function(v){return v.estado!=='baja';}).map(function(v){
     var celdas=semDiasStr.map(function(f){
       var r=repMap[v.id+'|'+f];
-      if(!r)return '<td style="text-align:center;color:var(--border)">—</td>';
+      var ci=window._rdcCells.length;
+      window._rdcCells.push({vehId:v.id,fecha:f,repId:r?r.id:null});
+      if(!r){
+        var tdStyle='text-align:center;color:var(--border)';
+        var tdClick=_rdcIsAdmin?' onclick="rdcCrearRep('+ci+')" style="'+tdStyle+';cursor:pointer" title="Click para agregar reporte"':' style="'+tdStyle+'"';
+        return '<td'+tdClick+'>+</td>';
+      }
       var gal=r.galonesCargados?r.galonesCargados.toFixed(1):'';
       var kmOdo=r.kmOdometro?(r.kmOdometro).toLocaleString('en-US'):'';
       var novColor=r.novedad?'background:#fff3e0':'';
       var tip=r.motoristaNombre||r.choferNombre||'';
-      return '<td style="text-align:center;font-size:11px;'+novColor+';padding:6px 4px" title="'+esc(tip)+'">'
-        +'<div style="font-weight:700;color:var(--accent)">'+kmOdo+'</div>'
-        +(gal?'<div style="color:#facc15;font-size:10px">⛽'+gal+'</div>':'')
+      var kmClick=_rdcIsAdmin?' onclick="rdcEditInline('+ci+',\'km\')" style="font-weight:700;color:var(--accent);cursor:pointer" title="Click para editar km"':' style="font-weight:700;color:var(--accent)"';
+      var galClick=_rdcIsAdmin?' onclick="rdcEditInline('+ci+',\'gal\')" style="color:#facc15;font-size:10px;cursor:pointer" title="Click para editar galones"':' style="color:#facc15;font-size:10px"';
+      return '<td id="rdcCell'+ci+'" style="text-align:center;font-size:11px;'+novColor+';padding:6px 4px" title="'+esc(tip)+'">'
+        +'<div'+kmClick+'>'+kmOdo+'</div>'
+        +(gal?'<div'+galClick+'>⛽'+gal+'</div>':'')
         +(r.novedad?'<div style="color:var(--accent);font-size:9px">⚠</div>':'')
         +'</td>';
     }).join('');
@@ -19862,6 +19880,129 @@ function guardarCorreccionReporte(repId){
   document.getElementById('modalEditRep').remove();
   toast('✓ Reporte corregido');
   if(typeof renderTallerReportesChoferes==='function')renderTallerReportesChoferes();
+}
+
+// ── Edición inline tabla semanal km ────────────────────────────────
+function rdcEditInline(ci, campo){
+  if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
+    toast('Solo administradores pueden editar directamente',true);return;
+  }
+  if(window._rdcGuardando)return;
+  var info=window._rdcCells&&window._rdcCells[ci];
+  if(!info||!info.repId)return;
+  var cell=document.getElementById('rdcCell'+ci);
+  if(!cell)return;
+  var t=tallerData();
+  var rep=(t.reportesDiarios||[]).find(function(r){return r.id===info.repId;});
+  if(!rep)return;
+  var val=campo==='km'?(rep.kmOdometro||0):(rep.galonesCargados||0);
+  var step=campo==='km'?'1':'0.01';
+  var color=campo==='km'?'#4ea8de':'#facc15';
+  cell.innerHTML='<input id="rdcInlineInp" type="number" min="0" step="'+step+'" value="'+val+'"'
+    +' style="width:72px;font-size:12px;text-align:center;background:#0d1117;border:1px solid '+color+';color:'+color+';border-radius:4px;padding:3px 4px;outline:none"'
+    +' onkeydown="if(event.key===\'Enter\'){event.preventDefault();rdcGuardarInline('+ci+',\''+campo+'\',this.value);}else if(event.key===\'Escape\'){renderTallerReportesChoferes();}"'
+    +' onblur="rdcGuardarInline('+ci+',\''+campo+'\',this.value)">';
+  var inp=document.getElementById('rdcInlineInp');
+  if(inp){inp.focus();inp.select();}
+}
+
+function rdcGuardarInline(ci, campo, valor){
+  if(window._rdcGuardando)return;
+  window._rdcGuardando=true;
+  setTimeout(function(){window._rdcGuardando=false;},600);
+  var info=window._rdcCells&&window._rdcCells[ci];
+  if(!info||!info.repId){renderTallerReportesChoferes();return;}
+  var t=tallerData();
+  var rep=(t.reportesDiarios||[]).find(function(r){return r.id===info.repId;});
+  if(!rep){renderTallerReportesChoferes();return;}
+  var nuevoVal=campo==='km'?parseInt(valor)||0:parseFloat(valor)||0;
+  if(nuevoVal<0){toast('Valor inválido',true);renderTallerReportesChoferes();return;}
+  if(campo==='km'){
+    if(nuevoVal===rep.kmOdometro){renderTallerReportesChoferes();return;}
+    var repsVeh=(t.reportesDiarios||[]).filter(function(r){return r.vehiculoId===rep.vehiculoId&&r.id!==rep.id;});
+    repsVeh.sort(function(a,b){return (a.fecha+'').localeCompare(b.fecha+'');});
+    var prevRep=null;
+    for(var i=0;i<repsVeh.length;i++){if(repsVeh[i].fecha<rep.fecha){prevRep=repsVeh[i];}}
+    var kmBase=prevRep?(prevRep.kmOdometro||0):0;
+    rep.kmOdometro=nuevoVal;
+    rep.kmRecorridos=nuevoVal-kmBase;
+    rep.costoGasolina=(rep.galonesCargados||0)*getPrecioGasolina();
+  } else {
+    if(nuevoVal===(rep.galonesCargados||0)){renderTallerReportesChoferes();return;}
+    rep.galonesCargados=nuevoVal;
+    rep.costoGasolina=nuevoVal*getPrecioGasolina();
+    var cb=t.combustible&&t.combustible.find(function(c){return c.reporteDiarioId===rep.id;});
+    if(cb){cb.galones=nuevoVal;cb.total=rep.costoGasolina;}
+  }
+  rep.corregidoPor=S.currentUser.email;
+  rep.fechaCorreccion=Date.now();
+  rep.motivoCorreccion='Corrección directa desde tabla semanal';
+  markDirty('taller');
+  saveData();
+  toast('✓ Guardado');
+  renderTallerReportesChoferes();
+}
+
+function rdcCrearRep(ci){
+  if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
+    toast('Solo administradores pueden agregar reportes',true);return;
+  }
+  var info=window._rdcCells&&window._rdcCells[ci];
+  if(!info)return;
+  var t=tallerData();
+  var veh=t.vehiculos.find(function(v){return v.id===info.vehId;});
+  var cell=document.querySelector('[onclick="rdcCrearRep('+ci+')"]');
+  if(!cell)return;
+  // Input km + galones en la celda
+  cell.style.minWidth='90px';
+  cell.style.padding='4px';
+  cell.style.cursor='default';
+  cell.removeAttribute('onclick');
+  cell.innerHTML=
+    '<input id="rdcNuevoKm" type="number" min="0" placeholder="km" '
+    +'style="width:70px;font-size:11px;text-align:center;background:#0d1117;border:1px solid #4ea8de;color:#4ea8de;border-radius:4px;padding:2px 3px;outline:none;display:block;margin-bottom:3px">'
+    +'<input id="rdcNuevoGal" type="number" min="0" step="0.01" placeholder="gal" '
+    +'style="width:70px;font-size:11px;text-align:center;background:#0d1117;border:1px solid #facc15;color:#facc15;border-radius:4px;padding:2px 3px;outline:none;display:block">'
+    +'<div style="display:flex;gap:3px;margin-top:3px">'
+    +'<button onclick="rdcConfirmarNuevo('+ci+')" style="flex:1;font-size:10px;padding:2px;background:#4ea8de;color:#000;border:none;border-radius:3px;cursor:pointer">✓</button>'
+    +'<button onclick="renderTallerReportesChoferes()" style="flex:1;font-size:10px;padding:2px;background:#333;color:#fff;border:none;border-radius:3px;cursor:pointer">✕</button>'
+    +'</div>';
+  var inp=document.getElementById('rdcNuevoKm');
+  if(inp)inp.focus();
+}
+
+function rdcConfirmarNuevo(ci){
+  if(window._rdcGuardando)return;
+  window._rdcGuardando=true;
+  setTimeout(function(){window._rdcGuardando=false;},600);
+  var info=window._rdcCells&&window._rdcCells[ci];
+  if(!info){renderTallerReportesChoferes();return;}
+  var km=parseInt((document.getElementById('rdcNuevoKm')||{}).value)||0;
+  var gal=parseFloat((document.getElementById('rdcNuevoGal')||{}).value)||0;
+  if(!km){toast('Ingresa el km del odómetro',true);window._rdcGuardando=false;return;}
+  var t=tallerData();
+  var veh=t.vehiculos.find(function(v){return v.id===info.vehId;})||{};
+  // Km recorridos vs reporte previo
+  var repsVeh=(t.reportesDiarios||[]).filter(function(r){return r.vehiculoId===info.vehId;});
+  repsVeh.sort(function(a,b){return (a.fecha+'').localeCompare(b.fecha+'');});
+  var prevRep=null;
+  for(var i=0;i<repsVeh.length;i++){if(repsVeh[i].fecha<info.fecha){prevRep=repsVeh[i];}}
+  var kmBase=prevRep?(prevRep.kmOdometro||0):0;
+  var folio='REP-'+Date.now().toString(36).toUpperCase();
+  var nuevo={
+    id:folio,empresa:S.empresa,vehiculoId:info.vehId,vehiculoPlaca:veh.placa||'',
+    choferNombre:veh.motorista||'',choferId:veh.choferId||'',
+    fecha:info.fecha,kmOdometro:km,kmRecorridos:km-kmBase,
+    galonesCargados:gal,costoGasolina:gal*getPrecioGasolina(),
+    novedad:'',ts:Date.now(),tipo:'reporte_diario',
+    creadoPor:S.currentUser.email,motivoCorreccion:'Creado manualmente desde tabla semanal'
+  };
+  if(!t.reportesDiarios)t.reportesDiarios=[];
+  t.reportesDiarios.push(nuevo);
+  markDirty('taller');
+  saveData();
+  toast('✓ Reporte creado');
+  renderTallerReportesChoferes();
 }
 
 function eliminarReporteChofer(repId){
