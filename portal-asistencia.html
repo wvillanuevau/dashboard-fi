@@ -906,10 +906,34 @@ var PA_FERIADOS_SV = [
 
 // ── Device ID permanente en localStorage ───────────────────────
 (function(){
-  var k='pa_device_id';
-  var did=localStorage.getItem(k);
-  if(!did){ did='DEV-'+Date.now().toString(36).toUpperCase()+'-'+Math.random().toString(36).slice(2,7).toUpperCase(); localStorage.setItem(k,did); }
-  window._PA_DEVICE_ID=did;
+  var k = 'pa_device_id';
+  var did = null;
+  try {
+    did = localStorage.getItem(k);
+    if (!did) {
+      did = 'DEV-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2,7).toUpperCase();
+      localStorage.setItem(k, did);
+      // Verificar que realmente se guardó
+      if (localStorage.getItem(k) !== did) did = null;
+    }
+  } catch(e) {
+    did = null;
+  }
+  // Fallback: sessionStorage si localStorage no funciona
+  if (!did) {
+    try {
+      did = sessionStorage.getItem(k);
+      if (!did) {
+        did = 'SES-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2,7).toUpperCase();
+        sessionStorage.setItem(k, did);
+      }
+    } catch(e2) {
+      // Último recurso: ID de sesión en memoria (no persiste entre recargas)
+      did = 'MEM-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2,7).toUpperCase();
+    }
+  }
+  window._PA_DEVICE_ID = did;
+  console.log('[DeviceID]', did);
 })();
 
 var PA = {
@@ -1537,6 +1561,10 @@ function paVerifyPin() {
     return;
   }
   // PIN correcto — verificar dispositivo
+  if (!window._PA_DEVICE_ID) {
+    if (errEl) errEl.textContent = '⚠ No se pudo identificar este dispositivo. Intenta en otro navegador o desactiva el modo privado.';
+    PA.pinInput = ''; paPinUpdate(); return;
+  }
   if (!storedDevice) {
     // Primera vez: vincular este dispositivo automáticamente
     var docId = PA._pinsDocMap && PA._pinsDocMap[PA.empleado.id];
