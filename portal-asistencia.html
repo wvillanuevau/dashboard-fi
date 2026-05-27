@@ -1907,6 +1907,49 @@ function paAfterAuth() {
   PA.horasExtraAcum = parseFloat(emp.horasExtraAcum || 0);
   PA.diasVacDisp = parseInt(emp.diasVacacionesDisponibles || 15);
 
+
+  // [DEBUG] Vincular dispositivo
+  var thisDevice = window._PA_DEVICE_ID;
+  var storedDevice = emp.deviceId || null;
+  var bindDocId = PA._pinsDocMap && PA._pinsDocMap[emp.id];
+
+  // Toast de diagnostico visible en pantalla
+  paToast('[DBG] DeviceID: ' + (thisDevice ? thisDevice.slice(0,10)+'...' : 'NULO'));
+  setTimeout(function(){
+    paToast('[DBG] storedDev: ' + (storedDevice ? storedDevice.slice(0,10)+'...' : 'NULO') + ' | docId: ' + (bindDocId ? 'SI' : 'NO'));
+  }, 2500);
+
+  if (thisDevice && !storedDevice) {
+    var bindData = { deviceId: thisDevice, deviceVinculado: new Date().toISOString() };
+    if (bindDocId) {
+      paToast('[DBG] Intentando update en paPins...');
+      paDb.collection('paPins').doc(bindDocId).update(bindData)
+        .then(function() {
+          emp.deviceId = thisDevice;
+          if (PA._deviceMap) PA._deviceMap[emp.id] = thisDevice;
+          paToast('OK Dispositivo vinculado.');
+        }).catch(function(e) {
+          paToast('[DBG] ERROR update: ' + e.message, true);
+        });
+    } else {
+      paToast('[DBG] Sin docId. Intentando add en paPins...');
+      paDb.collection('paPins').add({
+        empresa: PA.empresa, empleadoId: emp.id, pin: emp.pin || '',
+        deviceId: thisDevice, deviceVinculado: new Date().toISOString()
+      }).then(function(ref) {
+        emp.deviceId = thisDevice;
+        PA._pinsDocMap[emp.id] = ref.id;
+        if (PA._deviceMap) PA._deviceMap[emp.id] = thisDevice;
+        paToast('OK Dispositivo vinculado (nuevo doc).');
+      }).catch(function(e) {
+        paToast('[DBG] ERROR add: ' + e.message, true);
+      });
+    }
+  } else if (!thisDevice) {
+    paToast('[DBG] SIN DEVICE ID - localStorage fallo', true);
+  } else if (storedDevice) {
+    paToast('[DBG] Ya vinculado: ' + storedDevice.slice(0,10) + '...');
+  }
   // ── Configurar notificaciones ────────────────────────────────────
   paConfigurarNotificaciones();
   // Registrar token FCM para push con navegador cerrado (seguro, después del login)
