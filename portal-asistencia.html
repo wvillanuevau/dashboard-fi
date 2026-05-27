@@ -803,7 +803,7 @@ button:active{opacity:.8;transform:scale(.95)}
 <!-- ══════════════════════════════════════════════════
      SCREEN: ADMIN
 ══════════════════════════════════════════════════ -->
-<div class="screen" id="scAdmin" style="position:fixed;inset:0;background:#1a1a2e;color:#ffffff;z-index:50;overflow-y:auto;display:none;flex-direction:column;align-items:center;justify-content:flex-start">
+<div class="screen" id="scAdmin" style="position:fixed;inset:0;background:#1a1a2e;color:#ffffff;z-index:50;overflow-y:auto;display:none;flex-direction:column;align-items:center;justify-content:flex-start;pointer-events:none">
   <div class="portal-header">
     <button class="header-back" onclick="paShow('scLanding')">←</button>
     <div class="header-title">Administración</div>
@@ -972,12 +972,14 @@ function paShow(screenId) {
   document.querySelectorAll('.screen').forEach(function(s){
     s.classList.remove('active');
     s.style.display = 'none';
+    s.style.pointerEvents = 'none'; // evitar que fixed screens bloqueen taps
   });
 
   var sc = document.getElementById(screenId);
   if (sc) {
     sc.classList.add('active');
     sc.style.display = 'flex';
+    sc.style.pointerEvents = '';
     console.log('[paShow]', screenId, 'display:', sc.style.display, '| offsetHeight:', sc.offsetHeight);
   } else {
     console.error('[paShow] screen NOT FOUND:', screenId);
