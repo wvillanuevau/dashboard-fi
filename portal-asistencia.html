@@ -612,6 +612,7 @@ button:active{opacity:.8;transform:scale(.95)}
         <div class="loc-status loading" id="locStatus">⟳ Localizando...</div>
       </div>
     </div>
+    <div id="gpsWarning" style="display:none;background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.4);border-radius:10px;padding:10px 12px;font-size:13px;color:#f85149;margin-top:8px;text-align:center"></div>
 
     <!-- Centro de trabajo -->
     <div class="section-title">🏢 Sucursal / Centro de trabajo</div>
@@ -2561,23 +2562,45 @@ function paGetLocation() {
       if (nameEl) nameEl.textContent = 'Ubicación obtenida';
       if (coordsEl) coordsEl.textContent = PA.location.lat.toFixed(5) + ', ' + PA.location.lng.toFixed(5);
       if (statusEl) { statusEl.textContent = '✓ Precisión: ±' + PA.location.acc + 'm'; statusEl.className = 'loc-status ok'; }
+      // Quitar advertencia si ya había aparecido
+      var w = document.getElementById('gpsWarning'); if (w) w.style.display = 'none';
     },
     function(err) {
       if (nameEl) nameEl.textContent = 'Ubicación no disponible';
       if (statusEl) { statusEl.textContent = '⚠ ' + err.message; statusEl.className = 'loc-status error'; }
+      PA.location = null;
+      // Mostrar advertencia visible
+      var w = document.getElementById('gpsWarning');
+      if (w) { w.style.display = 'block'; w.textContent = '⚠ GPS no obtenido — la foto es obligatoria para continuar.'; }
     },
-    { enableHighAccuracy: true, timeout: 10000 }
+    { enableHighAccuracy: true, timeout: 12000 }
   );
 }
 
 function paConfirmarMarca() {
-  if (!PA.capturedB64) {
-    var errEl = document.getElementById('marcarError');
-    if (errEl) { errEl.textContent = '⚠ Debes tomar una foto antes de confirmar.'; errEl.style.display = 'block'; }
+  var tieneFoto = !!PA.capturedB64;
+  var tieneGPS  = !!(PA.location && PA.location.lat);
+  var errEl = document.getElementById('marcarError');
+
+  if (!tieneFoto && !tieneGPS) {
+    if (errEl) { errEl.textContent = '⚠ Debes tomar una foto Y/O activar el GPS. Al menos uno es obligatorio.'; errEl.style.display = 'block'; }
     return;
   }
-  
-  var errEl = document.getElementById('marcarError');
+  if (!tieneFoto) {
+    if (errEl) { errEl.textContent = '⚠ El GPS está activo pero debes tomar una foto para continuar.'; errEl.style.display = 'block'; }
+    return;
+  }
+  if (!tieneGPS) {
+    // Foto presente pero sin GPS — preguntar confirmación
+    if (!window._paGpsBypass) {
+      if (errEl) { errEl.textContent = '⚠ GPS no disponible. Si continúas, quedará registrado sin ubicación. Presiona nuevamente para confirmar.'; errEl.style.display = 'block'; }
+      window._paGpsBypass = true;
+      setTimeout(function(){ window._paGpsBypass = false; }, 8000);
+      return;
+    }
+    window._paGpsBypass = false;
+  }
+
   if (errEl) errEl.style.display = 'none';
   
   var btn = document.getElementById('btnConfirmarMarca');
