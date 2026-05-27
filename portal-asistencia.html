@@ -904,6 +904,14 @@ var PA_FERIADOS_SV = [
   '08-03','08-04','08-05','08-06',
 ];
 
+// ── Device ID permanente en localStorage ───────────────────────
+(function(){
+  var k='pa_device_id';
+  var did=localStorage.getItem(k);
+  if(!did){ did='DEV-'+Date.now().toString(36).toUpperCase()+'-'+Math.random().toString(36).slice(2,7).toUpperCase(); localStorage.setItem(k,did); }
+  window._PA_DEVICE_ID=did;
+})();
+
 var PA = {
   empresa: 'FISDC',
   empleado: null,
@@ -1357,6 +1365,8 @@ function paLoadEmpleados(callback) {
         creds[pd.empleadoId]         = pd.credId || null;
         PA._pinsDocMap[pd.empleadoId] = d.id;
         PA._horasMap[pd.empleadoId]  = pd;
+        PA._deviceMap  = PA._deviceMap  || {};
+        PA._deviceMap[pd.empleadoId]  = pd.deviceId || null;
       });
 
       PA.empleados = tecnicos
@@ -1369,6 +1379,7 @@ function paLoadEmpleados(callback) {
             ruta:   t.ruta   || '',
             pin:    pins[t.id]  || '',
             credId: creds[t.id] || null,
+            deviceId: (PA._deviceMap && PA._deviceMap[t.id]) || null,
             diasVacacionesDisponibles: (PA._horasMap[t.id] && PA._horasMap[t.id].diasVacDisp)   || 15,
             horasExtraAcum:            (PA._horasMap[t.id] && PA._horasMap[t.id].horasExtraAcum) || 0,
             fechaContratacion:         (PA._horasMap[t.id] && PA._horasMap[t.id].fechaContratacion) || '',
@@ -1508,19 +1519,63 @@ function paVerifyPin() {
     return;
   }
 
-  // Regular PIN mode (only for devices without biometric)
+  // Regular PIN mode — verificar dispositivo vinculado
   var storedPin = String(PA.empleado.pin || '');
-  if (storedPin && storedPin === entered) {
-    if (errEl) errEl.textContent = '';
-    PA.pinInput = '';
-    paPinUpdate();
-    paAfterAuth();
-  } else {
-    if (errEl) errEl.textContent = '❌ PIN incorrecto.';
-    PA.pinInput = '';
-    paPinUpdate();
-    if (navigator.vibrate) navigator.vibrate([100,50,100]);
+  var storedDevice = PA.empleado.deviceId || null;
+  var thisDevice = window._PA_DEVICE_ID;
+
+  if (!storedPin) {
+    if (errEl) errEl.textContent = '❌ Este empleado no tiene PIN asignado. Contacta al administrador.';
+    PA.pinInput = ''; paPinUpdate(); return;
   }
+  if (storedPin !== entered) {
+    if (errEl) errEl.textContent = '❌ PIN incorrecto.';
+    PA.pinInput = ''; paPinUpdate();
+    if (navigator.vibrate) navigator.vibrate([100,50,100]);
+    return;
+  }
+  // PIN correcto — verificar dispositivo
+  if (!storedDevice) {
+    // Primera vez: vincular este dispositivo automáticamente
+    var docId = PA._pinsDocMap && PA._pinsDocMap[PA.empleado.id];
+    if (docId) {
+      paDb.collection('paPins').doc(docId).update({ deviceId: thisDevice, deviceVinculado: new Date().toISOString() })
+        .then(function(){
+          PA.empleado.deviceId = thisDevice;
+          if (errEl) errEl.textContent = '';
+          PA.pinInput = ''; paPinUpdate();
+          paToast('📱 Dispositivo vinculado correctamente.');
+          paAfterAuth();
+        }).catch(function(e){
+          if (errEl) errEl.textContent = 'Error al vincular dispositivo: ' + e.message;
+        });
+    } else {
+      // No hay doc en paPins aún — crear
+      paDb.collection('paPins').add({ empresa: PA.empresa, empleadoId: PA.empleado.id, pin: storedPin, deviceId: thisDevice, deviceVinculado: new Date().toISOString() })
+        .then(function(ref){
+          PA.empleado.deviceId = thisDevice;
+          PA._pinsDocMap[PA.empleado.id] = ref.id;
+          if (errEl) errEl.textContent = '';
+          PA.pinInput = ''; paPinUpdate();
+          paToast('📱 Dispositivo vinculado correctamente.');
+          paAfterAuth();
+        }).catch(function(e){
+          if (errEl) errEl.textContent = 'Error al vincular dispositivo: ' + e.message;
+        });
+    }
+    return;
+  }
+  // Dispositivo ya vinculado — verificar que sea el mismo
+  if (storedDevice !== thisDevice) {
+    if (errEl) errEl.textContent = '❌ Este empleado ya está vinculado a otro dispositivo. Contacta al administrador para desvincular.';
+    PA.pinInput = ''; paPinUpdate();
+    if (navigator.vibrate) navigator.vibrate([200,100,200,100,200]);
+    return;
+  }
+  // ✅ PIN correcto + dispositivo correcto
+  if (errEl) errEl.textContent = '';
+  PA.pinInput = ''; paPinUpdate();
+  paAfterAuth();
 }
 
 // ══════════════════════════════════════════════════════
@@ -4131,18 +4186,39 @@ function paAdminEmps(content) {
           +' <span style="color:var(--muted)">('+minsLeft+' min)</span></div>';
       }
     }
+    var devStatus = emp.deviceId
+      ? '<span style="color:#3fb950;font-size:11px">📱 Vinculado</span>'
+      : '<span style="color:var(--muted);font-size:11px">📵 Sin dispositivo</span>';
+    var btnDesvincular = emp.deviceId
+      ? '<button style="background:rgba(248,81,73,.15);border:1px solid rgba(248,81,73,.4);color:#f85149;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:11px" onclick="paDesvinculDispositivo(\''+emp.id+'\')" title="Desvincular dispositivo">🔓 Desvincular</button>'
+      : '';
     html += '<div class="report-row">'
       + '<div style="flex:1"><div class="report-emp">'+emp.nombre+'</div>'
-      + '<div class="report-detail">'+(emp.cargo||'—')+(emp.ruta?' · '+emp.ruta:'')+' · '+(emp.pin?'🔒 PIN asignado':'⚠ Sin PIN')+'</div>'
+      + '<div class="report-detail">'+(emp.cargo||'—')+(emp.ruta?' · '+emp.ruta:'')+' · '+(emp.pin?'🔒 PIN asignado':'⚠ Sin PIN')+' · '+devStatus+'</div>'
       + '<div class="report-detail">⏰ '+((emp.horasExtraAcum||0).toFixed(1))+'h extra · 🏖️ '+(emp.diasVacacionesDisponibles||15)+' días vac.</div>'
       + otpInfo
       + '</div>'
       + '<div style="display:flex;gap:6px">'
       + '<button style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:11px" onclick="paEditarEmp(\''+emp.id+'\')">✏</button>'
+      + btnDesvincular
       + '</div></div>';
-  });
-  
   content.innerHTML = html;
+}
+
+function paDesvinculDispositivo(empId) {
+  if (!confirm('¿Desvincular el dispositivo de este empleado? La próxima vez que inicie sesión con su PIN, el nuevo teléfono quedará vinculado automáticamente.')) return;
+  var docId = PA._pinsDocMap && PA._pinsDocMap[empId];
+  if (!docId) { paToast('No se encontró registro del empleado', true); return; }
+  paDb.collection('paPins').doc(docId).update({ deviceId: null, deviceVinculado: null })
+    .then(function() {
+      // Update local cache
+      var emp = PA.empleados.find(function(e){ return e.id===empId; });
+      if (emp) emp.deviceId = null;
+      if (PA._deviceMap) PA._deviceMap[empId] = null;
+      paToast('✓ Dispositivo desvinculado. El empleado puede vincular uno nuevo.');
+      paAdminTab('emps');
+    })
+    .catch(function(e){ paToast('Error: '+e.message, true); });
 }
 
 function paAdminExtra(content) {
