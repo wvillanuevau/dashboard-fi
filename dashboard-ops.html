@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Operaciones — FISDC</title>
+<style>
+:root {
+  --bg:       #0d1117;
+  --surface:  #111928;
+  --surface2: #1a2436;
+  --border:   #1e2d42;
+  --text:     #e4e2dd;
+  --muted:    #6b7a90;
+  --accent:   #4ea8de;
+  --green:    #3fb950;
+  --yellow:   #d29922;
+  --red:      #f85149;
+  --orange:   #e07b39;
+  --purple:   #a78bfa;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Courier New',monospace;min-height:100vh}
+
+/* ── Auth ── */
+#authScreen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+.auth-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:32px;width:100%;max-width:380px}
+.auth-logo{text-align:center;margin-bottom:24px}
+.auth-logo h1{font-size:18px;font-weight:700;color:#fff;letter-spacing:.06em}
+.auth-logo p{font-size:12px;color:var(--muted);margin-top:4px}
+.auth-field{margin-bottom:14px}
+.auth-field label{display:block;font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em}
+.auth-field input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:14px;padding:10px 12px;outline:none;transition:border-color .2s}
+.auth-field input:focus{border-color:var(--accent)}
+.auth-btn{width:100%;background:var(--accent);color:#000;border:none;border-radius:8px;font-family:inherit;font-size:14px;font-weight:700;padding:12px;cursor:pointer;margin-top:8px}
+.auth-btn:disabled{opacity:.5;cursor:not-allowed}
+.auth-err{color:var(--red);font-size:12px;margin-top:8px;text-align:center;min-height:16px}
+
+/* ── Dashboard ── */
+#dashScreen{display:none;padding:0}
+.dash-header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
+.dash-header h1{font-size:14px;font-weight:700;color:#fff;letter-spacing:.06em}
+.dash-header-right{display:flex;align-items:center;gap:12px}
+.dash-fecha{font-size:11px;color:var(--muted)}
+.btn-refresh{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-family:inherit;font-size:11px;cursor:pointer;transition:background .15s}
+.btn-refresh:hover{background:var(--border)}
+.btn-logout{background:transparent;border:none;color:var(--muted);font-family:inherit;font-size:11px;cursor:pointer}
+.btn-logout:hover{color:var(--red)}
+
+.dash-body{padding:20px 24px;max-width:1400px;margin:0 auto}
+
+/* ── Grid ── */
+.grid{display:grid;gap:16px}
+.grid-4{grid-template-columns:repeat(4,1fr)}
+.grid-3{grid-template-columns:repeat(3,1fr)}
+.grid-2{grid-template-columns:repeat(2,1fr)}
+.grid-1{grid-template-columns:1fr}
+
+/* ── Cards ── */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;position:relative;overflow:hidden}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.card-title{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.card-badge{font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700}
+.badge-green{background:rgba(63,185,80,.15);color:var(--green);border:1px solid rgba(63,185,80,.25)}
+.badge-yellow{background:rgba(210,153,34,.15);color:var(--yellow);border:1px solid rgba(210,153,34,.25)}
+.badge-red{background:rgba(248,81,73,.15);color:var(--red);border:1px solid rgba(248,81,73,.25)}
+.badge-blue{background:rgba(78,168,222,.15);color:var(--accent);border:1px solid rgba(78,168,222,.25)}
+.badge-purple{background:rgba(167,139,250,.15);color:var(--purple);border:1px solid rgba(167,139,250,.25)}
+
+.kpi-num{font-size:36px;font-weight:700;color:#fff;line-height:1;margin-bottom:4px}
+.kpi-sub{font-size:11px;color:var(--muted)}
+.kpi-accent{color:var(--accent)}
+.kpi-green{color:var(--green)}
+.kpi-yellow{color:var(--yellow)}
+.kpi-red{color:var(--red)}
+
+/* ── Lists ── */
+.item-list{display:flex;flex-direction:column;gap:8px}
+.item-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px;background:var(--surface2);border-radius:7px;border:1px solid var(--border)}
+.item-left{min-width:0}
+.item-name{font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item-sub{font-size:10px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item-val{font-size:13px;font-weight:700;color:var(--accent);white-space:nowrap;flex-shrink:0}
+.item-val.green{color:var(--green)}
+.item-val.red{color:var(--red)}
+.item-val.yellow{color:var(--yellow)}
+.item-val.purple{color:var(--purple)}
+
+/* ── Bar chart ── */
+.bar-row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.bar-label{font-size:11px;color:var(--muted);width:90px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar-track{flex:1;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden}
+.bar-fill{height:100%;border-radius:3px;transition:width .4s ease}
+.bar-val{font-size:11px;color:var(--text);width:40px;text-align:right;flex-shrink:0}
+
+/* ── Proyecto cards ── */
+.proj-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
+.proj-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px}
+.proj-name{font-size:11px;font-weight:700;color:#fff;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prog-bar{height:4px;background:var(--border);border-radius:2px;margin-bottom:6px;overflow:hidden}
+.prog-fill{height:100%;border-radius:2px}
+.proj-stats{display:flex;justify-content:space-between;font-size:10px;color:var(--muted)}
+
+/* ── Camiones ── */
+.truck-row{display:flex;align-items:center;gap:10px;padding:7px 9px;background:var(--surface2);border-radius:7px;border:1px solid var(--border);margin-bottom:7px}
+.truck-plate{font-size:12px;font-weight:700;color:#fff;min-width:80px}
+.truck-model{font-size:10px;color:var(--muted);flex:1}
+.truck-badges{display:flex;gap:4px;flex-wrap:wrap}
+.tbadge{font-size:9px;padding:2px 6px;border-radius:4px;font-weight:600}
+.tbadge-ok{background:rgba(63,185,80,.15);color:var(--green)}
+.tbadge-warn{background:rgba(210,153,34,.15);color:var(--yellow)}
+.tbadge-err{background:rgba(248,81,73,.15);color:var(--red)}
+.tbadge-info{background:rgba(78,168,222,.15);color:var(--accent)}
+
+/* ── Mant programados ── */
+.mant-row{padding:7px 9px;background:var(--surface2);border-radius:7px;border-left:3px solid var(--yellow);margin-bottom:7px}
+.mant-fecha{font-size:10px;color:var(--yellow);margin-bottom:2px}
+.mant-desc{font-size:11px;font-weight:600;color:#fff}
+.mant-veh{font-size:10px;color:var(--muted)}
+
+/* ── Loading ── */
+.loading{text-align:center;padding:20px;color:var(--muted);font-size:12px}
+.spin{display:inline-block;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Section title ── */
+.section-label{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:20px 0 10px;font-weight:600;display:flex;align-items:center;gap:8px}
+.section-label::after{content:'';flex:1;height:1px;background:var(--border)}
+
+/* ── Refresh indicator ── */
+.last-update{font-size:10px;color:var(--muted);text-align:right;margin-bottom:12px}
+.update-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:4px;vertical-align:middle}
+
+/* ── Responsive ── */
+@media(max-width:1100px){.grid-4{grid-template-columns:repeat(2,1fr)}.grid-3{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:700px){.grid-4,.grid-3,.grid-2{grid-template-columns:1fr}.dash-body{padding:12px}}
+</style>
+</head>
+<body>
+
+<!-- AUTH SCREEN -->
+<div id="authScreen">
+  <div class="auth-box">
+    <div class="auth-logo">
+      <h1>📊 DASHBOARD OPS</h1>
+      <p>FISDC — Panel de Operaciones</p>
+    </div>
+    <div class="auth-field">
+      <label>Email</label>
+      <input type="email" id="loginEmail" placeholder="admin@empresa.com" autocomplete="email">
+    </div>
+    <div class="auth-field">
+      <label>Contraseña</label>
+      <input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button class="auth-btn" id="loginBtn" onclick="doLogin()">Ingresar</button>
+    <div class="auth-err" id="loginErr"></div>
+  </div>
+</div>
+
+<!-- DASHBOARD SCREEN -->
+<div id="dashScreen">
+  <div class="dash-header">
+    <h1>📊 DASHBOARD OPERACIONES — FISDC</h1>
+    <div class="dash-header-right">
+      <span class="dash-fecha" id="dashFecha"></span>
+      <button class="btn-refresh" onclick="cargarTodo()">⟳ Actualizar</button>
+      <button class="btn-logout" onclick="doLogout()">Cerrar sesión</button>
+    </div>
+  </div>
+
+  <div class="dash-body">
+    <div class="last-update" id="lastUpdate"></div>
+
+    <!-- FILA 1: KPIs rápidos -->
+    <div class="section-label">Resumen del día</div>
+    <div class="grid grid-4" id="kpiRow">
+      <div class="card"><div class="loading"><span class="spin">⟳</span></div></div>
+      <div class="card"><div class="loading"><span class="spin">⟳</span></div></div>
+      <div class="card"><div class="loading"><span class="spin">⟳</span></div></div>
+      <div class="card"><div class="loading"><span class="spin">⟳</span></div></div>
+    </div>
+
+    <!-- FILA 2: Gastos + Inventario -->
+    <div class="section-label">Movimientos financieros</div>
+    <div class="grid grid-2" id="movRow">
+      <div class="card"><div class="loading"><span class="spin">⟳</span></div></div>
+      <div class="card"><div class="loading"><span class="spin">⟳</span></div></div>
+    </div>
+
+    <!-- FILA 3: Tickets -->
+    <div class="section-label">Tickets y solicitudes</div>
+    <div class="grid grid-3" id="ticketsRow">
+      <div class="card"><div class="loading"><span class="spin">⟳</span></div></div>
+      <div class="card"><div class="loading"><span class="spin">⟳</span></div></div>
+      <div class="card"><div class="loading"><span class="spin">⟳</span></div></div>
+    </div>
+
+    <!-- FILA 4: Proyectos -->
+    <div class="section-label">Proyectos con actividad reciente (últimos 3 meses)</div>
+    <div class="grid grid-1" id="proyRow">
+      <div class="card"><div class="loading"><span class="spin">⟳</span></div></div>
+    </div>
+
+    <!-- FILA 5: Flota -->
+    <div class="section-label">Flota vehicular</div>
+    <div class="grid grid-3" id="flotaRow">
+      <div class="card"><div class="loading"><span class="spin">⟳</span></div></div>
+      <div class="card"><div class="loading"><span class="spin">⟳</span></div></div>
+      <div class="card"><div class="loading"><span class="spin">⟳</span></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+
+<script>
+firebase.initializeApp({
+  apiKey:'AIzaSyC0R7573cB76FzC6qPZhLmvKhVT46PN3RM',
+  authDomain:'pf-construccion.firebaseapp.com',
+  projectId:'pf-construccion',
+  storageBucket:'pf-construccion.firebasestorage.app',
+  messagingSenderId:'768666711160',
+  appId:'1:768666711160:web:11dfd8cf50ab19dddc298d'
+});
+var db   = firebase.firestore();
+var auth = firebase.auth();
+var EMPRESA = 'FISDC';
+var _autoRefresh = null;
+
+// ── Fecha helpers ────────────────────────────────────────────────────
+function hoy(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function hace3meses(){ var d=new Date(); d.setMonth(d.getMonth()-3); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function fmtMoney(v){ return '$'+parseFloat(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtFecha(s){ if(!s)return '—'; var p=s.split('-'); return p[2]+'/'+p[1]; }
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── Auth ─────────────────────────────────────────────────────────────
+document.addEventListener('keydown',function(e){ if(e.key==='Enter') doLogin(); });
+
+function doLogin(){
+  var email=(document.getElementById('loginEmail').value||'').trim();
+  var pass=(document.getElementById('loginPass').value||'').trim();
+  var errEl=document.getElementById('loginErr');
+  var btn=document.getElementById('loginBtn');
+  errEl.textContent='';
+  if(!email||!pass){errEl.textContent='Ingresa email y contraseña';return;}
+  btn.disabled=true;btn.textContent='Ingresando...';
+  auth.signInWithEmailAndPassword(email,pass).then(function(){
+    document.getElementById('authScreen').style.display='none';
+    document.getElementById('dashScreen').style.display='block';
+    actualizarFecha();
+    cargarTodo();
+    _autoRefresh=setInterval(cargarTodo,5*60*1000); // auto-refresh cada 5 min
+  }).catch(function(e){
+    errEl.textContent='Error: '+e.message;
+    btn.disabled=false;btn.textContent='Ingresar';
+  });
+}
+
+function doLogout(){
+  if(_autoRefresh)clearInterval(_autoRefresh);
+  auth.signOut().then(function(){
+    document.getElementById('authScreen').style.display='flex';
+    document.getElementById('dashScreen').style.display='none';
+    document.getElementById('loginBtn').disabled=false;
+    document.getElementById('loginBtn').textContent='Ingresar';
+  });
+}
+
+function actualizarFecha(){
+  var d=new Date();
+  var dias=['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+  var meses=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  document.getElementById('dashFecha').textContent=dias[d.getDay()]+' '+d.getDate()+' '+meses[d.getMonth()]+' '+d.getFullYear();
+}
+
+// ── Master loader ────────────────────────────────────────────────────
+function cargarTodo(){
+  document.getElementById('lastUpdate').innerHTML='<span class="spin">⟳</span> Cargando datos...';
+  var HOY=hoy();
+  var HACE3M=hace3meses();
+
+  // Load empresa doc + gastos chunks + colecciones externas en paralelo
+  Promise.all([
+    db.collection('empresas').doc(EMPRESA).get(),
+    db.collection('gastos_chunks').where('empresa','==',EMPRESA).get(),
+    db.collection('solicitudesTaller').where('empresa','==',EMPRESA).get(),
+    db.collection('tallerTrabajos').where('empresa','==',EMPRESA).get(),
+    db.collection('reportesMotoristas').where('empresa','==',EMPRESA).get()
+  ]).then(function(results){
+    var empresaDoc = results[0].exists ? results[0].data() : {};
+    var gastosChunks = [];
+    results[1].forEach(function(d){ var r=d.data(); if(r.gastos) gastosChunks=gastosChunks.concat(r.gastos); });
+    var solicitudesTaller = [];
+    results[2].forEach(function(d){ solicitudesTaller.push(Object.assign({id:d.id},d.data())); });
+    var tallerTrabajos = [];
+    results[3].forEach(function(d){ tallerTrabajos.push(Object.assign({id:d.id},d.data())); });
+    var reportesMotoristas = [];
+    results[4].forEach(function(d){ reportesMotoristas.push(Object.assign({id:d.id},d.data())); });
+
+    // Combine gastos: from empresa doc + chunks
+    var gastos = (empresaDoc.gastos||[]).concat(gastosChunks);
+    var inventario = empresaDoc.inventario||{productos:[],movimientos:[],bodegas:[]};
+    var proyectos = empresaDoc.proyectos||[];
+    var taller = empresaDoc.taller||{vehiculos:[],ots:[],revisiones:[],programado:[],solicitudes:[]};
+
+    renderKPIs(gastos, solicitudesTaller, tallerTrabajos, taller, HOY);
+    renderGastos(gastos, HOY);
+    renderInventario(inventario, HOY);
+    renderTickets(solicitudesTaller, tallerTrabajos, reportesMotoristas, HOY);
+    renderProyectos(proyectos, gastos, HACE3M, HOY);
+    renderFlota(taller, solicitudesTaller, tallerTrabajos, reportesMotoristas, HOY);
+
+    var now=new Date();
+    document.getElementById('lastUpdate').innerHTML='<span class="update-dot"></span>Última actualización: '+now.toLocaleTimeString('es-SV');
+  }).catch(function(e){
+    document.getElementById('lastUpdate').innerHTML='<span style="color:var(--red)">❌ Error cargando datos: '+esc(e.message)+'</span>';
+  });
+}
+
+// ── KPIs Rápidos ─────────────────────────────────────────────────────
+function renderKPIs(gastos, solicTaller, tallerTrab, taller, HOY){
+  var gastosHoy = gastos.filter(function(g){ return g.fecha===HOY; });
+  var ticketsHoy = solicTaller.filter(function(t){ return (t.fecha||'').slice(0,10)===HOY; });
+  var revHoy = (taller.revisiones||[]).filter(function(r){ return r.fecha===HOY; });
+  var mantHoy = (taller.programado||[]).filter(function(p){ return p.fecha===HOY; });
+
+  var totalGastos = gastosHoy.reduce(function(s,g){ return s+(parseFloat(g.monto)||0); },0);
+  var vehiculosSinRevision = 0;
+  (taller.vehiculos||[]).forEach(function(v){
+    var revs = (taller.revisiones||[]).filter(function(r){ return r.vehiculoId===v.id; });
+    if(!revs.length){ vehiculosSinRevision++; return; }
+    var ult = revs.sort(function(a,b){ return (b.ts||0)-(a.ts||0); })[0];
+    var dias = Math.floor((Date.now()-(ult.ts||0))/(1000*60*60*24));
+    if(dias>2) vehiculosSinRevision++;
+  });
+
+  document.getElementById('kpiRow').innerHTML=
+    _kpiCard('💰 Gastos hoy','badge-yellow',gastosHoy.length+' movs',fmtMoney(totalGastos),'Total facturado hoy','yellow')
+   +_kpiCard('🎫 Tickets hoy','badge-blue',ticketsHoy.length+' nuevos',ticketsHoy.length,'Solicitudes recibidas hoy','accent')
+   +_kpiCard('📸 Revisiones hoy','badge-green',revHoy.length+' completadas',revHoy.length,'Revisiones fotográficas','green')
+   +_kpiCard('🔧 Mantenimientos','badge-'+(mantHoy.length>0?'yellow':'green'),mantHoy.length+' programados hoy',mantHoy.length,vehiculosSinRevision>0?vehiculosSinRevision+' vehículo(s) sin revisión':'Flota al día',mantHoy.length>0?'yellow':'green');
+}
+
+function _kpiCard(title,badge,badgeText,num,sub,color){
+  return '<div class="card">'
+    +'<div class="card-header"><span class="card-title">'+esc(title)+'</span><span class="card-badge '+badge+'">'+esc(badgeText)+'</span></div>'
+    +'<div class="kpi-num kpi-'+color+'">'+esc(String(num))+'</div>'
+    +'<div class="kpi-sub">'+esc(sub)+'</div>'
+    +'</div>';
+}
+
+// ── Gastos ────────────────────────────────────────────────────────────
+function renderGastos(gastos, HOY){
+  var hoyGastos = gastos.filter(function(g){ return g.fecha===HOY; });
+  var top5 = hoyGastos.slice().sort(function(a,b){ return (parseFloat(b.monto)||0)-(parseFloat(a.monto)||0); }).slice(0,5);
+  var total = hoyGastos.reduce(function(s,g){ return s+(parseFloat(g.monto)||0); },0);
+
+  var rows = top5.length ? top5.map(function(g){
+    return '<div class="item-row">'
+      +'<div class="item-left"><div class="item-name">'+esc(g.descripcion||g.proveedor||'Sin descripción')+'</div>'
+      +'<div class="item-sub">'+esc(g.proveedor||'')+(g.proyecto?' · '+esc(g.proyecto):'')+'</div></div>'
+      +'<div class="item-val">'+fmtMoney(g.monto)+'</div>'
+      +'</div>';
+  }).join('') : '<div class="kpi-sub" style="padding:10px 0">Sin movimientos hoy</div>';
+
+  document.querySelector('#movRow .card:nth-child(1)').innerHTML=
+    '<div class="card-header"><span class="card-title">💰 Gastos del día</span><span class="card-badge badge-yellow">'+hoyGastos.length+' movs · '+fmtMoney(total)+'</span></div>'
+    +'<div class="item-list">'+rows+'</div>';
+}
+
+// ── Inventario ────────────────────────────────────────────────────────
+function renderInventario(inventario, HOY){
+  var movs = (inventario.movimientos||[]).filter(function(m){ return (m.fecha||'').slice(0,10)===HOY; });
+  var top5 = movs.slice().sort(function(a,b){ return Math.abs(parseFloat(b.cantidad)||0)-Math.abs(parseFloat(a.cantidad)||0); }).slice(0,5);
+
+  var rows = top5.length ? top5.map(function(m){
+    var esEntrada = m.tipo==='entrada'||m.tipo==='compra';
+    var cant = (esEntrada?'+':'-')+(Math.abs(parseFloat(m.cantidad)||0));
+    return '<div class="item-row">'
+      +'<div class="item-left"><div class="item-name">'+esc(m.producto||m.nombre||'Producto')+'</div>'
+      +'<div class="item-sub">'+esc(m.tipo||'movimiento')+(m.bodega?' · '+esc(m.bodega):'')+'</div></div>'
+      +'<div class="item-val '+(esEntrada?'green':'red')+'">'+cant+' '+esc(m.unidad||'u')+'</div>'
+      +'</div>';
+  }).join('') : '<div class="kpi-sub" style="padding:10px 0">Sin movimientos hoy</div>';
+
+  document.querySelector('#movRow .card:nth-child(2)').innerHTML=
+    '<div class="card-header"><span class="card-title">📦 Inventario hoy</span><span class="card-badge badge-blue">'+movs.length+' movs</span></div>'
+    +'<div class="item-list">'+rows+'</div>';
+}
+
+// ── Tickets ───────────────────────────────────────────────────────────
+function renderTickets(solicTaller, tallerTrab, reportesMotoristas, HOY){
+  // Card 1: Total tickets hoy + estado
+  var solHoy = solicTaller.filter(function(t){ return (t.fecha||t.ts||'').toString().slice(0,10)===HOY||(_tsToDate(t.ts)===HOY); });
+  var atendidos = solHoy.filter(function(t){ return t.estado==='resuelta'||t.estado==='cerrada'||t.estado==='completada'; });
+  var pendientes = solHoy.filter(function(t){ return t.estado==='nueva'||t.estado==='pendiente'||!t.estado; });
+  var enProceso  = solHoy.filter(function(t){ return t.estado==='en_proceso'||t.estado==='proceso'; });
+
+  var bars1=[
+    {label:'Resueltos',val:atendidos.length,max:Math.max(solHoy.length,1),color:'var(--green)'},
+    {label:'En proceso',val:enProceso.length,max:Math.max(solHoy.length,1),color:'var(--yellow)'},
+    {label:'Pendientes',val:pendientes.length,max:Math.max(solHoy.length,1),color:'var(--red)'}
+  ];
+
+  document.querySelector('#ticketsRow .card:nth-child(1)').innerHTML=
+    '<div class="card-header"><span class="card-title">🎫 Tickets del día</span><span class="card-badge badge-blue">'+solHoy.length+' total</span></div>'
+    +bars1.map(_barRow).join('')
+    +'<div class="kpi-sub" style="margin-top:10px">'+_trab(tallerTrab,HOY)+'</div>';
+
+  // Card 2: Por sucursal/fuente
+  var porFuente={};
+  solHoy.forEach(function(t){
+    var fuente=t.sucursal||t.centro||t.origen||t.empresa||'Sin especificar';
+    porFuente[fuente]=(porFuente[fuente]||0)+1;
+  });
+  var maxF=Math.max.apply(null,[1].concat(Object.values(porFuente)));
+  var barsF=Object.keys(porFuente).sort(function(a,b){return porFuente[b]-porFuente[a];}).slice(0,6).map(function(k){
+    return {label:k,val:porFuente[k],max:maxF,color:'var(--accent)'};
+  });
+
+  document.querySelector('#ticketsRow .card:nth-child(2)').innerHTML=
+    '<div class="card-header"><span class="card-title">📍 Tickets por sucursal</span></div>'
+    +(barsF.length?barsF.map(_barRow).join(''):'<div class="kpi-sub" style="padding:10px 0">Sin tickets hoy</div>');
+
+  // Card 3: Novedades motoristas hoy
+  var novHoy = reportesMotoristas.filter(function(r){
+    return _tsToDate(r.ts)===HOY && r.novedad && r.novedad.trim();
+  });
+  var porMot={};
+  novHoy.forEach(function(r){
+    var k=r.motoristaNombre||r.choferNombre||'Motorista';
+    if(!porMot[k]) porMot[k]=[];
+    porMot[k].push(r.novedad||'');
+  });
+
+  var novRows=Object.keys(porMot).map(function(k){
+    return '<div class="item-row"><div class="item-left">'
+      +'<div class="item-name">'+esc(k)+'</div>'
+      +'<div class="item-sub">'+esc((porMot[k][0]||'').slice(0,60))+'</div>'
+      +'</div><div class="item-val yellow">'+porMot[k].length+'</div></div>';
+  }).join('');
+
+  document.querySelector('#ticketsRow .card:nth-child(3)').innerHTML=
+    '<div class="card-header"><span class="card-title">🚨 Novedades motoristas</span><span class="card-badge badge-yellow">'+novHoy.length+'</span></div>'
+    +(novRows||'<div class="kpi-sub" style="padding:10px 0">Sin novedades reportadas hoy</div>');
+}
+
+function _trab(tallerTrab, HOY){
+  var hoyTrab = tallerTrab.filter(function(t){ return _tsToDate(t.ts||t.fechaCreacion)===HOY||(t.fecha||'').slice(0,10)===HOY; });
+  return hoyTrab.length+' trabajos taller registrados hoy';
+}
+
+function _barRow(b){
+  var pct=Math.round((b.val/b.max)*100);
+  return '<div class="bar-row">'
+    +'<div class="bar-label">'+esc(b.label)+'</div>'
+    +'<div class="bar-track"><div class="bar-fill" style="width:'+pct+'%;background:'+b.color+'"></div></div>'
+    +'<div class="bar-val">'+b.val+'</div>'
+    +'</div>';
+}
+
+function _tsToDate(ts){
+  if(!ts) return '';
+  var d=new Date(typeof ts==='object'&&ts.seconds?ts.seconds*1000:ts);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+// ── Proyectos ─────────────────────────────────────────────────────────
+function renderProyectos(proyectos, gastos, HACE3M, HOY){
+  // Proyectos con gastos en últimos 3 meses
+  var gastosRecientes = gastos.filter(function(g){ return g.fecha>=HACE3M; });
+  var proyConActividad = {};
+  gastosRecientes.forEach(function(g){ if(g.proyecto) proyConActividad[g.proyecto]=(proyConActividad[g.proyecto]||0)+(parseFloat(g.monto)||0); });
+
+  var proysActivos = proyectos.filter(function(p){
+    return proyConActividad[p.nombre]||proyConActividad[p.id]||
+           (p._ca&&new Date(p._ca)>=new Date(HACE3M+'T00:00:00'));
+  });
+
+  if(!proysActivos.length){
+    document.querySelector('#proyRow .card:nth-child(1)').innerHTML=
+      '<div class="card-header"><span class="card-title">🏗️ Proyectos activos</span><span class="card-badge badge-blue">0</span></div>'
+      +'<div class="kpi-sub" style="padding:10px 0">Sin proyectos con actividad en últimos 3 meses</div>';
+    return;
+  }
+
+  var cards = proysActivos.map(function(p){
+    var avance=parseFloat(p.avance||0);
+    var gastado=parseFloat(p.gastoTotal||p.costoTotal||proyConActividad[p.nombre]||0);
+    var presup=parseFloat(p.presupuesto||0);
+    var pctPres=presup>0?Math.min(100,Math.round(gastado/presup*100)):0;
+    var colorBarra=avance>=80?'var(--green)':avance>=50?'var(--accent)':'var(--yellow)';
+    var colorGasto=presup>0&&gastado>presup*0.9?'var(--red)':presup>0&&gastado>presup*0.7?'var(--yellow)':'var(--green)';
+    return '<div class="proj-card">'
+      +'<div class="proj-name" title="'+esc(p.nombre)+'">'+esc(p.nombre)+'</div>'
+      +'<div class="prog-bar"><div class="prog-fill" style="width:'+avance+'%;background:'+colorBarra+'"></div></div>'
+      +'<div class="proj-stats">'
+      +'<span style="color:'+colorBarra+'">'+avance+'%</span>'
+      +(presup>0?'<span style="color:'+colorGasto+'">'+fmtMoney(gastado)+'</span>':'<span>'+fmtMoney(gastado)+'</span>')
+      +'</div>'
+      +'</div>';
+  }).join('');
+
+  document.querySelector('#proyRow .card:nth-child(1)').innerHTML=
+    '<div class="card-header"><span class="card-title">🏗️ Proyectos con actividad (últimos 3 meses)</span><span class="card-badge badge-blue">'+proysActivos.length+'</span></div>'
+    +'<div class="proj-grid">'+cards+'</div>';
+}
+
+// ── Flota ─────────────────────────────────────────────────────────────
+function renderFlota(taller, solicTaller, tallerTrab, reportesMotoristas, HOY){
+  var vehiculos = taller.vehiculos||[];
+  var revisiones = taller.revisiones||[];
+  var programado = taller.programado||[];
+  var ots = taller.ots||[];
+
+  // Card 1: Fotos camiones hoy
+  var revHoy = revisiones.filter(function(r){ return r.fecha===HOY; });
+  var vehConFoto = {};
+  revHoy.forEach(function(r){ vehConFoto[r.vehiculoId]=(vehConFoto[r.vehiculoId]||0)+(r.fotos?r.fotos.length:0); });
+
+  var vehRows = vehiculos.slice(0,8).map(function(v){
+    var nFotos = vehConFoto[v.id]||0;
+    var estado = nFotos>0?'ok':'warn';
+    return '<div class="truck-row">'
+      +'<div class="truck-plate">'+esc(v.placa||v.id)+'</div>'
+      +'<div class="truck-model">'+esc(v.marca||'')+' '+esc(v.modelo||'')+'</div>'
+      +'<div class="truck-badges"><span class="tbadge tbadge-'+(nFotos>0?'ok':'warn')+'">'+( nFotos>0?'📷 '+nFotos+' fotos':'Sin revisión')+'</span></div>'
+      +'</div>';
+  }).join('');
+
+  document.querySelector('#flotaRow .card:nth-child(1)').innerHTML=
+    '<div class="card-header"><span class="card-title">📸 Revisión fotográfica hoy</span><span class="card-badge badge-'+(Object.keys(vehConFoto).length>0?'green':'yellow')+'">'+Object.keys(vehConFoto).length+'/'+vehiculos.length+' vehículos</span></div>'
+    +(vehRows||'<div class="kpi-sub" style="padding:10px 0">Sin vehículos registrados</div>');
+
+  // Card 2: Problemas resueltos / OTs
+  var otsHoy = ots.filter(function(o){ return _tsToDate(o.ts||o._ca)===HOY||(o.fecha||'').slice(0,10)===HOY; });
+  var otsResueltas = ots.filter(function(o){ return (o.estado==='cerrada'||o.estado==='completada')&&(_tsToDate(o.tsActualizado||o.ts)===HOY||(o.fechaCierre||'').slice(0,10)===HOY); });
+  var solicHoyTaller = solicTaller.filter(function(t){ return _tsToDate(t.ts)===HOY; });
+  var solicResueltas = solicTaller.filter(function(t){ return (t.estado==='resuelta'||t.estado==='cerrada')&&_tsToDate(t.tsActualizado||t.ts)===HOY; });
+
+  var otRows = otsHoy.slice(0,5).map(function(o){
+    var col=o.estado==='cerrada'?'ok':o.estado==='en_proceso'?'info':'warn';
+    return '<div class="truck-row">'
+      +'<div class="truck-plate" style="min-width:60px;font-size:11px">'+esc(o.vehiculoPlaca||o.equipo||'OT')+'</div>'
+      +'<div class="truck-model">'+esc((o.descripcion||o.servicios||'').toString().slice(0,35))+'</div>'
+      +'<span class="tbadge tbadge-'+col+'">'+esc(o.estado||'nueva')+'</span>'
+      +'</div>';
+  }).join('');
+
+  document.querySelector('#flotaRow .card:nth-child(2)').innerHTML=
+    '<div class="card-header"><span class="card-title">🔧 OTs / Problemas</span><span class="card-badge badge-green">'+otsResueltas.length+' resueltos hoy</span></div>'
+    +'<div class="kpi-sub" style="margin-bottom:10px">'+otsHoy.length+' OTs hoy · '+solicResueltas.length+' solicitudes resueltas</div>'
+    +(otRows||'<div class="kpi-sub">Sin OTs abiertas hoy</div>');
+
+  // Card 3: Mantenimientos programados (próximos 30 días)
+  var hoy30=new Date(); hoy30.setDate(hoy30.getDate()+30);
+  var h30str=hoy30.getFullYear()+'-'+String(hoy30.getMonth()+1).padStart(2,'0')+'-'+String(hoy30.getDate()).padStart(2,'0');
+  var proxMant = programado.filter(function(p){ return p.fecha>=HOY&&p.fecha<=h30str&&p.estado!=='completado'; })
+    .sort(function(a,b){ return (a.fecha||'').localeCompare(b.fecha||''); }).slice(0,5);
+
+  var mantRows = proxMant.map(function(m){
+    var diasRestantes=Math.round((new Date(m.fecha+'T12:00:00')-new Date())/(1000*60*60*24));
+    var col=diasRestantes<=3?'tbadge-err':diasRestantes<=7?'tbadge-warn':'tbadge-info';
+    return '<div class="mant-row">'
+      +'<div class="mant-fecha">'+fmtFecha(m.fecha)+' · <span class="tbadge '+col+'">'+diasRestantes+' días</span></div>'
+      +'<div class="mant-desc">'+esc(m.descripcion||m.tipo||'Mantenimiento')+'</div>'
+      +'<div class="mant-veh">'+esc(m.vehiculoPlaca||m.equipo||'')+'</div>'
+      +'</div>';
+  }).join('');
+
+  document.querySelector('#flotaRow .card:nth-child(3)').innerHTML=
+    '<div class="card-header"><span class="card-title">📅 Próximos mantenimientos</span><span class="card-badge badge-yellow">'+proxMant.length+' en 30 días</span></div>'
+    +(mantRows||'<div class="kpi-sub" style="padding:10px 0">Sin mantenimientos programados próximamente</div>');
+}
+</script>
+</body>
+</html>
