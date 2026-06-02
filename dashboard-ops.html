@@ -202,6 +202,13 @@ body{background:var(--bg);color:var(--text);font-family:'Courier New',monospace;
       <div class="card"><div class="loading"><span class="spin">⟳</span></div></div>
     </div>
 
+    <!-- FILA 4b: KM y combustible -->
+    <div class="section-label">Kilometraje y combustible del día</div>
+    <div class="grid grid-2" id="kmRow">
+      <div class="card"><div class="loading"><span class="spin">⟳</span></div></div>
+      <div class="card"><div class="loading"><span class="spin">⟳</span></div></div>
+    </div>
+
     <!-- FILA 5: Flota -->
     <div class="section-label">Flota vehicular</div>
     <div class="grid grid-3" id="flotaRow">
@@ -287,14 +294,14 @@ function cargarTodo(){
   // Load empresa doc + gastos chunks + colecciones externas en paralelo
   Promise.all([
     db.collection('empresas').doc(EMPRESA).get(),
-    db.collection('gastos_chunks').where('empresa','==',EMPRESA).get(),
+    db.collection('empresas').doc(EMPRESA).collection('gastos_chunks').get(),
     db.collection('solicitudesTaller').where('empresa','==',EMPRESA).get(),
     db.collection('tallerTrabajos').where('empresa','==',EMPRESA).get(),
     db.collection('reportesMotoristas').where('empresa','==',EMPRESA).get()
   ]).then(function(results){
     var empresaDoc = results[0].exists ? results[0].data() : {};
     var gastosChunks = [];
-    results[1].forEach(function(d){ var r=d.data(); if(r.gastos) gastosChunks=gastosChunks.concat(r.gastos); });
+    results[1].forEach(function(d){ var r=d.data(); if(r.items) gastosChunks=gastosChunks.concat(r.items); });
     var solicitudesTaller = [];
     results[2].forEach(function(d){ solicitudesTaller.push(Object.assign({id:d.id},d.data())); });
     var tallerTrabajos = [];
@@ -314,6 +321,7 @@ function cargarTodo(){
     renderTickets(solicitudesTaller, tallerTrabajos, reportesMotoristas, HOY);
     renderProyectos(proyectos, gastos, HACE3M, HOY);
     renderFlota(taller, solicitudesTaller, tallerTrabajos, reportesMotoristas, HOY);
+    renderKmCombustible(taller.reportesDiarios||[], taller.vehiculos||[], HOY);
 
     var now=new Date();
     document.getElementById('lastUpdate').innerHTML='<span class="update-dot"></span>Última actualización: '+now.toLocaleTimeString('es-SV');
@@ -329,7 +337,7 @@ function renderKPIs(gastos, solicTaller, tallerTrab, taller, HOY){
   var revHoy = (taller.revisiones||[]).filter(function(r){ return r.fecha===HOY; });
   var mantHoy = (taller.programado||[]).filter(function(p){ return p.fecha===HOY; });
 
-  var totalGastos = gastosHoy.reduce(function(s,g){ return s+(parseFloat(g.monto)||0); },0);
+  var totalGastos = gastosHoy.reduce(function(s,g){ return s+(parseFloat(g.valor)||0); },0);
   var vehiculosSinRevision = 0;
   (taller.vehiculos||[]).forEach(function(v){
     var revs = (taller.revisiones||[]).filter(function(r){ return r.vehiculoId===v.id; });
@@ -357,14 +365,14 @@ function _kpiCard(title,badge,badgeText,num,sub,color){
 // ── Gastos ────────────────────────────────────────────────────────────
 function renderGastos(gastos, HOY){
   var hoyGastos = gastos.filter(function(g){ return g.fecha===HOY; });
-  var top5 = hoyGastos.slice().sort(function(a,b){ return (parseFloat(b.monto)||0)-(parseFloat(a.monto)||0); }).slice(0,5);
-  var total = hoyGastos.reduce(function(s,g){ return s+(parseFloat(g.monto)||0); },0);
+  var top5 = hoyGastos.slice().sort(function(a,b){ return (parseFloat(b.valor)||0)-(parseFloat(a.valor)||0); }).slice(0,5);
+  var total = hoyGastos.reduce(function(s,g){ return s+(parseFloat(g.valor)||0); },0);
 
   var rows = top5.length ? top5.map(function(g){
     return '<div class="item-row">'
-      +'<div class="item-left"><div class="item-name">'+esc(g.descripcion||g.proveedor||'Sin descripción')+'</div>'
+      +'<div class="item-left"><div class="item-name">'+esc(g.descripcion||g.factura||g.proveedor||'Sin descripción')+'</div>'
       +'<div class="item-sub">'+esc(g.proveedor||'')+(g.proyecto?' · '+esc(g.proyecto):'')+'</div></div>'
-      +'<div class="item-val">'+fmtMoney(g.monto)+'</div>'
+      +'<div class="item-val">'+fmtMoney(g.valor)+'</div>'
       +'</div>';
   }).join('') : '<div class="kpi-sub" style="padding:10px 0">Sin movimientos hoy</div>';
 
@@ -472,14 +480,20 @@ function _tsToDate(ts){
 
 // ── Proyectos ─────────────────────────────────────────────────────────
 function renderProyectos(proyectos, gastos, HACE3M, HOY){
-  // Proyectos con gastos en últimos 3 meses
+  // Sumar gastos reales por proyectoId (campo correcto)
   var gastosRecientes = gastos.filter(function(g){ return g.fecha>=HACE3M; });
-  var proyConActividad = {};
-  gastosRecientes.forEach(function(g){ if(g.proyecto) proyConActividad[g.proyecto]=(proyConActividad[g.proyecto]||0)+(parseFloat(g.monto)||0); });
+  var gastadoPorProy = {};
+  gastosRecientes.forEach(function(g){
+    if(g.proyectoId&&g.sumarAlProy!==false){
+      gastadoPorProy[g.proyectoId]=(gastadoPorProy[g.proyectoId]||0)+(parseFloat(g.valor)||0);
+    }
+  });
 
+  // Proyectos con gastos en últimos 3 meses o recién creados
   var proysActivos = proyectos.filter(function(p){
-    return proyConActividad[p.nombre]||proyConActividad[p.id]||
-           (p._ca&&new Date(p._ca)>=new Date(HACE3M+'T00:00:00'));
+    return gastadoPorProy[p.id]>0 ||
+           (p.cronograma&&p.cronograma.fechaInicio&&p.cronograma.fechaInicio>=HACE3M) ||
+           (p.estado&&p.estado!=='Terminado'&&p.estado!=='Cancelado'&&(parseFloat(p.avanceFisico)||0)>0);
   });
 
   if(!proysActivos.length){
@@ -490,19 +504,21 @@ function renderProyectos(proyectos, gastos, HACE3M, HOY){
   }
 
   var cards = proysActivos.map(function(p){
-    var avance=parseFloat(p.avance||0);
-    var gastado=parseFloat(p.gastoTotal||p.costoTotal||proyConActividad[p.nombre]||0);
-    var presup=parseFloat(p.presupuesto||0);
-    var pctPres=presup>0?Math.min(100,Math.round(gastado/presup*100)):0;
-    var colorBarra=avance>=80?'var(--green)':avance>=50?'var(--accent)':'var(--yellow)';
-    var colorGasto=presup>0&&gastado>presup*0.9?'var(--red)':presup>0&&gastado>presup*0.7?'var(--yellow)':'var(--green)';
+    var avance = parseFloat(p.avanceFisico||0);                         // campo real
+    var gastado = parseFloat(gastadoPorProy[p.id]||0);                  // gastos reales
+    var presup  = parseFloat(p.montoObraCivil||0);                      // presupuesto real
+    var colorBarra = avance>=80?'var(--green)':avance>=50?'var(--accent)':'var(--yellow)';
+    var colorGasto = presup>0&&gastado>presup*0.9?'var(--red)':presup>0&&gastado>presup*0.7?'var(--yellow)':'var(--accent)';
+    var estadoLabel = p.estado||'';
     return '<div class="proj-card">'
       +'<div class="proj-name" title="'+esc(p.nombre)+'">'+esc(p.nombre)+'</div>'
-      +'<div class="prog-bar"><div class="prog-fill" style="width:'+avance+'%;background:'+colorBarra+'"></div></div>'
+      +(estadoLabel?'<div style="font-size:9px;color:var(--muted);margin-bottom:4px">'+esc(estadoLabel)+'</div>':'')
+      +'<div class="prog-bar"><div class="prog-fill" style="width:'+Math.min(avance,100)+'%;background:'+colorBarra+'"></div></div>'
       +'<div class="proj-stats">'
       +'<span style="color:'+colorBarra+'">'+avance+'%</span>'
-      +(presup>0?'<span style="color:'+colorGasto+'">'+fmtMoney(gastado)+'</span>':'<span>'+fmtMoney(gastado)+'</span>')
+      +'<span style="color:'+colorGasto+'">'+fmtMoney(gastado)+'</span>'
       +'</div>'
+      +(presup>0?'<div style="font-size:9px;color:var(--muted);margin-top:3px">Ppto: '+fmtMoney(presup)+'</div>':'')
       +'</div>';
   }).join('');
 
@@ -577,6 +593,86 @@ function renderFlota(taller, solicTaller, tallerTrab, reportesMotoristas, HOY){
     '<div class="card-header"><span class="card-title">📅 Próximos mantenimientos</span><span class="card-badge badge-yellow">'+proxMant.length+' en 30 días</span></div>'
     +(mantRows||'<div class="kpi-sub" style="padding:10px 0">Sin mantenimientos programados próximamente</div>');
 }
+
+// ── KM y Combustible ─────────────────────────────────────────────────
+function renderKmCombustible(reportesDiarios, vehiculos, HOY){
+  var repsHoy = reportesDiarios.filter(function(r){ return r.fecha===HOY; });
+
+  // Card 1: Resumen km del día
+  var totalKm    = repsHoy.reduce(function(s,r){ return s+(parseFloat(r.kmRecorridos)||0); },0);
+  var totalGal   = repsHoy.reduce(function(s,r){ return s+(parseFloat(r.galonesCargados)||0); },0);
+  var totalCosto = repsHoy.reduce(function(s,r){ return s+(parseFloat(r.costoGasolina)||0); },0);
+  var conNovedad = repsHoy.filter(function(r){ return r.novedad&&r.novedad.trim(); }).length;
+
+  // Por vehículo
+  var porVeh = {};
+  repsHoy.forEach(function(r){
+    var placa = r.vehiculoPlaca||r.vehiculoId||'Sin placa';
+    if(!porVeh[placa]) porVeh[placa]={km:0,gal:0,motorista:'',novedades:0};
+    porVeh[placa].km  += parseFloat(r.kmRecorridos)||0;
+    porVeh[placa].gal += parseFloat(r.galonesCargados)||0;
+    porVeh[placa].motorista = r.motoristaNombre||r.choferNombre||porVeh[placa].motorista;
+    if(r.novedad&&r.novedad.trim()) porVeh[placa].novedades++;
+  });
+
+  // Vehiculos SIN reporte hoy
+  var placasConRep = Object.keys(porVeh);
+  var sinReporte = vehiculos.filter(function(v){
+    return !placasConRep.some(function(p){ return p===v.placa||p===v.id; });
+  });
+
+  var kmRows = Object.keys(porVeh).sort(function(a,b){ return porVeh[b].km-porVeh[a].km; }).map(function(placa){
+    var d = porVeh[placa];
+    return '<div class="item-row">'
+      +'<div class="item-left">'
+      +'<div class="item-name">'+esc(placa)+(d.novedades>0?' <span class="tbadge tbadge-err">'+d.novedades+' novedad</span>':'')+'</div>'
+      +'<div class="item-sub">'+esc(d.motorista||'Sin asignar')+'</div>'
+      +'</div>'
+      +'<div style="display:flex;gap:10px;align-items:center">'
+      +'<span class="item-val kpi-accent">'+Math.round(d.km)+' km</span>'
+      +(d.gal>0?'<span class="item-val yellow">'+d.gal.toFixed(1)+' gal</span>':'')
+      +'</div></div>';
+  }).join('');
+
+  var sinRep = sinReporte.slice(0,4).map(function(v){
+    return '<span class="tbadge tbadge-warn" style="margin:2px">'+esc(v.placa||v.id)+'</span>';
+  }).join('');
+
+  document.querySelector('#kmRow .card:nth-child(1)').innerHTML=
+    '<div class="card-header"><span class="card-title">🚛 Kilometraje del día</span>'
+    +'<span class="card-badge badge-blue">'+repsHoy.length+' reportes</span></div>'
+    +'<div style="display:flex;gap:16px;margin-bottom:12px">'
+    +'<div><div class="kpi-num kpi-accent" style="font-size:24px">'+Math.round(totalKm).toLocaleString()+'</div><div class="kpi-sub">km totales</div></div>'
+    +'<div><div class="kpi-num kpi-yellow" style="font-size:24px">'+totalGal.toFixed(1)+'</div><div class="kpi-sub">galones</div></div>'
+    +'<div><div class="kpi-num kpi-green" style="font-size:24px">'+fmtMoney(totalCosto)+'</div><div class="kpi-sub">costo combustible</div></div>'
+    +'</div>'
+    +(kmRows||'<div class="kpi-sub">Sin reportes de km hoy</div>')
+    +(sinReporte.length?'<div style="margin-top:10px"><div class="kpi-sub" style="margin-bottom:5px">Sin reporte hoy:</div>'+sinRep+'</div>':'');
+
+  // Card 2: Eficiencia por vehículo (km/gal)
+  var efRows = Object.keys(porVeh)
+    .filter(function(p){ return porVeh[p].gal>0&&porVeh[p].km>0; })
+    .map(function(p){ return {placa:p, ef:porVeh[p].km/porVeh[p].gal}; })
+    .sort(function(a,b){ return b.ef-a.ef; });
+  var maxEf = efRows.length?efRows[0].ef:1;
+
+  var efHtml = efRows.map(function(e){
+    var pct = Math.round((e.ef/maxEf)*100);
+    var col = e.ef>=10?'var(--green)':e.ef>=7?'var(--yellow)':'var(--red)';
+    return '<div class="bar-row">'
+      +'<div class="bar-label">'+esc(e.placa)+'</div>'
+      +'<div class="bar-track"><div class="bar-fill" style="width:'+pct+'%;background:'+col+'"></div></div>'
+      +'<div class="bar-val">'+e.ef.toFixed(1)+' km/gal</div>'
+      +'</div>';
+  }).join('');
+
+  document.querySelector('#kmRow .card:nth-child(2)').innerHTML=
+    '<div class="card-header"><span class="card-title">⛽ Eficiencia de combustible</span>'
+    +(conNovedad>0?'<span class="card-badge badge-red">'+conNovedad+' novedades</span>':'<span class="card-badge badge-green">Sin novedades</span>')
+    +'</div>'
+    +(efHtml||'<div class="kpi-sub" style="padding:10px 0">Sin datos de combustible hoy</div>');
+}
+
 </script>
 </body>
 </html>
