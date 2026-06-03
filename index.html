@@ -6088,10 +6088,17 @@ function renderReporteOutput(){
   }
 
   else if(tipo==='reintegro_caja_chica'){
-    // Gastos de caja chica en el rango de fechas (solo los no reintegrados aún)
+    // Gastos de caja chica filtrados por FECHA DE INGRESO (no fecha de factura)
+    // Usa creadoEn → id timestamp → fallback fecha factura, igual que el módulo de reportes
+    var _ccFechaIngreso=function(g){
+      if(g.creadoEn)return new Date(g.creadoEn).toISOString().slice(0,10);
+      if(g._ca)return new Date(g._ca).toISOString().slice(0,10);
+      if(g.id&&g.id.length>=8){var ts=parseInt(g.id.slice(0,11),16);if(!isNaN(ts)&&ts>1e12)return new Date(ts).toISOString().slice(0,10);}
+      return g.fecha||'';
+    };
     let gastoCC=S.gastos.filter(g=>g.cajaChica===true&&!g.reintegradoEn);
-    if(desde)gastoCC=gastoCC.filter(g=>g.fecha>=desde);
-    if(hasta)gastoCC=gastoCC.filter(g=>g.fecha<=hasta);
+    if(desde)gastoCC=gastoCC.filter(g=>_ccFechaIngreso(g)>=desde);
+    if(hasta)gastoCC=gastoCC.filter(g=>_ccFechaIngreso(g)<=hasta);
     if(proyId)gastoCC=gastoCC.filter(g=>g.proyectoId===proyId);
 
     // Leer valores de los campos extra si existen
