@@ -172,6 +172,13 @@ body{background:var(--bg);color:var(--text);font-family:'Courier New',monospace;
   <div class="dash-body">
     <div class="last-update" id="lastUpdate"></div>
 
+    <!-- FILA 0: Asistencia -->
+    <div class="section-label">Asistencia de hoy</div>
+    <div class="grid grid-2" id="asistRow">
+      <div class="card"><div class="loading"><span class="spin">⟳</span></div></div>
+      <div class="card"><div class="loading"><span class="spin">⟳</span></div></div>
+    </div>
+
     <!-- FILA 1: KPIs rápidos -->
     <div class="section-label">Resumen del día</div>
     <div class="grid grid-4" id="kpiRow">
@@ -297,7 +304,9 @@ function cargarTodo(){
     db.collection('empresas').doc(EMPRESA).collection('gastos_chunks').get(),
     db.collection('solicitudesTaller').where('empresa','==',EMPRESA).get(),
     db.collection('tallerTrabajos').where('empresa','==',EMPRESA).get(),
-    db.collection('reportesMotoristas').where('empresa','==',EMPRESA).get()
+    db.collection('reportesMotoristas').where('empresa','==',EMPRESA).get(),
+    db.collection('paMarcaciones').where('empresa','==',EMPRESA).get(),
+    db.collection('portalesPublicos').doc(EMPRESA).get()
   ]).then(function(results){
     var empresaDoc = results[0].exists ? results[0].data() : {};
     var gastosChunks = [];
@@ -308,6 +317,10 @@ function cargarTodo(){
     results[3].forEach(function(d){ tallerTrabajos.push(Object.assign({id:d.id},d.data())); });
     var reportesMotoristas = [];
     results[4].forEach(function(d){ reportesMotoristas.push(Object.assign({id:d.id},d.data())); });
+    var paMarcaciones = [];
+    results[5].forEach(function(d){ paMarcaciones.push(d.data()); });
+    var portalData = results[6].exists ? results[6].data() : {};
+    var empleados = portalData.tecnicos||[];
 
     // Combine gastos: from empresa doc + chunks
     var gastos = (empresaDoc.gastos||[]).concat(gastosChunks);
@@ -315,6 +328,7 @@ function cargarTodo(){
     var proyectos = empresaDoc.proyectos||[];
     var taller = empresaDoc.taller||{vehiculos:[],ots:[],revisiones:[],programado:[],solicitudes:[]};
 
+    renderAsistencia(paMarcaciones, empleados, HOY);
     renderKPIs(gastos, solicitudesTaller, tallerTrabajos, taller, HOY);
     renderGastos(gastos, HOY);
     renderInventario(inventario, HOY);
@@ -329,6 +343,64 @@ function cargarTodo(){
     document.getElementById('lastUpdate').innerHTML='<span style="color:var(--red)">❌ Error cargando datos: '+esc(e.message)+'</span>';
   });
 }
+
+
+// ── Asistencia ────────────────────────────────────────────────────────
+function renderAsistencia(marcaciones, empleados, HOY){
+  var hoy = marcaciones.filter(function(m){ return m.fecha===HOY; });
+  var porEmp = {};
+  hoy.forEach(function(m){
+    var id = m.empleadoId;
+    if(!porEmp[id]) porEmp[id]={nombre:m.empleadoNombre||id,tipos:[],retraso:0};
+    porEmp[id].tipos.push(m.tipo);
+    if(m.minutosRetraso>porEmp[id].retraso) porEmp[id].retraso=m.minutosRetraso;
+  });
+  var conEntrada  = Object.keys(porEmp).filter(function(id){ return porEmp[id].tipos.indexOf('entrada')>=0; });
+  var conSalida   = Object.keys(porEmp).filter(function(id){ return porEmp[id].tipos.indexOf('salida')>=0; });
+  var entradaSin  = conEntrada.filter(function(id){ return porEmp[id].tipos.indexOf('salida')<0; });
+  var conRetraso  = conEntrada.filter(function(id){ return porEmp[id].retraso>0; });
+  var idsConMarca = Object.keys(porEmp);
+  var sinEntrada  = empleados.filter(function(e){ return !idsConMarca.some(function(id){ return id===e.id; }); });
+  var totalEmp = Math.max(empleados.length, idsConMarca.length);
+
+  document.querySelector('#asistRow .card:nth-child(1)').innerHTML=
+    '<div class="card-header"><span class="card-title">\uD83D\uDCCB Asistencia hoy</span>'
+    +'<span class="card-badge badge-'+(sinEntrada.length>0?'red':conSalida.length>=conEntrada.length&&conEntrada.length>0?'green':'yellow')+'">'
+    +conEntrada.length+'/'+totalEmp+' presentes</span></div>'
+    +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px">'
+    +_asistKpi('Entrada',conEntrada.length,'green')
+    +_asistKpi('Salida',conSalida.length,'accent')
+    +_asistKpi('Con retraso',conRetraso.length,'yellow')
+    +'</div>'
+    +(entradaSin.length?'<div class="kpi-sub" style="margin-bottom:4px">En oficina sin salida ('+entradaSin.length+'):</div>'
+      +entradaSin.map(function(id){
+        var e=porEmp[id];
+        return '<span style="font-size:10px;background:rgba(78,168,222,.1);border:1px solid rgba(78,168,222,.25);color:var(--accent);border-radius:4px;padding:2px 6px;display:inline-block;margin:2px">'
+          +esc(e.nombre)+(e.retraso>0?' <span style="color:var(--yellow)">+'+e.retraso+'m</span>':'')+'</span>';
+      }).join(''):'');
+
+  document.querySelector('#asistRow .card:nth-child(2)').innerHTML=
+    '<div class="card-header"><span class="card-title">\u274C Sin marcacion de entrada hoy</span>'
+    +'<span class="card-badge badge-'+(sinEntrada.length?'red':'green')+'">'+sinEntrada.length+'</span></div>'
+    +(sinEntrada.length
+      ? '<div class="item-list">'
+        +sinEntrada.map(function(e){
+          return '<div class="item-row">'
+            +'<div class="item-left"><div class="item-name">'+esc(e.nombre||e.id)+'</div>'
+            +'<div class="item-sub">'+esc(e.cargo||'')+'</div></div>'
+            +'<span style="font-size:10px;color:var(--red)">Sin registro</span>'
+            +'</div>';
+        }).join('')+'</div>'
+      : '<div style="text-align:center;padding:10px 0"><span style="font-size:20px">\u2705</span><div class="kpi-sub" style="margin-top:3px">Todos marcaron entrada</div></div>');
+}
+
+function _asistKpi(label,num,color){
+  return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px;text-align:center">'
+    +'<div style="font-size:18px;font-weight:700;color:var(--'+color+')">'+num+'</div>'
+    +'<div style="font-size:9px;color:var(--muted);margin-top:1px">'+esc(label)+'</div>'
+    +'</div>';
+}
+
 
 // ── KPIs Rápidos ─────────────────────────────────────────────────────
 function renderKPIs(gastos, solicTaller, tallerTrab, taller, HOY){
