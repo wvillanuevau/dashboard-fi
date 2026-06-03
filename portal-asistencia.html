@@ -1947,6 +1947,11 @@ function paAfterAuth() {
   }
 
   // ── Configurar notificaciones ────────────────────────────────────
+  // Auto-completar dia anterior si quedo abierto
+  paAutoCompletarDiaAnterior(function() {
+    // Auto-complete done — continue normal flow
+  });
+
   paConfigurarNotificaciones();
   // Registrar token FCM para push con navegador cerrado (seguro, después del login)
   setTimeout(paRegistrarFCMToken, 2000);
@@ -2417,8 +2422,167 @@ function paCalcularHorasExtra(entradaTs, salidaTs, fecha) {
   };
 }
 
+// ══════════════════════════════════════════════════════
+// AUTO-CIERRE ALMUERZO
+// Si al marcar salida faltan registros de almuerzo, los crea automaticamente
+// ══════════════════════════════════════════════════════
+function paAutoCompletarAlmuerzo(marcacionesHoy, fecha, empData, callback) {
+  var mAlmSal = marcacionesHoy.find(function(m){ return m.tipo === 'almuerzo_salida'; });
+  var mAlmReg = marcacionesHoy.find(function(m){ return m.tipo === 'almuerzo_regreso'; });
+
+  // Si ambos existen no hay nada que hacer
+  if (mAlmSal && mAlmReg) { callback(); return; }
+
+  var HORA_ALMUERZO = 60 * 60 * 1000; // 60 minutos en ms
+  var promises = [];
+
+  // Calcular timestamp base para almuerzo si no existe ninguno
+  // Usar mediodía del día (12:00) como referencia
+  function _tsAlmuerzoBase() {
+    var d = new Date(fecha + 'T12:00:00');
+    // Ajustar a hora local del dispositivo
+    var dLocal = new Date();
+    dLocal.setFullYear(parseInt(fecha.slice(0,4)), parseInt(fecha.slice(5,7))-1, parseInt(fecha.slice(8,10)));
+    dLocal.setHours(12, 0, 0, 0);
+    return dLocal.getTime();
+  }
+
+  function _crearMarca(tipo, ts) {
+    var doc = {
+      empresa: PA.empresa,
+      empleadoId: empData.id,
+      empleadoNombre: empData.nombre,
+      cargo: empData.cargo || '',
+      tipo: tipo,
+      fecha: fecha,
+      ts: ts,
+      fotoRef: null,
+      ubicacion: null,
+      centroId: '',
+      centroNombre: '',
+      observacion: 'Auto-generado: registro de almuerzo completado automaticamente por el sistema',
+      minutosRetraso: 0,
+      estadoPuntualidad: 'auto',
+      esFeriado: false,
+      esFinDeSemana: false,
+      folio: 'AUTO-' + tipo.toUpperCase() + '-' + Date.now().toString(36).toUpperCase(),
+      autoCerrado: true
+    };
+    return paDb.collection('paMarcaciones').add(doc).then(function(ref) {
+      PA.marcacionesHoy.push(Object.assign({ id: ref.id, _id: ref.id }, doc));
+      console.log('[AutoAlmuerzo] creado:', tipo, 'a las', new Date(ts).toLocaleTimeString());
+    });
+  }
+
+  if (!mAlmSal && !mAlmReg) {
+    // Caso 3: Ninguno existe — crear ambos con mediodía como referencia
+    var tsBase = _tsAlmuerzoBase();
+    promises.push(_crearMarca('almuerzo_salida', tsBase));
+    promises.push(_crearMarca('almuerzo_regreso', tsBase + HORA_ALMUERZO));
+  } else if (mAlmSal && !mAlmReg) {
+    // Caso 1: Tiene salida_almuerzo pero no regreso — crear regreso = salida + 60min
+    promises.push(_crearMarca('almuerzo_regreso', mAlmSal.ts + HORA_ALMUERZO));
+  } else if (!mAlmSal && mAlmReg) {
+    // Caso 2: Tiene regreso pero no salida — crear salida = regreso - 60min
+    promises.push(_crearMarca('almuerzo_salida', mAlmReg.ts - HORA_ALMUERZO));
+  }
+
+  Promise.all(promises).then(function() { callback(); }).catch(function(e) {
+    console.warn('[AutoAlmuerzo] error:', e.message);
+    callback(); // Continuar aunque falle para no bloquear el registro de salida
+  });
+}
+
+// ══════════════════════════════════════════════════════
+// AUTO-CIERRE DIA ANTERIOR ABIERTO
+// Si el empleado no marco salida ayer, se cierra a las 5pm sin HE
+// ══════════════════════════════════════════════════════
+function paAutoCompletarDiaAnterior(callback) {
+  var hoy = paHoy();
+  var emp = PA.empleado;
+  if (!emp) { callback(); return; }
+
+  paDb.collection('paMarcaciones')
+    .where('empleadoId', '==', emp.id)
+    .get()
+    .then(function(snap) {
+      // Agrupar por fecha
+      var porFecha = {};
+      snap.forEach(function(d) {
+        var m = d.data(); m.id = d.id;
+        if (m.fecha >= hoy) return; // Solo dias anteriores
+        if (!porFecha[m.fecha]) porFecha[m.fecha] = [];
+        porFecha[m.fecha].push(m);
+      });
+
+      // Buscar dias con entrada pero sin salida
+      var diasAbiertos = [];
+      Object.keys(porFecha).forEach(function(fecha) {
+        var marcs = porFecha[fecha];
+        var tieneEntrada = marcs.some(function(m){ return m.tipo === 'entrada'; });
+        var tieneSalida  = marcs.some(function(m){ return m.tipo === 'salida'; });
+        if (tieneEntrada && !tieneSalida) {
+          diasAbiertos.push({ fecha: fecha, marcs: marcs });
+        }
+      });
+
+      if (diasAbiertos.length === 0) { callback(); return; }
+
+      var pending = diasAbiertos.length;
+      diasAbiertos.forEach(function(dia) {
+        // Cerrar a las 5pm (horario configurado) sin HE
+        var horaSalida = PA.horario.horaSalida || '17:00';
+        var parts = horaSalida.split(':');
+        var dSalida = new Date(dia.fecha + 'T00:00:00');
+        dSalida.setHours(parseInt(parts[0]), parseInt(parts[1]||0), 0, 0);
+        var tsSalida = dSalida.getTime();
+
+        // Primero auto-completar almuerzo del dia abierto
+        paAutoCompletarAlmuerzo(dia.marcs, dia.fecha, emp, function() {
+          var docSalida = {
+            empresa: PA.empresa,
+            empleadoId: emp.id,
+            empleadoNombre: emp.nombre,
+            cargo: emp.cargo || '',
+            tipo: 'salida',
+            fecha: dia.fecha,
+            ts: tsSalida,
+            fotoRef: null,
+            ubicacion: null,
+            centroId: '', centroNombre: '',
+            observacion: 'Auto-cierre: dia anterior sin registro de salida. Cerrado a horario normal sin horas extra.',
+            minutosRetraso: 0,
+            estadoPuntualidad: 'auto',
+            esFeriado: false, esFinDeSemana: false,
+            folio: 'AUTO-SALIDA-' + dia.fecha + '-' + emp.id.slice(0,4).toUpperCase(),
+            autoCerrado: true,
+            sinHorasExtra: true
+          };
+          paDb.collection('paMarcaciones').add(docSalida).then(function() {
+            console.log('[AutoCierre] dia', dia.fecha, 'cerrado a', horaSalida);
+            paToast('Dia ' + dia.fecha + ' cerrado automaticamente a las ' + horaSalida);
+          }).catch(function(e) {
+            console.warn('[AutoCierre] error:', e.message);
+          }).then(function() {
+            pending--;
+            if (pending === 0) callback();
+          });
+        });
+      });
+    })
+    .catch(function(e) {
+      console.warn('[AutoCierre] error query:', e.message);
+      callback();
+    });
+}
+
 function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
   if (typeof entradaTipo === 'function') { callback = entradaTipo; entradaTipo = 'entrada'; }
+  // Dias auto-cerrados no generan horas extra
+  if (salidaDocData.sinHorasExtra || salidaDocData.autoCerrado) {
+    if (typeof callback === 'function') callback(null);
+    return;
+  }
   var hoy = salidaDocData.fecha;
   var empId = salidaDocData.empleadoId;
 
@@ -2760,29 +2924,37 @@ function paConfirmarMarca() {
       esFinDeSemana: esFinDeSemana,
       folio: folioId
     };
-    paDb.collection('paMarcaciones').add(docData).then(function(ref) {
-      console.log('[Marca] Marcación guardada OK — ref:', ref.id, '| tipo:', docData.tipo);
-      PA.marcacionesHoy.push(Object.assign({ id: ref.id, _id: ref.id }, docData));
-      if (paStream) { paStream.getTracks().forEach(function(t){ t.stop(); }); paStream = null; }
-      if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
-      if (PA.tipoMarca === 'salida' || PA.tipoMarca === 'salida_adicional') {
-        var entradaTipo = PA.tipoMarca === 'salida_adicional' ? 'entrada_adicional' : 'entrada';
-        paAutoRegistrarHorasExtra(docData, entradaTipo, function(calc) { _paMostrarExito(docData, calc); });
-      } else {
-        _paMostrarExito(docData, null);
-      }
-    }).catch(function(e) {
-      if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
-      var errEl2 = document.getElementById('marcarError');
-      if (errEl2) { errEl2.textContent = 'Error: ' + e.message; errEl2.style.display = 'block'; }
-    });
+    // Si es salida, auto-completar almuerzo antes de guardar
+    function _doGuardarMarca() {
+      paDb.collection('paMarcaciones').add(docData).then(function(ref) {
+        console.log('[Marca] Marcación guardada OK — ref:', ref.id, '| tipo:', docData.tipo);
+        PA.marcacionesHoy.push(Object.assign({ id: ref.id, _id: ref.id }, docData));
+        if (paStream) { paStream.getTracks().forEach(function(t){ t.stop(); }); paStream = null; }
+        if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
+        if (PA.tipoMarca === 'salida' || PA.tipoMarca === 'salida_adicional') {
+          var entradaTipo = PA.tipoMarca === 'salida_adicional' ? 'entrada_adicional' : 'entrada';
+          paAutoRegistrarHorasExtra(docData, entradaTipo, function(calc) { _paMostrarExito(docData, calc); });
+        } else {
+          _paMostrarExito(docData, null);
+        }
+      }).catch(function(e) {
+        if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
+        var errEl2 = document.getElementById('marcarError');
+        if (errEl2) { errEl2.textContent = 'Error: ' + e.message; errEl2.style.display = 'block'; }
+      });
+    }
+    if (docData.tipo === 'salida') {
+      paAutoCompletarAlmuerzo(PA.marcacionesHoy, docData.fecha, PA.empleado, _doGuardarMarca);
+    } else {
+      _doGuardarMarca();
+    }
   }
 
-  // ── Guardar foto en subcolección Firestore (evita CORS de Storage) ──
+  // Foto opcional — GPS es obligatorio (ya validado arriba)
+  // Si no hay foto, guardar directamente sin imagen
   if (!PA.capturedB64) {
-    if (btn) { btn.disabled=false; btn.textContent='✅ Confirmar registro'; }
-    var errElNF = document.getElementById('marcarError');
-    if (errElNF) { errElNF.textContent='⚠ Debes tomar una foto antes de confirmar.'; errElNF.style.display='block'; }
+    if (btn) btn.textContent = 'Guardando...';
+    _guardarConFotoRef(null);
     return;
   }
 
