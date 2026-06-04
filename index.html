@@ -1686,6 +1686,66 @@ function _localDateStr(d) {
 
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 
+// ── Caja Chica — selección manual ────────────────────────────────────
+function ccToggleAll(chk){
+  document.querySelectorAll('.cc-chk').forEach(function(c){ c.checked=chk.checked; });
+  ccActualizarTotal();
+}
+
+function ccActualizarTotal(){
+  var tot=0;
+  document.querySelectorAll('.cc-chk:checked').forEach(function(c){ tot+=parseFloat(c.getAttribute('data-val'))||0; });
+  var el=document.getElementById('ccTotalSel');
+  if(el)el.textContent='$'+tot.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  var all=document.querySelectorAll('.cc-chk');
+  var chkd=document.querySelectorAll('.cc-chk:checked');
+  var allChk=document.getElementById('ccChkAll');
+  if(allChk)allChk.indeterminate=(chkd.length>0&&chkd.length<all.length);
+  if(allChk&&chkd.length===all.length)allChk.checked=true;
+  if(allChk&&chkd.length===0)allChk.checked=false;
+}
+
+function ccGenerarReporte(){
+  // Recoger IDs seleccionados
+  var ids=[];
+  document.querySelectorAll('.cc-chk:checked').forEach(function(c){ ids.push(c.getAttribute('data-id')); });
+  if(!ids.length){ toast('Selecciona al menos un gasto',true); return; }
+
+  var gastoCC=S.gastos.filter(function(g){ return ids.indexOf(g.id)>=0; });
+
+  // Leer campos del reporte
+  var resp=(document.getElementById('ccRptResp')||{}).value||'';
+  var fondo=parseFloat((document.getElementById('ccRptFondo')||{}).value)||2000;
+  var empresa=(document.getElementById('ccRptEmpresa')||{}).value||((S.config&&S.config.ccEmpresa)||'FRANQUICIAS INTERNACIONALES, S.A. DE C.V.');
+  var dpto=(document.getElementById('ccRptDpto')||{}).value||((S.config&&S.config.ccDpto)||'MANTENIMIENTO');
+  var revisor=(document.getElementById('ccRptRev')||{}).value||'';
+  var autorizador=(document.getElementById('ccRptAut')||{}).value||'';
+  var logoUrl=(S.config&&S.config.logoUrl)||'';
+
+  var totNeto=gastoCC.reduce(function(s,g){ return s+(parseFloat(g.valor)||0); },0);
+  var fondoDisp=fondo-totNeto;
+
+  var rows=gastoCC.map(function(g,i){
+    var pname=g.proyectoId?(S.proyectos.find(function(x){return x.id===g.proyectoId;})||{}).nombre||'—':'—';
+    var cc=g.centroId?(S.centros.find(function(x){return x.id===g.centroId;})||{}).nombre||'—':'—';
+    return '<tr>'      +'<td style="font-size:12px;padding:7px 10px;border:1px solid #ddd">'+(cc!=='—'?esc(cc):esc(pname))+'</td>'      +'<td style="text-align:center;font-size:12px;padding:7px 10px;border:1px solid #ddd">'+(i+1)+'</td>'      +'<td style="font-size:12px;padding:7px 10px;border:1px solid #ddd">'+fmtDate(g.fecha)+'</td>'      +'<td style="font-size:12px;padding:7px 10px;border:1px solid #ddd">'+esc(g.proveedor||'—')+'</td>'      +'<td style="font-size:12px;padding:7px 10px;border:1px solid #ddd">'+esc(g.factura||'—')+'</td>'      +'<td style="font-size:12px;padding:7px 10px;border:1px solid #ddd">'+esc(g.descripcion||'—')+'</td>'      +'<td style="text-align:right;font-size:12px;font-weight:700;padding:7px 10px;border:1px solid #ddd">'+fmtCur(g.valor)+'</td>'      +'</tr>';
+  }).join('');
+
+  var hoyStr=new Date().toLocaleDateString('es-SV',{day:'2-digit',month:'2-digit',year:'numeric'});
+
+  var html='<div id="ccReporteImprimible" style="background:#fff;color:#111;border-radius:12px;padding:32px 36px;max-width:860px;margin:0 auto;font-family:Arial,sans-serif">'    // Encabezado
+    +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;padding-bottom:14px;border-bottom:2px solid #111;margin-bottom:16px">'      +'<div style="display:flex;align-items:center;gap:14px">'        +(logoUrl?'<img src="'+logoUrl+'" style="height:52px;width:auto;object-fit:contain;border-radius:6px;background:#f5f5f5;padding:4px">':          '<div style="width:52px;height:52px;border-radius:8px;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:24px">💵</div>')        +'<div>'          +'<div style="font-weight:700;font-size:15px">'+esc(empresa)+'</div>'          +'<div style="color:#666;font-size:12px;margin-top:2px">'+esc(dpto)+'</div>'        +'</div>'      +'</div>'      +'<div style="text-align:right">'        +'<div style="font-size:14px;font-weight:700;text-transform:uppercase;text-decoration:underline">Reintegro de Fondo de Caja Chica</div>'        +'<div style="font-size:12px;color:#555;margin-top:6px">Fecha de reporte: <strong>'+hoyStr+'</strong></div>'        +'<div style="font-size:12px;color:#555">Responsable: <strong>'+esc(resp||'—')+'</strong></div>'        +'<div style="font-size:12px;color:#555">Fondo Autorizado: <strong>'+fmtCur(fondo)+'</strong></div>'      +'</div>'    +'</div>'    // Tabla de gastos
+    +'<table style="width:100%;border-collapse:collapse;margin-bottom:16px">'      +'<thead>'        +'<tr style="background:#f0f0f0">'          +'<th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid #ddd">C.Costo / Proyecto</th>'          +'<th style="padding:8px 10px;text-align:center;font-size:11px;border:1px solid #ddd;width:32px">No.</th>'          +'<th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid #ddd">Fecha</th>'          +'<th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid #ddd">Proveedor</th>'          +'<th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid #ddd">No. Documento</th>'          +'<th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid #ddd">Concepto</th>'          +'<th style="padding:8px 10px;text-align:right;font-size:11px;border:1px solid #ddd">Monto Total</th>'        +'</tr>'      +'</thead>'      +'<tbody>'+rows+'</tbody>'      +'<tfoot>'        +'<tr style="background:#f0f0f0;font-weight:700">'          +'<td colspan="6" style="padding:8px 10px;text-align:right;font-size:12px;border:1px solid #ddd">TOTAL LIQUIDACIÓN</td>'          +'<td style="padding:8px 10px;text-align:right;font-size:13px;border:1px solid #ddd;color:#c0392b">'+fmtCur(totNeto)+'</td>'        +'</tr>'      +'</tfoot>'    +'</table>'    // Resumen de fondo
+    +'<div style="display:flex;gap:32px;padding:14px 0;border-top:1px solid #ddd;border-bottom:1px solid #ddd;margin-bottom:24px;flex-wrap:wrap">'      +'<div><div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Fondo de Caja Chica</div><div style="font-size:20px;font-weight:700">'+fmtCur(fondo)+'</div></div>'      +'<div><div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Total Liquidación</div><div style="font-size:20px;font-weight:700;color:#c0392b">'+fmtCur(totNeto)+'</div></div>'      +'<div><div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Fondo Disponible</div><div style="font-size:20px;font-weight:700;color:'+(fondoDisp>=0?'#27ae60':'#c0392b')+'">'+fmtCur(fondoDisp)+'</div></div>'      +'<div style="margin-left:auto;align-self:center"><span style="font-size:12px;color:#888">'+gastoCC.length+' gasto'+(gastoCC.length!==1?'s':'')+' incluido'+(gastoCC.length!==1?'s':'')+'</span></div>'    +'</div>'    // Firmas
+    +'<div style="display:flex;gap:0;justify-content:space-around;margin-top:10px">'      +[['Responsable de Caja Chica',resp],['Revisado',revisor],['Autorizado',autorizador]].map(function(par){        return '<div style="text-align:center;flex:1;padding:0 12px">'          +'<div style="border-top:1px solid #111;padding-top:10px;margin-bottom:6px"></div>'          +'<div style="font-weight:700;font-size:12px">'+esc(par[1]||'_____________________')+'</div>'          +'<div style="font-size:11px;color:#666">'+par[0]+'</div>'          +'</div>';      }).join('')    +'</div>'  +'</div>';
+
+  var out=document.getElementById('reporteOutput');
+  if(out){
+    out.innerHTML=html      +'<div style="display:flex;gap:8px;margin-top:12px">'      +'<button class="btn btn-primary" onclick="window.print()">🖨 Imprimir / PDF</button>'      +'<button class="btn btn-secondary" onclick="renderReporteOutput()">← Volver a selección</button>'      +'</div>';
+  }
+}
+
+
 // ── Mini Calendario Reutilizable ─────────────────────────
 function miniCalHTML(currentDate, onSelectFn, markedDates, maxDate){
   var d=new Date(currentDate+'T12:00:00');
@@ -6094,123 +6154,34 @@ function renderReporteOutput(){
   }
 
   else if(tipo==='reintegro_caja_chica'){
-    // Gastos de caja chica filtrados por FECHA DE INGRESO (no fecha de factura)
-    // Usa creadoEn → id timestamp → fallback fecha factura, igual que el módulo de reportes
+    // ── Reintegro de Caja Chica con selección manual ──────────────────
     var _ccFechaIngreso=function(g){
       if(g.creadoEn)return new Date(g.creadoEn).toISOString().slice(0,10);
       if(g._ca)return new Date(g._ca).toISOString().slice(0,10);
       if(g.id&&g.id.length>=8){var ts=parseInt(g.id.slice(0,11),16);if(!isNaN(ts)&&ts>1e12)return new Date(ts).toISOString().slice(0,10);}
       return g.fecha||'';
     };
-    let gastoCC=S.gastos.filter(g=>g.cajaChica===true&&!g.reintegradoEn);
-    if(desde)gastoCC=gastoCC.filter(g=>_ccFechaIngreso(g)>=desde);
-    if(hasta)gastoCC=gastoCC.filter(g=>_ccFechaIngreso(g)<=hasta);
-    if(proyId)gastoCC=gastoCC.filter(g=>g.proyectoId===proyId);
+    var _fmtFI=function(g){
+      var fi=_ccFechaIngreso(g);return fi?fmtDate(fi):'—';
+    };
+    var gastosDisp=S.gastos.filter(function(g){return g.cajaChica===true&&!g.reintegradoEn;});
+    if(desde)gastosDisp=gastosDisp.filter(function(g){return _ccFechaIngreso(g)>=desde;});
+    if(hasta)gastosDisp=gastosDisp.filter(function(g){return _ccFechaIngreso(g)<=hasta;});
+    if(proyId)gastosDisp=gastosDisp.filter(function(g){return g.proyectoId===proyId;});
 
-    // Leer valores de los campos extra si existen
-    const resp=(document.getElementById('ccRptResp')||{}).value||'';
-    const fondo=parseFloat((document.getElementById('ccRptFondo')||{}).value)||2000;
-    const empresa=(document.getElementById('ccRptEmpresa')||{}).value||((S.config&&S.config.ccEmpresa)||'FRANQUICIAS INTERNACIONALES, S.A. DE C.V.');
-    const dpto=(document.getElementById('ccRptDpto')||{}).value||((S.config&&S.config.ccDpto)||'MANTENIMIENTO');
+    // Mostrar selector manual
+    var checkRows=gastosDisp.map(function(g,i){
+      var pname=g.proyectoId?(S.proyectos.find(function(x){return x.id===g.proyectoId;})||{}).nombre||'—':'—';
+      var cc=g.centroId?(S.centros.find(function(x){return x.id===g.centroId;})||{}).nombre||'—':'—';
+      var ingreso=_fmtFI(g);
+      return '<tr style="cursor:pointer" onclick="this.querySelector(\'input\').click()">'        +'<td style="text-align:center;padding:6px 8px"><input type="checkbox" class="cc-chk" data-id="'+esc(g.id)+'" data-val="'+esc(String(g.valor||0))+'" checked onclick="event.stopPropagation();ccActualizarTotal()"></td>'        +'<td style="padding:6px 8px;font-size:12px">'+esc(cc!=='—'?cc:pname)+'</td>'        +'<td style="padding:6px 8px;font-size:12px">'+fmtDate(g.fecha)+'</td>'        +'<td style="padding:6px 8px;font-size:12px;color:var(--muted)">'+ingreso+'</td>'        +'<td style="padding:6px 8px;font-size:12px">'+esc(g.proveedor||'—')+'</td>'        +'<td style="padding:6px 8px;font-size:12px">'+esc(g.factura||'—')+'</td>'        +'<td style="padding:6px 8px;font-size:12px">'+esc(g.descripcion||'—')+'</td>'        +'<td style="padding:6px 8px;font-size:12px;font-weight:700;text-align:right">'+fmtCur(g.valor)+'</td>'        +'</tr>';
+    }).join('');
 
-    const totNeto=gastoCC.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
-    // Para caja chica, el valor del gasto se trata como Monto Total (neto+iva-ret incluidos)
-    const fondoDisp=fondo-totNeto;
+    html='<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px">'      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">'      +'<div style="font-weight:700;font-size:14px">Selecciona los gastos a incluir en el reintegro</div>'      +'<div style="display:flex;gap:8px;align-items:center">'      +'<span style="font-size:12px;color:var(--muted)">Total seleccionado:</span>'      +'<span id="ccTotalSel" style="font-size:16px;font-weight:700;color:var(--accent)">$0.00</span>'      +'</div></div>'      +(gastosDisp.length===0?'<div class="empty" style="padding:20px;text-align:center">Sin gastos de caja chica en el período</div>':        '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">'        +'<thead><tr style="background:var(--surface2)">'        +'<th style="padding:7px 8px;font-size:10px;border:1px solid var(--border)"><input type="checkbox" id="ccChkAll" checked onclick="ccToggleAll(this)" title="Seleccionar todos"></th>'        +'<th style="padding:7px 8px;text-align:left;font-size:10px;border:1px solid var(--border)">C.Costo / Proyecto</th>'        +'<th style="padding:7px 8px;text-align:left;font-size:10px;border:1px solid var(--border)">F. Factura</th>'        +'<th style="padding:7px 8px;text-align:left;font-size:10px;border:1px solid var(--border)">F. Ingreso</th>'        +'<th style="padding:7px 8px;text-align:left;font-size:10px;border:1px solid var(--border)">Proveedor</th>'        +'<th style="padding:7px 8px;text-align:left;font-size:10px;border:1px solid var(--border)">Documento</th>'        +'<th style="padding:7px 8px;text-align:left;font-size:10px;border:1px solid var(--border)">Concepto</th>'        +'<th style="padding:7px 8px;text-align:right;font-size:10px;border:1px solid var(--border)">Monto</th>'        +'</tr></thead>'        +'<tbody>'+checkRows+'</tbody>'        +'</table></div>'        +'<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">'        +'<button class="btn btn-primary" onclick="ccGenerarReporte()">📄 Generar reporte con selección</button>'        +'</div>'      )+      '</div>';
 
-    let rows=gastoCC.length===0
-      ?`<tr><td colspan="7" class="empty" style="text-align:center;padding:20px">Sin gastos de caja chica en el período seleccionado</td></tr>`
-      :'';
-    gastoCC.forEach((g,i)=>{
-      const pname=g.proyectoId?(S.proyectos.find(x=>x.id===g.proyectoId)||{}).nombre||'—':'—';
-      const cc=g.centroId?(S.centros.find(x=>x.id===g.centroId)||{}).nombre||'—':'—';
-      rows+=`<tr>
-        <td style="font-size:12px">${cc!=='—'?cc:pname}</td>
-        <td style="text-align:center;font-size:12px">${i+1}</td>
-        <td style="font-size:12px">${fmtDate(g.fecha)}</td>
-        <td style="font-size:12px">${esc(g.proveedor||'—')}</td>
-        <td style="font-size:12px">${esc(g.factura||'—')}</td>
-        <td style="font-size:12px">${esc(g.descripcion||'—')}</td>
-        <td style="text-align:right;font-size:12px;font-weight:700">${fmtCur(g.valor)}</td>
-      </tr>`;
-    });
-
-    const logoUrl=(S.config&&S.config.logoUrl)||'';
-
-    html=`
-    <div style="border-radius:12px;border:1px solid var(--border);overflow:hidden;background:var(--surface)">
-      <!-- Encabezado -->
-      <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
-        <div style="display:flex;align-items:center;gap:16px">
-          ${logoUrl?`<img src="${logoUrl}" style="height:52px;width:auto;object-fit:contain;border-radius:6px;background:#fff;padding:4px">`:
-            `<div style="width:52px;height:52px;border-radius:8px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:24px;border:1px solid var(--border)">💵</div>`}
-          <div>
-            <div style="font-weight:700;font-size:15px">${esc(empresa)}</div>
-            <div style="color:var(--muted);font-size:13px;margin-top:2px">${esc(dpto)}</div>
-          </div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-size:14px;font-weight:700;text-decoration:underline;text-transform:uppercase">Reintegro de Fondo de Caja Chica</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:6px">Período: <strong>${desde?fmtDate(desde):'—'}</strong> al <strong>${hasta?fmtDate(hasta):'—'}</strong></div>
-          <div style="font-size:12px;color:var(--muted)">Responsable: <strong>${esc(resp)||'—'}</strong></div>
-          <div style="font-size:12px;color:var(--muted)">Fondo Autorizado: <strong>${fmtCur(fondo)}</strong></div>
-        </div>
-      </div>
-      <!-- Tabla de gastos -->
-      <div style="padding:16px 22px;border-bottom:1px solid var(--border);overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse">
-          <thead>
-            <tr style="background:var(--surface2)">
-              <th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid var(--border)">C.Costo</th>
-              <th style="padding:8px 10px;text-align:center;font-size:11px;border:1px solid var(--border)">No.</th>
-              <th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid var(--border)">Fecha</th>
-              <th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid var(--border)">Proveedor</th>
-              <th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid var(--border)">No. Documento</th>
-              <th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid var(--border)">Concepto</th>
-              <th style="padding:8px 10px;text-align:right;font-size:11px;border:1px solid var(--border)">Monto Total</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-          <tfoot>
-            <tr style="background:var(--surface2);font-weight:700">
-              <td colspan="6" style="padding:8px 10px;text-align:right;font-size:12px;border:1px solid var(--border)">TOTAL LIQUIDACIÓN</td>
-              <td style="padding:8px 10px;text-align:right;font-size:12px;border:1px solid var(--border);color:var(--red)">${fmtCur(totNeto)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-      <!-- Resumen de fondo -->
-      <div style="padding:16px 22px;border-bottom:1px solid var(--border);display:flex;gap:32px;flex-wrap:wrap">
-        <div>
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Fondo de Caja Chica</div>
-          <div style="font-size:20px;font-weight:700">${fmtCur(fondo)}</div>
-        </div>
-        <div>
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Liquidación Actual</div>
-          <div style="font-size:20px;font-weight:700;color:var(--red)">${fmtCur(totNeto)}</div>
-        </div>
-        <div>
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Fondo Disponible</div>
-          <div style="font-size:20px;font-weight:700;color:${fondoDisp>=0?'var(--green)':'var(--red)'}">${fmtCur(fondoDisp)}</div>
-        </div>
-        <div style="margin-left:auto;align-self:center">
-          <span style="font-size:12px;color:var(--muted)">${gastoCC.length} gasto${gastoCC.length!==1?'s':''} de caja chica en el período</span>
-        </div>
-      </div>
-      <!-- Bloque de firmas -->
-      <div style="padding:22px 22px;display:flex;gap:0;justify-content:space-around">
-        ${['Responsable de Caja Chica','Revisado','Autorizado'].map((cargo,i)=>{
-          const nombres=[resp,(document.getElementById('ccRptRev')||{}).value||'',(document.getElementById('ccRptAut')||{}).value||''];
-          return`<div style="text-align:center;flex:1;padding:0 12px">
-            <div style="border-top:1px solid var(--text);padding-top:10px;margin-bottom:6px"></div>
-            <div style="font-weight:700;font-size:12px">${esc(nombres[i])||'_____________________'}</div>
-            <div style="font-size:11px;color:var(--muted)">${cargo}</div>
-          </div>`;
-        }).join('')}
-      </div>
-    </div>`;
   }
 
-  else if(tipo==='herramientas_por_empleado'){
+    else if(tipo==='herramientas_por_empleado'){
     const hoyStr=new Date().toLocaleDateString('es-SV',{day:'2-digit',month:'2-digit',year:'numeric'});
     const tecnicos=((S.mantenimiento&&S.mantenimiento.tecnicos)||[]).filter(function(t){return t.activo!==false;});
     const todasHerr=((S.inventario&&S.inventario.productos)||[]).filter(function(p){return p.categoria==='Herramientas';});
