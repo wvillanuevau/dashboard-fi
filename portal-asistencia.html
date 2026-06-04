@@ -37,6 +37,7 @@
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:rgba(0,0,0,0);touch-action:manipulation}
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Space Grotesk',sans-serif;overflow:hidden}
+@media(min-width:600px){html,body{overflow-y:auto}}
 body.scrollable{overflow-y:auto}
 
 /* Global iOS button fix */
@@ -51,6 +52,7 @@ button:active{opacity:.8;transform:scale(.95)}
 
 /* ── SCREENS ─────────────────────────────────────────── */
 .screen{display:none;width:100%;min-height:100vh;flex-direction:column;align-items:center;justify-content:flex-start;padding:0}
+@media(min-width:600px){.screen.active{min-height:100svh}}
 .screen.active{display:flex}
 
 /* ── LANDING ─────────────────────────────────────────── */
@@ -2422,25 +2424,23 @@ function paCalcularHorasExtra(entradaTs, salidaTs, fecha) {
   };
 }
 
+// Helper global para normalizar timestamps de Firestore
+function _paToMs(ts) {
+  if (!ts) return 0;
+  if (typeof ts === 'number') return ts;
+  if (ts.toMillis) return ts.toMillis();
+  if (ts.seconds)  return ts.seconds * 1000 + Math.round((ts.nanoseconds||0)/1e6);
+  return parseInt(ts) || 0;
+}
+
 // ══════════════════════════════════════════════════════
 // AUTO-CIERRE ALMUERZO
 // Si al marcar salida faltan registros de almuerzo, los crea automaticamente
 // ══════════════════════════════════════════════════════
 function paAutoCompletarAlmuerzo(marcacionesHoy, fecha, empData, callback) {
-  var mAlmSal = marcacionesHoy.find(function(m){ return m.tipo === 'almuerzo_salida'; });
-  var mAlmReg = marcacionesHoy.find(function(m){ return m.tipo === 'almuerzo_regreso'; });
-
-  // Si ambos existen no hay nada que hacer
-  if (mAlmSal && mAlmReg) { callback(); return; }
-
   var HORA_ALMUERZO = 60 * 60 * 1000; // 60 minutos en ms
-  var promises = [];
 
-  // Calcular timestamp base para almuerzo si no existe ninguno
-  // Usar mediodía del día (12:00) como referencia
   function _tsAlmuerzoBase() {
-    var d = new Date(fecha + 'T12:00:00');
-    // Ajustar a hora local del dispositivo
     var dLocal = new Date();
     dLocal.setFullYear(parseInt(fecha.slice(0,4)), parseInt(fecha.slice(5,7))-1, parseInt(fecha.slice(8,10)));
     dLocal.setHours(12, 0, 0, 0);
@@ -2449,49 +2449,57 @@ function paAutoCompletarAlmuerzo(marcacionesHoy, fecha, empData, callback) {
 
   function _crearMarca(tipo, ts) {
     var doc = {
-      empresa: PA.empresa,
-      empleadoId: empData.id,
-      empleadoNombre: empData.nombre,
-      cargo: empData.cargo || '',
-      tipo: tipo,
-      fecha: fecha,
-      ts: ts,
-      fotoRef: null,
-      ubicacion: null,
-      centroId: '',
-      centroNombre: '',
-      observacion: 'Auto-generado: registro de almuerzo completado automaticamente por el sistema',
-      minutosRetraso: 0,
-      estadoPuntualidad: 'auto',
-      esFeriado: false,
-      esFinDeSemana: false,
+      empresa: PA.empresa, empleadoId: empData.id, empleadoNombre: empData.nombre,
+      cargo: empData.cargo || '', tipo: tipo, fecha: fecha, ts: ts,
+      fotoRef: null, ubicacion: null, centroId: '', centroNombre: '',
+      observacion: 'Auto-generado: almuerzo completado automaticamente por el sistema',
+      minutosRetraso: 0, estadoPuntualidad: 'auto',
+      esFeriado: false, esFinDeSemana: false,
       folio: 'AUTO-' + tipo.toUpperCase() + '-' + Date.now().toString(36).toUpperCase(),
       autoCerrado: true
     };
     return paDb.collection('paMarcaciones').add(doc).then(function(ref) {
       PA.marcacionesHoy.push(Object.assign({ id: ref.id, _id: ref.id }, doc));
-      console.log('[AutoAlmuerzo] creado:', tipo, 'a las', new Date(ts).toLocaleTimeString());
+      console.log('[AutoAlmuerzo] creado:', tipo, 'ts:', new Date(ts).toLocaleTimeString());
     });
   }
 
-  if (!mAlmSal && !mAlmReg) {
-    // Caso 3: Ninguno existe — crear ambos con mediodía como referencia
-    var tsBase = _tsAlmuerzoBase();
-    promises.push(_crearMarca('almuerzo_salida', tsBase));
-    promises.push(_crearMarca('almuerzo_regreso', tsBase + HORA_ALMUERZO));
-  } else if (mAlmSal && !mAlmReg) {
-    // Caso 1: Tiene salida_almuerzo pero no regreso — crear regreso = salida + 60min
-    promises.push(_crearMarca('almuerzo_regreso', mAlmSal.ts + HORA_ALMUERZO));
-  } else if (!mAlmSal && mAlmReg) {
-    // Caso 2: Tiene regreso pero no salida — crear salida = regreso - 60min
-    promises.push(_crearMarca('almuerzo_salida', mAlmReg.ts - HORA_ALMUERZO));
+  function _run(marcs) {
+    var mAlmSal = marcs.find(function(m){ return m.tipo === 'almuerzo_salida'; });
+    var mAlmReg = marcs.find(function(m){ return m.tipo === 'almuerzo_regreso'; });
+    if (mAlmSal && mAlmReg) { callback(); return; }
+
+    var promises = [];
+    if (!mAlmSal && !mAlmReg) {
+      var tsBase = _tsAlmuerzoBase();
+      promises.push(_crearMarca('almuerzo_salida', tsBase));
+      promises.push(_crearMarca('almuerzo_regreso', tsBase + HORA_ALMUERZO));
+    } else if (mAlmSal && !mAlmReg) {
+      promises.push(_crearMarca('almuerzo_regreso', _paToMs(mAlmSal.ts) + HORA_ALMUERZO));
+    } else if (!mAlmSal && mAlmReg) {
+      promises.push(_crearMarca('almuerzo_salida', _paToMs(mAlmReg.ts) - HORA_ALMUERZO));
+    }
+    Promise.all(promises)
+      .then(function() { callback(); })
+      .catch(function(e) { console.warn('[AutoAlmuerzo] error:', e.message); callback(); });
   }
 
-  Promise.all(promises).then(function() { callback(); }).catch(function(e) {
-    console.warn('[AutoAlmuerzo] error:', e.message);
-    callback(); // Continuar aunque falle para no bloquear el registro de salida
-  });
+  // Consultar Firestore directo para tener ts correctos (evita problema Firestore Timestamp vs number)
+  paDb.collection('paMarcaciones').where('empleadoId', '==', empData.id).get()
+    .then(function(snap) {
+      var marcsHoy = [];
+      snap.forEach(function(d) {
+        var m = d.data(); m._id = d.id;
+        if (m.ts && typeof m.ts === 'object' && m.ts.toMillis) m.ts = m.ts.toMillis();
+        else if (m.ts && m.ts.seconds) m.ts = m.ts.seconds * 1000;
+        if (m.fecha && typeof m.fecha === 'object' && m.fecha.toDate) m.fecha = m.fecha.toDate().toISOString().slice(0,10);
+        if (m.fecha === fecha) marcsHoy.push(m);
+      });
+      _run(marcsHoy);
+    })
+    .catch(function() { _run(marcacionesHoy); }); // fallback: usar array en memoria
 }
+
 
 // ══════════════════════════════════════════════════════
 // AUTO-CIERRE DIA ANTERIOR ABIERTO
@@ -2510,6 +2518,13 @@ function paAutoCompletarDiaAnterior(callback) {
       var porFecha = {};
       snap.forEach(function(d) {
         var m = d.data(); m.id = d.id;
+        // Normalizar fecha si viene como Firestore Timestamp
+        if (m.fecha && typeof m.fecha === 'object' && m.fecha.toDate) {
+          m.fecha = m.fecha.toDate().toISOString().slice(0,10);
+        }
+        // Normalizar ts
+        if (m.ts && typeof m.ts === 'object' && m.ts.toMillis) m.ts = m.ts.toMillis();
+        if (m.ts && m.ts.seconds) m.ts = m.ts.seconds * 1000;
         if (m.fecha >= hoy) return; // Solo dias anteriores
         if (!porFecha[m.fecha]) porFecha[m.fecha] = [];
         porFecha[m.fecha].push(m);
@@ -5256,6 +5271,20 @@ window.addEventListener('DOMContentLoaded', function() {
       console.warn('[Portal] SW no registrado:', e.message);
     });
   }
+
+  // Safety net: si en 1.5s ninguna pantalla es visible, mostrar scLanding
+  setTimeout(function() {
+    var visible = false;
+    document.querySelectorAll('.screen').forEach(function(s) {
+      var st = window.getComputedStyle(s);
+      if (st.display !== 'none') visible = true;
+    });
+    if (!visible) {
+      console.warn('[Portal] Safety net activado — mostrando scLanding');
+      var sc = document.getElementById('scLanding');
+      if (sc) { sc.style.display = 'flex'; sc.style.pointerEvents = ''; sc.classList.add('active'); }
+    }
+  }, 1500);
 
   // ── FCM token se registra DESPUÉS del login, no aquí ────────────
   // Ver paRegistrarFCMToken() llamado desde paAfterAuth
