@@ -1686,6 +1686,25 @@ function _localDateStr(d) {
 
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 
+function ccImprimirReporte(){
+  var el=document.getElementById('ccReporteImprimible');
+  if(!el){toast('Genera el reporte primero',true);return;}
+  var w=window.open('','_blank','width=1100,height=800');
+  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8">');
+  w.document.write('<title>Reintegro Caja Chica</title>');
+  w.document.write('<style>');
+  w.document.write('body{font-family:Arial,sans-serif;background:#fff;color:#111;margin:0;padding:20px}');
+  w.document.write('table{border-collapse:collapse;width:100%}');
+  w.document.write('th,td{padding:6px 8px;font-size:11px;border:1px solid #cdd6e0}');
+  w.document.write('@media print{@page{margin:10mm;size:A4 landscape}body{padding:0}}');
+  w.document.write('</style></head><body>');
+  w.document.write(el.outerHTML);
+  w.document.write('<script>window.onload=function(){window.print();}<\/script>');
+  w.document.write('</body></html>');
+  w.document.close();
+}
+
+
 // ── Caja Chica — selección manual ────────────────────────────────────
 function ccToggleAll(chk){
   document.querySelectorAll('.cc-chk').forEach(function(c){ c.checked=chk.checked; });
@@ -1830,7 +1849,7 @@ function ccGenerarReporte(){
   if(out){
     out.innerHTML=html
       +'<div style="display:flex;gap:8px;margin-top:12px">'
-      +'<button class="btn btn-primary" onclick="window.print()">🖨 Imprimir / PDF</button>'
+      +'<button class="btn btn-primary" onclick="ccImprimirReporte()">🖨 Imprimir / PDF</button>'
       +'<button class="btn btn-secondary" onclick="renderReporteOutput()">← Volver a selección</button>'
       +'</div>';
   }
@@ -6611,10 +6630,17 @@ function ccRptImprimir(histId){
 }
 
 function ccGuardarReintegro(){
+  // Leer IDs seleccionados de los checkboxes
+  var idsSeleccionados=[];
+  document.querySelectorAll('.cc-chk:checked').forEach(function(c){ idsSeleccionados.push(c.getAttribute('data-id')); });
+  // Leer campos del formulario vía _ccGetFormData pero sobrescribir gastoCC con selección
   const data=_ccGetFormData();
+  if(idsSeleccionados.length>0){
+    data.gastoCC=S.gastos.filter(function(g){ return idsSeleccionados.indexOf(g.id)>=0; });
+  }
   if(!data.resp){toast('Ingresa el nombre del responsable antes de guardar',true);return;}
-  if(!data.gastoCC.length){toast('Sin gastos de caja chica pendientes en el período',true);return;}
-  if(!confirm(`¿Guardar reintegro del período ${data.desde?fmtDate(data.desde):'—'} al ${fmtDate(data.hasta)} con ${data.gastoCC.length} gastos?`))return;
+  if(!data.gastoCC.length){toast('Selecciona al menos un gasto para guardar',true);return;}
+  if(!confirm('¿Guardar reintegro con '+data.gastoCC.length+' gasto'+(data.gastoCC.length!==1?'s':'')+' seleccionado'+(data.gastoCC.length!==1?'s':'')+' por '+fmtCur(data.gastoCC.reduce(function(s,g){return s+(parseFloat(g.valor)||0);},0))+'?'))return;
   if(!S.cajachica)S.cajachica={reintegros:[]};
   const reintegroId=genId();
   // Snapshot de los gastos al momento de guardar
