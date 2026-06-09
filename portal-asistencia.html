@@ -496,12 +496,12 @@ button:active{opacity:.8;transform:scale(.95)}
           <div class="step-label">Entrada</div>
           <div class="step-time" id="stEntrada">—</div>
         </div>
-        <div class="status-step" id="stepAlmuerzo">
+        <div class="status-step" id="stepAlmuerzo" style="display:none">
           <div class="step-dot">🍽️</div>
           <div class="step-label">Almuerzo</div>
           <div class="step-time" id="stAlmuerzo">—</div>
         </div>
-        <div class="status-step" id="stepRegreso">
+        <div class="status-step" id="stepRegreso" style="display:none">
           <div class="step-dot">↩️</div>
           <div class="step-label">Regreso</div>
           <div class="step-time" id="stRegreso">—</div>
@@ -522,16 +522,7 @@ button:active{opacity:.8;transform:scale(.95)}
         <div class="action-info"><div class="action-title">Marcar Entrada</div><div class="action-sub">Registrar inicio de jornada</div></div>
         <span class="action-arrow">›</span>
       </button>
-      <button class="action-btn warn" id="btnMarcarAlmuerzo" onclick="paGoMarcar('almuerzo_salida')">
-        <span class="action-icon">🍽️</span>
-        <div class="action-info"><div class="action-title">Salir a Almorzar</div><div class="action-sub">Registrar salida a almuerzo</div></div>
-        <span class="action-arrow">›</span>
-      </button>
-      <button class="action-btn secondary" id="btnMarcarRegreso" onclick="paGoMarcar('almuerzo_regreso')">
-        <span class="action-icon">↩️</span>
-        <div class="action-info"><div class="action-title">Regreso de Almuerzo</div><div class="action-sub">Volver al trabajo</div></div>
-        <span class="action-arrow">›</span>
-      </button>
+      <!-- Almuerzo 12:00-13:00 y Cena 19:00-20:00 son automáticos -->
       <button class="action-btn secondary" id="btnMarcarSalida" onclick="paGoMarcar('salida')">
         <span class="action-icon">🏠</span>
         <div class="action-info"><div class="action-title">Marcar Salida</div><div class="action-sub">Fin de jornada</div></div>
@@ -1316,6 +1307,8 @@ function paVerifyAdminPwd() {
 // ══════════════════════════════════════════════════════
 function paGenId() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
 function paToast(msg, isErr) {
   var t = document.getElementById('paToast');
   if (!t) return;
@@ -1457,7 +1450,7 @@ function paRenderEmpList(emps) {
     var initials = (e.nombre||'?').split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase();
     return '<div class="emp-item" onclick="paSelectEmp(\''+e.id+'\')">'
       + '<div class="emp-avatar">'+initials+'</div>'
-      + '<div><div class="emp-name">'+e.nombre+'</div>'
+      + '<div><div class="emp-name">'+esc(e.nombre)+'</div>'
       + '<div class="emp-cargo">'+(e.cargo||'—')+(e.ruta?' · '+e.ruta:'')+'</div></div>'
       + '<div style="color:var(--muted);font-size:20px">›</div>'
       + '</div>';
@@ -2110,7 +2103,7 @@ function paUpdateDash() {
       if (actions) actions.insertBefore(banner, actions.firstChild);
     }
     // Bloquear todos los botones de marcación
-    ['btnMarcarEntrada','btnMarcarAlmuerzo','btnMarcarRegreso','btnMarcarSalida'].forEach(function(id) {
+    ['btnMarcarEntrada','btnMarcarSalida'].forEach(function(id) {
       var btn = document.getElementById(id);
       if (btn) btn.className = 'action-btn disabled';
     });
@@ -2122,13 +2115,8 @@ function paUpdateDash() {
 
   // Enable/disable action buttons
   var btnEntrada = document.getElementById('btnMarcarEntrada');
-  var btnAlmuerzo = document.getElementById('btnMarcarAlmuerzo');
-  var btnRegreso = document.getElementById('btnMarcarRegreso');
   var btnSalida = document.getElementById('btnMarcarSalida');
-  
   if (btnEntrada) btnEntrada.className = 'action-btn ' + (!mEntrada ? 'primary' : 'disabled');
-  if (btnAlmuerzo) btnAlmuerzo.className = 'action-btn ' + (mEntrada && !mAlmSal ? 'warn' : 'disabled');
-  if (btnRegreso) btnRegreso.className = 'action-btn ' + (mAlmSal && !mAlmReg ? 'secondary' : 'disabled');
   if (btnSalida) btnSalida.className = 'action-btn ' + (mEntrada && !mSalida ? 'secondary' : 'disabled');
   // Trabajo adicional: visible solo si ya marcó salida principal
   var btnAdicional = document.getElementById('btnTrabajoAdicional');
@@ -2454,6 +2442,8 @@ function _paToMs(ts) {
 // ══════════════════════════════════════════════════════
 function paAutoCompletarAlmuerzo(marcacionesHoy, fecha, empData, callback) {
   var HORA_ALMUERZO = 60 * 60 * 1000; // 60 minutos en ms
+  var HORA_CENA_INICIO = 19 * 60; // 19:00 en minutos del día
+  var HORA_CENA_FIN   = 20 * 60; // 20:00 en minutos del día
 
   function _tsAlmuerzoBase() {
     var dLocal = new Date();
@@ -2495,8 +2485,34 @@ function paAutoCompletarAlmuerzo(marcacionesHoy, fecha, empData, callback) {
       promises.push(_crearMarca('almuerzo_salida', _paToMs(mAlmReg.ts) - HORA_ALMUERZO));
     }
     Promise.all(promises)
-      .then(function() { callback(); })
-      .catch(function(e) { console.warn('[AutoAlmuerzo] error:', e.message); callback(); });
+      .then(function() { _autoCrearCena(marcs, callback); })
+      .catch(function(e) { console.warn('[AutoAlmuerzo] error:', e.message); _autoCrearCena(marcs, callback); });
+  }
+
+  // Auto-crear cena 19:00-20:00 si la jornada supera las 19:00
+  function _autoCrearCena(marcs, cb) {
+    var mSalidaDoc = marcs.find(function(m){ return m.tipo === 'salida'; });
+    var mCenaSal   = marcs.find(function(m){ return m.tipo === 'cena_salida'; });
+    var mCenaReg   = marcs.find(function(m){ return m.tipo === 'cena_regreso'; });
+    // Si ya existen registros de cena, no hacer nada
+    if (mCenaSal && mCenaReg) { cb(); return; }
+    // Determinar si la jornada supera las 19:00
+    var tsRef = mSalidaDoc ? _paToMs(mSalidaDoc.ts) : Date.now();
+    var dRef = new Date(tsRef);
+    var minsRef = dRef.getHours() * 60 + dRef.getMinutes();
+    if (minsRef < HORA_CENA_INICIO && !mCenaSal && !mCenaReg) { cb(); return; }
+    // Calcular timestamps de cena
+    var dBase = new Date(fecha + 'T00:00:00');
+    var tsCenaSal = new Date(dBase.getTime());
+    tsCenaSal.setHours(19, 0, 0, 0);
+    var tsCenaReg = new Date(dBase.getTime());
+    tsCenaReg.setHours(20, 0, 0, 0);
+    var cenaProm = [];
+    if (!mCenaSal) cenaProm.push(_crearMarca('cena_salida', tsCenaSal.getTime()));
+    if (!mCenaReg) cenaProm.push(_crearMarca('cena_regreso', tsCenaReg.getTime()));
+    Promise.all(cenaProm)
+      .then(function(){ cb(); })
+      .catch(function(e){ console.warn('[AutoCena]', e.message); cb(); });
   }
 
   // Consultar Firestore directo para tener ts correctos (evita problema Firestore Timestamp vs number)
@@ -2718,7 +2734,7 @@ function paGoMarcar(tipo) {
     centroSel.innerHTML = '<option value="">— Seleccionar sucursal —</option>'
       + PA.centros.map(function(c) {
           var sel = empRuta && c.nombre.toLowerCase().includes(empRuta) ? ' selected' : '';
-          return '<option value="'+c.id+'"'+sel+'>'+c.nombre+'</option>';
+          return '<option value="'+c.id+'"'+sel+'>'+cesc(e.nombre||'')+'</option>';
         }).join('');
   }
   
@@ -2789,7 +2805,7 @@ function paGoTrabajoAdicional() {
   var centroSel = document.getElementById('marcarCentro');
   if (centroSel) {
     centroSel.innerHTML = '<option value="">— Seleccionar sucursal —</option>'
-      + PA.centros.map(function(c){ return '<option value="'+c.id+'">'+c.nombre+'</option>'; }).join('');
+      + PA.centros.map(function(c){ return '<option value="'+c.id+'">'+cesc(e.nombre||'')+'</option>'; }).join('');
   }
   paShow('scMarcar');
   paGetLocation();
@@ -3646,7 +3662,7 @@ function paAdminHoy(content) {
           var emp = marcs[empId];
           var tardeBadge = emp.tarde > 0 ? ' <span style="color:var(--warn);font-size:10px">⚠ +'+emp.tarde+'min</span>' : '';
           html += '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:8px">'
-            +'<div style="font-weight:700;margin-bottom:8px">'+emp.nombre+tardeBadge+'</div>'
+            +'<div style="font-weight:700;margin-bottom:8px">'+esc(emp.nombre)+tardeBadge+'</div>'
             +'<div style="display:flex;flex-wrap:wrap;gap:8px">';
           emp.registros.sort(function(a,b){ return (a.ts||0)-(b.ts||0); }).forEach(function(r) {
             var hora = r.ts ? paFmtHora(r.ts) : '—';
@@ -3838,6 +3854,95 @@ function paVerMarcacion(marcId) {
 
   document.body.appendChild(div);
 }
+// ══════════════════════════════════════════════════════
+// ACCIÓN DE PERSONAL — FALTA INJUSTIFICADA
+// ══════════════════════════════════════════════════════
+function paAccionPersonalFalta(empId, empNombre, empCargo, fecha) {
+  var old = document.getElementById('accionPersonalOverlay'); if(old) old.remove();
+  var hoyStr = new Date().toLocaleDateString('es-SV',{day:'2-digit',month:'2-digit',year:'numeric'});
+  var fechaFmt = fecha ? new Date(fecha+'T12:00:00').toLocaleDateString('es-SV',{weekday:'long',day:'numeric',month:'long',year:'numeric'}) : '—';
+
+  var ov = document.createElement('div');
+  ov.id = 'accionPersonalOverlay';
+  ov.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:var(--bg);z-index:400;display:flex;flex-direction:column;overflow-y:auto;font-family:\'Space Grotesk\',system-ui';
+
+  ov.innerHTML =
+    '<div style="background:var(--surface);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0">'    +'<button onclick="document.getElementById(\'accionPersonalOverlay\').remove()" style="background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer">←</button>'    +'<div style="font-weight:700;font-size:16px">📋 Acción de Personal</div>'    +'</div>'    +'<div style="padding:18px;max-width:600px;width:100%;margin:0 auto">'
+    // Info box
+    +'<div style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.25);border-radius:10px;padding:12px;margin-bottom:16px;font-size:13px">'    +'<strong style="color:#f85149">Falta Injustificada</strong> — '+esc(empNombre)+'<br>'    +'<span style="color:var(--muted)">Fecha: '+fechaFmt+'</span>'    +'</div>'
+    // Form fields
+    +'<div style="margin-bottom:12px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">EXPLICACIÓN / DETALLE</label>'    +'<textarea id="acpExplicacion" rows="3" placeholder="El empleado no se presentó a laborar el día '+fechaFmt+' sin justificación alguna..." '    +'style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box">'    +'El empleado '+esc(empNombre)+' no se presentó a laborar el día '+fechaFmt+' sin justificación alguna.</textarea></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'    +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">SOLICITA</label>'    +'<input id="acpSolicita" type="text" value="WILFREDO VILLANUEVA" '    +'style="width:100%;padding:9px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box"></div>'    +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">AUTORIZA</label>'    +'<input id="acpAutoriza" type="text" value="Julio de Paul" '    +'style="width:100%;padding:9px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box"></div>'    +'</div>'
+    +'<button onclick="paGenerarAccionPersonal(\''+empId+'\',\''+esc(empNombre).replace(/\'/g,\'x27\')+'\',\''+esc(empCargo||'tecnico')+'\',\''+fecha+'\')" '    +'style="width:100%;padding:13px;background:#f85149;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:4px">'    +'📄 Generar e Imprimir Acción de Personal</button>'    +'</div>';
+
+  document.body.appendChild(ov);
+}
+
+function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
+  var explicacion = (document.getElementById('acpExplicacion')||{}).value || '';
+  var solicita    = (document.getElementById('acpSolicita')||{}).value   || 'WILFREDO VILLANUEVA';
+  var autoriza    = (document.getElementById('acpAutoriza')||{}).value   || 'Julio de Paul';
+  var hoyStr      = new Date().toLocaleDateString('es-SV',{day:'2-digit',month:'2-digit',year:'numeric'});
+  var emp         = PA.empleados.find(function(e){ return e.id===empId; }) || {};
+  var cargo       = emp.cargo || empCargo || 'TÉCNICO';
+  var depto       = emp.departamento || 'MANTENIMIENTO';
+
+  var ACCIONES = [
+    [1,'RENUNCIA VOLUNTARIA'],[2,'TERMINACION DE CONTRATO'],[3,'ABANDONO DE TRABAJO'],
+    [4,'SUSPENSIÓN'],[5,'AMONESTACION'],[6,'CONTRATACION'],
+    [7,'DESCUENTO DIA Y SEPTIMO'],[8,'CAMBIO CENTRO DE COSTO'],[9,'FALTA INJUSTIFICADA'],
+    [10,'ASCENSO'],[11,'NIVELACION DE SALARIO'],[12,'GOCE DE VACACIONES'],
+    [13,'INCAPACIDAD ISSS U OTROS'],[14,'PERMISO CON GOCE DE SUELDO'],
+    [15,'PERMISO SIN GOCE DE SUELDO'],[16,'FELICITACION'],
+    [17,'FIN DE PERIODO DE PRUEBA'],[18,'OTROS']
+  ];
+  var SELECTED = 9; // FALTA INJUSTIFICADA
+
+  function tdAcc(num, desc) {
+    var sel = num===SELECTED ? 'X' : '';
+    return '<td style="padding:4px 6px;font-size:11px;width:20px;text-align:center;border:1px solid #ddd">'+num+'</td>'           +'<td style="padding:4px 6px;font-size:11px;width:16px;text-align:center;border:1px solid #ddd;color:red;font-weight:700">'+sel+'</td>'           +'<td style="padding:4px 8px;font-size:11px;border:1px solid #ddd">'+desc+'</td>';
+  }
+
+  var accionRows = '';
+  for (var i=0; i<9; i++) {
+    var left  = ACCIONES[i];
+    var right = ACCIONES[i+9];
+    accionRows += '<tr>'+tdAcc(left[0],left[1])+'<td style="width:20px;border:none"></td>'+tdAcc(right[0],right[1])+'</tr>';
+  }
+
+  var html =
+    '<!DOCTYPE html><html><head><meta charset="UTF-8">'    +'<title>Acción de Personal — '+esc(empNombre)+'</title>'    +'<style>body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:0;padding:20px}'    +'table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:5px 8px;font-size:11px}'    +'@media print{@page{margin:12mm;size:letter}body{padding:0}}'    +'.titulo{font-size:13px;font-weight:700;text-align:center;letter-spacing:.5px;text-transform:uppercase}'    +'.empresa{font-size:14px;font-weight:700;text-align:center}'    +'.lbl{font-weight:700;text-transform:uppercase;font-size:10px;color:#555}'    +'.campo{border-bottom:1px solid #333;padding-bottom:2px;margin-bottom:6px}'    +'</style></head><body>'
+    // Header
+    +'<div style="text-align:center;margin-bottom:14px">'    +'<div class="empresa">FRANQUICIAS INTERNACIONALES S.A DE C.V.</div>'    +'<div class="titulo" style="margin-top:4px">ACCION DE PERSONAL</div>'    +'</div>'
+    // Fecha elaboración + Rige a partir de
+    +'<table style="margin-bottom:10px;font-size:11px"><tr>'    +'<td style="border:none;width:50%"><span class="lbl">Fecha Elaboración:</span> <strong>'+hoyStr+'</strong></td>'    +'<td style="border:none;width:50%"><span class="lbl">Rige a partir de:</span> <strong>'+esc(fecha||hoyStr)+'</strong></td>'    +'</tr></table>'
+    // Empleado y departamento
+    +'<table style="margin-bottom:10px"><tr>'    +'<td style="width:25%;font-weight:700;background:#f5f5f5">NOMBRE EMPLEADO</td>'    +'<td colspan="3">'+esc(empNombre.toUpperCase())+'</td></tr><tr>'    +'<td style="font-weight:700;background:#f5f5f5">DEPARTAMENTO / RESTAURANTE</td>'    +'<td colspan="3">'+esc(depto.toUpperCase())+'</td></tr></table>'
+    // Naturaleza
+    +'<div style="font-weight:700;font-size:11px;margin-bottom:4px;text-transform:uppercase">'    +'Naturaleza de la Acción de Personal <span style="font-weight:400;color:#555">(marcar con X)</span></div>'    +'<table style="margin-bottom:10px"><tbody>'+accionRows+'</tbody></table>'
+    // Explicación
+    +'<table style="margin-bottom:10px"><tr>'    +'<td style="font-weight:700;background:#f5f5f5;white-space:nowrap;width:1%">EXPLICACIÓN:</td>'    +'<td style="min-height:40px;vertical-align:top;padding:6px">'+esc(explicacion)+'</td></tr></table>'
+    // Cargo actual/nuevo
+    +'<table style="margin-bottom:10px"><tr>'    +'<td style="width:12%;font-weight:700;background:#f5f5f5">ACTUAL</td>'    +'<td style="width:12%;font-weight:700;background:#f5f5f5">CARGO</td>'    +'<td>'+esc(cargo.toUpperCase())+'</td>'    +'<td style="width:18%;font-weight:700;background:#f5f5f5">SUELDO MENSUAL</td>'    +'<td></td></tr><tr>'    +'<td style="font-weight:700;background:#f5f5f5">NUEVO</td>'    +'<td style="font-weight:700;background:#f5f5f5">CARGO</td>'    +'<td>'+esc(cargo.toUpperCase())+'</td>'    +'<td style="font-weight:700;background:#f5f5f5">SUELDO MENSUAL</td>'    +'<td></td></tr></table>'
+    // En caso de despido
+    +'<table style="margin-bottom:10px"><tr>'    +'<td colspan="2" style="font-weight:700;background:#f5f5f5">EN CASO DE DESPIDO, ESPECIFICAR TIPO</td></tr><tr>'    +'<td style="width:50%">CON RESPONSABILIDAD _______</td>'    +'<td>SIN RESPONSABILIDAD _______</td></tr></table>'
+    // Detalle tiempo trabajado
+    +'<div style="font-weight:700;font-size:10px;margin-bottom:4px;text-transform:uppercase">'    +'Detalle de tiempo trabajado pendiente de pago a incluir en caso de indemnización</div>'    +'<table style="margin-bottom:10px;font-size:10px"><tr>'    +'<td style="text-align:right;width:13%;background:#f5f5f5;font-weight:700"> </td>'    +'<td style="text-align:center;width:6%;font-weight:700;background:#f5f5f5">DÍA</td>'    +'<td style="text-align:center;width:6%;font-weight:700;background:#f5f5f5">MES</td>'    +'<td style="text-align:center;width:6%;font-weight:700;background:#f5f5f5">AÑO</td>'    +'<td colspan="6"></td></tr><tr>'    +'<td style="font-weight:700;background:#f5f5f5">ÚLTIMO DÍA TRABAJADO</td><td></td><td></td><td></td><td colspan="6"></td></tr><tr>'    +'<td style="background:#f5f5f5">DÍAS DE SALARIO</td><td></td><td colspan="2"></td>'    +'<td style="background:#f5f5f5">HORAS EXTRAS DIURNAS</td><td></td>'    +'<td colspan="2"></td><td style="background:#f5f5f5">HORAS FERIADAS DIURNAS</td><td></td></tr><tr>'    +'<td style="background:#f5f5f5">NOCTURNIDADES</td><td colspan="3"></td>'    +'<td style="background:#f5f5f5">HORAS EXTRAS NOCTURNAS</td><td></td>'    +'<td colspan="2"></td><td style="background:#f5f5f5">HORAS FERIADAS NOCTURNAS</td><td></td></tr>'    +'</table>'
+    // Comentarios empleado
+    +'<table style="margin-bottom:10px"><tr>'    +'<td style="font-weight:700;background:#f5f5f5;white-space:nowrap;width:1%">COMENTARIOS DEL EMPLEADO:</td>'    +'<td style="height:35px"></td></tr></table>'
+    // Aceptación
+    +'<div style="font-weight:700;font-size:11px;margin-bottom:6px;text-transform:uppercase">Aceptación de la Acción de Personal</div>'    +'<table style="margin-bottom:10px"><tr>'    +'<td style="width:50%;padding:8px">'    +'<div style="font-weight:700">'+esc(empNombre.toUpperCase())+'</div>'    +'<div style="font-size:10px;color:#555">NOMBRE DE EMPLEADO COMPLETO</div></td>'    +'<td style="width:50%;padding:8px">'    +'<div style="border-bottom:1px solid #333;height:20px;margin-bottom:4px"></div>'    +'<div style="font-size:10px;color:#555">FIRMA</div></td></tr></table>'    +'<div style="font-size:10px;margin-bottom:8px">EN CASO QUE EL EMPLEADO NO FIRME:</div>'    +'<table style="margin-bottom:14px"><tr>'    +'<td style="width:33%;padding:8px"><div style="font-weight:700">TESTIGO 1</div><div>Nombre: _______________</div><div>DUI: ___________________</div></td>'    +'<td style="width:33%;padding:8px"><div style="font-weight:700">TESTIGO 2</div><div>Nombre: _______________</div><div>DUI: ___________________</div></td>'    +'<td style="width:34%;padding:8px"><div style="font-weight:700">TESTIGO 3</div><div>Nombre: _______________</div><div>DUI: ___________________</div></td>'    +'</tr></table>'
+    // Aprobación
+    +'<div style="font-weight:700;font-size:11px;margin-bottom:6px;text-transform:uppercase">Aprobación del Movimiento</div>'    +'<table><tr>'    +'<td style="width:25%;text-align:center;padding:8px"><div style="font-weight:700">'+esc(solicita.toUpperCase())+'</div><div style="border-top:1px solid #333;margin-top:8px;padding-top:4px;font-size:10px">SOLICITA</div></td>'    +'<td style="width:25%;text-align:center;padding:8px"><div> </div><div style="border-top:1px solid #333;margin-top:8px;padding-top:4px;font-size:10px">REVISA</div></td>'    +'<td style="width:25%;text-align:center;padding:8px"><div style="font-weight:700">'+esc(autoriza.toUpperCase())+'</div><div style="border-top:1px solid #333;margin-top:8px;padding-top:4px;font-size:10px">AUTORIZA</div></td>'    +'<td style="width:25%;text-align:center;padding:8px"><div> </div><div style="border-top:1px solid #333;margin-top:8px;padding-top:4px;font-size:10px">PROCESADO</div></td>'    +'</tr></table>'
+    +'<script>window.onload=function(){window.print();}<\/script>'    +'</body></html>';
+
+  var w = window.open('','_blank','width=900,height=800');
+  w.document.write(html);
+  w.document.close();
+  paToast('📋 Acción de Personal generada');
+}
+
+
 function paAdminHistorial(content) {
   var hoy = paHoy();
   var hace7 = new Date(); hace7.setDate(hace7.getDate()-6);
@@ -3923,7 +4028,7 @@ function paCargarHistorialRango() {
           // Header del empleado — siempre visible
           +'<div style="background:#161b22;padding:12px 14px;display:flex;align-items:center;justify-content:space-between">'
           +'<div>'
-          +'<div style="font-weight:700;font-size:14px;color:#e6edf3">👤 '+emp.nombre+'</div>'
+          +'<div style="font-weight:700;font-size:14px;color:#e6edf3">👤 '+esc(emp.nombre)+'</div>'
           +'<div style="font-size:11px;color:#7d8590;margin-top:2px">'+totalEmp+' marcaciones en '+fechas.length+' día(s)</div>'
           +'</div>'
           +'<div style="display:flex;gap:6px;align-items:center">'
@@ -3990,9 +4095,11 @@ function paCargarHistorialRango() {
           });
 
           html += '<tr><td colspan="4" style="padding:4px 0">'
-            +'<button onclick="paAgregarMarcacion(\''+eid+'\',\''+emp.nombre+'\',\''+fecha+'\')" '
+            +'<button onclick="paAgregarMarcacion(\''+eid+'\',\''+esc(emp.nombre).replace(/'/g,'\\x27')+'\',\''+fecha+'\')" '
             +'style="background:rgba(46,160,67,.08);border:1px dashed rgba(46,160,67,.3);border-radius:5px;padding:4px 10px;font-size:11px;cursor:pointer;color:#2ea043;width:100%">+ Agregar marcación</button>'
-            +'</td></tr>';
+            +'</td></tr>'
+          +(registros.length===0
+            ?'<tr><td colspan="4" style="padding:0 0 4px"><button onclick="paAccionPersonalFalta(\''+eid+'\',\''+esc(emp.nombre).replace(/\'\'/g,\'x27\')+'\',\''+esc(emp.cargo||'tecnico')+'\',\''+fecha+'\')" style="background:rgba(248,81,73,.08);border:1px dashed rgba(248,81,73,.3);border-radius:5px;padding:5px 8px;font-size:11px;cursor:pointer;color:#f85149;width:100%">📋 Generar Acción de Personal — Falta Injustificada</button></td></tr>':'');
           html += '</tbody></table></div></div>'; // cierra día
         });
 
@@ -4249,7 +4356,7 @@ function paAdminConfig(content) {
       // Header — nombre + cargo + badge horario
       +'<div onclick="paToglHorEmp(\'hor_'+emp.id+'\')" style="padding:10px 14px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;background:#161b22">'
       +'<div>'
-      +'<div style="font-size:13px;font-weight:600;color:#e6edf3">'+emp.nombre+'</div>'
+      +'<div style="font-size:13px;font-weight:600;color:#e6edf3">'+esc(emp.nombre)+'</div>'
       +'<div style="font-size:11px;color:#7d8590;margin-top:2px">'+rolLabel+'</div>'
       +'</div>'
       +'<div style="display:flex;gap:8px;align-items:center">'
@@ -4446,7 +4553,7 @@ function paOpenPinModal() {
     sel.innerHTML = '<option value="">— Seleccionar empleado —</option>'
       + PA.empleados.map(function(e){
           var pinInfo = e.pin ? ' ✓ PIN' : ' sin PIN';
-          return '<option value="'+e.id+'">'+e.nombre+(e.cargo?' ('+e.cargo+')':'')+pinInfo+'</option>';
+          return '<option value="'+e.id+'">'+esc(e.nombre)+(e.cargo?' ('+esc(e.cargo)+')':'')+pinInfo+'</option>';
         }).join('');
   }
   var pinInput = document.getElementById('nePin');
@@ -4476,7 +4583,7 @@ function paAdminEmps(content) {
       ? '<button style="background:rgba(248,81,73,.15);border:1px solid rgba(248,81,73,.4);color:#f85149;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:11px" onclick="paDesvinculDispositivo(\''+emp.id+'\')" title="Desvincular dispositivo">🔓 Desvincular</button>'
       : '';
     html += '<div class="report-row">'
-      + '<div style="flex:1"><div class="report-emp">'+emp.nombre+'</div>'
+      + '<div style="flex:1"><div class="report-emp">'+esc(emp.nombre)+'</div>'
       + '<div class="report-detail">'+(emp.cargo||'—')+(emp.ruta?' · '+emp.ruta:'')+' · '+(emp.pin?'🔒 PIN asignado':'⚠ Sin PIN')+' · '+devStatus+'</div>'
       + '<div class="report-detail">⏰ '+((emp.horasExtraAcum||0).toFixed(1))+'h extra · 🏖️ '+(emp.diasVacacionesDisponibles||15)+' días vac.</div>'
       + otpInfo
@@ -4588,7 +4695,7 @@ function paAdminExtra(content) {
             var s = saldoMap[e.id];
             var acum = s ? s.acum.toFixed(1) : '0.0';
             var pend = s ? s.canjeadas.toFixed(1) : '0.0';
-            return '<option value="'+e.id+'|'+e.nombre+'">'+e.nombre+' — '+acum+'h acum / '+pend+'h canjeadas</option>';
+            return '<option value="'+e.id+'">'+esc(e.nombre)+' — '+acum+'h acum / '+pend+'h canjeadas</option>';
           }).join('')
         +'</select>'
         +'<div id="canjeEmpInfo" style="display:none;background:var(--surface2);border-radius:10px;padding:10px;margin-bottom:8px;font-size:12px">'
@@ -4652,7 +4759,7 @@ function paAdminExtra(content) {
       +'<div style="font-size:12px;font-weight:700;color:var(--purple);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px">🗓️ Asignar día compensatorio directo (turno domingo)</div>'
       +'<select id="compEmpSel" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px;margin-bottom:8px">'
       +'<option value="">— Seleccionar empleado —</option>'
-      + PA.empleados.map(function(e){ return '<option value="'+e.id+'|'+e.nombre+'">'+e.nombre+(e.cargo?' ('+e.cargo+')':'')+'</option>'; }).join('')
+      + PA.empleados.map(function(e){ return '<option value="'+e.id+'">'+esc(e.nombre)+(e.cargo?' ('+e.cargo+')':'')+'</option>'; }).join('')
       +'</select>'
       +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'
       +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">Día libre a asignar</label>'
@@ -4998,7 +5105,7 @@ function paGenerarReporte() {
     empIds.forEach(function(eid) {
       var e = porEmp[eid];
       html += '<tr style="border-bottom:1px solid var(--border)">'
-        +'<td style="padding:8px 6px;font-weight:600">'+e.nombre+'</td>'
+        +'<td style="padding:8px 6px;font-weight:600">'+esc(e.nombre)+'</td>'
         +'<td style="padding:8px;text-align:center;font-family:\'JetBrains Mono\',monospace">'+(e.diurna||0).toFixed(2)+'</td>'
         +'<td style="padding:8px;text-align:center;font-family:\'JetBrains Mono\',monospace">'+(e.nocturna||0).toFixed(2)+'</td>'
         +'<td style="padding:8px;text-align:center;font-family:\'JetBrains Mono\',monospace">'+(e.feriado||0).toFixed(2)+'</td>'
@@ -5098,7 +5205,8 @@ function paExportarExcel() {
           toHHMM(mSalAd&&mSalAd.ts)+' *',
           addMins !== null ? _hhmm(addMins) : '--',
           addMins !== null ? _hhmm(addMins) : '--',
-          '--','--',
+          '--',
+          addMins !== null ? _hhmm(addMins) : '--', // tiempo renumerado=total
           addMins !== null ? _hhmm(addMins) : '--',
           '--',
         ]);
