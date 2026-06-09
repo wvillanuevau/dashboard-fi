@@ -4044,8 +4044,7 @@ function paCargarHistorialRango() {
           +'<div style="font-size:11px;color:#7d8590;margin-top:2px">'+totalEmp+' marcaciones en '+fechas.length+' día(s)</div>'
           +'</div>'
           +'<div style="display:flex;gap:6px;align-items:center">'
-          +'<button onclick="paReportarFaltaEmp(\''+eid+'\',\''+esc(emp.nombre).replace(/\'/g,\'x27\')+'\',\''+esc(emp.cargo||'tecnico').replace(/\'/g,\'x27\')+'\')"
-          +' style="background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);color:#f85149;border-radius:8px;padding:4px 10px;font-size:11px;cursor:pointer">📋 Falta Injustificada</button>'
+          +'<button onclick="paReportarFaltaEmp(\''+eid+'\',\''+esc(emp.nombre).replace(/\'/g,\'x27\')+'\',\''+esc(emp.cargo||'tecnico').replace(/\'/g,\'x27\')+\'\')" style="background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);color:#f85149;border-radius:8px;padding:4px 10px;font-size:11px;cursor:pointer">📋 Falta Injustificada</button>'
           +'<button onclick="paToggleEmpHist(\''+empUid+'\')" id="btn_'+empUid+'" '
           +'style="background:#21262d;border:1px solid #30363d;color:#7d8590;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer">▼ Ver días</button>'
           +'</div></div>';
@@ -5234,43 +5233,78 @@ function paExportarExcel() {
     var totNoc  = emp.nocturna || 0;
     var totHE   = emp.total   || 0;
 
-    // Build worksheet data
+    // ── Formatear fecha local como "sáb, 16 mayo 2026 (L)" ──────────
+    var _DN = ['dom','lun','mar','mié','jue','vie','sáb'];
+    var _MN = ['enero','febrero','marzo','abril','mayo','junio',
+               'julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    function _fmtFechaXls(fechaStr) {
+      if (!fechaStr || fechaStr === '') return '';
+      var d = new Date(fechaStr + 'T12:00:00');
+      var dow = d.getDay();
+      var diasLab = (PA.horario && PA.horario.diasLaborables) || [1,2,3,4,5,6];
+      var tipo = diasLab.indexOf(dow) >= 0 ? 'L' : 'NL';
+      return _DN[dow]+', '+d.getDate()+' '+_MN[d.getMonth()]+' '+d.getFullYear()+' ('+tipo+')';
+    }
+
+    // Filas con fecha formateada y Tiempo renumerado = Total trabajado
+    var filasXls = filas.map(function(f){
+      return [
+        _fmtFechaXls(f[0]),   // Fecha formateada
+        f[1],                  // Hora inicio
+        f[2],                  // Hora fin
+        f[3],                  // Total trabajado
+        f[4],                  // Horas extras
+        f[5],                  // Horas descanso
+        f[3],                  // Tiempo renumerado = Total trabajado
+        f[7],                  // H.E. Diurnas
+        f[8],                  // H.E. Nocturnas
+      ];
+    });
+
+    // Build worksheet — 9 columnas (A–I)
     var wsData = [
-      [empresa, '', '', '', '', 'Laborable (L)'],
-      ['Empleado', emp.nombre, '', '', '', 'No laborable (NL)'],
-      ['N° Afiliación', '', '', '', '', 'Festivo (F)'],
-      ['Intervalo', data.desde+' - '+data.hasta, '', '', '', 'Vacaciones (V)'],
+      [empresa, '', '', '', '', '', '', '', 'Laborable (L)'],
+      ['Empleado', esc(emp.nombre), '', '', '', '', '', '', 'No laborable (NL)'],
+      ['N° Afiliación', '', '', '', '', '', '', '', 'Festivo (F)'],
+      ['Intervalo', data.desde+' - '+data.hasta, '', '', '', '', '', '', 'Vacaciones (V)'],
       [],
       ['HORAS TRABAJADAS'],
       [],
-      ['Hora inicio','Hora fin','Total trabajado','Horas extras','Horas descanso','Tiempo renumerado','H.E. Diurnas','H.E. Nocturnas',''],
+      ['Fecha','Hora inicio','Hora fin','Total trabajado','Horas extras',
+       'Horas descanso','Tiempo renumerado','H.E. Diurnas','H.E. Nocturnas'],
     ];
 
-    filas.forEach(function(f){ wsData.push(f); });
+    filasXls.forEach(function(f){ wsData.push(f); });
 
-    // Empty row then total
+    // Fila de totales
     wsData.push([]);
-    wsData.push(['','','Total','','','',
-      totDiu>0?_hhmm(Math.round(totDiu*60)):'--',
-      totNoc>0?_hhmm(Math.round(totNoc*60)):'--',
-      totHE>0?_hhmm(Math.round(totHE*60)):'--'
+    wsData.push(['','','','Total','','','',
+      totDiu>0 ? _hhmm(Math.round(totDiu*60)) : '--',
+      totNoc>0 ? _hhmm(Math.round(totNoc*60)) : '--'
     ]);
 
     var ws = XLSX.utils.aoa_to_sheet(wsData);
 
     // Column widths
     ws['!cols'] = [
-      {wch:12},{wch:10},{wch:16},{wch:14},{wch:16},{wch:18},{wch:14},{wch:14},{wch:4}
+      {wch:28},{wch:10},{wch:10},{wch:16},{wch:14},{wch:16},{wch:18},{wch:14},{wch:14}
     ];
 
     // Style header row (row index 7 = headers)
-    var headerRow = 7;
-    ['A','B','C','D','E','F','G','H'].forEach(function(col){
-      var cell = ws[col+(headerRow+1)];
+    // Estilo encabezado (fila 8 = índice 8 en spreadsheet)
+    var hdrRowNum = 8;
+    ['A','B','C','D','E','F','G','H','I'].forEach(function(col){
+      var cell = ws[col+hdrRowNum];
       if (cell) {
-        cell.s = { font:{bold:true}, fill:{fgColor:{rgb:'1A1A2E'}}, alignment:{horizontal:'center'} };
+        cell.s = {
+          font:{bold:true, color:{rgb:'FFFFFF'}},
+          fill:{fgColor:{rgb:'1A3A5C'}},
+          alignment:{horizontal:'center', wrapText:true}
+        };
       }
     });
+    // Negrita empresa
+    if (ws['A1']) ws['A1'].s = {font:{bold:true, sz:12}};
 
     // Sheet name: first 31 chars of employee name (Excel limit)
     var sheetName = emp.nombre.slice(0,31).replace(/[\/\\?\*\[\]]/g,'');
