@@ -3874,6 +3874,8 @@ function paAccionPersonalFalta(empId, empNombre, empCargo, fecha) {
   var hoyStr = new Date().toLocaleDateString('es-SV',{day:'2-digit',month:'2-digit',year:'numeric'});
   var fechaFmt = fecha ? new Date(fecha+'T12:00:00').toLocaleDateString('es-SV',{weekday:'long',day:'numeric',month:'long',year:'numeric'}) : '—';
 
+  // Guardar datos ANTES de construir HTML — evita escaping en onclick
+  window._paAccionData = {id: empId, nombre: empNombre, cargo: empCargo||'tecnico', fecha: fecha};
   var ov = document.createElement('div');
   ov.id = 'accionPersonalOverlay';
   ov.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:var(--bg);z-index:400;display:flex;flex-direction:column;overflow-y:auto;font-family:\'Space Grotesk\',system-ui';
@@ -3885,12 +3887,18 @@ function paAccionPersonalFalta(empId, empNombre, empCargo, fecha) {
     // Form fields
     +'<div style="margin-bottom:12px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">EXPLICACIÓN / DETALLE</label>'    +'<textarea id="acpExplicacion" rows="3" placeholder="El empleado no se presentó a laborar el día '+fechaFmt+' sin justificación alguna..." '    +'style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box">'    +'El empleado '+esc(empNombre)+' no se presentó a laborar el día '+fechaFmt+' sin justificación alguna.</textarea></div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'    +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">SOLICITA</label>'    +'<input id="acpSolicita" type="text" value="WILFREDO VILLANUEVA" '    +'style="width:100%;padding:9px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box"></div>'    +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">AUTORIZA</label>'    +'<input id="acpAutoriza" type="text" value="Julio de Paul" '    +'style="width:100%;padding:9px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box"></div>'    +'</div>'
-    +'<button onclick="paGenerarAccionPersonal(\''+empId+'\',\''+esc(empNombre).replace(/\'/g,\'x27\')+'\',\''+esc(empCargo||'tecnico')+'\',\''+fecha+'\')" '    +'style="width:100%;padding:13px;background:#f85149;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:4px">'    +'📄 Generar e Imprimir Acción de Personal</button>'    +'</div>';
+    +'<button onclick="paGenerarAccionPersonal()" '    +'style="width:100%;padding:13px;background:#f85149;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:4px">'    +'📄 Generar e Imprimir Acción de Personal</button>'    +'</div>';
 
   document.body.appendChild(ov);
 }
 
 function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
+  // Leer datos del state guardado si no se pasaron como parámetros
+  if (!empId && window._paAccionData) {
+    empId=window._paAccionData.id; empNombre=window._paAccionData.nombre;
+    empCargo=window._paAccionData.cargo; fecha=window._paAccionData.fecha;
+  }
+  if (!empId) { paToast('Error: no hay datos del empleado',true); return; }
   var explicacion = (document.getElementById('acpExplicacion')||{}).value || '';
   var solicita    = (document.getElementById('acpSolicita')||{}).value   || 'WILFREDO VILLANUEVA';
   var autoriza    = (document.getElementById('acpAutoriza')||{}).value   || 'Julio de Paul';
@@ -4037,6 +4045,8 @@ function paCargarHistorialRango() {
         // Sección de empleado
         var empUid = 'emp_'+eid.replace(/[^a-z0-9]/gi,'_');
         html += '<div style="margin-bottom:16px;border:1.5px solid #30363d;border-radius:14px;overflow:hidden">'
+          window._paFaltaMap = window._paFaltaMap||{};
+          window._paFaltaMap[empUid] = {id:eid, nombre:emp.nombre, cargo:emp.cargo||'tecnico'};
           // Header del empleado — siempre visible
           +'<div style="background:#161b22;padding:12px 14px;display:flex;align-items:center;justify-content:space-between">'
           +'<div>'
@@ -4044,7 +4054,7 @@ function paCargarHistorialRango() {
           +'<div style="font-size:11px;color:#7d8590;margin-top:2px">'+totalEmp+' marcaciones en '+fechas.length+' día(s)</div>'
           +'</div>'
           +'<div style="display:flex;gap:6px;align-items:center">'
-          +'<button onclick="paReportarFaltaEmp(\''+eid+'\',\''+esc(emp.nombre).replace(/\'/g,\'x27\')+'\',\''+esc(emp.cargo||'tecnico').replace(/\'/g,\'x27\')+\'\')" style="background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);color:#f85149;border-radius:8px;padding:4px 10px;font-size:11px;cursor:pointer">📋 Falta Injustificada</button>'
+          +'<button onclick="var _d=window._paFaltaMap[\''+empUid+'\'];if(_d)paReportarFaltaEmp(_d.id,_d.nombre,_d.cargo);" style="background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);color:#f85149;border-radius:8px;padding:4px 10px;font-size:11px;cursor:pointer">📋 Falta Injustificada</button>'
           +'<button onclick="paToggleEmpHist(\''+empUid+'\')" id="btn_'+empUid+'" '
           +'style="background:#21262d;border:1px solid #30363d;color:#7d8590;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer">▼ Ver días</button>'
           +'</div></div>';
@@ -4078,7 +4088,7 @@ function paCargarHistorialRango() {
             +'<div style="font-size:12px;font-weight:600;color:#e6edf3">📅 '+fechaLabel+tardeBadge+'</div>'
             +'<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">'+chips+'</div>'
             +'</div>'
-            +'<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">'            +'<button onclick="event.stopPropagation();paAccionPersonalFalta(\''+eid+'\',\''+esc(emp.nombre).replace(/\'/g,\'x27\')+'\',\''+esc(emp.cargo||'tecnico').replace(/\'/g,\'x27\')+'\',\''+fecha+'\')" '            +'style="background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);border-radius:5px;padding:3px 7px;font-size:10px;cursor:pointer;color:#f85149">📋</button>'            +'<span id="ico_'+diaUid+'" style="color:#7d8590;font-size:14px">›</span>'            +'</div>'
+            +'<span id="ico_'+diaUid+'" style="color:#7d8590;font-size:14px">›</span>'
             +'</div>';
 
           // Detalle del día — colapsado por defecto
@@ -4111,8 +4121,6 @@ function paCargarHistorialRango() {
             +'<button onclick="paAgregarMarcacion(\''+eid+'\',\''+esc(emp.nombre).replace(/'/g,'\\x27')+'\',\''+fecha+'\')" '
             +'style="background:rgba(46,160,67,.08);border:1px dashed rgba(46,160,67,.3);border-radius:5px;padding:4px 10px;font-size:11px;cursor:pointer;color:#2ea043;width:100%">+ Agregar marcación</button>'
             +'</td></tr>'
-          +(registros.length===0
-            ?'<tr><td colspan="4" style="padding:0 0 4px"><button onclick="paAccionPersonalFalta(\''+eid+'\',\''+esc(emp.nombre).replace(/\'\'/g,\'x27\')+'\',\''+esc(emp.cargo||'tecnico')+'\',\''+fecha+'\')" style="background:rgba(248,81,73,.08);border:1px dashed rgba(248,81,73,.3);border-radius:5px;padding:5px 8px;font-size:11px;cursor:pointer;color:#f85149;width:100%">📋 Generar Acción de Personal — Falta Injustificada</button></td></tr>':'');
           html += '</tbody></table></div></div>'; // cierra día
         });
 
