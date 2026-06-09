@@ -4044,9 +4044,9 @@ function paCargarHistorialRango() {
 
         // Sección de empleado
         var empUid = 'emp_'+eid.replace(/[^a-z0-9]/gi,'_');
-        html += '<div style="margin-bottom:16px;border:1.5px solid #30363d;border-radius:14px;overflow:hidden">'
           window._paFaltaMap = window._paFaltaMap||{};
           window._paFaltaMap[empUid] = {id:eid, nombre:emp.nombre, cargo:emp.cargo||'tecnico'};
+        html += '<div style="margin-bottom:16px;border:1.5px solid #30363d;border-radius:14px;overflow:hidden">'
           // Header del empleado — siempre visible
           +'<div style="background:#161b22;padding:12px 14px;display:flex;align-items:center;justify-content:space-between">'
           +'<div>'
