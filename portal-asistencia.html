@@ -1326,7 +1326,9 @@ function paToast(msg, isErr) {
 }
 
 function paFmtHora(ts) {
-  var d = new Date(ts);
+  var ms = _paToMs(ts); // normaliza Firestore Timestamp, number, string
+  if (!ms) return '—';
+  var d = new Date(ms);
   return d.toLocaleTimeString('es-SV', {hour:'2-digit', minute:'2-digit', hour12:true});
 }
 
@@ -1950,9 +1952,13 @@ function paAfterAuth() {
 
   // ── Configurar notificaciones ────────────────────────────────────
   // Auto-completar dia anterior si quedo abierto
-  paAutoCompletarDiaAnterior(function() {
-    // Auto-complete done — continue normal flow
-  });
+  try {
+    paAutoCompletarDiaAnterior(function() {
+      // Auto-complete done — continue normal flow
+    });
+  } catch(e) {
+    console.warn('[AutoCierre] Error inesperado:', e.message);
+  }
 
   paConfigurarNotificaciones();
   // Registrar token FCM para push con navegador cerrado (seguro, después del login)
@@ -1972,6 +1978,9 @@ function paAfterAuth() {
         // Filtrar por empresa y por hoy en cliente
         if(dat.empresa!==PA.empresa) return;
         if(dat.fecha!==hoy) return;
+        // Normalizar ts (puede ser Firestore Timestamp)
+        if (dat.ts && typeof dat.ts === 'object' && dat.ts.toMillis) dat.ts = dat.ts.toMillis();
+        else if (dat.ts && dat.ts.seconds) dat.ts = dat.ts.seconds * 1000 + Math.round((dat.ts.nanoseconds||0)/1e6);
         PA.marcacionesHoy.push(Object.assign({id:d.id}, dat));
       });
       paShow('scDash');
@@ -2286,13 +2295,14 @@ function _cargarIncapacidades() {
   if (!paDb || !PA.empleado) return;
   var hoy = paHoy();
   paDb.collection('paIncapacidades')
-    .where('empresa', '==', PA.empresa)
     .where('empleadoId', '==', PA.empleado.id)
-    .where('fechaFin', '>=', hoy)
     .get().then(function(snap) {
       PA._incapacidades = [];
       snap.forEach(function(d) {
-        PA._incapacidades.push(Object.assign({ id: d.id }, d.data()));
+        var r = Object.assign({ id: d.id }, d.data());
+        if (r.empresa !== PA.empresa) return; // filtro cliente
+        if (r.fechaFin && r.fechaFin < hoy) return; // solo activas/futuras
+        PA._incapacidades.push(r);
       });
       // Actualizar descripción del botón
       var incActiva = PA._incapacidades.find(function(inc) {
@@ -2891,6 +2901,12 @@ function paGetLocation() {
 }
 
 function paConfirmarMarca() {
+  // Guard: empleado debe estar autenticado
+  if (!PA.empleado || !PA.empleado.id) {
+    console.warn('[Marca] PA.empleado es null — no se puede marcar');
+    paShow('scLanding');
+    return;
+  }
   var tieneFoto = !!PA.capturedB64;
   var tieneGPS  = !!(PA.location && PA.location.lat);
   var errEl = document.getElementById('marcarError');
@@ -3318,12 +3334,12 @@ function paInitVacaciones() {
   // Load used days this year
   var year = new Date().getFullYear();
   paDb.collection('paVacaciones')
-    .where('empresa', '==', PA.empresa)
     .where('empleadoId', '==', PA.empleado.id)
     .get().then(function(snap) {
       var usados = 0;
       snap.forEach(function(d) {
         var vac = d.data();
+        if (vac.empresa !== PA.empresa) return; // filtro cliente
         if ((vac.fechaInicio || '').startsWith(String(year)) && vac.estado !== 'rechazada') {
           usados += parseInt(vac.dias || 0);
         }
@@ -3597,6 +3613,9 @@ function paAdminHoy(content) {
       PA._marcacionesDetalle = {}; // store full records for viewer
       snap.forEach(function(d) {
         var m = Object.assign({ _id: d.id }, d.data());
+        // Normalizar ts desde Firestore Timestamp
+        if (m.ts && typeof m.ts === 'object' && m.ts.toMillis) m.ts = m.ts.toMillis();
+        else if (m.ts && m.ts.seconds) m.ts = m.ts.seconds * 1000 + Math.round((m.ts.nanoseconds||0)/1e6);
         // Filtrar por empresa en cliente (evita índice compuesto)
         if (m.empresa !== PA.empresa) return;
         var empId = m.empleadoId;
@@ -3857,6 +3876,8 @@ function paCargarHistorialRango() {
       var byEmp = {};  // empId → { nombre, fechas: { fecha → [registros] } }
       snap.forEach(function(d) {
         var m = Object.assign({ _id: d.id }, d.data());
+        if (m.ts && typeof m.ts === 'object' && m.ts.toMillis) m.ts = m.ts.toMillis();
+        else if (m.ts && m.ts.seconds) m.ts = m.ts.seconds * 1000 + Math.round((m.ts.nanoseconds||0)/1e6);
         if (m.empresa !== PA.empresa) return;
         if (!m.fecha || m.fecha < desde || m.fecha > hasta) return; // filtro fecha en cliente
         PA._marcacionesDetalle[m._id] = m;
