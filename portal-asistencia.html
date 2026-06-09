@@ -2649,18 +2649,22 @@ function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
   };
 
   if (mEntrada) {
-    registrar(mEntrada.ts);
+    // Normalizar ts antes de calcular HE (puede ser Firestore Timestamp)
+    registrar(_paToMs(mEntrada.ts));
   } else {
-    // Buscar en Firestore
+    // Single WHERE para evitar índice compuesto; filtrar cliente por empresa/fecha/tipo
     paDb.collection('paMarcaciones')
-      .where('empresa', '==', PA.empresa)
       .where('empleadoId', '==', empId)
-      .where('fecha', '==', hoy)
-      .where('tipo', '==', 'entrada')
       .get().then(function(snap) {
-        if (!snap.empty) {
-          var ts = snap.docs[0].data().ts;
-          registrar(ts);
+        var entradaDoc = null;
+        snap.forEach(function(d) {
+          var r = d.data();
+          if (r.empresa === PA.empresa && r.fecha === hoy && r.tipo === 'entrada') {
+            entradaDoc = r;
+          }
+        });
+        if (entradaDoc) {
+          registrar(_paToMs(entradaDoc.ts));
         } else {
           if (callback) callback(null);
         }
@@ -3161,17 +3165,14 @@ function paInitCanje() {
 
   // Cargar HE diurnas aprobadas y canjes para calcular saldo real
   Promise.all([
-    paDb.collection('paHorasExtra')
-      .where('empresa','==',PA.empresa)
-      .where('empleadoId','==',empId)
-      .where('tipo','==','diurna')
-      .where('estado','==','aprobado').get(),
-    paDb.collection('paCanjes')
-      .where('empresa','==',PA.empresa)
-      .where('empleadoId','==',empId).get()
+    paDb.collection('paHorasExtra').where('empleadoId','==',empId).get(),
+    paDb.collection('paCanjes').where('empleadoId','==',empId).get()
   ]).then(function(results){
     var totalDiurna = 0;
-    results[0].forEach(function(d){ totalDiurna += (d.data().horas||0); });
+    results[0].forEach(function(d){
+      var r=d.data();
+      if(r.empresa===PA.empresa && r.tipo==='diurna' && r.estado==='aprobado') totalDiurna += (r.horas||0);
+    });
 
     var canjeadasPend = 0;  // ya descontadas del saldo pero sin fecha
     var canjeadasAsig = 0;  // con fecha asignada
@@ -3846,9 +3847,9 @@ function paCargarHistorialRango() {
   if (desde > hasta)    { rc.innerHTML = '<div style="color:var(--red)">La fecha inicial debe ser anterior a la final</div>'; return; }
   rc.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted)">Buscando...</div>';
 
+  // Single WHERE por empresa; filtrar fechas en cliente (evita índice compuesto)
   paDb.collection('paMarcaciones')
-    .where('fecha','>=',desde)
-    .where('fecha','<=',hasta)
+    .where('empresa','==',PA.empresa)
     .get().then(function(snap) {
       PA._marcacionesDetalle = PA._marcacionesDetalle || {};
 
@@ -3857,6 +3858,7 @@ function paCargarHistorialRango() {
       snap.forEach(function(d) {
         var m = Object.assign({ _id: d.id }, d.data());
         if (m.empresa !== PA.empresa) return;
+        if (!m.fecha || m.fecha < desde || m.fecha > hasta) return; // filtro fecha en cliente
         PA._marcacionesDetalle[m._id] = m;
         if (!byEmp[m.empleadoId]) byEmp[m.empleadoId] = { nombre: m.empleadoNombre, fechas: {} };
         if (!byEmp[m.empleadoId].fechas[m.fecha]) byEmp[m.empleadoId].fechas[m.fecha] = [];
@@ -4083,6 +4085,17 @@ function paEliminarMarcacion(marcId) {
   paDb.collection('paMarcaciones').doc(marcId).delete()
     .then(function() {
       delete PA._marcacionesDetalle[marcId];
+      // Limpiar HE auto-generadas del mismo empleado/fecha si la marcación era 'salida'
+      if (m && (m.tipo==='salida'||m.tipo==='salida_adicional') && m.empleadoId && m.fecha) {
+        paDb.collection('paHorasExtra')
+          .where('empleadoId','==',m.empleadoId)
+          .get().then(function(snap){
+            snap.forEach(function(d){
+              var r=d.data();
+              if(r.fecha===m.fecha&&r.origen==='auto'&&r.empresa===PA.empresa) d.ref.delete();
+            });
+          }).catch(function(){});
+      }
       paToast('Registro eliminado');
       paCargarHistorialRango();
     })
