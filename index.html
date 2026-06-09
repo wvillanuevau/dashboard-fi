@@ -3049,7 +3049,8 @@ function _syncPortalPublico(){
     .filter(function(e){return !e.estado||e.estado==='activo';})
     .map(function(e){return{id:e.id,nombre:e.nombre,ubicacionId:e.ubicacionId||e.centroId||'',ubicacionTipo:e.ubicacionTipo||'centro',categoria:e.categoria||''};});
   var centrosPublicos=(S.centros||[]).map(function(c){return{id:c.id,nombre:c.nombre};});
-  var tecnicosPublicos=((S.mantenimiento&&S.mantenimiento.tecnicos)||[])
+  // Tecnicos desde S (fuente principal del sistema)
+  var tecnicosDeS=((S.mantenimiento&&S.mantenimiento.tecnicos)||[])
     .filter(function(t){return t.activo!==false;})
     .map(function(t){return{id:t.id,nombre:t.nombre,cargo:t.cargo||'tecnico',telefono:t.telefono||''};});
   var vehiculosPublicos=((S.taller&&S.taller.vehiculos)||[])
@@ -3070,15 +3071,41 @@ function _syncPortalPublico(){
         origenSolicitud:o.origenSolicitud||''
       };
     });
-  db.collection('portalesPublicos').doc(S.empresa).set({
-    empresa:S.empresa,
-    centros:centrosPublicos,
-    equipos:equiposPublicos,
-    tecnicos:tecnicosPublicos,
-    vehiculos:vehiculosPublicos,
-    ots:otsPublicas,
-    _ts:Date.now()
-  },{merge:true}).catch(function(e){console.warn('[Portal] Sync error:',e.message);});
+  // MERGE SEGURO: leer portalesPublicos primero y preservar empleados que
+  // no están en S.mantenimiento.tecnicos (previene borrado por datos desactualizados)
+  var docRef=db.collection('portalesPublicos').doc(S.empresa);
+  docRef.get().then(function(snap){
+    var tecnicosExistentes=snap.exists?(snap.data().tecnicos||[]):[];
+    var idsDeS=tecnicosDeS.map(function(t){return t.id;});
+    // Preservar empleados que están en Firestore pero no en S local
+    // (pueden haberse agregado desde otra sesión o desde el portal admin)
+    var tecnosPreservados=tecnicosExistentes.filter(function(t){
+      return t.activo!==false && idsDeS.indexOf(t.id)<0;
+    });
+    var tecnicosPublicos=tecnicosDeS.concat(tecnosPreservados);
+    console.log('[PortalSync] tecnicos S:'+tecnicosDeS.length+' preservados:'+tecnosPreservados.length+' total:'+tecnicosPublicos.length);
+    docRef.set({
+      empresa:S.empresa,
+      centros:centrosPublicos,
+      equipos:equiposPublicos,
+      tecnicos:tecnicosPublicos,
+      vehiculos:vehiculosPublicos,
+      ots:otsPublicas,
+      _ts:Date.now()
+    },{merge:true}).catch(function(e){console.warn('[Portal] Sync error:',e.message);});
+  }).catch(function(e){
+    // Fallback: escribir con los datos de S solamente
+    console.warn('[Portal] No se pudo leer estado previo, usando S local:',e.message);
+    docRef.set({
+      empresa:S.empresa,
+      centros:centrosPublicos,
+      equipos:equiposPublicos,
+      tecnicos:tecnicosDeS,
+      vehiculos:vehiculosPublicos,
+      ots:otsPublicas,
+      _ts:Date.now()
+    },{merge:true}).catch(function(e2){console.warn('[Portal] Sync error:',e2.message);});
+  });
 }
 
 function applyBranding(){
