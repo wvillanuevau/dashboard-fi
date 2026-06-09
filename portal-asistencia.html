@@ -1962,13 +1962,18 @@ function paAfterAuth() {
   
   // Load today's markings
   var hoy = paHoy();
+  // Single WHERE para evitar índice compuesto; filtros empresa y fecha en cliente
   paDb.collection('paMarcaciones')
-    .where('empresa', '==', PA.empresa)
     .where('empleadoId', '==', emp.id)
-    .where('fecha', '==', hoy)
     .get().then(function(snap) {
       PA.marcacionesHoy = [];
-      snap.forEach(function(d){ PA.marcacionesHoy.push(Object.assign({id:d.id}, d.data())); });
+      snap.forEach(function(d){
+        var dat=d.data();
+        // Filtrar por empresa y por hoy en cliente
+        if(dat.empresa!==PA.empresa) return;
+        if(dat.fecha!==hoy) return;
+        PA.marcacionesHoy.push(Object.assign({id:d.id}, dat));
+      });
       paShow('scDash');
     }).catch(function() {
       PA.marcacionesHoy = [];
@@ -2492,7 +2497,7 @@ function paAutoCompletarAlmuerzo(marcacionesHoy, fecha, empData, callback) {
         var m = d.data(); m._id = d.id;
         if (m.ts && typeof m.ts === 'object' && m.ts.toMillis) m.ts = m.ts.toMillis();
         else if (m.ts && m.ts.seconds) m.ts = m.ts.seconds * 1000;
-        if (m.fecha && typeof m.fecha === 'object' && m.fecha.toDate) m.fecha = m.fecha.toDate().toISOString().slice(0,10);
+        if (m.fecha && typeof m.fecha === 'object' && m.fecha.toDate) { var _d=m.fecha.toDate(); m.fecha=_d.getFullYear()+'-'+String(_d.getMonth()+1).padStart(2,'0')+'-'+String(_d.getDate()).padStart(2,'0'); }
         if (m.fecha === fecha) marcsHoy.push(m);
       });
       _run(marcsHoy);
@@ -2520,7 +2525,7 @@ function paAutoCompletarDiaAnterior(callback) {
         var m = d.data(); m.id = d.id;
         // Normalizar fecha si viene como Firestore Timestamp
         if (m.fecha && typeof m.fecha === 'object' && m.fecha.toDate) {
-          m.fecha = m.fecha.toDate().toISOString().slice(0,10);
+          var _fd=m.fecha.toDate(); m.fecha=_fd.getFullYear()+'-'+String(_fd.getMonth()+1).padStart(2,'0')+'-'+String(_fd.getDate()).padStart(2,'0');
         }
         // Normalizar ts
         if (m.ts && typeof m.ts === 'object' && m.ts.toMillis) m.ts = m.ts.toMillis();
@@ -2569,16 +2574,17 @@ function paAutoCompletarDiaAnterior(callback) {
             minutosRetraso: 0,
             estadoPuntualidad: 'auto',
             esFeriado: false, esFinDeSemana: false,
-            folio: 'AUTO-SALIDA-' + dia.fecha + '-' + emp.id.slice(0,4).toUpperCase(),
+            folio: 'AUTO-SALIDA-' + dia.fecha + '-' + emp.id.slice(0,4).toUpperCase() + '-' + Date.now().toString(36).slice(-4).toUpperCase(),
             autoCerrado: true,
             sinHorasExtra: true
           };
           paDb.collection('paMarcaciones').add(docSalida).then(function() {
             console.log('[AutoCierre] dia', dia.fecha, 'cerrado a', horaSalida);
             paToast('Dia ' + dia.fecha + ' cerrado automaticamente a las ' + horaSalida);
+            pending--;
+            if (pending === 0) callback();
           }).catch(function(e) {
             console.warn('[AutoCierre] error:', e.message);
-          }).then(function() {
             pending--;
             if (pending === 0) callback();
           });
@@ -2958,7 +2964,7 @@ function paConfirmarMarca() {
         if (errEl2) { errEl2.textContent = 'Error: ' + e.message; errEl2.style.display = 'block'; }
       });
     }
-    if (docData.tipo === 'salida') {
+    if (docData.tipo === 'salida' || docData.tipo === 'salida_adicional') {
       paAutoCompletarAlmuerzo(PA.marcacionesHoy, docData.fecha, PA.empleado, _doGuardarMarca);
     } else {
       _doGuardarMarca();
