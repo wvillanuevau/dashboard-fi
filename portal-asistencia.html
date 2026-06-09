@@ -3857,6 +3857,18 @@ function paVerMarcacion(marcId) {
 // ══════════════════════════════════════════════════════
 // ACCIÓN DE PERSONAL — FALTA INJUSTIFICADA
 // ══════════════════════════════════════════════════════
+function paReportarFaltaEmp(empId, empNombre, empCargo) {
+  var old = document.getElementById('reportarFaltaOverlay'); if(old) old.remove();
+  var hoy = paHoy();
+  var ov = document.createElement('div');
+  ov.id = 'reportarFaltaOverlay';
+  ov.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);z-index:450;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box';
+  ov.innerHTML =
+    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:380px">'    +'<div style="font-weight:700;font-size:16px;margin-bottom:4px">📋 Reportar Falta Injustificada</div>'    +'<div style="font-size:13px;color:var(--muted);margin-bottom:18px">'+esc(empNombre)+'</div>'    +'<label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:5px">FECHA DE LA FALTA</label>'    +'<input type="date" id="rfFecha" value="'+hoy+'" max="'+hoy+'" '    +'style="width:100%;padding:11px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:15px;font-family:inherit;box-sizing:border-box;margin-bottom:16px">'    +'<div style="display:flex;gap:8px">'    +'<button onclick="document.getElementById(\'reportarFaltaOverlay\').remove()" '    +'style="flex:1;padding:11px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--muted);font-size:14px;cursor:pointer;font-family:inherit">Cancelar</button>'    +'<button onclick="var f=document.getElementById(\'rfFecha\').value;document.getElementById(\'reportarFaltaOverlay\').remove();paAccionPersonalFalta(\''+empId+'\',\''+empNombre+'\',\''+empCargo+'\',f)" '    +'style="flex:1;padding:11px;background:#f85149;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">Continuar →</button>'    +'</div></div>';
+  document.body.appendChild(ov);
+}
+
+
 function paAccionPersonalFalta(empId, empNombre, empCargo, fecha) {
   var old = document.getElementById('accionPersonalOverlay'); if(old) old.remove();
   var hoyStr = new Date().toLocaleDateString('es-SV',{day:'2-digit',month:'2-digit',year:'numeric'});
@@ -4032,6 +4044,8 @@ function paCargarHistorialRango() {
           +'<div style="font-size:11px;color:#7d8590;margin-top:2px">'+totalEmp+' marcaciones en '+fechas.length+' día(s)</div>'
           +'</div>'
           +'<div style="display:flex;gap:6px;align-items:center">'
+          +'<button onclick="paReportarFaltaEmp(\''+eid+'\',\''+esc(emp.nombre).replace(/\'/g,\'x27\')+'\',\''+esc(emp.cargo||'tecnico').replace(/\'/g,\'x27\')+'\')"
+          +' style="background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);color:#f85149;border-radius:8px;padding:4px 10px;font-size:11px;cursor:pointer">📋 Falta Injustificada</button>'
           +'<button onclick="paToggleEmpHist(\''+empUid+'\')" id="btn_'+empUid+'" '
           +'style="background:#21262d;border:1px solid #30363d;color:#7d8590;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer">▼ Ver días</button>'
           +'</div></div>';
@@ -4065,7 +4079,7 @@ function paCargarHistorialRango() {
             +'<div style="font-size:12px;font-weight:600;color:#e6edf3">📅 '+fechaLabel+tardeBadge+'</div>'
             +'<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">'+chips+'</div>'
             +'</div>'
-            +'<span id="ico_'+diaUid+'" style="color:#7d8590;font-size:14px;margin-left:8px;flex-shrink:0">›</span>'
+            +'<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">'            +'<button onclick="event.stopPropagation();paAccionPersonalFalta(\''+eid+'\',\''+esc(emp.nombre).replace(/\'/g,\'x27\')+'\',\''+esc(emp.cargo||'tecnico').replace(/\'/g,\'x27\')+'\',\''+fecha+'\')" '            +'style="background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);border-radius:5px;padding:3px 7px;font-size:10px;cursor:pointer;color:#f85149">📋</button>'            +'<span id="ico_'+diaUid+'" style="color:#7d8590;font-size:14px">›</span>'            +'</div>'
             +'</div>';
 
           // Detalle del día — colapsado por defecto
