@@ -3073,14 +3073,17 @@ function _syncPortalPublico(){
     });
   // MERGE SEGURO: leer portalesPublicos primero y preservar empleados que
   // no están en S.mantenimiento.tecnicos (previene borrado por datos desactualizados)
+  // IDs de TODOS los empleados en S (incluye inactivos con activo:false)
+  // Esto distingue "ausente por dato desactualizado" de "borrado intencionalmente"
+  var todosIdsEnS=((S.mantenimiento&&S.mantenimiento.tecnicos)||[]).map(function(t){return t.id;});
+
   var docRef=db.collection('portalesPublicos').doc(S.empresa);
   docRef.get().then(function(snap){
     var tecnicosExistentes=snap.exists?(snap.data().tecnicos||[]):[];
-    var idsDeS=tecnicosDeS.map(function(t){return t.id;});
-    // Preservar empleados que están en Firestore pero no en S local
-    // (pueden haberse agregado desde otra sesión o desde el portal admin)
+    // Preservar SOLO los que están en Firestore pero AUSENTES de S por completo
+    // (no los que están en S con activo:false — esos fueron borrados intencionalmente)
     var tecnosPreservados=tecnicosExistentes.filter(function(t){
-      return t.activo!==false && idsDeS.indexOf(t.id)<0;
+      return t.activo!==false && todosIdsEnS.indexOf(t.id)<0;
     });
     var tecnicosPublicos=tecnicosDeS.concat(tecnosPreservados);
     console.log('[PortalSync] tecnicos S:'+tecnicosDeS.length+' preservados:'+tecnosPreservados.length+' total:'+tecnicosPublicos.length);
@@ -12277,7 +12280,7 @@ function renderMantTecnicos(){
   // Agrupar por cargo
   var grupos={};
   CARGO_ORDER.forEach(function(c){grupos[c]=[];});
-  m.tecnicos.forEach(function(t){
+  m.tecnicos.filter(function(t){return t.activo!==false;}).forEach(function(t){
     var c=t.cargo||'tecnico';
     if(!grupos[c])grupos[c]=[];
     grupos[c].push(t);
@@ -12310,7 +12313,7 @@ function renderMantTecnicos(){
         +'</div></div>';
     });
   });
-  if(!m.tecnicos.length) html='<div class="empty">Sin personal registrado. Agrega el primer empleado con el botón de arriba.</div>';
+  if(!m.tecnicos.filter(function(t){return t.activo!==false;}).length) html='<div class="empty">Sin personal registrado. Agrega el primer empleado con el botón de arriba.</div>';
 
   var totalPorCargo=CARGO_ORDER.map(function(c){
     var n=(grupos[c]||[]).length;
@@ -12555,9 +12558,14 @@ function verOTsTecnico(tecId){
 function delTecnico(id){
   if(!confirm('¿Eliminar este registro de personal?'))return;
   var m=mantData();
-  m.tecnicos=m.tecnicos.filter(function(t){return t.id!==id;});
-  var tx=(mantData().tecnicos||[]).find(function(t){return t.id===id;});
-  if(tx)logAction('ELIMINAR','empleados','Empleado: '+tx.nombre);
+  var tx=m.tecnicos.find(function(t){return t.id===id;});
+  if(!tx)return;
+  // Soft-delete: marcar activo:false en lugar de borrar del array.
+  // Esto permite que _syncPortalPublico distinga borrado intencional
+  // de dato desactualizado en otro tab (previene reaparición de empleados).
+  tx.activo=false;
+  tx._borradoEn=Date.now();
+  logAction('ELIMINAR','empleados','Empleado: '+tx.nombre);
   markDirty('mantenimiento');
   saveData();renderMantTecnicos();toast('Técnico eliminado');
 }
