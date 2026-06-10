@@ -1093,7 +1093,8 @@ function paConfigurarNotificaciones() {
           if (e.target.state === 'activated') _enviarConfigSW();
         });
       }
-    });
+    })
+    .catch(function(e){ console.warn('[FCM] Error:',e.message); });
   };
 
   if (Notification.permission === 'granted') {
@@ -2457,7 +2458,7 @@ function paAutoCompletarAlmuerzo(marcacionesHoy, fecha, empData, callback) {
       empresa: PA.empresa, empleadoId: empData.id, empleadoNombre: empData.nombre,
       cargo: empData.cargo || '', tipo: tipo, fecha: fecha, ts: ts,
       fotoRef: null, ubicacion: null, centroId: '', centroNombre: '',
-      observacion: 'Auto-generado: almuerzo completado automaticamente por el sistema',
+      observacion: 'Auto-generado: '+(tipo.startsWith('cena')?'cena':'almuerzo')+' completado automaticamente por el sistema',
       minutosRetraso: 0, estadoPuntualidad: 'auto',
       esFeriado: false, esFinDeSemana: false,
       folio: 'AUTO-' + tipo.toUpperCase() + '-' + Date.now().toString(36).toUpperCase(),
@@ -2466,7 +2467,7 @@ function paAutoCompletarAlmuerzo(marcacionesHoy, fecha, empData, callback) {
     return paDb.collection('paMarcaciones').add(doc).then(function(ref) {
       PA.marcacionesHoy.push(Object.assign({ id: ref.id, _id: ref.id }, doc));
       console.log('[AutoAlmuerzo] creado:', tipo, 'ts:', new Date(ts).toLocaleTimeString());
-    });
+    }).catch(function(e){ console.warn('[AutoAlmuerzo] error creando '+tipo+':', e.message); });
   }
 
   function _run(marcs) {
@@ -2708,6 +2709,8 @@ function paGoMarcar(tipo) {
     entrada: '🏢 Marcar Entrada',
     almuerzo_salida: '🍽️ Salir a Almorzar',
     almuerzo_regreso: '↩️ Regreso de Almuerzo',
+    cena_salida: '🌙 Salida a Cenar',
+    cena_regreso: '🌙 Regreso de Cena',
     salida: '🏠 Marcar Salida'
   };
   var titleEl = document.getElementById('marcarTitle');
@@ -2734,7 +2737,7 @@ function paGoMarcar(tipo) {
     centroSel.innerHTML = '<option value="">— Seleccionar sucursal —</option>'
       + PA.centros.map(function(c) {
           var sel = empRuta && c.nombre.toLowerCase().includes(empRuta) ? ' selected' : '';
-          return '<option value="'+c.id+'"'+sel+'>'+cesc(e.nombre||'')+'</option>';
+          return '<option value="'+c.id+'"'+sel+'>'+esc(c.nombre||'')+'</option>';
         }).join('');
   }
   
@@ -2805,7 +2808,7 @@ function paGoTrabajoAdicional() {
   var centroSel = document.getElementById('marcarCentro');
   if (centroSel) {
     centroSel.innerHTML = '<option value="">— Seleccionar sucursal —</option>'
-      + PA.centros.map(function(c){ return '<option value="'+c.id+'">'+cesc(e.nombre||'')+'</option>'; }).join('');
+      + PA.centros.map(function(c){ return '<option value="'+c.id+'">'+esc(c.nombre||'')+'</option>'; }).join('');
   }
   paShow('scMarcar');
   paGetLocation();
@@ -3070,6 +3073,8 @@ function _paMostrarExito(docData, calc) {
     entrada:          { icon:'🏢', title:'¡Entrada registrada!',         sub:'Tu llegada fue marcada correctamente.' },
     almuerzo_salida:  { icon:'🍽️', title:'¡Buen provecho!',              sub:'Salida a almuerzo registrada.' },
     almuerzo_regreso: { icon:'↩️', title:'¡Bienvenido de vuelta!',       sub:'Regreso de almuerzo registrado.' },
+    cena_salida:      { icon:'🌙', title:'¡Buen provecho!',              sub:'Salida a cenar registrada.' },
+    cena_regreso:     { icon:'🌙', title:'¡Bienvenido de vuelta!',       sub:'Regreso de cena registrado.' },
     salida:           { icon:'🏠', title:'¡Hasta mañana!',               sub:'Tu salida fue registrada. ¡Buen descanso!' },
     entrada_adicional:{ icon:'⚡', title:'¡Trabajo adicional iniciado!', sub:'Entrada adicional registrada.' },
     salida_adicional: { icon:'⚡', title:'¡Trabajo adicional finalizado!',sub:'Salida adicional registrada.' }
@@ -3443,7 +3448,12 @@ function paLoadHistorial() {
     .where('empleadoId', '==', PA.empleado.id)
     .get().then(function(snap) {
       var docs = [];
-      snap.forEach(function(d){ docs.push(Object.assign({id:d.id}, d.data())); });
+      snap.forEach(function(d){
+        var r=Object.assign({id:d.id}, d.data());
+        if(r.ts&&typeof r.ts==='object'&&r.ts.toMillis) r.ts=r.ts.toMillis();
+        else if(r.ts&&r.ts.seconds) r.ts=r.ts.seconds*1000+Math.round((r.ts.nanoseconds||0)/1e6);
+        docs.push(r);
+      });
       docs.sort(function(a,b){ return (b.ts||0) - (a.ts||0); });
       
       if (!docs.length) {
@@ -3467,7 +3477,7 @@ function paLoadHistorial() {
           html += '<div class="hist-item"><div class="hist-header"><div class="hist-date">' + dStr.toUpperCase() + '</div></div>';
           html += '<div class="hist-timeline">';
           items.forEach(function(m) {
-            var labels = { entrada:'Entrada', almuerzo_salida:'Sal. almuerzo', almuerzo_regreso:'Reg. almuerzo', salida:'Salida' };
+            var labels = { entrada:'Entrada', almuerzo_salida:'Sal. almuerzo', almuerzo_regreso:'Reg. almuerzo', cena_salida:'Sal. cena', cena_regreso:'Reg. cena', salida:'Salida' };
             html += '<div class="hist-mark">'+labels[m.tipo]+'<br><strong>'+paFmtHora(m.ts)+'</strong></div>';
           });
           html += '</div></div>';
@@ -3653,7 +3663,7 @@ function paAdminHoy(content) {
 
       html += '<div class="section-title">Marcaciones de hoy — clic para ver foto y ubicación</div>';
 
-      var tiposLabel = { entrada:'🏢 Entrada', almuerzo_salida:'🍽️ Sal. almuerzo', almuerzo_regreso:'↩️ Reg. almuerzo', salida:'🏠 Salida', entrada_adicional:'⚡ Entrada adicional', salida_adicional:'⚡ Sal. adicional' };
+      var tiposLabel = { entrada:'🏢 Entrada', almuerzo_salida:'🍽️ Sal. almuerzo', almuerzo_regreso:'↩️ Reg. almuerzo', cena_salida:'🌙 Sal. cena', cena_regreso:'🌙 Reg. cena', salida:'🏠 Salida', entrada_adicional:'⚡ Entrada adicional', salida_adicional:'⚡ Sal. adicional' };
 
       if (!Object.keys(marcs).length) {
         html += '<div style="text-align:center;padding:32px;color:var(--muted)">Sin marcaciones hoy.</div>';
@@ -3772,7 +3782,7 @@ function paVerMarcacion(marcId) {
   div.id = 'modalVerMarca';
   div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:500;display:flex;align-items:flex-end;justify-content:center;padding:0';
 
-  var tiposLabel = { entrada:'🏢 Entrada', almuerzo_salida:'🍽️ Salida almuerzo', almuerzo_regreso:'↩️ Regreso almuerzo', salida:'🏠 Salida', entrada_adicional:'⚡ Entrada adicional', salida_adicional:'⚡ Salida adicional' };
+  var tiposLabel = { entrada:'🏢 Entrada', almuerzo_salida:'🍽️ Salida almuerzo', almuerzo_regreso:'↩️ Regreso almuerzo', cena_salida:'🌙 Salida cena', cena_regreso:'🌙 Regreso cena', salida:'🏠 Salida', entrada_adicional:'⚡ Entrada adicional', salida_adicional:'⚡ Salida adicional' };
   var hora = m.ts ? new Date(m.ts).toLocaleString('es-SV',{hour:'2-digit',minute:'2-digit',hour12:true,day:'2-digit',month:'short'}) : '—';
 
   var fotoHtml = '';
@@ -4024,12 +4034,14 @@ function paCargarHistorialRango() {
       var meses   = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
       var tiposLabel = {
         entrada:'🏢 Entrada', almuerzo_salida:'🍽️ Sal. alm.',
-        almuerzo_regreso:'↩️ Reg. alm.', salida:'🏠 Salida',
+        almuerzo_regreso:'↩️ Reg. alm.', cena_salida:'🌙 Sal. cena', cena_regreso:'🌙 Reg. cena',
+        salida:'🏠 Salida',
         entrada_adicional:'⚡ Ent. adic.', salida_adicional:'⚡ Sal. adic.'
       };
       var tiposColor = {
         entrada:'#2ea043', salida:'#f85149',
         almuerzo_salida:'#e8a020', almuerzo_regreso:'#388bfd',
+        cena_salida:'#f0a030', cena_regreso:'#30a0f0',
         entrada_adicional:'#bc8cff', salida_adicional:'#bc8cff'
       };
 
@@ -4155,7 +4167,7 @@ function paEditarMarcacion(marcId) {
   var m = PA._marcacionesDetalle && PA._marcacionesDetalle[marcId];
   if (!m) { paToast('Registro no encontrado', true); return; }
 
-  var tiposOpts = ['entrada','almuerzo_salida','almuerzo_regreso','salida','entrada_adicional','salida_adicional']
+  var tiposOpts = ['entrada','almuerzo_salida','almuerzo_regreso','cena_salida','cena_regreso','salida','entrada_adicional','salida_adicional']
     .map(function(t){ return '<option value="'+t+'"'+(m.tipo===t?' selected':'')+'>'+t+'</option>'; }).join('');
 
   // Hora actual del registro
@@ -4257,7 +4269,7 @@ function paAgregarMarcacion(empId, empNom, fecha) {
   div.id = 'modalAddMarca';
   div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:600;display:flex;align-items:flex-end;justify-content:center;padding:0';
 
-  var tiposOpts = ['entrada','almuerzo_salida','almuerzo_regreso','salida','entrada_adicional','salida_adicional']
+  var tiposOpts = ['entrada','almuerzo_salida','almuerzo_regreso','cena_salida','cena_regreso','salida','entrada_adicional','salida_adicional']
     .map(function(t){ return '<option value="'+t+'">'+t+'</option>'; }).join('');
 
   div.innerHTML = '<div style="background:var(--surface);border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:20px 18px 36px">'
@@ -5135,7 +5147,7 @@ function paGenerarReporte() {
         +'</tr>';
     });
     html += '</tbody></table></div>';
-    html += '<button class="big-btn mt8" onclick="paExportarExcel()">📊 Exportar Excel</button>';
+    html += '<button class="big-btn mt8" onclick="paExportarExcel()">📊 Descargar Excel</button>'+'<button class="big-btn mt8" onclick="paImprimirReporteHE()" style="margin-top:8px;background:rgba(46,160,67,.1);border:1px solid rgba(46,160,67,.3);color:#2ea043">🖨️ Imprimir / PDF con formato</button>';
     rcontent.innerHTML = html;
 
   }).catch(function(e) {
@@ -5149,6 +5161,94 @@ function _hhmm(mins) {
   var m = Math.round(Math.abs(mins)%60);
   return h+'h '+(m<10?'0':'')+m+'min';
 }
+
+function paImprimirReporteHE() {
+  var data = window._paReporteData;
+  if (!data || !data.emp) { paToast('Genera el reporte primero', true); return; }
+  var emp = data.emp;
+  var filas = data.filas || [];
+  var totDiu = emp.diurna || 0;
+  var totNoc = emp.nocturna || 0;
+
+  var _DN=['dom','lun','mar','mié','jue','vie','sáb'];
+  var _MN=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  function _fmtF(s){ if(!s)return''; var d=new Date(s+'T12:00:00'); var dow=d.getDay();
+    var diasLab=(PA.horario&&PA.horario.diasLaborables)||[1,2,3,4,5,6];
+    return _DN[dow]+', '+d.getDate()+' '+_MN[d.getMonth()]+' '+d.getFullYear()+' ('+(diasLab.indexOf(dow)>=0?'L':'NL')+')'; }
+
+  var rowsHtml = filas.map(function(f){
+    return '<tr>'
+      +'<td>'+(_fmtF(f[0])||f[0]||'')+'</td>'
+      +'<td>'+( f[1]||'--')+'</td>'
+      +'<td>'+(f[2]||'--')+'</td>'
+      +'<td>'+(f[3]||'--')+'</td>'
+      +'<td>'+(f[4]||'0 min.')+'</td>'
+      +'<td>'+(f[5]||'--')+'</td>'
+      +'<td>'+(f[3]||'--')+'</td>'
+      +'<td>'+(f[7]||'--')+'</td>'
+      +'<td>'+(f[8]||'--')+'</td>'
+      +'</tr>';
+  }).join('');
+
+  function _hhmm(m){ if(!m)return'--'; var h=Math.floor(m/60),mn=m%60; return h+'h '+(mn<10?'0':'')+mn+'min'; }
+
+  var w = window.open('','_blank','width=1100,height=800');
+  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Horas Extra — '+esc(emp.nombre)+'</title>'
+    +'<style>'
+    +'*{box-sizing:border-box;margin:0;padding:0}'
+    +'body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:20px}'
+    +'table{border-collapse:collapse;width:100%;margin-bottom:12px}'
+    +'td,th{border:1px solid #bcd;padding:5px 7px;font-size:10.5px}'
+    +'.hdr td,.hdr th{background:#1a3a5c;color:#fff;font-weight:700;text-align:center;border-color:#1a3a5c}'
+    +'.empresa{font-size:13px;font-weight:700}'
+    +'.section{font-size:11px;font-weight:700;background:#e8f0fe;color:#1a3a5c;padding:4px 7px;border:1px solid #bcd}'
+    +'.total{font-weight:700;background:#f0f4ff}'
+    +'.legend td{border:none;font-size:10px}'
+    +'tr:nth-child(even) td{background:#f7f9ff}'
+    +'.hdr td{background:#1a3a5c!important}'
+    +'@media print{@page{margin:10mm;size:A4 landscape}body{padding:0}button{display:none}}'
+    +'</style></head><body>'
+
+    // Header empresa
+    +'<table><tr>'
+    +'<td style="border:none;width:70%"><div class="empresa">FRANQUICIAS INTERNACIONALES, S.A. DE C.V.</div></td>'
+    +'<td style="border:none;font-size:10px;text-align:right">'
+    +'Laborable (L)&nbsp;&nbsp; No laborable (NL)&nbsp;&nbsp; Festivo (F)&nbsp;&nbsp; Vacaciones (V)</td>'
+    +'</tr></table>'
+
+    // Info empleado
+    +'<table style="margin-bottom:8px"><tr>'
+    +'<td style="width:15%;background:#f0f4ff;font-weight:700">Empleado</td>'
+    +'<td style="width:35%">'+esc(emp.nombre)+'</td>'
+    +'<td style="width:15%;background:#f0f4ff;font-weight:700">N° Afiliación</td>'
+    +'<td style="width:35%"></td>'
+    +'</tr><tr>'
+    +'<td style="background:#f0f4ff;font-weight:700">Intervalo</td>'
+    +'<td colspan="3">'+data.desde+' &nbsp;—&nbsp; '+data.hasta+'</td>'
+    +'</tr></table>'
+
+    // Título sección
+    +'<div class="section">HORAS TRABAJADAS</div>'
+
+    // Tabla principal
+    +'<table><thead><tr class="hdr">'
+    +'<th>Fecha</th><th>Hora inicio</th><th>Hora fin</th>'
+    +'<th>Total trabajado</th><th>Horas extras</th><th>Horas descanso</th>'
+    +'<th>Tiempo renumerado</th><th>H.E. Diurnas</th><th>H.E. Nocturnas</th>'
+    +'</tr></thead><tbody>'+rowsHtml+'</tbody>'
+    +'<tfoot><tr class="total">'
+    +'<td colspan="4" style="text-align:right;font-weight:700">Total</td>'
+    +'<td colspan="3"></td>'
+    +'<td>'+( totDiu>0?_hhmm(Math.round(totDiu*60)):'--')+'</td>'
+    +'<td>'+(totNoc>0?_hhmm(Math.round(totNoc*60)):'--')+'</td>'
+    +'</tr></tfoot></table>'
+
+    +'<div style="text-align:right;margin-top:8px"><button onclick="window.print()" '
+    +'style="background:#1a3a5c;color:#fff;border:none;border-radius:6px;padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir / Guardar PDF</button></div>'
+    +'</body></html>');
+  w.document.close();
+}
+
 
 function paExportarExcel() {
   if (!window.XLSX) { paToast('Librería Excel no cargada. Refresca la página.', true); return; }
@@ -5282,6 +5382,8 @@ function paExportarExcel() {
        'Horas descanso','Tiempo renumerado','H.E. Diurnas','H.E. Nocturnas'],
     ];
 
+    // Guardar datos para reporte HTML imprimible
+    window._paReporteData = { emp: emp, filas: filas, desde: data.desde, hasta: data.hasta };
     filasXls.forEach(function(f){ wsData.push(f); });
 
     // Fila de totales
@@ -5366,10 +5468,12 @@ function paAprobarHorasExtra(docId, empId, horas) {
       if (existingDocId) {
         paDb.collection('paPins').doc(existingDocId).get().then(function(doc) {
           var current = doc.exists ? parseFloat(doc.data().horasExtraAcum || 0) : 0;
-          paDb.collection('paPins').doc(existingDocId).update({ horasExtraAcum: current + horas });
-        });
+          paDb.collection('paPins').doc(existingDocId).update({ horasExtraAcum: current + horas })
+            .catch(function(e){ console.warn('[AprobarHE] error actualizando saldo:',e.message); });
+        }).catch(function(e){ console.warn('[AprobarHE] error leyendo pin:',e.message); });
       } else {
-        paDb.collection('paPins').add({ empresa: PA.empresa, empleadoId: empId, horasExtraAcum: horas });
+        paDb.collection('paPins').add({ empresa: PA.empresa, empleadoId: empId, horasExtraAcum: horas })
+          .catch(function(e){ console.warn('[AprobarHE] error creando pin:',e.message); });
       }
       paToast('✅ Horas extra aprobadas');
       paAdminTab(PA.adminTab);
@@ -5446,6 +5550,20 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════
+// ── Versión: forzar refresh en nuevo deploy ───────────
+(function(){
+  var VER='v2026-06-10-A', KEY='pa_version', stored=localStorage.getItem(KEY);
+  localStorage.setItem(KEY, VER);
+  if (stored && stored!==VER) {
+    var b=document.createElement('div');
+    b.style.cssText='position:fixed;top:0;left:0;right:0;z-index:9999;background:#1a3a5c;color:#fff;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:14px;font-family:system-ui;box-shadow:0 3px 10px rgba(0,0,0,.5)';
+    b.innerHTML='<span>🔄 <strong>Nueva versión disponible.</strong> Actualiza para continuar correctamente.</span>'
+      +'<button onclick="caches&&caches.keys().then(function(k){k.forEach(function(n){caches.delete(n)});});location.reload(true);" '
+      +'style="flex-shrink:0;background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">Actualizar →</button>';
+    document.body.appendChild(b);
+  }
+})();
+
 window.addEventListener('DOMContentLoaded', function() {
   var params = new URLSearchParams(window.location.search);
   var empresa = params.get('empresa');
