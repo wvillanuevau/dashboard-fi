@@ -5200,88 +5200,68 @@ function _hhmm(mins) {
 }
 
 function paImprimirReporteHE() {
-  var data = window._paReporteData;
-  if (!data || !data.emp) { paToast('Genera el reporte primero', true); return; }
-  var emp = data.emp;
-  var filas = data.filas || [];
-  var totDiu = emp.diurna || 0;
-  var totNoc = emp.nocturna || 0;
+  // Lee de PA._rptData (generado por paGenerarReporte)
+  var data = PA._rptData;
+  if (!data || !data.porEmp) { paToast('Genera el reporte primero', true); return; }
+  // paImprimirReporteHE ahora llama directamente a la impresión del resumen
+  paImprimirResumenHE(data);
+}
 
-  var _DN=['dom','lun','mar','mié','jue','vie','sáb'];
-  var _MN=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-  function _fmtF(s){ if(!s)return''; var d=new Date(s+'T12:00:00'); var dow=d.getDay();
-    var diasLab=(PA.horario&&PA.horario.diasLaborables)||[1,2,3,4,5,6];
-    return _DN[dow]+', '+d.getDate()+' '+_MN[d.getMonth()]+' '+d.getFullYear()+' ('+(diasLab.indexOf(dow)>=0?'L':'NL')+')'; }
-
-  var rowsHtml = filas.map(function(f){
-    return '<tr>'
-      +'<td>'+(_fmtF(f[0])||f[0]||'')+'</td>'
-      +'<td>'+( f[1]||'--')+'</td>'
-      +'<td>'+(f[2]||'--')+'</td>'
-      +'<td>'+(f[3]||'--')+'</td>'
-      +'<td>'+(f[4]||'0 min.')+'</td>'
-      +'<td>'+(f[5]||'--')+'</td>'
-      +'<td>'+(f[3]||'--')+'</td>'
-      +'<td>'+(f[7]||'--')+'</td>'
-      +'<td>'+(f[8]||'--')+'</td>'
+function paImprimirResumenHE(data) {
+  var empIds = Object.keys(data.porEmp).sort(function(a,b){
+    return data.porEmp[a].nombre.localeCompare(data.porEmp[b].nombre);
+  });
+  var totDiu=0, totNoc=0, totFer=0, totFin=0;
+  empIds.forEach(function(eid){ var e=data.porEmp[eid];
+    totDiu+=(e.diurna||0); totNoc+=(e.nocturna||0);
+    totFer+=(e.feriado||0); totFin+=(e.finde||0);
+  });
+  var rowsHtml = empIds.map(function(eid, i) {
+    var e = data.porEmp[eid];
+    var bg = i%2===0?'#fff':'#f0f4ff';
+    return '<tr style="background:'+bg+'">'
+      +'<td style="font-weight:600;padding:5px 8px">'+esc(e.nombre)+'</td>'
+      +'<td style="text-align:center">'+((e.diurna||0).toFixed(2))+'</td>'
+      +'<td style="text-align:center">'+((e.nocturna||0).toFixed(2))+'</td>'
+      +'<td style="text-align:center">'+((e.feriado||0).toFixed(2))+'</td>'
+      +'<td style="text-align:center">'+((e.finde||0).toFixed(2))+'</td>'
+      +'<td style="text-align:right;font-weight:700;color:#1a3a5c">'+e.total.toFixed(2)+'h</td>'
       +'</tr>';
   }).join('');
 
-  function _hhmm(m){ if(!m)return'--'; var h=Math.floor(m/60),mn=m%60; return h+'h '+(mn<10?'0':'')+mn+'min'; }
-
-  var w = window.open('','_blank','width=1100,height=800');
-  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Horas Extra — '+esc(emp.nombre)+'</title>'
+  var w = window.open('','_blank','width=900,height=800');
+  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8">'
+    +'<title>Horas Extra — '+data.desde+' al '+data.hasta+'</title>'
     +'<style>'
-    +'*{box-sizing:border-box;margin:0;padding:0}'
-    +'body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:20px}'
-    +'table{border-collapse:collapse;width:100%;margin-bottom:12px}'
-    +'td,th{border:1px solid #bcd;padding:5px 7px;font-size:10.5px}'
-    +'.hdr td,.hdr th{background:#1a3a5c;color:#fff;font-weight:700;text-align:center;border-color:#1a3a5c}'
-    +'.empresa{font-size:13px;font-weight:700}'
-    +'.section{font-size:11px;font-weight:700;background:#e8f0fe;color:#1a3a5c;padding:4px 7px;border:1px solid #bcd}'
-    +'.total{font-weight:700;background:#f0f4ff}'
-    +'.legend td{border:none;font-size:10px}'
-    +'tr:nth-child(even) td{background:#f7f9ff}'
-    +'.hdr td{background:#1a3a5c!important}'
+    +'body{font-family:Arial,sans-serif;font-size:12px;color:#111;padding:20px}'
+    +'table{border-collapse:collapse;width:100%}'
+    +'td,th{border:1px solid #bcd;padding:5px 8px;font-size:11px}'
+    +'.hdr{background:#1a3a5c;color:#fff;font-weight:700;text-align:center}'
+    +'.total-row{background:#f0f4ff;font-weight:700}'
     +'@media print{@page{margin:10mm;size:A4 landscape}body{padding:0}button{display:none}}'
     +'</style></head><body>'
-
-    // Header empresa
-    +'<table><tr>'
-    +'<td style="border:none;width:70%"><div class="empresa">FRANQUICIAS INTERNACIONALES, S.A. DE C.V.</div></td>'
-    +'<td style="border:none;font-size:10px;text-align:right">'
-    +'Laborable (L)&nbsp;&nbsp; No laborable (NL)&nbsp;&nbsp; Festivo (F)&nbsp;&nbsp; Vacaciones (V)</td>'
-    +'</tr></table>'
-
-    // Info empleado
-    +'<table style="margin-bottom:8px"><tr>'
-    +'<td style="width:15%;background:#f0f4ff;font-weight:700">Empleado</td>'
-    +'<td style="width:35%">'+esc(emp.nombre)+'</td>'
-    +'<td style="width:15%;background:#f0f4ff;font-weight:700">N° Afiliación</td>'
-    +'<td style="width:35%"></td>'
-    +'</tr><tr>'
-    +'<td style="background:#f0f4ff;font-weight:700">Intervalo</td>'
-    +'<td colspan="3">'+data.desde+' &nbsp;—&nbsp; '+data.hasta+'</td>'
-    +'</tr></table>'
-
-    // Título sección
-    +'<div class="section">HORAS TRABAJADAS</div>'
-
-    // Tabla principal
-    +'<table><thead><tr class="hdr">'
-    +'<th>Fecha</th><th>Hora inicio</th><th>Hora fin</th>'
-    +'<th>Total trabajado</th><th>Horas extras</th><th>Horas descanso</th>'
-    +'<th>Tiempo renumerado</th><th>H.E. Diurnas</th><th>H.E. Nocturnas</th>'
+    +'<div style="font-size:14px;font-weight:700;margin-bottom:4px">'+esc('FRANQUICIAS INTERNACIONALES, S.A. DE C.V.')+'</div>'
+    +'<div style="font-size:12px;color:#555;margin-bottom:14px">Resumen Horas Extra — '+data.desde+' al '+data.hasta+'</div>'
+    +'<table><thead><tr>'
+    +'<th class="hdr" style="text-align:left">Empleado</th>'
+    +'<th class="hdr">H.E. Diurnas</th>'
+    +'<th class="hdr">H.E. Nocturnas</th>'
+    +'<th class="hdr">H.E. Feriado</th>'
+    +'<th class="hdr">H.E. Fin semana</th>'
+    +'<th class="hdr">TOTAL</th>'
     +'</tr></thead><tbody>'+rowsHtml+'</tbody>'
-    +'<tfoot><tr class="total">'
-    +'<td colspan="4" style="text-align:right;font-weight:700">Total</td>'
-    +'<td colspan="3"></td>'
-    +'<td>'+( totDiu>0?_hhmm(Math.round(totDiu*60)):'--')+'</td>'
-    +'<td>'+(totNoc>0?_hhmm(Math.round(totNoc*60)):'--')+'</td>'
+    +'<tfoot><tr class="total-row">'
+    +'<td><b>TOTAL GENERAL</b></td>'
+    +'<td style="text-align:center"><b>'+totDiu.toFixed(2)+'</b></td>'
+    +'<td style="text-align:center"><b>'+totNoc.toFixed(2)+'</b></td>'
+    +'<td style="text-align:center"><b>'+totFer.toFixed(2)+'</b></td>'
+    +'<td style="text-align:center"><b>'+totFin.toFixed(2)+'</b></td>'
+    +'<td style="text-align:right"><b>'+(totDiu+totNoc+totFer+totFin).toFixed(2)+'h</b></td>'
     +'</tr></tfoot></table>'
-
-    +'<div style="text-align:right;margin-top:8px"><button onclick="window.print()" '
-    +'style="background:#1a3a5c;color:#fff;border:none;border-radius:6px;padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir / Guardar PDF</button></div>'
+    +'<div style="text-align:right;margin-top:12px">'
+    +'<button onclick="window.print()" style="background:#1a3a5c;color:#fff;border:none;border-radius:6px;padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer">'
+    +'🖨️ Imprimir / Guardar PDF</button></div>'
+    +'<script>window.onload=function(){window.print();}<\/script>'
     +'</body></html>');
   w.document.close();
 }
