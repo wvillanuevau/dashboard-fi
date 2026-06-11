@@ -1473,15 +1473,26 @@ function paSelectEmp(empId) {
   PA.empleado = emp;
   PA.pinInput = '';
   PA._bioAttempts = 0;
-  // Biometric is primary — go straight to bio auth
-  if (window.PublicKeyCredential) {
-    paBioAuth();
+
+  // Verificar versión al presionar nombre — si hay update bloquea aquí
+  // Si no hay update (o sin conexión), continúa inmediatamente
+  function _continuar() {
+    if (window.PublicKeyCredential) {
+      paBioAuth();
+    } else {
+      var nameEl = document.getElementById('pinEmpName');
+      if (nameEl) nameEl.textContent = emp.nombre;
+      paPinUpdate();
+      paShow('scPin');
+    }
+  }
+
+  if (window._paCheckVersion) {
+    // Ejecutar chequeo — si detecta nueva versión muestra overlay y NO llama _continuar
+    // Si misma versión o sin conexión llama _continuar en <1s
+    window._paCheckVersion(_continuar);
   } else {
-    // No biometric support — show PIN screen
-    var nameEl = document.getElementById('pinEmpName');
-    if (nameEl) nameEl.textContent = emp.nombre;
-    paPinUpdate();
-    paShow('scPin');
+    _continuar();
   }
 }
 
@@ -5550,11 +5561,10 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-11-A';
+var PA_VERSION = 'v2026-06-11-B';
 
 (function paAutoUpdate() {
-  var CHECK_INTERVAL = 2 * 60 * 1000; // re-verificar cada 2 minutos
-  var FIRST_CHECK    = 5  * 1000;     // primer chequeo a los 5s (sesiones cortas)
+  // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
   var _overlayShown  = false;
   // URL limpia sin query params para el fetch
   var _baseUrl = window.location.href.split('?')[0].split('#')[0];
@@ -5600,10 +5610,14 @@ var PA_VERSION = 'v2026-06-11-A';
     }, 1000);
   }
 
-  function _verificarVersion() {
-    if (_overlayShown) return;
-    // Agregar timestamp para forzar bypass de CDN/proxy cache
-    fetch(_baseUrl + '?_cache=' + Date.now(), {
+  function _verificarVersion(callback) {
+    if (_overlayShown) { return; } // ya hay overlay, no continuar
+    var timeout = setTimeout(function() {
+      // Sin respuesta en 2s → continuar sin bloquear al empleado
+      if (callback) { callback(); callback = null; }
+    }, 2000);
+
+    fetch(_baseUrl + '?_v=' + Date.now(), {
       method: 'GET',
       cache: 'no-store',
       headers: {
@@ -5612,35 +5626,32 @@ var PA_VERSION = 'v2026-06-11-A';
         'Expires': '0'
       }
     })
-    .then(function(resp) {
-      if (!resp.ok) return;
-      return resp.text();
-    })
+    .then(function(resp) { return resp.ok ? resp.text() : null; })
     .then(function(html) {
-      if (!html) return;
-      // Buscar PA_VERSION en el HTML descargado
-      var m = html.match(/var PA_VERSION\s*=\s*['"]([^'"]+)['"]/);
-      if (!m) {
-        console.warn('[Update] No se encontró PA_VERSION en el HTML descargado');
-        return;
-      }
-      var serverVersion = m[1];
-      console.log('[Update] Local:', PA_VERSION, '| Servidor:', serverVersion);
-      if (serverVersion !== PA_VERSION) {
-        console.log('[Update] ¡Nueva versión detectada! Mostrando overlay...');
+      clearTimeout(timeout);
+      if (!html) { if (callback){ callback(); callback=null; } return; }
+      var m = html.match(/PA_VERSION\s*=\s*['"]([^'"]+)['"]/);
+      if (!m)    { if (callback){ callback(); callback=null; } return; }
+      var serverVer = m[1];
+      console.log('[Update] local=' + PA_VERSION + ' servidor=' + serverVer);
+      if (serverVer !== PA_VERSION) {
+        // Nueva versión — mostrar overlay y NO llamar callback (bloquea acceso)
         _mostrarOverlayActualizar();
+      } else {
+        // Misma versión — continuar normalmente
+        if (callback) { callback(); callback=null; }
       }
     })
     .catch(function(e) {
-      console.warn('[Update] Error al verificar versión (sin conexión?):', e.message);
+      clearTimeout(timeout);
+      console.warn('[Update] Sin conexión, continuando:', e.message);
+      if (callback) { callback(); callback=null; }
     });
   }
 
-  // Primer chequeo rápido (5s) — cubre sesiones cortas de 25s
-  setTimeout(_verificarVersion, FIRST_CHECK);
-  // Chequeo periódico cada 2 minutos
-  setInterval(_verificarVersion, CHECK_INTERVAL);
-  // Chequeo al volver al tab (usuario que tenía el portal en background)
+  // Exponer _verificarVersion para que paSelectEmp la llame
+  window._paCheckVersion = _verificarVersion;
+  // Fallback: también verificar al volver al tab (si alguien deja el portal abierto)
   document.addEventListener('visibilitychange', function() {
     if (document.visibilityState === 'visible' && !_overlayShown) {
       _verificarVersion();
