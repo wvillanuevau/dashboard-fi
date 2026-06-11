@@ -5094,9 +5094,17 @@ function paGenerarReporte() {
   // Cargar horas extra Y marcaciones del período
   Promise.all([
     paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).get(),
-    paDb.collection('paMarcaciones').where('empresa','==',PA.empresa).get()
+    paDb.collection('paMarcaciones').where('empresa','==',PA.empresa).get(),
+    paDb.collection('paCanjes').where('empresa','==',PA.empresa).get()
   ]).then(function(results) {
-    var snapHE = results[0], snapM = results[1];
+    var snapHE = results[0], snapM = results[1], snapCanjes = results[2];
+    // Canjes aprobados por empleado en el período
+    var canjesPorEmp = {};
+    snapCanjes.forEach(function(d){ var r=d.data();
+      if(r.estado==='aprobado' && r.fechaCanje>=desde && r.fechaCanje<=hasta){
+        canjesPorEmp[r.empleadoId] = (canjesPorEmp[r.empleadoId]||0) + (r.horas||0);
+      }
+    });
 
     // Filtrar por rango de fechas
     var docsHE = [];
@@ -5143,7 +5151,7 @@ function paGenerarReporte() {
     });
 
     // Guardar para exportación
-    PA._rptData = { desde:desde, hasta:hasta, porEmp:porEmp, marcaciones:marcaciones };
+    PA._rptData = { desde:desde, hasta:hasta, porEmp:porEmp, marcaciones:marcaciones, canjesPorEmp:canjesPorEmp };
 
     var empIds = Object.keys(porEmp);
     var html = '<div class="section-title">Horas extra aprobadas — '+desde+' al '+hasta+'</div>';
@@ -5283,157 +5291,178 @@ function paExportarExcel() {
   var data = PA._rptData;
   if (!data || !data.porEmp) { paToast('Genera el reporte primero', true); return; }
 
-  var empresa = 'FRANQUICIAS INTERNACIONALES, S.A. DE C.V.';
-  var _DN = ['dom','lun','mar','mié','jue','vie','sáb'];
-  var _MN = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-  function _fmtF(s) {
-    if (!s) return '';
-    var d = new Date(s+'T12:00:00');
-    var dow = d.getDay();
-    var diasLab = (PA.horario&&PA.horario.diasLaborables)||[1,2,3,4,5,6];
-    return _DN[dow]+', '+d.getDate()+' '+_MN[d.getMonth()]+' '+d.getFullYear()+' ('+(diasLab.indexOf(dow)>=0?'L':'NL')+')';
-  }
-  function _hm(m) { if(!m&&m!==0)return'--'; var h=Math.floor(Math.abs(m)/60),mn=Math.abs(m)%60; return h+'h '+(mn<10?'0':'')+mn+'min'; }
-  function toHHMM(ts) { if(!ts)return'--'; var d=new Date(ts); return (d.getHours()<10?'0':'')+d.getHours()+':'+(d.getMinutes()<10?'0':'')+d.getMinutes(); }
-  function diffMins(a,b) { if(!a||!b)return null; return Math.round(((typeof b==='object'&&b.toMillis?b.toMillis():b)-(typeof a==='object'&&a.toMillis?a.toMillis():a))/60000); }
-
-  // CSS de estilos para Excel HTML
-  var css = '<style>'
-    +'body{font-family:Arial,sans-serif;font-size:10pt}'
-    +'table{border-collapse:collapse;width:100%;margin-bottom:20pt}'
-    +'td,th{border:1px solid #bcd;padding:4pt 6pt;font-size:9pt;vertical-align:middle}'
-    +'.hdr{background:#1A3A5C;color:#FFFFFF;font-weight:bold;text-align:center;border-color:#1A3A5C}'
-    +'.emp-row{background:#E8F0FE;font-weight:bold;font-size:10pt}'
-    +'.total-row{background:#F0F4FF;font-weight:bold}'
-    +'.alt{background:#F7F9FF}'
-    +'.empresa{font-size:13pt;font-weight:bold}'
-    +'.section{background:#1A3A5C;color:#FFFFFF;font-size:10pt;font-weight:bold;padding:5pt 8pt}'
-    +'.summary-hdr{background:#1A3A5C;color:#FFFFFF;font-weight:bold;text-align:center;border-color:#1A3A5C}'
-    +'</style>';
-
-  var allSheets = '';
-
-  // ── Hoja de RESUMEN ────────────────────────────────────────────
-  var sumRows = '';
-  var empIds = Object.keys(data.porEmp).sort(function(a,b){
+  var empresa  = 'FRANQUICIAS INTERNACIONALES, S.A. DE C.V.';
+  var canjesPorEmp = data.canjesPorEmp || {};
+  var empIds   = Object.keys(data.porEmp).sort(function(a,b){
     return data.porEmp[a].nombre.localeCompare(data.porEmp[b].nombre);
   });
-  empIds.forEach(function(eid,idx) {
-    var e = data.porEmp[eid];
-    var rowClass = idx%2===0?'':'alt';
-    sumRows += '<tr class="'+rowClass+'"><td>'+esc(e.nombre)+'</td>'
-      +'<td style="text-align:center">'+(e.diurna||0).toFixed(2)+'</td>'
-      +'<td style="text-align:center">'+(e.nocturna||0).toFixed(2)+'</td>'
-      +'<td style="text-align:center">'+(e.feriado||0).toFixed(2)+'</td>'
-      +'<td style="text-align:center">'+(e.finde||0).toFixed(2)+'</td>'
-      +'<td style="text-align:right;font-weight:bold">'+e.total.toFixed(2)+'h</td></tr>';
+
+  // Helpers
+  function _fmt2(n){ return n ? parseFloat(n).toFixed(2) : '0.00'; }
+  function _fmtTitle(desde, hasta){
+    var meses=['enero','febrero','marzo','abril','mayo','junio',
+               'julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    var d1=new Date(desde+'T12:00:00'), d2=new Date(hasta+'T12:00:00');
+    var mes1=meses[d1.getMonth()], mes2=meses[d2.getMonth()];
+    var anio=d2.getFullYear();
+    if(mes1===mes2) return 'del 1 al '+d2.getDate()+' de '+mes1+' '+anio;
+    return 'del '+d1.getDate()+' de '+mes1+' al '+d2.getDate()+' de '+mes2+' '+anio;
+  }
+
+  // Totales generales
+  var totalDiu=0, totalNoc=0, totalFer=0;
+  empIds.forEach(function(eid){
+    var e=data.porEmp[eid];
+    totalDiu+=(e.diurna||0); totalNoc+=(e.nocturna||0); totalFer+=(e.feriado||0);
   });
 
-  allSheets += '<h3 style="color:#1A3A5C;font-family:Arial">' + empresa + '</h3>'
-    +'<h4 style="color:#555;font-family:Arial">Resumen Horas Extra — '+data.desde+' al '+data.hasta+'</h4>'
-    +'<table><thead><tr>'
-    +'<th class="summary-hdr">Empleado</th>'
-    +'<th class="summary-hdr">H.E. Diurnas</th>'
-    +'<th class="summary-hdr">H.E. Nocturnas</th>'
-    +'<th class="summary-hdr">H.E. Feriado</th>'
-    +'<th class="summary-hdr">H.E. Fin semana</th>'
-    +'<th class="summary-hdr">TOTAL</th>'
-    +'</tr></thead><tbody>'+sumRows+'</tbody>'
-    +'<tfoot><tr class="total-row"><td><b>TOTAL GENERAL</b></td>'
-    + (function(){
-        var td=0,tn=0,tf=0,tw=0,tt=0;
-        empIds.forEach(function(id){var e=data.porEmp[id];td+=(e.diurna||0);tn+=(e.nocturna||0);tf+=(e.feriado||0);tw+=(e.finde||0);tt+=e.total;});
-        return '<td style="text-align:center;font-weight:bold">'+td.toFixed(2)+'</td>'
-          +'<td style="text-align:center;font-weight:bold">'+tn.toFixed(2)+'</td>'
-          +'<td style="text-align:center;font-weight:bold">'+tf.toFixed(2)+'</td>'
-          +'<td style="text-align:center;font-weight:bold">'+tw.toFixed(2)+'</td>'
-          +'<td style="text-align:right;font-weight:bold">'+tt.toFixed(2)+'h</td>';
-      })()
-    +'</tr></tfoot></table>';
+  // CSS
+  var css = '<style>'
+    +'*{font-family:Arial,sans-serif;font-size:9pt}'
+    +'table{border-collapse:collapse;width:100%}'
+    +'td,th{border:1px solid #999;padding:3pt 5pt;vertical-align:middle}'
+    +'.titulo{background:#000;color:#fff;font-weight:bold;font-size:11pt;text-align:center;padding:6pt}'
+    +'.hdr{background:#1F4E79;color:#fff;font-weight:bold;text-align:center}'
+    +'.diu{background:#D9E1F2}' /* Diurnas row - light blue */
+    +'.noc{background:#E2EFDA}' /* Nocturnas row - light green */
+    +'.fer{background:#FFF2CC}' /* Feriado row - yellow */
+    +'.tot-row td{background:#000;color:#fff;font-weight:bold}'
+    +'.pct-lbl{background:#1F4E79;color:#fff;font-weight:bold;text-align:center}'
+    +'.pct-val{background:#FFD966;font-weight:bold;text-align:center}'
+    +'</style>';
 
-  // Página por empleado
-  allSheets += '<hr style="page-break-after:always">';
+  // Build rows
+  var rowsHtml = '';
+  empIds.forEach(function(eid) {
+    var e      = data.porEmp[eid];
+    var canje  = canjesPorEmp[eid] || 0;
+    var diu    = parseFloat(e.diurna  || 0);
+    var noc    = parseFloat(e.nocturna|| 0);
+    var fer    = parseFloat(e.feriado || 0);
+    var codigo = eid.replace(/[^0-9\-]/g,'').substring(0,12) || '008-00-00';
+    var cc     = '008-00-00';
+    var nomCC  = 'Mantenimiento';
+    var nom    = '0001';
+    var totalDiuEmp = diu + canje;
 
-  // ── Detalle por empleado ───────────────────────────────────────
-  empIds.forEach(function(eid, eIdx) {
-    var emp  = data.porEmp[eid];
-    var marc = data.marcaciones[eid] || {};
-
-    var filaRows = '';
-    var cursor = new Date(data.desde+'T12:00:00');
-    var fin    = new Date(data.hasta+'T12:00:00');
-    var totDiu=0, totNoc=0;
-    var rowIdx = 0;
-
-    while (cursor <= fin) {
-      var fechaStr = cursor.getFullYear()+'-'+String(cursor.getMonth()+1).padStart(2,'0')+'-'+String(cursor.getDate()).padStart(2,'0');
-      var diaMarca = marc[fechaStr] || [];
-      var mE = diaMarca.find(function(m){return m.tipo==='entrada';});
-      var mS = diaMarca.find(function(m){return m.tipo==='salida';});
-      var diasHE = emp.dias && emp.dias[fechaStr];
-
-      var tsE = mE ? (typeof mE.ts==='object'&&mE.ts.toMillis?mE.ts.toMillis():mE.ts) : null;
-      var tsS = mS ? (typeof mS.ts==='object'&&mS.ts.toMillis?mS.ts.toMillis():mS.ts) : null;
-      var totalMins = diffMins(tsE, tsS);
-      var heDiu = (diasHE&&diasHE.diurna)||0;
-      var heNoc = (diasHE&&diasHE.nocturna)||0;
-      var heTotal = heDiu + heNoc;
-      if(heDiu>0) totDiu += heDiu;
-      if(heNoc>0) totNoc += heNoc;
-
-      var almMins = (mE&&mS) ? (PA.horario.minutosAlmuerzo||60) : null;
-      var rowClass = rowIdx%2===1 ? 'alt' : '';
-
-      filaRows += '<tr class="'+rowClass+'">'
-        +'<td style="white-space:nowrap">'+_fmtF(fechaStr)+'</td>'
-        +'<td style="text-align:center">'+(tsE?toHHMM(tsE):'--')+'</td>'
-        +'<td style="text-align:center">'+(tsS?toHHMM(tsS):'--')+'</td>'
-        +'<td style="text-align:center">'+(totalMins!==null?_hm(totalMins):'--')+'</td>'
-        +'<td style="text-align:center">'+(heTotal>0?_hm(Math.round(heTotal*60)):'0 min.')+'</td>'
-        +'<td style="text-align:center">'+(almMins!==null?_hm(almMins):'--')+'</td>'
-        +'<td style="text-align:center">'+(totalMins!==null?_hm(totalMins):'--')+'</td>'
-        +'<td style="text-align:center;color:#1A3A5C;font-weight:bold">'+(heDiu>0?_hm(Math.round(heDiu*60)):'--')+'</td>'
-        +'<td style="text-align:center;color:#7030A0;font-weight:bold">'+(heNoc>0?_hm(Math.round(heNoc*60)):'--')+'</td>'
-        +'</tr>';
-      rowIdx++;
-      cursor.setDate(cursor.getDate()+1);
-    }
-
-    allSheets += '<table style="margin-bottom:4pt">'
-      +'<tr><td style="border:none;font-size:12pt;font-weight:bold;color:#1A3A5C" colspan="4">'+empresa+'</td>'
-      +'<td style="border:none;font-size:9pt;color:#666" colspan="5">Laborable (L) &nbsp; No laborable (NL) &nbsp; Festivo (F)</td></tr>'
-      +'<tr><td style="background:#F0F4FF;font-weight:bold">Empleado</td><td colspan="3">'+esc(emp.nombre)+'</td><td colspan="5"></td></tr>'
-      +'<tr><td style="background:#F0F4FF;font-weight:bold">N° Afiliación</td><td colspan="3"></td><td colspan="5"></td></tr>'
-      +'<tr><td style="background:#F0F4FF;font-weight:bold">Intervalo</td><td colspan="3">'+data.desde+' — '+data.hasta+'</td><td colspan="5"></td></tr>'
-      +'<tr><td class="section" colspan="9">HORAS TRABAJADAS</td></tr>'
-      +'<tr class="hdr">'
-      +'<th class="hdr">Fecha</th><th class="hdr">Hora inicio</th><th class="hdr">Hora fin</th>'
-      +'<th class="hdr">Total trabajado</th><th class="hdr">Horas extras</th>'
-      +'<th class="hdr">Horas descanso</th><th class="hdr">Tiempo renumerado</th>'
-      +'<th class="hdr">H.E. Diurnas</th><th class="hdr">H.E. Nocturnas</th></tr>'
-      +filaRows
-      +'<tr class="total-row"><td colspan="7" style="text-align:right;font-weight:bold">Total</td>'
-      +'<td style="text-align:center;font-weight:bold;color:#1A3A5C">'+(totDiu>0?_hm(Math.round(totDiu*60)):'--')+'</td>'
-      +'<td style="text-align:center;font-weight:bold;color:#7030A0">'+(totNoc>0?_hm(Math.round(totNoc*60)):'--')+'</td>'
-      +'</tr></table>';
-
-    if (eIdx < empIds.length-1) allSheets += '<hr style="page-break-after:always">';
+    // Fila Diurnas
+    rowsHtml += '<tr class="diu">'
+      +'<td>'+esc(codigo)+'</td>'
+      +'<td>'+esc(e.nombre.toUpperCase())+'</td>'
+      +'<td>'+cc+'</td>'
+      +'<td>'+nomCC+'</td>'
+      +'<td>0001-B002</td>'
+      +'<td>Horas Extras Diurnas</td>'
+      +'<td style="text-align:right">'+_fmt2(diu)+'</td>'
+      +'<td style="text-align:right">'+_fmt2(totalDiuEmp)+'</td>'
+      +'<td style="text-align:right">0</td>'
+      +'<td style="text-align:center">'+nom+'</td>'
+      +'<td style="text-align:right">'+(canje>0?canje.toFixed(0):'')+'</td>'
+      +'</tr>';
+    // Fila Nocturnas
+    rowsHtml += '<tr class="noc">'
+      +'<td>'+esc(codigo)+'</td>'
+      +'<td>'+esc(e.nombre.toUpperCase())+'</td>'
+      +'<td>'+cc+'</td>'
+      +'<td>'+nomCC+'</td>'
+      +'<td>0001-B003</td>'
+      +'<td>Horas Extras Nocturnas</td>'
+      +'<td style="text-align:right">'+_fmt2(noc)+'</td>'
+      +'<td style="text-align:right">'+_fmt2(noc)+'</td>'
+      +'<td style="text-align:right">0</td>'
+      +'<td style="text-align:center">'+nom+'</td>'
+      +'<td style="text-align:right"></td>'
+      +'</tr>';
+    // Fila Feriado
+    rowsHtml += '<tr class="fer">'
+      +'<td>'+esc(codigo)+'</td>'
+      +'<td>'+esc(e.nombre.toUpperCase())+'</td>'
+      +'<td>'+cc+'</td>'
+      +'<td>'+nomCC+'</td>'
+      +'<td>0001-B010</td>'
+      +'<td>HORAS EN FERIADO</td>'
+      +'<td style="text-align:right">'+_fmt2(fer)+'</td>'
+      +'<td style="text-align:right">'+_fmt2(fer)+'</td>'
+      +'<td style="text-align:right">0</td>'
+      +'<td style="text-align:center">'+nom+'</td>'
+      +'<td style="text-align:right"></td>'
+      +'</tr>';
   });
 
-  // Generar archivo .xls (HTML que Excel abre con estilos)
-  var xlsContent = '<html xmlns:o="urn:schemas-microsoft-com:office:office" '
+  // Total canjes sumado
+  var totalCanje = empIds.reduce(function(s,id){ return s+(canjesPorEmp[id]||0); },0);
+
+  var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" '
     +'xmlns:x="urn:schemas-microsoft-com:office:excel" '
     +'xmlns="http://www.w3.org/TR/REC-html40">'
-    +'<head><meta charset="UTF-8">'+css+'</head>'
-    +'<body>'+allSheets+'</body></html>';
+    +'<head><meta charset="UTF-8">'+css+'</head><body>'
 
-  var blob = new Blob(['﻿'+xlsContent], {type:'application/vnd.ms-excel;charset=utf-8'});
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement('a');
-  a.href = url; a.download = 'horas-extra-'+data.desde+'-'+data.hasta+'.xls';
+    // Título
+    +'<table style="margin-bottom:8pt"><tr>'
+    +'<td class="titulo" colspan="11">RESUMEN DE HORAS EXTRA &nbsp; — &nbsp; '+_fmtTitle(data.desde,data.hasta).toUpperCase()+'</td>'
+    +'</tr></table>'
+
+    // Header
+    +'<table><thead><tr>'
+    +'<th class="hdr">Codigo</th>'
+    +'<th class="hdr">Nombre</th>'
+    +'<th class="hdr">Codigo CC</th>'
+    +'<th class="hdr">Nombre CC</th>'
+    +'<th class="hdr">Cod Concepto</th>'
+    +'<th class="hdr">Nombre Concepto</th>'
+    +'<th class="hdr">Cantidad</th>'
+    +'<th class="hdr">total hrs</th>'
+    +'<th class="hdr">Monto</th>'
+    +'<th class="hdr">Nomina</th>'
+    +'<th class="hdr">canje</th>'
+    +'</tr></thead><tbody>'+rowsHtml+'</tbody>'
+
+    // Totals
+    +'<tfoot>'
+    +'<tr class="tot-row">'
+    +'<td colspan="5" style="text-align:right;background:#000">Total Horas Diurnas</td>'
+    +'<td colspan="2" style="background:#000"></td>'
+    +'<td style="text-align:right;background:#000">'+totalDiu.toFixed(2)+'</td>'
+    +'<td colspan="3" style="background:#000"></td>'
+    +'</tr>'
+    +'<tr class="tot-row">'
+    +'<td colspan="5" style="text-align:right;background:#000">Total Horas Nocturnas</td>'
+    +'<td colspan="2" style="background:#000"></td>'
+    +'<td style="text-align:right;background:#000">'+totalNoc.toFixed(2)+'</td>'
+    +'<td colspan="3" style="background:#000"></td>'
+    +'</tr>'
+    +'<tr class="tot-row">'
+    +'<td colspan="5" style="text-align:right;background:#000">Total de dias festivo</td>'
+    +'<td colspan="2" style="background:#000"></td>'
+    +'<td style="text-align:right;background:#000">'+totalFer.toFixed(2)+'</td>'
+    +'<td colspan="3" style="background:#000"></td>'
+    +'</tr>'
+    +'</tfoot></table>'
+
+    // Sección PORCENTAJE
+    +'<table style="margin-top:12pt;width:50%"><tr>'
+    +'<td class="pct-lbl" colspan="2">PORCENTAJE PROMEDIO DE HORAS EXTRA<br>SOBRE DE LOS SALARIOS QUINCENAL</td>'
+    +'<td class="pct-val" style="width:80pt">'+(totalDiu+totalNoc+totalFer).toFixed(2)+'</td>'
+    +'</tr><tr>'
+    +'<td style="text-align:right">suma</td>'
+    +'<td>total de<br>horas</td>'
+    +'<td class="pct-val">'+(totalDiu+totalNoc+totalFer).toFixed(2)+'</td>'
+    +'</tr><tr>'
+    +'<td style="text-align:right">%</td>'
+    +'<td></td>'
+    +'<td class="pct-val"></td>'
+    +'</tr></table>'
+
+    +'</body></html>';
+
+  var blob = new Blob(['\ufeff'+html], {type:'application/vnd.ms-excel;charset=utf-8'});
+  var url  = URL.createObjectURL(blob);
+  var a    = document.createElement('a');
+  a.href   = url;
+  a.download = 'HE-Nomina-'+data.desde+'-'+data.hasta+'.xls';
   document.body.appendChild(a); a.click();
   setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
-  paToast('✅ Excel descargado con formato');
+  paToast('✅ Excel descargado — formato nómina');
 }
   
 
