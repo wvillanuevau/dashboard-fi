@@ -5549,97 +5549,104 @@ function paEditarEmp(empId) {
 // INIT
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
-// Versión actual del portal — CAMBIAR EN CADA DEPLOY
-var PA_VERSION = 'v2026-06-10-A';
+// CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
+var PA_VERSION = 'v2026-06-11-A';
 
-// Detecta nueva versión haciendo polling del propio archivo cada 5 min
-// Funciona incluso en usuarios con caché vieja porque usa cache:'no-store'
 (function paAutoUpdate() {
-  var CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutos
-  var FIRST_CHECK    = 45 * 1000;     // primer chequeo a los 45s de carga
+  var CHECK_INTERVAL = 2 * 60 * 1000; // re-verificar cada 2 minutos
+  var FIRST_CHECK    = 5  * 1000;     // primer chequeo a los 5s (sesiones cortas)
   var _overlayShown  = false;
+  // URL limpia sin query params para el fetch
+  var _baseUrl = window.location.href.split('?')[0].split('#')[0];
 
   function _limpiarCacheYRecargar() {
-    var reload = function(){ location.reload(true); };
     try {
       if (window.caches) {
-        caches.keys().then(function(keys) {
-          var ps = keys.map(function(k){ return caches.delete(k); });
-          Promise.all(ps).then(reload).catch(reload);
-        }).catch(reload);
-      } else { reload(); }
-    } catch(e) { reload(); }
+        caches.keys().then(function(keys){
+          Promise.all(keys.map(function(k){ return caches.delete(k); }))
+            .then(function(){ location.reload(true); })
+            .catch(function(){ location.reload(true); });
+        }).catch(function(){ location.reload(true); });
+      } else { location.reload(true); }
+    } catch(e) { location.reload(true); }
   }
 
   function _mostrarOverlayActualizar() {
     if (_overlayShown) return;
     _overlayShown = true;
-    // Eliminar banner anterior si existía
     var old = document.getElementById('paUpdateBanner');
     if (old) old.remove();
-    // Crear overlay bloqueante — no se puede cerrar
     var ov = document.createElement('div');
     ov.id = 'paUpdateOverlay';
-    ov.style.cssText = [
-      'position:fixed','inset:0','z-index:99999',
-      'background:rgba(1,4,9,.9)','display:flex','align-items:center',
-      'justify-content:center','padding:24px','backdrop-filter:blur(6px)'
-    ].join(';');
+    ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(1,4,9,.92);display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(8px)';
     ov.innerHTML =
-      '<div style="background:#0d1117;border:2px solid #1a3a5c;border-radius:20px;'
-      +'padding:36px 28px;width:100%;max-width:340px;text-align:center;font-family:system-ui">'
+      '<div style="background:#0d1117;border:2px solid #1a3a5c;border-radius:20px;padding:36px 28px;width:100%;max-width:340px;text-align:center;font-family:system-ui">'
       +'<div style="font-size:52px;margin-bottom:16px">🔄</div>'
-      +'<div style="font-size:19px;font-weight:700;color:#e6edf3;margin-bottom:10px">'
-      +'Nueva versión disponible</div>'
-      +'<div style="font-size:13px;color:#7d8590;margin-bottom:28px;line-height:1.5">'
-      +'El sistema fue actualizado. Para continuar correctamente debes '
-      +'actualizar la aplicación ahora.</div>'
-      +'<button id="btnForzarUpdate" style="width:100%;padding:15px;background:#3b82f6;'
-      +'color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:700;'
-      +'cursor:pointer;font-family:inherit">🔄 Actualizar ahora</button>'
-      +'<div style="font-size:11px;color:#484f58;margin-top:12px">Actualizando...</div>'
+      +'<div style="font-size:19px;font-weight:700;color:#e6edf3;margin-bottom:10px">Nueva versión disponible</div>'
+      +'<div style="font-size:13px;color:#7d8590;margin-bottom:28px;line-height:1.5">El sistema fue actualizado. Actualiza para continuar correctamente.</div>'
+      +'<button id="btnForzarUpdate" style="width:100%;padding:15px;background:#3b82f6;color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit">🔄 Actualizar ahora</button>'
+      +'<div style="font-size:11px;color:#484f58;margin-top:10px" id="paUpdateCountdown">Se actualizará automáticamente en 15s...</div>'
       +'</div>';
     document.body.appendChild(ov);
-    // Click del botón
-    setTimeout(function() {
-      var btn = document.getElementById('btnForzarUpdate');
-      if (btn) btn.addEventListener('click', _limpiarCacheYRecargar);
-    }, 100);
-    // Auto-reload después de 30s por si el usuario no lo hace
-    setTimeout(function() {
-      if (document.getElementById('paUpdateOverlay')) _limpiarCacheYRecargar();
-    }, 30000);
+    // Botón
+    document.getElementById('btnForzarUpdate').addEventListener('click', _limpiarCacheYRecargar);
+    // Auto-reload en 15 segundos
+    var secs = 15;
+    var timer = setInterval(function(){
+      secs--;
+      var el = document.getElementById('paUpdateCountdown');
+      if (el) el.textContent = 'Se actualizará automáticamente en ' + secs + 's...';
+      if (secs <= 0) { clearInterval(timer); _limpiarCacheYRecargar(); }
+    }, 1000);
   }
 
   function _verificarVersion() {
-    // Fetch del propio HTML con timestamp para bypass de caché de red
-    var url = location.pathname + '?_v=' + Date.now();
-    fetch(url, {
+    if (_overlayShown) return;
+    // Agregar timestamp para forzar bypass de CDN/proxy cache
+    fetch(_baseUrl + '?_cache=' + Date.now(), {
+      method: 'GET',
       cache: 'no-store',
-      headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
     })
-    .then(function(r) { return r.text(); })
+    .then(function(resp) {
+      if (!resp.ok) return;
+      return resp.text();
+    })
     .then(function(html) {
-      // Extraer versión del HTML descargado
-      var match = html.match(/var PA_VERSION\s*=\s*'([^']+)'/);
-      if (match && match[1] && match[1] !== PA_VERSION) {
-        console.log('[Update] Nueva versión detectada:', match[1], '(actual:', PA_VERSION+')');
+      if (!html) return;
+      // Buscar PA_VERSION en el HTML descargado
+      var m = html.match(/var PA_VERSION\s*=\s*['"]([^'"]+)['"]/);
+      if (!m) {
+        console.warn('[Update] No se encontró PA_VERSION en el HTML descargado');
+        return;
+      }
+      var serverVersion = m[1];
+      console.log('[Update] Local:', PA_VERSION, '| Servidor:', serverVersion);
+      if (serverVersion !== PA_VERSION) {
+        console.log('[Update] ¡Nueva versión detectada! Mostrando overlay...');
         _mostrarOverlayActualizar();
       }
     })
-    .catch(function() {}); // Sin conexión — silencioso, retry en próximo intervalo
+    .catch(function(e) {
+      console.warn('[Update] Error al verificar versión (sin conexión?):', e.message);
+    });
   }
 
-  // Arranque con delay para no interferir con la carga inicial
+  // Primer chequeo rápido (5s) — cubre sesiones cortas de 25s
   setTimeout(_verificarVersion, FIRST_CHECK);
-  setInterval(_verificarVersion,  CHECK_INTERVAL);
-
-  // También verificar al volver al tab después de estar en background
+  // Chequeo periódico cada 2 minutos
+  setInterval(_verificarVersion, CHECK_INTERVAL);
+  // Chequeo al volver al tab (usuario que tenía el portal en background)
   document.addEventListener('visibilitychange', function() {
     if (document.visibilityState === 'visible' && !_overlayShown) {
       _verificarVersion();
     }
   });
+
 })();
 
 window.addEventListener('DOMContentLoaded', function() {
