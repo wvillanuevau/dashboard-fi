@@ -706,13 +706,13 @@ button:active{opacity:.8;transform:scale(.95)}
       <div class="stat-card">
         <div class="stat-val" id="canjeDiasEquiv" style="color:var(--accent2)">0</div>
         <div class="stat-lbl">Días equivalentes (×2)</div>
+      </div>
     </div>
     <div id="canjePendBox" style="display:none;background:rgba(56,139,253,.08);border:1px solid rgba(56,139,253,.2);border-radius:10px;padding:12px;font-size:13px;color:var(--accent2);margin-bottom:8px"></div>
     <div class="info-box">Solicita canjear tus horas extra acumuladas por un día libre. Cada 8 horas = 1 día libre. El administrador también puede asignarte días compensatorios directamente.<br><br>⚠ La solicitud debe ser aprobada por el administrador antes de hacerse efectiva.</div>
     <div class="fg">
       <label>Horas a canjear</label>
-      <input type="number" id="canjeHoras" min="0.5" max="100" step="0.5" placeholder="Ej: 4 (da 8h libres = 1 día)" oninput="paUpdateCanjeCalc()"
-        oninput="paUpdateCanjeCalc()" style="font-size:20px;font-family:'JetBrains Mono',monospace;text-align:center">
+      <input type="number" id="canjeHoras" min="0.5" max="100" step="0.5" placeholder="Ej: 4 (da 8h libres = 1 día)" oninput="paUpdateCanjeCalc()" style="font-size:20px;font-family:'JetBrains Mono',monospace;text-align:center">
     </div>
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px;display:none" id="canjeCalcBox">
       <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Resultado del canje:</div>
@@ -4175,8 +4175,9 @@ function paEditarMarcacion(marcId) {
   var tiposOpts = ['entrada','almuerzo_salida','almuerzo_regreso','cena_salida','cena_regreso','salida','entrada_adicional','salida_adicional']
     .map(function(t){ return '<option value="'+t+'"'+(m.tipo===t?' selected':'')+'>'+t+'</option>'; }).join('');
 
-  // Hora actual del registro
-  var horaActual = m.ts ? new Date(m.ts).toTimeString().slice(0,5) : '08:00';
+  // Hora actual del registro — normalizar ts (puede ser Firestore Timestamp)
+  var _mts = m.ts ? (_paToMs ? _paToMs(m.ts) : (typeof m.ts==='object'&&m.ts.toMillis ? m.ts.toMillis() : (m.ts.seconds ? m.ts.seconds*1000 : m.ts))) : 0;
+  var horaActual = _mts ? new Date(_mts).toTimeString().slice(0,5) : '08:00';
   var fechaActual = m.fecha || paHoy();
 
   var old = document.getElementById('modalEditMarca'); if (old) old.remove();
@@ -5538,18 +5539,98 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════
-// ── Versión: forzar refresh en nuevo deploy ───────────
-(function(){
-  var VER='v2026-06-10-A', KEY='pa_version', stored=localStorage.getItem(KEY);
-  localStorage.setItem(KEY, VER);
-  if (stored && stored!==VER) {
-    var b=document.createElement('div');
-    b.style.cssText='position:fixed;top:0;left:0;right:0;z-index:9999;background:#1a3a5c;color:#fff;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:14px;font-family:system-ui;box-shadow:0 3px 10px rgba(0,0,0,.5)';
-    b.innerHTML='<span>🔄 <strong>Nueva versión disponible.</strong> Actualiza para continuar correctamente.</span>'
-      +'<button onclick="caches&&caches.keys().then(function(k){k.forEach(function(n){caches.delete(n)});});location.reload(true);" '
-      +'style="flex-shrink:0;background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">Actualizar →</button>';
-    document.body.appendChild(b);
+// ── Sistema de actualización automática ──────────────────────
+// Versión actual del portal — CAMBIAR EN CADA DEPLOY
+var PA_VERSION = 'v2026-06-10-A';
+
+// Detecta nueva versión haciendo polling del propio archivo cada 5 min
+// Funciona incluso en usuarios con caché vieja porque usa cache:'no-store'
+(function paAutoUpdate() {
+  var CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutos
+  var FIRST_CHECK    = 45 * 1000;     // primer chequeo a los 45s de carga
+  var _overlayShown  = false;
+
+  function _limpiarCacheYRecargar() {
+    var reload = function(){ location.reload(true); };
+    try {
+      if (window.caches) {
+        caches.keys().then(function(keys) {
+          var ps = keys.map(function(k){ return caches.delete(k); });
+          Promise.all(ps).then(reload).catch(reload);
+        }).catch(reload);
+      } else { reload(); }
+    } catch(e) { reload(); }
   }
+
+  function _mostrarOverlayActualizar() {
+    if (_overlayShown) return;
+    _overlayShown = true;
+    // Eliminar banner anterior si existía
+    var old = document.getElementById('paUpdateBanner');
+    if (old) old.remove();
+    // Crear overlay bloqueante — no se puede cerrar
+    var ov = document.createElement('div');
+    ov.id = 'paUpdateOverlay';
+    ov.style.cssText = [
+      'position:fixed','inset:0','z-index:99999',
+      'background:rgba(1,4,9,.9)','display:flex','align-items:center',
+      'justify-content:center','padding:24px','backdrop-filter:blur(6px)'
+    ].join(';');
+    ov.innerHTML =
+      '<div style="background:#0d1117;border:2px solid #1a3a5c;border-radius:20px;'
+      +'padding:36px 28px;width:100%;max-width:340px;text-align:center;font-family:system-ui">'
+      +'<div style="font-size:52px;margin-bottom:16px">🔄</div>'
+      +'<div style="font-size:19px;font-weight:700;color:#e6edf3;margin-bottom:10px">'
+      +'Nueva versión disponible</div>'
+      +'<div style="font-size:13px;color:#7d8590;margin-bottom:28px;line-height:1.5">'
+      +'El sistema fue actualizado. Para continuar correctamente debes '
+      +'actualizar la aplicación ahora.</div>'
+      +'<button id="btnForzarUpdate" style="width:100%;padding:15px;background:#3b82f6;'
+      +'color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:700;'
+      +'cursor:pointer;font-family:inherit">🔄 Actualizar ahora</button>'
+      +'<div style="font-size:11px;color:#484f58;margin-top:12px">Actualizando...</div>'
+      +'</div>';
+    document.body.appendChild(ov);
+    // Click del botón
+    setTimeout(function() {
+      var btn = document.getElementById('btnForzarUpdate');
+      if (btn) btn.addEventListener('click', _limpiarCacheYRecargar);
+    }, 100);
+    // Auto-reload después de 30s por si el usuario no lo hace
+    setTimeout(function() {
+      if (document.getElementById('paUpdateOverlay')) _limpiarCacheYRecargar();
+    }, 30000);
+  }
+
+  function _verificarVersion() {
+    // Fetch del propio HTML con timestamp para bypass de caché de red
+    var url = location.pathname + '?_v=' + Date.now();
+    fetch(url, {
+      cache: 'no-store',
+      headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
+    })
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+      // Extraer versión del HTML descargado
+      var match = html.match(/var PA_VERSION\s*=\s*'([^']+)'/);
+      if (match && match[1] && match[1] !== PA_VERSION) {
+        console.log('[Update] Nueva versión detectada:', match[1], '(actual:', PA_VERSION+')');
+        _mostrarOverlayActualizar();
+      }
+    })
+    .catch(function() {}); // Sin conexión — silencioso, retry en próximo intervalo
+  }
+
+  // Arranque con delay para no interferir con la carga inicial
+  setTimeout(_verificarVersion, FIRST_CHECK);
+  setInterval(_verificarVersion,  CHECK_INTERVAL);
+
+  // También verificar al volver al tab después de estar en background
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible' && !_overlayShown) {
+      _verificarVersion();
+    }
+  });
 })();
 
 window.addEventListener('DOMContentLoaded', function() {
