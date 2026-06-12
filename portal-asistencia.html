@@ -809,6 +809,7 @@ button:active{opacity:.8;transform:scale(.95)}
     <button class="tab-btn" id="atab_emps" onclick="paAdminTab('emps')">👥 Empleados</button>
     <button class="tab-btn" id="atab_extra" onclick="paAdminTab('extra')">⏰ Horas extra</button>
     <button class="tab-btn" id="atab_reporte" onclick="paAdminTab('reporte')">📊 Reporte pago</button>
+    <button class="tab-btn" id="atab_acciones" onclick="paAdminTab('acciones')">📋 APs</button>
     <button class="tab-btn" id="atab_config" onclick="paAdminTab('config')">⚙️ Config</button>
   </div>
   <div class="portal-body" style="overflow-y:auto;padding-top:16px" id="adminContent">
@@ -2880,6 +2881,37 @@ function paMostrarWarningTardanzas(tard) {
     ? 'Tienes <strong>'+tard.totalTard+' llegadas tarde</strong> en esta quincena. Se ha generado una Acción de Personal por <strong>Descuento de Día y Séptimo</strong> en tu contra. Consulta con tu supervisor.'
     : 'Tienes <strong>'+tard.totalTard+' llegadas tarde</strong> en esta quincena.<br>Si acumulas 4, se generará una Acción de Personal con descuento de Día y Séptimo.';
 
+  // Si 4+ tardanzas: guardar AP real en Firestore (solo si no existe ya para esta quincena)
+  if (es4plus && PA.empleado && paDb) {
+    var q = _quincenaActual();
+    paDb.collection('paAccionesPersonal')
+      .where('empresa','==', PA.empresa)
+      .where('empleadoId','==', PA.empleado.id)
+      .where('tipo','==','TARDANZAS')
+      .where('quincenaDesde','==', q.desde)
+      .get()
+      .then(function(snap) {
+        if (snap.empty) {
+          paDb.collection('paAccionesPersonal').add({
+            empresa:        PA.empresa,
+            empleadoId:     PA.empleado.id,
+            empleadoNombre: PA.empleado.nombre,
+            cargo:          PA.empleado.cargo,
+            tipo:           'TARDANZAS',
+            quincenaDesde:  q.desde,
+            quincenaHasta:  q.hasta,
+            totalTardanzas: tard.totalTard,
+            totalDescHrs:   tard.totalDescHrs,
+            diasDetalle:    tard.dias,
+            opcionMarcada:  7,
+            estado:         'emitida',
+            fechaEmision:   paHoy(),
+            ts:             Date.now()
+          }).catch(function(e){ console.warn('[AP Tardanza]', e.message); });
+        }
+      }).catch(function(e){ console.warn('[AP Tardanza check]', e.message); });
+  }
+
   // Detalle de días
   var detalleHtml = tard.dias.map(function(d) {
     var mTarde = d.minsTarde;
@@ -3818,6 +3850,7 @@ function paAdminTab(tab) {
     if (tab === 'emps')    paAdminEmps(content);
     if (tab === 'extra')   paAdminExtra(content);
     if (tab === 'reporte') paAdminReporte(content);
+    if (tab === 'acciones') paAdminAcciones(content);
     if (tab === 'config')  paAdminConfig(content);
   } catch(e) {
     console.error('[Admin] error en tab', tab, ':', e.message, e.stack);
@@ -4178,6 +4211,16 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
     +'<div style="font-weight:700;font-size:11px;margin-bottom:6px;text-transform:uppercase">Aprobación del Movimiento</div>'    +'<table><tr>'    +'<td style="width:25%;text-align:center;padding:8px"><div style="font-weight:700">'+esc(solicita.toUpperCase())+'</div><div style="border-top:1px solid #333;margin-top:8px;padding-top:4px;font-size:10px">SOLICITA</div></td>'    +'<td style="width:25%;text-align:center;padding:8px"><div> </div><div style="border-top:1px solid #333;margin-top:8px;padding-top:4px;font-size:10px">REVISA</div></td>'    +'<td style="width:25%;text-align:center;padding:8px"><div style="font-weight:700">'+esc(autoriza.toUpperCase())+'</div><div style="border-top:1px solid #333;margin-top:8px;padding-top:4px;font-size:10px">AUTORIZA</div></td>'    +'<td style="width:25%;text-align:center;padding:8px"><div> </div><div style="border-top:1px solid #333;margin-top:8px;padding-top:4px;font-size:10px">PROCESADO</div></td>'    +'</tr></table>'
     +'<script>window.onload=function(){window.print();}<\/script>'    +'</body></html>';
 
+  // Guardar AP en Firestore
+  if (PA.empresa && paDb && empId) {
+    paDb.collection('paAccionesPersonal').add({
+      empresa: PA.empresa, empleadoId: empId, empleadoNombre: empNombre,
+      cargo: empCargo, tipo: 'FALTA_INJUSTIFICADA',
+      fecha: empFecha, fechaEmision: paHoy(),
+      opcionMarcada: 9, estado: 'emitida',
+      creadoPor: 'admin', ts: Date.now()
+    }).catch(function(e){ console.warn('[AP]', e.message); });
+  }
   var w = window.open('','_blank','width=900,height=800');
   w.document.write(html);
   w.document.close();
@@ -4532,6 +4575,115 @@ function paAgregarMarcacion(empId, empNom, fecha) {
       .catch(function(e) { paToast('Error: '+e.message, true); });
   });
 }
+
+function paAdminAcciones(content) {
+  content.innerHTML = '<div class="spinner"></div>';
+  var hoy = paHoy();
+  // Rango default: mes actual
+  var d = new Date();
+  var mesStr = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  var defDesde = mesStr+'-01';
+  var defHasta = hoy;
+
+  content.innerHTML =
+    '<div class="section-title">Acciones de Personal</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'
+    +'<div class="fg" style="margin:0"><label>Desde</label>'
+    +'<input type="date" id="apDesde" value="'+defDesde+'" max="'+hoy+'" style="font-size:15px" onchange="paCargarAPs()"></div>'
+    +'<div class="fg" style="margin:0"><label>Hasta</label>'
+    +'<input type="date" id="apHasta" value="'+defHasta+'" max="'+hoy+'" style="font-size:15px" onchange="paCargarAPs()"></div>'
+    +'</div>'
+    +'<div id="apFiltroTipo" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">'
+    +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:var(--surface2)" onclick="paCargarAPsTodos()">Todos</button>'
+    +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(248,81,73,.12);border-color:rgba(248,81,73,.3);color:#f85149" onclick="paCargarAPsFaltas()">🚫 Faltas</button>'
+    +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(232,160,32,.12);border-color:rgba(232,160,32,.3);color:#e8a020" onclick="paCargarAPsTardanzas()">⏰ Tardanzas</button>'
+    +'</div>'
+    +'<div id="apLista"><div class="spinner"></div></div>';
+
+  paCargarAPsTodos();
+}
+
+function paCargarAPsTodos()     { paCargarAPs('todos'); }
+function paCargarAPsFaltas()    { paCargarAPs('FALTA_INJUSTIFICADA'); }
+function paCargarAPsTardanzas() { paCargarAPs('TARDANZAS'); }
+
+function paCargarAPs(tipo) {
+  var lista = document.getElementById('apLista');
+  if (!lista) return;
+  lista.innerHTML = '<div class="spinner"></div>';
+
+  var desde = (document.getElementById('apDesde')||{}).value || paHoy().slice(0,8)+'01';
+  var hasta  = (document.getElementById('apHasta')||{}).value || paHoy();
+  var filtroTipo = tipo || 'todos';
+
+  paDb.collection('paAccionesPersonal')
+    .where('empresa','==', PA.empresa)
+    .get()
+    .then(function(snap) {
+      var docs = [];
+      snap.forEach(function(d) {
+        var r = Object.assign({ _id: d.id }, d.data());
+        var fDoc = r.fechaEmision || (r.fecha ? r.fecha : '');
+        if (fDoc < desde || fDoc > hasta) return;
+        if (filtroTipo !== 'todos' && r.tipo !== filtroTipo) return;
+        docs.push(r);
+      });
+      docs.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
+
+      if (!docs.length) {
+        lista.innerHTML = '<div style="text-align:center;color:var(--muted);padding:32px">Sin acciones de personal en el período</div>';
+        return;
+      }
+
+      var TIPO_LABEL = {
+        FALTA_INJUSTIFICADA: { icon:'🚫', label:'Falta Injustificada', color:'#f85149' },
+        TARDANZAS:           { icon:'⏰', label:'Tardanzas (Desc. Día y Séptimo)', color:'#e8a020' },
+      };
+
+      var html = '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">'+docs.length+' acción(es) encontrada(s)</div>';
+      docs.forEach(function(ap) {
+        var ti = TIPO_LABEL[ap.tipo] || { icon:'📋', label: ap.tipo||'Desconocido', color:'#7d8590' };
+        var detalleHtml = '';
+        if (ap.tipo==='TARDANZAS' && ap.diasDetalle && ap.diasDetalle.length) {
+          detalleHtml = '<div style="margin-top:8px;font-size:11px;color:var(--muted)">';
+          ap.diasDetalle.forEach(function(d){ detalleHtml+='<span style="margin-right:8px">'+d.fecha+' ('+d.minsTarde+'min → −'+d.descHrs+'h)</span>'; });
+          detalleHtml += '<br>Total horas a descontar: <strong style="color:'+ti.color+'">'+ap.totalDescHrs+'h</strong></div>';
+        }
+        if (ap.tipo==='FALTA_INJUSTIFICADA') {
+          detalleHtml = '<div style="margin-top:6px;font-size:11px;color:var(--muted)">Fecha de falta: '+ap.fecha+'</div>';
+        }
+        html += '<div class="report-row" style="border-left:3px solid '+ti.color+'">'
+          +'<div style="flex:1">'
+          +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'
+          +'<span style="font-size:18px">'+ti.icon+'</span>'
+          +'<span style="font-weight:700;font-size:14px">'+esc(ap.empleadoNombre||'?')+'</span>'
+          +'<span style="font-size:11px;color:var(--muted)">'+esc(ap.cargo||'')+'</span>'
+          +'</div>'
+          +'<div style="font-size:12px;color:'+ti.color+';font-weight:600">'+ti.label+'</div>'
+          +'<div style="font-size:11px;color:var(--muted)">Emitida: '+(ap.fechaEmision||'—')+'</div>'
+          +detalleHtml
+          +'</div>'
+          +'<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'
+          +'<span style="font-size:10px;padding:3px 8px;border-radius:20px;background:rgba(46,160,67,.15);color:#3fb950">'+esc(ap.estado||'emitida')+'</span>'
+          +'<button style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:11px" '
+          +'onclick="paEliminarAP(\''+ap._id+'\')" >🗑</button>'
+          +'</div>'
+          +'</div>';
+      });
+      lista.innerHTML = html;
+    })
+    .catch(function(e){
+      lista.innerHTML = '<div style="color:#f85149;padding:20px">Error: '+esc(e.message)+'</div>';
+    });
+}
+
+function paEliminarAP(apId) {
+  if (!confirm('¿Eliminar esta Acción de Personal?')) return;
+  paDb.collection('paAccionesPersonal').doc(apId).delete()
+    .then(function(){ paToast('AP eliminada'); paCargarAPs(); })
+    .catch(function(e){ paToast('Error: '+e.message, true); });
+}
+
 
 function paAdminConfig(content) {
   var h = PA.horario;
@@ -5787,7 +5939,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-12-B';
+var PA_VERSION = 'v2026-06-12-C';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
