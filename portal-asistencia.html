@@ -4824,21 +4824,21 @@ function paAdminEmps(content) {
     var btnDesvincular = emp.deviceId
       ? '<button style="background:rgba(248,81,73,.15);border:1px solid rgba(248,81,73,.4);color:#f85149;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:11px" onclick="paDesvinculDispositivo(\''+emp.id+'\')" title="Desvincular dispositivo">🔓 Desvincular</button>'
       : '';
-    html += '<div class="report-row">'
     // Versión del portal del empleado
-    var pd       = PA._horasMap && PA._horasMap[emp.id];
-    var empVer   = pd && pd.lastVersion ? pd.lastVersion : null;
+    var pd2      = PA._horasMap && PA._horasMap[emp.id];
+    var empVer   = pd2 && pd2.lastVersion ? pd2.lastVersion : null;
     var verOk    = empVer === PA_VERSION;
     var verBadge = empVer
       ? (verOk ? '<span style="color:#3fb950;font-size:11px">✅ Versión actual</span>'
                : '<span style="color:#e8a020;font-size:11px">⚠️ Desactualizado ('+empVer+')</span>')
       : '<span style="color:var(--muted);font-size:11px">🔲 Sin registro</span>';
     var btnForzarUpdate = (!verOk && emp.deviceId)
-      ? '<button style="background:rgba(232,160,32,.15);border:1px solid rgba(232,160,32,.4);color:#e8a020;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:11px" onclick="paForzarUpdateEmp(\''+emp.id+'\')" title="Forzar actualización al próximo login">🔄 Update</button>'
+      ? '<button style="background:rgba(232,160,32,.15);border:1px solid rgba(232,160,32,.4);color:#e8a020;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:11px" onclick="paForzarUpdateEmp(\''+emp.id+'\')">🔄 Update</button>'
       : '';
+    html += '<div class="report-row">'
       + '<div style="flex:1"><div class="report-emp">'+esc(emp.nombre)+'</div>'
       + '<div class="report-detail">'+(emp.cargo||'—')+(emp.ruta?' · '+emp.ruta:'')+' · '+(emp.pin?'🔒 PIN asignado':'⚠ Sin PIN')+' · '+devStatus+'</div>'
-      + '<div class="report-detail">⏰ '+((emp.horasExtraAcum||0).toFixed(1))+'h extra · 🏖️ '+(emp.diasVacacionesDisponibles||15)+' días vac.</div>'
+      + '<div class="report-detail">⏰ '+((emp.horasExtraAcum||0).toFixed(1))+'h extra · 🏖️ '+(emp.diasVacacionesDisponibles||15)+' días vac. · '+verBadge+'</div>'
       + otpInfo
       + '</div>'
       + '<div style="display:flex;gap:6px">'
@@ -5782,7 +5782,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-11-E';
+var PA_VERSION = 'v2026-06-12-A';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
@@ -5882,6 +5882,36 @@ var PA_VERSION = 'v2026-06-11-E';
 })();
 
 window.addEventListener('DOMContentLoaded', function() {
+  // Chequeo de versión inmediato al cargar — para usuarios con versión vieja
+  // Se ejecuta antes de cualquier interacción, a los 3 segundos de carga
+  setTimeout(function() {
+    if (window._paCheckVersion) {
+      window._paCheckVersion(); // si ya tiene la versión nueva, usa el sistema actual
+    } else {
+      // Versión vieja: hacer fetch manual para comparar
+      var baseUrl = window.location.href.split('?')[0].split('#')[0];
+      fetch(baseUrl + '?_v=' + Date.now(), {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache, no-store', 'Pragma': 'no-cache' }
+      })
+      .then(function(r){ return r.text(); })
+      .then(function(html) {
+        var m = html.match(/PA_VERSION\s*=\s*['"]([^'"]+)['"]/);
+        var currentVer = (pa || '').match ? null : null; // placeholder
+        // Buscar versión actual en el DOM o en variables globales
+        var localVer = (typeof PA_VERSION !== 'undefined') ? PA_VERSION : null;
+        if (m && localVer && m[1] !== localVer) {
+          // Mostrar banner de actualización prominente
+          var banner = document.createElement('div');
+          banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#e8a020;color:#000;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:14px;font-weight:700;box-shadow:0 3px 12px rgba(0,0,0,.4)';
+          banner.innerHTML = '<span>⚠️ Nueva versión disponible. Actualiza para continuar correctamente.</span>'
+            +'<button onclick="(window.caches?caches.keys().then(function(k){k.forEach(function(n){caches.delete(n)});}):Promise.resolve()).then(function(){location.reload(true);})" '
+            +'style="background:#000;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">🔄 Actualizar</button>';
+          document.body.appendChild(banner);
+        }
+      }).catch(function(){});
+    }
+  }, 3000);
   var params = new URLSearchParams(window.location.search);
   var empresa = params.get('empresa');
   if (empresa) {
