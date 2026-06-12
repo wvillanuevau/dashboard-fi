@@ -4856,10 +4856,8 @@ function paCargarAPs(tipo) {
           +'</div>'
           +'<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'
           +'<span style="font-size:10px;padding:3px 8px;border-radius:20px;background:rgba(46,160,67,.15);color:#3fb950">'+esc(ap.estado||'emitida')+'</span>'
-          +'<button style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:11px" '
-          +'<button style="background:rgba(56,139,253,.12);border:1px solid rgba(56,139,253,.3);color:#388bfd;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:11px" '
           +'<button data-apid="'+ap._id+'" onclick="paImprimirAP(this.getAttribute(\"data-apid\"))" style="background:rgba(56,139,253,.12);border:1px solid rgba(56,139,253,.3);color:#388bfd;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:11px">🖨️ Ver</button>'
-          +'onclick="paEliminarAP(\''+ap._id+'\')" >🗑</button>'
+          +'<button style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:11px" onclick="paEliminarAP(\''+ap._id+'\')" >🗑</button>'
           +'</div>'
           +'</div>';
       });
@@ -6142,7 +6140,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-12-F';
+var PA_VERSION = 'v2026-06-12-G';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
