@@ -2861,6 +2861,11 @@ function paCargarTardanzasEmpActual(callback) {
 }
 
 
+function paCerrarWarningTard() {
+  var ov = document.getElementById('tardanzaWarningOv');
+  if (ov) ov.remove();
+}
+
 function paMostrarWarningTardanzas(tard) {
   var old = document.getElementById('tardanzaWarningOv'); if(old) old.remove();
   var ov = document.createElement('div');
@@ -2895,7 +2900,7 @@ function paMostrarWarningTardanzas(tard) {
     +'<div style="background:rgba(255,255,255,.04);border-radius:8px;padding:10px;margin-bottom:16px;max-height:160px;overflow-y:auto">'+detalleHtml+'</div>'
     +'<div style="display:flex;justify-content:space-between;font-size:12px;color:#888;margin-bottom:14px">'
     +'<span>Horas totales a descontar:</span><span style="color:'+color+';font-weight:700">'+tard.totalDescHrs+'h</span></div>'
-    +'<button onclick="document.getElementById(\"tardanzaWarningOv\").remove()" '
+    +'<button onclick="paCerrarWarningTard()" '
     +'style="width:100%;padding:12px;background:'+color+';color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">Entendido</button>'
     +'</div>';
   document.body.appendChild(ov);
@@ -5782,7 +5787,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-12-A';
+var PA_VERSION = 'v2026-06-12-B';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
