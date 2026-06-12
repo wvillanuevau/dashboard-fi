@@ -3783,12 +3783,13 @@ function _paShowAdminPanel() {
   panel.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:#0d1117;z-index:200;font-family:\'Space Grotesk\',sans-serif';
 
   var tabs = [
-    {id:'hoy',    label:'📅 Hoy'},
-    {id:'hist',   label:'🔍 Historial'},
-    {id:'emps',   label:'👥 Empleados'},
-    {id:'extra',  label:'⏰ HE'},
-    {id:'reporte',label:'📊 Reporte'},
-    {id:'config', label:'⚙️ Config'}
+    {id:'hoy',      label:'📅 Hoy'},
+    {id:'hist',     label:'🔍 Historial'},
+    {id:'emps',     label:'👥 Empleados'},
+    {id:'extra',    label:'⏰ HE'},
+    {id:'reporte',  label:'📊 Reporte'},
+    {id:'acciones', label:'📋 APs'},
+    {id:'config',   label:'⚙️ Config'}
   ];
 
   var tabsHtml = tabs.map(function(t){
@@ -3803,7 +3804,7 @@ function _paShowAdminPanel() {
     '<div style="position:absolute;top:0;left:0;right:0;height:48px;background:#161b22;border-bottom:1px solid #30363d;display:flex;align-items:center;padding:0 12px;gap:10px;z-index:1">'
     +'<button onclick="_paCerrarAdmin()" style="background:none;border:none;color:#7d8590;cursor:pointer;font-size:20px;padding:4px;line-height:1">←</button>'
     +'<span style="font-weight:700;font-size:15px;color:#e6edf3;flex:1">Administración</span>'
-    +'<span style="font-size:11px;background:#21262d;border:1px solid #30363d;padding:3px 10px;border-radius:20px;color:#7d8590">'+PA.empresa+'</span>'
+    +'<span style="font-size:11px;background:#21262d;border:1px solid #30363d;padding:3px 10px;border-radius:20px;color:#7d8590">'+PA.empresa+'</span>'    +'<span style="font-size:10px;background:#161b22;border:1px solid #238636;padding:2px 8px;border-radius:20px;color:#3fb950;letter-spacing:.5px">'+PA_VERSION+'</span>'
     +'</div>'
     // Tabs — altura fija 44px, top:48px
     +'<div style="position:absolute;top:48px;left:0;right:0;height:44px;background:#161b22;border-bottom:1px solid #30363d;display:flex;overflow-x:auto;z-index:1">'
@@ -5941,7 +5942,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-12-C';
+var PA_VERSION = 'v2026-06-12-D';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
@@ -6141,6 +6142,18 @@ window.addEventListener('DOMContentLoaded', function() {
 
   paShow('scLanding');
 });
+</script>
+<div id="versionBadge" style="position:fixed;bottom:6px;right:8px;z-index:9000;font-size:9px;color:rgba(255,255,255,.25);pointer-events:none;font-family:monospace;letter-spacing:.5px"></div>
+<script>
+  // Populate version badge once DOM is ready
+  (function(){
+    var el = document.getElementById('versionBadge');
+    if(el && typeof PA_VERSION !== 'undefined') el.textContent = PA_VERSION;
+    else setTimeout(function(){
+      var el2 = document.getElementById('versionBadge');
+      if(el2) el2.textContent = (typeof PA_VERSION!=='undefined') ? PA_VERSION : '';
+    }, 1000);
+  })();
 </script>
 </body>
 </html>
