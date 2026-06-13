@@ -4168,89 +4168,180 @@ function paAccionPersonalFalta(empId, empNombre, empCargo, fecha) {
 function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
   paToast('Generando documento...');
 
-  // Leer datos del state
   if (!empId && window._paAccionData) {
     empId    = window._paAccionData.id;
     empNombre= window._paAccionData.nombre;
     empCargo = window._paAccionData.cargo;
     fecha    = window._paAccionData.fecha;
   }
-  if (!empId) { paToast('Error: sin datos del empleado', true); return; }
+  if (!empId) { paToast('Sin datos del empleado', true); return; }
 
-  // Leer campos del formulario de la pantalla actual
   var sol      = (document.getElementById('acpSolicita')   ||{}).value || 'WILFREDO VILLANUEVA';
   var aut      = (document.getElementById('acpAutoriza')   ||{}).value || 'Julio de Paul';
   var exp      = (document.getElementById('acpExplicacion')||{}).value || '';
   var SELECTED = window._paAPOpcion || 9;
   window._paAPOpcion = null;
 
-  // Guardar AP en Firestore
+  // Guardar en Firestore
   if (PA.empresa && paDb) {
     paDb.collection('paAccionesPersonal').add({
-      empresa: PA.empresa, empleadoId: empId, empleadoNombre: empNombre,
-      cargo: empCargo, tipo: 'FALTA_INJUSTIFICADA',
-      fecha: fecha, fechaEmision: paHoy(),
-      motivo: exp, solicita: sol, autoriza: aut,
-      opcionMarcada: SELECTED, estado: 'emitida',
-      creadoPor: 'admin', ts: Date.now()
-    }).then(function(){ console.log('[AP] Guardada OK'); })
-      .catch(function(e){ console.warn('[AP]', e.message); });
+      empresa:PA.empresa, empleadoId:empId, empleadoNombre:empNombre,
+      cargo:empCargo, tipo:'FALTA_INJUSTIFICADA', fecha:fecha,
+      fechaEmision:paHoy(), motivo:exp, solicita:sol, autoriza:aut,
+      opcionMarcada:SELECTED, estado:'emitida', creadoPor:'admin', ts:Date.now()
+    }).catch(function(e){ console.warn('[AP]',e.message); });
   }
 
-  // Lista de acciones (formato original FISDC)
+  var emp   = (PA.empleados||[]).find(function(e){ return e.id===empId; }) || {};
+  var cargo = emp.cargo || empCargo || '';
+  var depto = emp.ruta  || emp.cargo || 'MANTENIMIENTO';
+  var hoy   = new Date().toLocaleDateString('es-SV',{day:'2-digit',month:'2-digit',year:'numeric'});
+
+  // 18 acciones en 2 columnas (1-9 izq, 10-18 der) — formato original FISDC
   var ACCIONES = [
-    [1,'RENUNCIA VOLUNTARIA'],     [2,'TERMINACION DE CONTRATO'],
-    [3,'ABANDONO DE TRABAJO'],     [4,'SUSPENSIÓN'],
-    [5,'AMONESTACION'],            [6,'CONTRATACION'],
+    [1,'RENUNCIA VOLUNTARIA'],   [2,'TERMINACION DE CONTRATO'],
+    [3,'ABANDONO DE TRABAJO'],   [4,'SUSPENSIÓN'],
+    [5,'AMONESTACION'],          [6,'CONTRATACION'],
     [7,'DESCUENTO DIA Y SEPTIMO'],[8,'CAMBIO CENTRO DE COSTO'],
-    [9,'FALTA INJUSTIFICADA'],     [10,'ASCENSO'],
-    [11,'NIVELACION DE SALARIO'],  [12,'GOCE DE VACACIONES'],
+    [9,'FALTA INJUSTIFICADA'],   [10,'ASCENSO'],
+    [11,'NIVELACION DE SALARIO'],[12,'GOCE DE VACACIONES'],
     [13,'INCAPACIDAD ISSS U OTROS'],[14,'PERMISO CON GOCE DE SUELDO'],
     [15,'PERMISO SIN GOCE DE SUELDO'],[16,'FELICITACION'],
-    [17,'FIN DE PERÍODO DE PRUEBA'],[18,'OTRO']
+    [17,'FIN DE PERIODO DE PRUEBA'],[18,'OTROS']
   ];
 
-  var optsHtml = ACCIONES.map(function(a) {
-    var chk = a[0]===SELECTED ? '&#9632;' : '&#9633;';
-    return '<tr><td style="padding:2px 8px;font-size:11px">'
-      +chk+' <b>'+a[0]+'.</b> '+a[1]+'</td></tr>';
-  }).join('');
+  function fila(a) {
+    var x = a[0]===SELECTED ? '<b style="color:red">X</b>' : '&nbsp;';
+    return '<td style="padding:2px 6px;font-size:11px;width:22px;border:none">'+a[0]+'</td>'
+          +'<td style="padding:2px 4px;font-size:11px;width:18px;border:none;text-align:center">'+x+'</td>'
+          +'<td style="padding:2px 8px;font-size:11px;border:none">'+a[1]+'</td>';
+  }
 
-  // Contenido del documento AP (directo para innerHTML — sin DOCTYPE ni HTML)
-  var apHtml = '<div style="font-family:Arial,sans-serif;font-size:12px;color:#111;padding:16px">'
-    +'<div style="text-align:center;font-weight:bold;font-size:14px">FRANQUICIAS INTERNACIONALES, S.A. DE C.V.</div>'
-    +'<div style="text-align:center;font-size:11px;color:#555;margin-bottom:6px">San Salvador, El Salvador, C.A.</div>'
-    +'<div style="text-align:center;font-size:13px;font-weight:bold;border:2px solid #000;padding:5px;margin-bottom:12px;letter-spacing:1px">ACCIÓN DE PERSONAL</div>'
+  var rows = '';
+  for (var i=0; i<9; i++) {
+    rows += '<tr>'+fila(ACCIONES[i])
+          + '<td style="width:24px;border:none"></td>'
+          + fila(ACCIONES[i+9])+'</tr>';
+  }
 
-    // Datos empleado
-    +'<table style="width:100%;border-collapse:collapse;margin-bottom:10px"><tbody>'
-    +'<tr>'
-    +'<td style="border:1px solid #888;padding:5px 8px;width:60%"><b>Nombre:</b> '+esc(empNombre)+'</td>'
-    +'<td style="border:1px solid #888;padding:5px 8px"><b>Cargo:</b> '+esc(empCargo)+'</td>'
-    +'</tr>'
-    +'<tr>'
-    +'<td style="border:1px solid #888;padding:5px 8px"><b>Fecha del evento:</b> '+esc(fecha)+'</td>'
-    +'<td style="border:1px solid #888;padding:5px 8px"><b>Fecha de emisión:</b> '+paHoy()+'</td>'
-    +'</tr>'
-    +'</tbody></table>'
+  // Sección tiempo trabajado (formato exacto del Excel)
+  function tRow(c1,c2,c3) {
+    return '<tr>'
+      +'<td style="font-size:10px;padding:2px 6px;font-weight:600;background:#f0f0f0;white-space:nowrap">'+c1+'</td>'
+      +'<td style="font-size:10px;padding:2px 6px;width:40px"></td>'
+      +'<td style="font-size:10px;padding:2px 6px;font-weight:600;background:#f0f0f0;white-space:nowrap">'+c2+'</td>'
+      +'<td style="font-size:10px;padding:2px 6px;width:40px"></td>'
+      +'<td style="font-size:10px;padding:2px 6px;font-weight:600;background:#f0f0f0;white-space:nowrap">'+c3+'</td>'
+      +'<td style="font-size:10px;padding:2px 6px;width:40px"></td>'
+      +'</tr>';
+  }
 
-    // Acciones
-    +'<div style="font-size:11px;font-weight:bold;margin-bottom:4px">TIPO DE ACCIÓN (marque con &#9632;):</div>'
-    +'<table style="width:100%;border-collapse:collapse;margin-bottom:10px"><tbody>'+optsHtml+'</tbody></table>'
+  var apHtml =
+    '<div style="font-family:Arial,sans-serif;font-size:12px;color:#111;padding:20px;max-width:740px;margin:0 auto">'
 
-    // Descripción
-    +'<div style="font-size:11px;font-weight:bold;margin-bottom:4px">DESCRIPCIÓN / DETALLE:</div>'
-    +'<div style="border:1px solid #888;padding:8px;min-height:70px;font-size:11px;margin-bottom:12px;white-space:pre-wrap">'+esc(exp)+'</div>'
+    // Encabezado
+    +'<div style="text-align:center;font-weight:bold;font-size:14px;letter-spacing:.5px">FRANQUICIAS INTERNACIONALES S.A DE C.V.</div>'
+    +'<div style="text-align:center;font-weight:bold;font-size:13px;margin-bottom:12px">ACCION DE PERSONAL</div>'
 
-    // Firmas
-    +'<table style="width:100%;border-collapse:collapse"><tbody><tr>'
-    +'<td style="border:1px solid #888;padding:30px 8px 6px;text-align:center;font-size:10px"><b>SOLICITA</b><br><br>'+esc(sol)+'</td>'
-    +'<td style="border:1px solid #888;padding:30px 8px 6px;text-align:center;font-size:10px"><b>AUTORIZA</b><br><br>'+esc(aut)+'</td>'
-    +'<td style="border:1px solid #888;padding:30px 8px 6px;text-align:center;font-size:10px"><b>EMPLEADO</b><br><br>'+esc(empNombre)+'</td>'
-    +'</tr></tbody></table>'
+    // Fechas
+    +'<table style="width:100%;border-collapse:collapse;margin-bottom:8px"><tr>'
+    +'<td style="border:none;font-size:11px;padding:3px 0;width:50%"><b>FECHA ELABORACION:</b>&nbsp;&nbsp;'+hoy+'</td>'
+    +'<td style="border:none;font-size:11px;padding:3px 0"><b>RIGE A PARTIR DE:</b>&nbsp;&nbsp;'+esc(fecha||hoy)+'</td>'
+    +'</tr></table>'
+
+    // Nombre y departamento
+    +'<table style="width:100%;border-collapse:collapse;margin-bottom:8px"><tr>'
+    +'<td style="border:1px solid #bbb;padding:4px 8px;font-size:11px;width:30%;font-weight:700;background:#f5f5f5">NOMBRE EMPLEADO</td>'
+    +'<td style="border:1px solid #bbb;padding:4px 8px;font-size:11px" colspan="3">'+esc((empNombre||'').toUpperCase())+'</td>'
+    +'</tr><tr>'
+    +'<td style="border:1px solid #bbb;padding:4px 8px;font-size:11px;font-weight:700;background:#f5f5f5">DEPARTAMENTO O RESTAURANTE</td>'
+    +'<td style="border:1px solid #bbb;padding:4px 8px;font-size:11px" colspan="3">'+esc(depto.toUpperCase())+'</td>'
+    +'</tr></table>'
+
+    // Naturaleza — 2 columnas 9+9
+    +'<div style="font-size:11px;font-weight:700;margin-bottom:4px">NATURALEZA DE LA ACCION DE PERSONAL <span style="font-weight:400">(MARCAR CON X)</span></div>'
+    +'<table style="border-collapse:collapse;width:100%;margin-bottom:8px"><tbody>'+rows+'</tbody></table>'
+
+    // Explicación
+    +'<table style="width:100%;border-collapse:collapse;margin-bottom:8px"><tr>'
+    +'<td style="border:1px solid #bbb;padding:4px 8px;font-size:11px;font-weight:700;background:#f5f5f5;white-space:nowrap;width:1%">EXPLICACION:</td>'
+    +'<td style="border:1px solid #bbb;padding:6px 8px;font-size:11px;min-height:48px;vertical-align:top">'+esc(exp)+'</td>'
+    +'</tr></table>'
+
+    // Nivelación/Ascenso
+    +'<div style="font-size:10px;font-weight:700;margin-bottom:3px">EN CASO DE SER NIVELACION SALARIAL, ASCENSO Y CAMBIO DE CENTRO DE COSTO</div>'
+    +'<table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:11px"><tr>'
+    +'<td style="border:1px solid #bbb;padding:3px 8px;font-weight:700;background:#f5f5f5;width:10%">ACTUAL</td>'
+    +'<td style="border:1px solid #bbb;padding:3px 8px;font-weight:700;background:#f5f5f5;width:10%">CARGO</td>'
+    +'<td style="border:1px solid #bbb;padding:3px 8px;width:30%">'+esc(cargo.toUpperCase())+'</td>'
+    +'<td style="border:1px solid #bbb;padding:3px 8px;font-weight:700;background:#f5f5f5;width:20%">SUELDO MENSUAL</td>'
+    +'<td style="border:1px solid #bbb;padding:3px 8px;width:30%"></td>'
+    +'</tr><tr>'
+    +'<td style="border:1px solid #bbb;padding:3px 8px;font-weight:700;background:#f5f5f5">NUEVO</td>'
+    +'<td style="border:1px solid #bbb;padding:3px 8px;font-weight:700;background:#f5f5f5">CARGO</td>'
+    +'<td style="border:1px solid #bbb;padding:3px 8px">'+esc(cargo.toUpperCase())+'</td>'
+    +'<td style="border:1px solid #bbb;padding:3px 8px;font-weight:700;background:#f5f5f5">SUELDO MENSUAL</td>'
+    +'<td style="border:1px solid #bbb;padding:3px 8px"></td>'
+    +'</tr></table>'
+
+    // Caso de despido
+    +'<div style="font-size:10px;font-weight:700;margin-bottom:3px">EN CASO DE DESPIDO, ESPECIFICAR TIPO</div>'
+    +'<table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:11px"><tr>'
+    +'<td style="border:1px solid #bbb;padding:3px 8px;width:50%">CON RESPONSABILIDAD &nbsp;&nbsp;&nbsp;&nbsp; _______</td>'
+    +'<td style="border:1px solid #bbb;padding:3px 8px">SIN RESPONSABILIDAD &nbsp;&nbsp;&nbsp;&nbsp; _______</td>'
+    +'</tr></table>'
+
+    // Detalle tiempo trabajado
+    +'<div style="font-size:10px;font-weight:700;margin-bottom:3px">DETALLE DE TIEMPO TRABAJADO PENDIENTE DE PAGO A INCLUIR EN CASO DE INDEMNIZACION</div>'
+    +'<table style="width:100%;border-collapse:collapse;margin-bottom:8px"><tr>'
+    +'<td style="font-size:10px;padding:2px 6px;font-weight:700;background:#f0f0f0"></td>'
+    +'<td style="font-size:10px;padding:2px 6px;width:30px;font-weight:700;background:#f0f0f0;text-align:center">DIA</td>'
+    +'<td style="font-size:10px;padding:2px 6px;width:30px;font-weight:700;background:#f0f0f0;text-align:center">MES</td>'
+    +'<td style="font-size:10px;padding:2px 6px;width:30px;font-weight:700;background:#f0f0f0;text-align:center">AÑO</td>'
+    +'<td style="border:none" colspan="3"></td></tr>'
+    +'<tr><td style="font-size:10px;padding:2px 6px;font-weight:700;background:#f0f0f0">ULTIMO DIA TRABAJADO</td>'
+    +'<td></td><td></td><td></td><td colspan="3"></td></tr>'
+    + tRow('DIAS DE SALARIO','HORAS EXTRAS DIURNAS','HORAS FERIADAS DIURNAS')
+    + tRow('NOCTURNIDADES','HORAS EXTRAS NOCTURNAS','HORAS FERIADAS NOCTURNAS')
+    + tRow('DIAS FERIADOS','HORAS DIURNAS','BONOS')
+    + tRow('SALIDAS','HORAS NOCTURNAS','COMISIONES POR VENTA')
+    +'</table>'
+
+    // Comentarios empleado
+    +'<table style="width:100%;border-collapse:collapse;margin-bottom:8px"><tr>'
+    +'<td style="border:1px solid #bbb;padding:4px 8px;font-size:11px;font-weight:700;background:#f5f5f5;white-space:nowrap;width:1%">COMENTARIOS DEL EMPLEADO:</td>'
+    +'<td style="border:1px solid #bbb;padding:4px 8px;font-size:11px;height:36px"></td>'
+    +'</tr></table>'
+
+    // Aceptación
+    +'<div style="font-size:11px;font-weight:700;margin-bottom:5px">ACEPTACION DE LA ACCION DE PERSONAL</div>'
+    +'<table style="width:100%;border-collapse:collapse;margin-bottom:5px"><tr>'
+    +'<td style="border:1px solid #bbb;padding:6px 8px;font-size:11px;font-weight:700;width:55%">'+esc((empNombre||'').toUpperCase())+'</td>'
+    +'<td style="border:1px solid #bbb;padding:6px 8px;font-size:11px">____________________________</td>'
+    +'</tr><tr>'
+    +'<td style="border:none;font-size:10px;color:#555;padding:2px 8px">NOMBRE DE EMPLEADO COMPLETO</td>'
+    +'<td style="border:none;font-size:10px;color:#555;padding:2px 8px">FIRMA</td>'
+    +'</tr></table>'
+    +'<div style="font-size:10px;margin-bottom:6px">EN CASO QUE EL EMPLEADO NO FIRME</div>'
+
+    // Testigos
+    +'<table style="width:100%;border-collapse:collapse;margin-bottom:10px;font-size:11px"><tr>'
+    +'<td style="border:1px solid #bbb;padding:6px 8px;width:33%;vertical-align:top"><b>TESTIGO 1</b><br>Nombre: _______________<br>DUI: &nbsp;&nbsp;&nbsp;_______________</td>'
+    +'<td style="border:1px solid #bbb;padding:6px 8px;width:33%;vertical-align:top"><b>TESTIGO 2</b><br>Nombre: _______________<br>DUI: &nbsp;&nbsp;&nbsp;_______________</td>'
+    +'<td style="border:1px solid #bbb;padding:6px 8px;vertical-align:top"><b>TESTIGO 3</b><br>Nombre: _______________<br>DUI: &nbsp;&nbsp;&nbsp;_______________</td>'
+    +'</tr></table>'
+
+    // Aprobación del movimiento
+    +'<div style="font-size:11px;font-weight:700;margin-bottom:5px">APROBACION DEL MOVIMIENTO</div>'
+    +'<table style="width:100%;border-collapse:collapse"><tr>'
+    +'<td style="border:1px solid #bbb;padding:18px 8px 6px;text-align:center;font-size:11px;width:25%"><b>'+esc((sol||'WILFREDO VILLANUEVA').toUpperCase())+'</b><br><span style="border-top:1px solid #555;display:block;margin-top:8px;padding-top:3px;font-size:10px">SOLICITA</span></td>'
+    +'<td style="border:1px solid #bbb;padding:18px 8px 6px;text-align:center;font-size:11px;width:25%">&nbsp;<br><span style="border-top:1px solid #555;display:block;margin-top:8px;padding-top:3px;font-size:10px">REVISA</span></td>'
+    +'<td style="border:1px solid #bbb;padding:18px 8px 6px;text-align:center;font-size:11px;width:25%"><b>'+esc((aut||'Julio de Paul').toUpperCase())+'</b><br><span style="border-top:1px solid #555;display:block;margin-top:8px;padding-top:3px;font-size:10px">AUTORIZA</span></td>'
+    +'<td style="border:1px solid #bbb;padding:18px 8px 6px;text-align:center;font-size:11px;width:25%">&nbsp;<br><span style="border-top:1px solid #555;display:block;margin-top:8px;padding-top:3px;font-size:10px">PROCESADO</span></td>'
+    +'</tr></table>'
     +'</div>';
 
-  // Crear overlay de pantalla completa
+  // Overlay pantalla completa
   var oldOv = document.getElementById('paAPPrintOverlay');
   if (oldOv) oldOv.remove();
 
@@ -4258,18 +4349,15 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
   ov.id = 'paAPPrintOverlay';
   ov.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99998;background:#fff;overflow-y:auto;-webkit-overflow-scrolling:touch';
 
-  // Toolbar
   var bar = document.createElement('div');
-  bar.style.cssText = 'position:sticky;top:0;background:#1a3a5c;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;z-index:1;-webkit-sticky:top:0';
+  bar.style.cssText = 'position:sticky;top:0;background:#1a3a5c;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;z-index:1';
   bar.innerHTML = '<span style="color:#fff;font-size:14px;font-weight:700">📋 Acción de Personal</span>'
     +'<div style="display:flex;gap:10px">'
     +'<button id="paAPBtnPrint" style="background:#3fb950;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:14px;font-weight:700;cursor:pointer;-webkit-appearance:none">🖨️ Imprimir</button>'
     +'<button id="paAPBtnClose" style="background:#ddd;color:#333;border:none;border-radius:8px;padding:9px 16px;font-size:14px;font-weight:700;cursor:pointer;-webkit-appearance:none">✕ Cerrar</button>'
     +'</div>';
 
-  // Contenido
   var cont = document.createElement('div');
-  cont.style.cssText = 'max-width:720px;margin:0 auto;padding:16px';
   cont.innerHTML = apHtml;
 
   ov.appendChild(bar);
@@ -4277,22 +4365,16 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
   document.body.appendChild(ov);
   ov.scrollTop = 0;
 
-  // Eventos botones
   document.getElementById('paAPBtnPrint').onclick = function(){ window.print(); };
   document.getElementById('paAPBtnClose').onclick = function(){
     var o = document.getElementById('paAPPrintOverlay');
     if (o) o.remove();
   };
 
-  // CSS impresión — oculta todo excepto overlay
   if (!document.getElementById('paAPPrintStyle')) {
     var ps = document.createElement('style');
     ps.id = 'paAPPrintStyle';
-    ps.textContent = '@media print{'
-      +'body>*:not(#paAPPrintOverlay){display:none!important}'
-      +'#paAPPrintOverlay{position:static!important;overflow:visible!important}'
-      +'#paAPPrintOverlay>div:first-child{display:none!important}'
-      +'}';
+    ps.textContent = '@media print{body>*:not(#paAPPrintOverlay){display:none!important}#paAPPrintOverlay{position:static!important;overflow:visible!important}#paAPPrintOverlay>div:first-child{display:none!important}}';
     document.head.appendChild(ps);
   }
 }
@@ -6236,7 +6318,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-13-F';
+var PA_VERSION = 'v2026-06-13-G';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
