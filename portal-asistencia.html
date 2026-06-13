@@ -4240,9 +4240,15 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
       creadoPor: 'admin', ts: Date.now()
     }).catch(function(e){ console.warn('[AP]', e.message); });
   }
-  // Mostrar en overlay de pantalla completa (compatible iOS)
-  var _bodyM = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-  var _bodyContent = _bodyM ? _bodyM[1] : html;
+  // Extraer contenido del body usando indexOf (más fiable en iOS Safari)
+  var _bs = html.indexOf('<body');
+  var _be = html.lastIndexOf('</body>');
+  var _bc = (_bs > -1 && _be > -1)
+    ? html.slice(html.indexOf('>', _bs) + 1, _be)
+    : html;
+  // Eliminar script de auto-print (no necesario en overlay)
+  var _bodyContent = _bc.replace(/<script[\s\S]*?<\/script>/gi, '')
+                        .replace(/<\/script>/gi,'');
 
   var apOverlay = document.getElementById('paAPPrintOverlay');
   if (apOverlay) apOverlay.remove();
@@ -4273,6 +4279,7 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
   apOv.appendChild(contentDiv);
   document.body.appendChild(apOv);
   apOv.scrollTop = 0;
+  window.scrollTo(0,0);
 
   // Wire buttons AFTER appended to DOM
   document.getElementById('paAPBtnPrint').addEventListener('click', function(){ window.print(); });
@@ -6231,7 +6238,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-13-D';
+var PA_VERSION = 'v2026-06-13-E';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
