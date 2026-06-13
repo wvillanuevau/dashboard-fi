@@ -4625,6 +4625,24 @@ function paAdminAcciones(content) {
 function paImprimirAP(apId) {
   var ap = window._paAPMap && window._paAPMap[apId];
   if (!ap) { paToast('No se encontró la AP', true); return; }
+  // Usar el formato oficial (paGenerarAccionPersonal) con datos de la AP guardada
+  window._paAccionData = {
+    id:     ap.empleadoId,
+    nombre: ap.empleadoNombre,
+    cargo:  ap.cargo||'',
+    fecha:  ap.fecha || ap.fechaInicio || ap.fechaEmision || '',
+    motivo: ap.motivo || (ap.tipo==='TARDANZAS'
+      ? 'Tardanzas acumuladas: '+ap.totalTardanzas+' en quincena '+ap.quincenaDesde+' al '+ap.quincenaHasta+'. Total a descontar: '+ap.totalDescHrs+'h.'
+      : ap.tipo==='INCAPACIDAD'
+        ? 'Incapacidad del '+ap.fechaInicio+' al '+ap.fechaFin+' ('+ap.dias+' días). '+ap.motivo
+        : '')
+  };
+  // Seleccionar opción correcta según tipo
+  var opcion = ap.tipo==='TARDANZAS' ? 6 : ap.tipo==='INCAPACIDAD' ? 15 : 9;
+  // Guardar opcion temporalmente para que paGenerarAccionPersonal la use
+  window._paAPOpcion = opcion;
+  paGenerarAccionPersonal(ap.empleadoId, ap.empleadoNombre, ap.cargo||'', ap.fecha||ap.fechaEmision);
+  return; // Lo siguiente ya no se usa
 
   var TIPO_DESC = {
     FALTA_INJUSTIFICADA: { titulo:'FALTA INJUSTIFICADA', opcion:9 },
@@ -4645,6 +4663,7 @@ function paImprimirAP(apId) {
     detalleHtml = '<p>Fecha de falta: '+(ap.fecha||'—')+'</p>';
   }
 
+  var opcionUsar = window._paAPOpcion || 9; window._paAPOpcion = null;
   var opciones = [
     'AMONESTACIÓN VERBAL','AMONESTACIÓN ESCRITA','SUSPENSIÓN SIN GOCE DE SUELDO',
     'SUSPENSIÓN CON DESCUENTO DE DÍA','DESCUENTO DE DÍA','DESCUENTO DE DÍA Y SÉPTIMO',
@@ -4654,7 +4673,7 @@ function paImprimirAP(apId) {
     'INCAPACIDAD TEMPORAL','INCAPACIDAD PERMANENTE','PERMISO SIN GOCE','OTRO'
   ];
   var opcsHtml = opciones.map(function(o, i){
-    var checked = (i+1 === td.opcion) ? '&#9632;' : '&#9633;';
+    var checked = (i+1 === opcionUsar) ? '&#9632;' : '&#9633;';
     return '<tr><td style="padding:2px 4px">'+checked+' '+(i+1)+'. '+o+'</td></tr>';
   }).join('');
 
@@ -6140,7 +6159,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-12-H';
+var PA_VERSION = 'v2026-06-12-I';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
