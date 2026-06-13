@@ -4164,6 +4164,7 @@ function paAccionPersonalFalta(empId, empNombre, empCargo, fecha) {
 }
 
 function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
+  paToast('Generando documento...');
   // Leer datos del state guardado si no se pasaron como parámetros
   if (!empId && window._paAccionData) {
     empId=window._paAccionData.id; empNombre=window._paAccionData.nombre;
@@ -4237,9 +4238,32 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
       creadoPor: 'admin', ts: Date.now()
     }).catch(function(e){ console.warn('[AP]', e.message); });
   }
-  var w = window.open('','_blank','width=900,height=800');
-  w.document.write(html);
-  w.document.close();
+  // Mostrar en overlay (window.open bloqueado en móvil iOS)
+  var apOverlay = document.getElementById('paAPPrintOverlay');
+  if (apOverlay) apOverlay.remove();
+  var apOv = document.createElement('div');
+  apOv.id = 'paAPPrintOverlay';
+  apOv.style.cssText = 'position:fixed;inset:0;z-index:99998;background:#fff;overflow-y:auto;-webkit-overflow-scrolling:touch';
+  apOv.innerHTML = '<div style="max-width:800px;margin:0 auto;padding:20px;font-family:Arial,sans-serif;color:#111;font-size:12px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid #1a3a5c">'
+    +'<span style="font-size:11px;color:#555">Documento oficial</span>'
+    +'<div style="display:flex;gap:8px">'
+    +'<button onclick="window.print()" style="padding:8px 16px;background:#1a3a5c;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir</button>'
+    +'<button onclick="document.getElementById(\'paAPPrintOverlay\').remove()" style="padding:8px 16px;background:#e0e0e0;color:#333;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer">✕ Cerrar</button>'
+    +'</div></div>'
+    + (html.replace(/<!DOCTYPE[^>]*>/i,'').replace(/<html[^>]*>/i,'').replace(/<\/html>/i,'').replace(/<head>[\s\S]*?<\/head>/i,'').replace(/<body[^>]*>/i,'').replace(/<\/body>/i,'').replace(/<script[\s\S]*?<\/script>/gi,''))
+    +'</div>';
+  document.body.appendChild(apOv);
+  // Scroll to top
+  apOv.scrollTop = 0;
+  // Print CSS: hide overlay chrome, show only content
+  var printStyle = document.getElementById('paAPPrintStyle');
+  if (!printStyle) {
+    printStyle = document.createElement('style');
+    printStyle.id = 'paAPPrintStyle';
+    printStyle.textContent = '@media print { body > *:not(#paAPPrintOverlay){display:none!important} #paAPPrintOverlay{position:static!important;overflow:visible!important} button{display:none!important} }';
+    document.head.appendChild(printStyle);
+  }
   paToast('📋 Acción de Personal generada');
 }
 
@@ -5181,7 +5205,18 @@ function paOpenPinModal() {
 }
 
 function paAdminEmps(content) {
-  var html = '<button class="big-btn" onclick="paOpenPinModal()" style="margin-bottom:16px">🔐 Asignar / actualizar PIN</button>';
+  // Contar cuántos están desactualizados
+  var desactCount = PA.empleados.filter(function(e){
+    var pd2 = PA._horasMap && PA._horasMap[e.id];
+    return !pd2 || !pd2.lastVersion || pd2.lastVersion !== PA_VERSION;
+  }).length;
+
+  var html = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
+    +'<button class="big-btn" onclick="paOpenPinModal()" style="flex:1">🔐 Asignar / actualizar PIN</button>'
+    +(desactCount > 0
+      ? '<button onclick="paForzarUpdateTodos()" style="flex:1;padding:12px;background:rgba(232,160,32,.15);border:1.5px solid rgba(232,160,32,.5);color:#e8a020;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">🔄 Forzar update a todos ('+desactCount+' sin actualizar)</button>'
+      : '<button disabled style="flex:1;padding:12px;background:rgba(46,160,67,.1);border:1.5px solid rgba(46,160,67,.3);color:#3fb950;border-radius:12px;font-size:14px;font-weight:600;font-family:inherit">✅ Todos actualizados</button>')
+    +'</div>';
   html += '<div class="section-title">'+PA.empleados.length+' empleados registrados</div>';
   
   PA.empleados.forEach(function(emp) {
@@ -5206,9 +5241,10 @@ function paAdminEmps(content) {
     var empVer   = pd2 && pd2.lastVersion ? pd2.lastVersion : null;
     var verOk    = empVer === PA_VERSION;
     var verBadge = empVer
-      ? (verOk ? '<span style="color:#3fb950;font-size:11px">✅ Versión actual</span>'
-               : '<span style="color:#e8a020;font-size:11px">⚠️ Desactualizado ('+empVer+')</span>')
-      : '<span style="color:var(--muted);font-size:11px">🔲 Sin registro</span>';
+      ? (verOk
+          ? '<span style="color:#3fb950;font-size:11px;background:rgba(46,160,67,.1);padding:2px 8px;border-radius:10px">✅ '+empVer+'</span>'
+          : '<span style="color:#e8a020;font-size:11px;background:rgba(232,160,32,.1);padding:2px 8px;border-radius:10px">⚠️ '+empVer+' → necesita actualizar</span>')
+      : '<span style="color:var(--muted);font-size:11px;background:rgba(125,133,144,.1);padding:2px 8px;border-radius:10px">🔲 Sin registro de versión</span>';
     var btnForzarUpdate = (!verOk && emp.deviceId)
       ? '<button style="background:rgba(232,160,32,.15);border:1px solid rgba(232,160,32,.4);color:#e8a020;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:11px" onclick="paForzarUpdateEmp(\''+emp.id+'\')">🔄 Update</button>'
       : '';
@@ -5226,6 +5262,29 @@ function paAdminEmps(content) {
   });
   content.innerHTML = html;
 }
+
+function paForzarUpdateTodos() {
+  var desact = PA.empleados.filter(function(e){
+    var pd2 = PA._horasMap && PA._horasMap[e.id];
+    return !pd2 || !pd2.lastVersion || pd2.lastVersion !== PA_VERSION;
+  });
+  if (!desact.length) { paToast('✅ Todos ya tienen la versión actual'); return; }
+  if (!confirm('¿Forzar actualización a ' + desact.length + ' empleado(s) desactualizados? Se actualizarán en su próximo login.')) return;
+
+  var promises = desact.map(function(e) {
+    var docId = PA._pinsDocMap && PA._pinsDocMap[e.id];
+    if (!docId) return Promise.resolve();
+    return paDb.collection('paPins').doc(docId)
+      .update({ requireUpdate: true })
+      .catch(function(err){ console.warn('[ForceAll]', e.nombre, err.message); });
+  });
+
+  Promise.all(promises).then(function() {
+    paToast('✅ Actualización forzada para ' + desact.length + ' empleado(s). Se actualizarán en su próximo login.');
+    paAdminTab('emps');
+  }).catch(function(e){ paToast('Error: ' + e.message, true); });
+}
+
 
 function paForzarUpdateEmp(empId) {
   if (!confirm('¿Forzar actualización del portal en el próximo login de este empleado?')) return;
@@ -6159,7 +6218,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-12-I';
+var PA_VERSION = 'v2026-06-13-B';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
