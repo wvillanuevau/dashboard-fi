@@ -2901,12 +2901,14 @@ function paMostrarWarningTardanzas(tard) {
     var q = _quincenaActual();
     paDb.collection('paAccionesPersonal')
       .where('empresa','==', PA.empresa)
-      .where('empleadoId','==', PA.empleado.id)
-      .where('tipo','==','TARDANZAS')
-      .where('quincenaDesde','==', q.desde)
       .get()
       .then(function(snap) {
-        if (snap.empty) {
+        // Filtro cliente: empleado + tipo + quincena
+        var yaExiste = snap.docs.some(function(d){
+          var r=d.data();
+          return r.empleadoId===PA.empleado.id && r.tipo==='TARDANZAS' && r.quincenaDesde===q.desde;
+        });
+        if (!yaExiste) {
           paDb.collection('paAccionesPersonal').add({
             empresa:        PA.empresa,
             empleadoId:     PA.empleado.id,
@@ -4188,7 +4190,7 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
     [15,'PERMISO SIN GOCE DE SUELDO'],[16,'FELICITACION'],
     [17,'FIN DE PERIODO DE PRUEBA'],[18,'OTROS']
   ];
-  var SELECTED = 9; // FALTA INJUSTIFICADA
+  var SELECTED = (window._paAPOpcion||9); window._paAPOpcion=null; // 9=Falta, 7=Tardanzas, 13=Incapacidad
 
   function tdAcc(num, desc) {
     var sel = num===SELECTED ? 'X' : '';
@@ -4238,31 +4240,54 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
       creadoPor: 'admin', ts: Date.now()
     }).catch(function(e){ console.warn('[AP]', e.message); });
   }
-  // Mostrar en overlay (window.open bloqueado en móvil iOS)
+  // Mostrar en overlay de pantalla completa (compatible iOS)
+  var _bodyM = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  var _bodyContent = _bodyM ? _bodyM[1] : html;
+
   var apOverlay = document.getElementById('paAPPrintOverlay');
   if (apOverlay) apOverlay.remove();
+
   var apOv = document.createElement('div');
   apOv.id = 'paAPPrintOverlay';
-  apOv.style.cssText = 'position:fixed;inset:0;z-index:99998;background:#fff;overflow-y:auto;-webkit-overflow-scrolling:touch';
-  apOv.innerHTML = '<div style="max-width:800px;margin:0 auto;padding:20px;font-family:Arial,sans-serif;color:#111;font-size:12px">'
-    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid #1a3a5c">'
-    +'<span style="font-size:11px;color:#555">Documento oficial</span>'
+  apOv.style.cssText = [
+    'position:fixed','top:0','left:0','right:0','bottom:0',
+    'z-index:99998','background:#fff','overflow-y:auto',
+    '-webkit-overflow-scrolling:touch','font-family:Arial,sans-serif'
+  ].join(';');
+
+  // Toolbar
+  var toolbar = document.createElement('div');
+  toolbar.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:#1a3a5c;position:sticky;top:0;z-index:1';
+  toolbar.innerHTML = '<span style="color:#fff;font-size:13px;font-weight:700">📋 Acción de Personal</span>'
     +'<div style="display:flex;gap:8px">'
-    +'<button onclick="window.print()" style="padding:8px 16px;background:#1a3a5c;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir</button>'
-    +'<button onclick="document.getElementById(\'paAPPrintOverlay\').remove()" style="padding:8px 16px;background:#e0e0e0;color:#333;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer">✕ Cerrar</button>'
-    +'</div></div>'
-    + (html.replace(/<!DOCTYPE[^>]*>/i,'').replace(/<html[^>]*>/i,'').replace(/<\/html>/i,'').replace(/<head>[\s\S]*?<\/head>/i,'').replace(/<body[^>]*>/i,'').replace(/<\/body>/i,'').replace(/<script[\s\S]*?<\/script>/gi,''))
+    +'<button id="paAPBtnPrint" style="padding:8px 16px;background:#3fb950;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🖨️ Imprimir</button>'
+    +'<button id="paAPBtnClose" style="padding:8px 16px;background:#f0f0f0;color:#333;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">✕ Cerrar</button>'
     +'</div>';
+
+  // Content
+  var contentDiv = document.createElement('div');
+  contentDiv.style.cssText = 'max-width:760px;margin:0 auto;padding:20px;color:#111;font-size:12px';
+  contentDiv.innerHTML = _bodyContent;
+
+  apOv.appendChild(toolbar);
+  apOv.appendChild(contentDiv);
   document.body.appendChild(apOv);
-  // Scroll to top
   apOv.scrollTop = 0;
-  // Print CSS: hide overlay chrome, show only content
-  var printStyle = document.getElementById('paAPPrintStyle');
-  if (!printStyle) {
-    printStyle = document.createElement('style');
-    printStyle.id = 'paAPPrintStyle';
-    printStyle.textContent = '@media print { body > *:not(#paAPPrintOverlay){display:none!important} #paAPPrintOverlay{position:static!important;overflow:visible!important} button{display:none!important} }';
-    document.head.appendChild(printStyle);
+
+  // Wire buttons AFTER appended to DOM
+  document.getElementById('paAPBtnPrint').addEventListener('click', function(){ window.print(); });
+  document.getElementById('paAPBtnClose').addEventListener('click', function(){
+    var ov = document.getElementById('paAPPrintOverlay');
+    if (ov) ov.remove();
+  });
+
+  // Print CSS
+  var ps = document.getElementById('paAPPrintStyle');
+  if (!ps) {
+    ps = document.createElement('style');
+    ps.id = 'paAPPrintStyle';
+    ps.textContent = '@media print{body>*:not(#paAPPrintOverlay){display:none!important}#paAPPrintOverlay{position:static!important;overflow:visible!important}#paAPPrintOverlay>div:first-child{display:none!important}}';
+    document.head.appendChild(ps);
   }
   paToast('📋 Acción de Personal generada');
 }
@@ -4662,7 +4687,7 @@ function paImprimirAP(apId) {
         : '')
   };
   // Seleccionar opción correcta según tipo
-  var opcion = ap.tipo==='TARDANZAS' ? 6 : ap.tipo==='INCAPACIDAD' ? 15 : 9;
+  var opcion = ap.tipo==='TARDANZAS' ? 7 : ap.tipo==='INCAPACIDAD' ? 13 : 9;
   // Guardar opcion temporalmente para que paGenerarAccionPersonal la use
   window._paAPOpcion = opcion;
   paGenerarAccionPersonal(ap.empleadoId, ap.empleadoNombre, ap.cargo||'', ap.fecha||ap.fechaEmision);
@@ -4688,18 +4713,7 @@ function paImprimirAP(apId) {
   }
 
   var opcionUsar = window._paAPOpcion || 9; window._paAPOpcion = null;
-  var opciones = [
-    'AMONESTACIÓN VERBAL','AMONESTACIÓN ESCRITA','SUSPENSIÓN SIN GOCE DE SUELDO',
-    'SUSPENSIÓN CON DESCUENTO DE DÍA','DESCUENTO DE DÍA','DESCUENTO DE DÍA Y SÉPTIMO',
-    'DESCUENTO DE HORAS','TRASLADO','MODIFICACIÓN DE JORNADA','VACACIONES NO RECONOCIDAS',
-    'FIN DE CONTRATO POR RENUNCIA','FIN DE CONTRATO POR VENCIMIENTO',
-    'DESPIDO CON RESPONSABILIDAD PATRONAL','DESPIDO SIN RESPONSABILIDAD PATRONAL',
-    'INCAPACIDAD TEMPORAL','INCAPACIDAD PERMANENTE','PERMISO SIN GOCE','OTRO'
-  ];
-  var opcsHtml = opciones.map(function(o, i){
-    var checked = (i+1 === opcionUsar) ? '&#9632;' : '&#9633;';
-    return '<tr><td style="padding:2px 4px">'+checked+' '+(i+1)+'. '+o+'</td></tr>';
-  }).join('');
+  ;
 
   var w = window.open('','_blank','width=800,height=700');
   w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8">'
@@ -4747,13 +4761,13 @@ function paGenerarAPsHistoricas() {
   // Cargar todas las marcaciones de los últimos 30 días
   Promise.all([
     paDb.collection('paMarcaciones').where('empresa','==',PA.empresa).get(),
-    paDb.collection('paAccionesPersonal').where('empresa','==',PA.empresa).where('tipo','==','TARDANZAS').get()
+    paDb.collection('paAccionesPersonal').where('empresa','==',PA.empresa).get()
   ]).then(function(results) {
     var snapM = results[0], snapAP = results[1];
 
     // APs de tardanzas ya existentes → no duplicar
     var apsExistentes = {};
-    snapAP.forEach(function(d){ var r=d.data(); apsExistentes[(r.empleadoId||'')+'|'+(r.quincenaDesde||'')] = true; });
+    snapAP.forEach(function(d){ var r=d.data(); if(r.tipo==='TARDANZAS') apsExistentes[(r.empleadoId||'')+'|'+(r.quincenaDesde||'')] = true; });
 
     // Agrupar marcaciones por empleado y fecha
     var porEmp = {};
@@ -4827,7 +4841,6 @@ function paGenerarAPsHistoricas() {
 
 
 function paCargarAPsTodos()     { paCargarAPs('todos'); }
-function paImprimirAPCard(id)   { paImprimirAP(id); }
 function paCargarAPsFaltas()    { paCargarAPs('FALTA_INJUSTIFICADA'); }
 function paCargarAPsTardanzas()      { paCargarAPs('TARDANZAS'); }
 function paCargarAPsIncapacidades()  { paCargarAPs('INCAPACIDAD'); }
@@ -6218,7 +6231,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-13-B';
+var PA_VERSION = 'v2026-06-13-D';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
