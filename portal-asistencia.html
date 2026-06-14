@@ -4144,6 +4144,32 @@ function paReportarFaltaEmp(empId, empNombre, empCargo) {
 
 function paAccionPersonalFalta(empId, empNombre, empCargo, fecha) {
   var old = document.getElementById('accionPersonalOverlay'); if(old) old.remove();
+
+  // Verificar faltas previas del mes para determinar si aplica descuento
+  var mesActual = paHoy().slice(0, 7); // 'YYYY-MM'
+  paDb.collection('paAccionesPersonal')
+    .where('empresa', '==', PA.empresa)
+    .get()
+    .then(function(snap) {
+      var faltasMes = 0;
+      snap.forEach(function(d) {
+        var r = d.data();
+        if (r.empleadoId === empId && r.tipo === 'FALTA_INJUSTIFICADA'
+            && (r.fechaEmision||'').slice(0,7) === mesActual) {
+          faltasMes++;
+        }
+      });
+      // 1ª falta → opción 9, 2ª+ → opción 7 (DESCUENTO DIA Y SEPTIMO)
+      window._paAPOpcion = (faltasMes >= 1) ? 7 : 9;
+      _paAccionPersonalFaltaRender(empId, empNombre, empCargo, fecha, faltasMes);
+    })
+    .catch(function() {
+      window._paAPOpcion = 9;
+      _paAccionPersonalFaltaRender(empId, empNombre, empCargo, fecha, 0);
+    });
+}
+
+function _paAccionPersonalFaltaRender(empId, empNombre, empCargo, fecha, faltasMes) {
   var hoyStr = new Date().toLocaleDateString('es-SV',{day:'2-digit',month:'2-digit',year:'numeric'});
   var fechaFmt = fecha ? new Date(fecha+'T12:00:00').toLocaleDateString('es-SV',{weekday:'long',day:'numeric',month:'long',year:'numeric'}) : '—';
 
@@ -4156,7 +4182,14 @@ function paAccionPersonalFalta(empId, empNombre, empCargo, fecha) {
   ov.innerHTML =
     '<div style="background:var(--surface);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0">'    +'<button onclick="document.getElementById(\'accionPersonalOverlay\').remove()" style="background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer">←</button>'    +'<div style="font-weight:700;font-size:16px">📋 Acción de Personal</div>'    +'</div>'    +'<div style="padding:18px;max-width:600px;width:100%;margin:0 auto">'
     // Info box
-    +'<div style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.25);border-radius:10px;padding:12px;margin-bottom:16px;font-size:13px">'    +'<strong style="color:#f85149">Falta Injustificada</strong> — '+esc(empNombre)+'<br>'    +'<span style="color:var(--muted)">Fecha: '+fechaFmt+'</span>'    +'</div>'
+    +'<div style="background:'+(faltasMes>=1?'rgba(232,160,32,.08)':'rgba(248,81,73,.08)')+';border:1px solid '+(faltasMes>=1?'rgba(232,160,32,.35)':'rgba(248,81,73,.25)')+';border-radius:10px;padding:12px;margin-bottom:16px;font-size:13px">'    +(faltasMes>=1
+      ? '<strong style="color:#e8a020">⚠️ Descuento Día y Séptimo</strong>'
+        +' <span style="font-size:11px;color:var(--muted)">('+faltasMes+' falta(s) prev. este mes — aplica descuento)</span>'
+        +' — '+esc(empNombre)+'<br><span style="color:var(--muted)">Fecha: '+fechaFmt+'</span>'
+      : '<strong style="color:#f85149">Falta Injustificada</strong>'
+        +' <span style="font-size:11px;color:var(--muted)">(1ª del mes)</span>'
+        +' — '+esc(empNombre)+'<br><span style="color:var(--muted)">Fecha: '+fechaFmt+'</span>'
+    )    +'</div>'
     // Form fields
     +'<div style="margin-bottom:12px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">EXPLICACIÓN / DETALLE</label>'    +'<textarea id="acpExplicacion" rows="3" placeholder="El empleado no se presentó a laborar el día '+fechaFmt+' sin justificación alguna..." '    +'style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box">'    +'El empleado '+esc(empNombre)+' no se presentó a laborar el día '+fechaFmt+' sin justificación alguna.</textarea></div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'    +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">SOLICITA</label>'    +'<input id="acpSolicita" type="text" value="WILFREDO VILLANUEVA" '    +'style="width:100%;padding:9px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box"></div>'    +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">AUTORIZA</label>'    +'<input id="acpAutoriza" type="text" value="Julio de Paul" '    +'style="width:100%;padding:9px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box"></div>'    +'</div>'
@@ -4186,7 +4219,7 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
   if (PA.empresa && paDb) {
     paDb.collection('paAccionesPersonal').add({
       empresa:PA.empresa, empleadoId:empId, empleadoNombre:empNombre,
-      cargo:empCargo, tipo:'FALTA_INJUSTIFICADA', fecha:fecha,
+      cargo:empCargo, tipo:(SELECTED===7?'DESCUENTO_DIA_SEPTIMO':'FALTA_INJUSTIFICADA'), fecha:fecha,
       fechaEmision:paHoy(), motivo:exp, solicita:sol, autoriza:aut,
       opcionMarcada:SELECTED, estado:'emitida', creadoPor:'admin', ts:Date.now()
     }).catch(function(e){ console.warn('[AP]',e.message); });
@@ -6318,7 +6351,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-13-G';
+var PA_VERSION = 'v2026-06-13-H';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
