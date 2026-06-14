@@ -5344,6 +5344,21 @@ function paOpenPinModal() {
 }
 
 function paAdminEmps(content) {
+  content.innerHTML = '<div class="spinner"></div>';
+  // Refrescar paPins desde Firestore para ver versiones actualizadas
+  paDb.collection('paPins').where('empresa','==',PA.empresa).get()
+    .then(function(snap){
+      // Actualizar _horasMap en memoria con datos frescos
+      snap.forEach(function(d){
+        var pd = d.data();
+        if (pd.empleadoId) PA._horasMap[pd.empleadoId] = pd;
+      });
+      _paAdminEmpsRender(content);
+    })
+    .catch(function(){ _paAdminEmpsRender(content); }); // fallback si falla Firestore
+}
+
+function _paAdminEmpsRender(content) {
   // Contar cuántos están desactualizados
   var desactCount = PA.empleados.filter(function(e){
     var pd2 = PA._horasMap && PA._horasMap[e.id];
@@ -6357,7 +6372,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-13-I';
+var PA_VERSION = 'v2026-06-13-J';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
