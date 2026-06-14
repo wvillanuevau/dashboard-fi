@@ -2679,7 +2679,7 @@ function paAutoCompletarDiaAnterior(callback) {
           };
           paDb.collection('paMarcaciones').add(docSalida).then(function() {
             console.log('[AutoCierre] dia', dia.fecha, 'cerrado a', horaSalida);
-            paToast('Dia ' + dia.fecha + ' cerrado automaticamente a las ' + horaSalida);
+            paToast('Día registrado' + dia.fecha + ' cerrado automaticamente a las ' + horaSalida);
             pending--;
             if (pending === 0) _cbOnce();
           }).catch(function(e) {
@@ -4227,7 +4227,7 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
 
   var emp   = (PA.empleados||[]).find(function(e){ return e.id===empId; }) || {};
   var cargo = emp.cargo || empCargo || '';
-  var depto = emp.ruta  || emp.cargo || 'MANTENIMIENTO';
+  var depto = emp.cargo || empCargo  || 'MANTENIMIENTO';
   var hoy   = new Date().toLocaleDateString('es-SV',{day:'2-digit',month:'2-digit',year:'numeric'});
 
   // 18 acciones en 2 columnas (1-9 izq, 10-18 der) — formato original FISDC
@@ -4780,7 +4780,7 @@ function paAdminAcciones(content) {
     +'</div>'
     +'<div id="apFiltroTipo" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">'
     +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:var(--surface2)" onclick="paCargarAPsTodos()">Todos</button>'
-    +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(248,81,73,.12);border-color:rgba(248,81,73,.3);color:#f85149" onclick="paCargarAPsFaltas()">🚫 Faltas</button>'
+    +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(248,81,73,.12);border-color:rgba(248,81,73,.3);color:#f85149" onclick="paCargarAPsFaltas()">🚫 Faltas / Descuentos</button>'
     +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(232,160,32,.12);border-color:rgba(232,160,32,.3);color:#e8a020" onclick="paCargarAPsTardanzas()">⏰ Tardanzas</button>'
     +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(56,139,253,.12);border-color:rgba(56,139,253,.3);color:#388bfd" onclick="paCargarAPsIncapacidades()">🏥 Incapacidades</button>'
     +'</div>'
@@ -4815,7 +4815,8 @@ function paImprimirAP(apId) {
 
   var TIPO_DESC = {
     FALTA_INJUSTIFICADA: { titulo:'FALTA INJUSTIFICADA', opcion:9 },
-    TARDANZAS:           { titulo:'DESCUENTO DE DÍA Y SÉPTIMO POR TARDANZAS', opcion:7 },
+    TARDANZAS:              { titulo:'DESCUENTO DE DÍA Y SÉPTIMO POR TARDANZAS', opcion:7 },
+    DESCUENTO_DIA_SEPTIMO: { titulo:'DESCUENTO DE DÍA Y SÉPTIMO POR FALTA',     opcion:7 },
     INCAPACIDAD:         { titulo:'INCAPACIDAD / AUSENCIA CON JUSTIFICACIÓN', opcion:15 },
   };
   var td = TIPO_DESC[ap.tipo] || { titulo: ap.tipo, opcion: 0 };
@@ -4961,7 +4962,7 @@ function paGenerarAPsHistoricas() {
 
 
 function paCargarAPsTodos()     { paCargarAPs('todos'); }
-function paCargarAPsFaltas()    { paCargarAPs('FALTA_INJUSTIFICADA'); }
+function paCargarAPsFaltas()    { paCargarAPs('FALTAS'); } // incluye FALTA+DESCUENTO
 function paCargarAPsTardanzas()      { paCargarAPs('TARDANZAS'); }
 function paCargarAPsIncapacidades()  { paCargarAPs('INCAPACIDAD'); }
 
@@ -4983,7 +4984,11 @@ function paCargarAPs(tipo) {
         var r = Object.assign({ _id: d.id }, d.data());
         var fDoc = r.fechaEmision || (r.fecha ? r.fecha : '');
         if (fDoc < desde || fDoc > hasta) return;
-        if (filtroTipo !== 'todos' && r.tipo !== filtroTipo) return;
+        if (filtroTipo !== 'todos') {
+          if (filtroTipo === 'FALTAS') {
+            if (r.tipo !== 'FALTA_INJUSTIFICADA' && r.tipo !== 'DESCUENTO_DIA_SEPTIMO') return;
+          } else if (r.tipo !== filtroTipo) return;
+        }
         docs.push(r);
       });
       docs.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
@@ -4998,7 +5003,8 @@ function paCargarAPs(tipo) {
 
       var TIPO_LABEL = {
         FALTA_INJUSTIFICADA: { icon:'🚫', label:'Falta Injustificada',              color:'#f85149' },
-        TARDANZAS:           { icon:'⏰', label:'Tardanzas (Desc. Día y Séptimo)',  color:'#e8a020' },
+        TARDANZAS:              { icon:'⏰', label:'Tardanzas (Desc. Día y Séptimo)',   color:'#e8a020' },
+        DESCUENTO_DIA_SEPTIMO:  { icon:'📉', label:'Descuento Día y Séptimo (Falta)',  color:'#e8a020' },
         INCAPACIDAD:         { icon:'🏥', label:'Incapacidad',                      color:'#388bfd' },
         INCAPACIDAD:         { icon:'🏥', label:'Incapacidad',                      color:'#388bfd' },
         INCAPACIDAD:         { icon:'🏥', label:'Incapacidad',                      color:'#388bfd' },
@@ -6351,7 +6357,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-13-H';
+var PA_VERSION = 'v2026-06-13-I';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
