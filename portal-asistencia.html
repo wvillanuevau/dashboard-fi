@@ -878,6 +878,13 @@ try {
     appId:"1:1082289901578:web:b7b5e2c7f5b7d6e6f2c4a9"
   },'portalAsistencia');
   paDb      = firebase.firestore(_paApp);
+  // Persistencia offline — marcaciones quedan en IndexedDB si no hay internet
+  paDb.enablePersistence({ synchronizeTabs: false })
+    .catch(function(err) {
+      if (err.code !== 'failed-precondition' && err.code !== 'unimplemented') {
+        console.warn('[PA] Offline persistence error:', err.code);
+      }
+    });
   paStorage = firebase.storage(_paApp);
 } catch(e) {
   console.error('[Portal] Firebase init error:', e);
@@ -1290,6 +1297,18 @@ function paVerifyAdminPwd() {
     var empBadge = document.getElementById('adminEmpBadge');
     if (empBadge) empBadge.textContent = PA.empresa;
     console.log('[Admin] Login OK — creando panel admin dinámico');
+    // Escribir lastVersion en el paPins del admin (si tiene registro)
+    if (paDb && PA._pinsDocMap) {
+      var thisDevice = localStorage.getItem('pa_deviceId_'+PA.empresa) || null;
+      Object.keys(PA._pinsDocMap).forEach(function(empId) {
+        var pd = PA._horasMap && PA._horasMap[empId];
+        if (pd && pd.deviceId && pd.deviceId === thisDevice) {
+          paDb.collection('paPins').doc(PA._pinsDocMap[empId])
+            .update({ lastVersion: PA_VERSION, lastSeen: Date.now() })
+            .catch(function(){});
+        }
+      });
+    }
     if (!PA.empleados.length) {
       console.log('[Admin] Cargando empleados...');
       paLoadEmpleados(function() {
@@ -1392,12 +1411,15 @@ function paLoadEmpleados(callback) {
       PA._horasMap   = {};
       snapPins.forEach(function(d){
         var pd = d.data();
-        pins[pd.empleadoId]          = pd.pin   || '';
-        creds[pd.empleadoId]         = pd.credId || null;
-        PA._pinsDocMap[pd.empleadoId] = d.id;
-        PA._horasMap[pd.empleadoId]  = pd;
+        pins[pd.empleadoId]           = pd.pin   || '';
+        creds[pd.empleadoId]          = pd.credId || null;
+        PA._pinsDocMap[pd.empleadoId]  = d.id;
+        PA._horasMap[pd.empleadoId]   = pd;
         PA._deviceMap  = PA._deviceMap  || {};
-        PA._deviceMap[pd.empleadoId]  = pd.deviceId || null;
+        PA._deviceMap[pd.empleadoId]   = pd.deviceId || null;
+        // Mapa inverso por deviceId — funciona aunque empleadoId esté vacío (docs viejos)
+        PA._pinsByDevice = PA._pinsByDevice || {};
+        if (pd.deviceId) PA._pinsByDevice[pd.deviceId] = { docId: d.id, data: pd };
       });
 
       PA.empleados = tecnicos
@@ -1929,6 +1951,22 @@ function paAfterAuth() {
   var storedDevice = emp.deviceId || null;
   var bindDocId = PA._pinsDocMap && PA._pinsDocMap[emp.id];
 
+  // FALLBACK: paPins docs viejos sin campo empleadoId — buscar por deviceId
+  if (!bindDocId && thisDevice && PA._pinsByDevice && PA._pinsByDevice[thisDevice]) {
+    var _byDev = PA._pinsByDevice[thisDevice];
+    bindDocId = _byDev.docId;
+    // Reparar el doc en Firestore — escribir empleadoId para futuras consultas
+    paDb.collection('paPins').doc(bindDocId)
+      .update({ empleadoId: emp.id, empresa: PA.empresa })
+      .then(function() {
+        // Actualizar maps en memoria
+        PA._pinsDocMap[emp.id] = bindDocId;
+        PA._horasMap[emp.id]   = _byDev.data;
+        console.log('[paPins] empleadoId reparado para:', emp.nombre);
+      })
+      .catch(function(e){ console.warn('[paPins repair]', e.message); });
+  }
+
   // BLOQUEO: dispositivo diferente al vinculado
   if (storedDevice && thisDevice && storedDevice !== thisDevice) {
     PA.empleado = null;
@@ -1981,13 +2019,13 @@ function paAfterAuth() {
         if(window.caches) caches.keys().then(function(k){k.forEach(function(n){caches.delete(n)});window.location.replace(window.location.pathname+'?nocache='+Date.now());}).catch(function(){window.location.replace(window.location.pathname+'?nocache='+Date.now());});
         else window.location.replace(window.location.pathname+'?nocache='+Date.now());
       };
-      paDb.collection('paPins').doc(bindDocId).update({ requireUpdate: false })
+      paDb.collection('paPins').doc(bindDocId).update({ requireUpdate: false, lastVersion: PA_VERSION, lastSeen: Date.now(), empleadoId: emp.id, empresa: PA.empresa })
         .then(_doReload).catch(_doReload);
       return;
     }
     // Guardar versión actual del portal para que el admin pueda verla
     paDb.collection('paPins').doc(bindDocId)
-      .update({ lastVersion: PA_VERSION, lastSeen: Date.now() })
+      .update({ lastVersion: PA_VERSION, lastSeen: Date.now(), empleadoId: emp.id, empresa: PA.empresa })
       .catch(function(){});
   }
 
@@ -2027,7 +2065,7 @@ function paAfterAuth() {
       // Cargar tardanzas quincena actual y mostrar warning si aplica
       paCargarTardanzasEmpActual(function() {
         if (PA.tardanzas && PA.tardanzas.totalTard >= 2) {
-          setTimeout(function(){ paMostrarWarningTardanzas(PA.tardanzas); }, 600);
+          setTimeout(function(){ _paCheckAvisosYMostrar(PA.tardanzas, bindDocId); }, 600);
         }
         paShow('scDash');
       });
@@ -2218,9 +2256,9 @@ function paGoIncapacidad() {
     +'<textarea id="incMotivo" rows="3" placeholder="Ej: Gripe, dolor abdominal, fractura de muñeca..." style="width:100%;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;resize:vertical"></textarea></div>'
 
     // Foto de la constancia
-    +'<div style="margin-bottom:20px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:5px">FOTO DE LA CONSTANCIA MÉDICA *</label>'
-    +'<input type="file" id="incFoto" accept="image/*" capture="environment" onchange="incPreviewFoto(this)" style="display:none">'
-    +'<button onclick="document.getElementById(\'incFoto\').click()" style="width:100%;padding:14px;background:var(--surface2);border:2px dashed var(--border);border-radius:10px;color:var(--muted);font-size:14px;cursor:pointer;font-family:inherit">📷 Tomar / adjuntar foto</button>'
+    +'<div style="margin-bottom:20px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:5px">📎 FOTO O PDF DE LA CONSTANCIA MÉDICA *</label>'
+    +'<input type="file" id="incFoto" accept="image/*,application/pdf" onchange="incPreviewFoto(this)" style="display:none">'
+    +'<button onclick="document.getElementById(\'incFoto\').click()" style="width:100%;padding:14px;background:var(--surface2);border:2px dashed var(--border);border-radius:10px;color:var(--muted);font-size:14px;cursor:pointer;font-family:inherit">📷 Foto / 📄 PDF de constancia</button>'
     +'<div id="incFotoPreview" style="margin-top:8px"></div></div>'
 
     +'<div id="incError" style="color:#f85149;font-size:13px;margin-bottom:10px;display:none;padding:8px;background:rgba(248,81,73,.08);border-radius:8px;text-align:center"></div>'
@@ -2255,9 +2293,57 @@ function incCalcFechaFin() {
 function incPreviewFoto(input) {
   var preview = document.getElementById('incFotoPreview');
   if (!preview || !input.files || !input.files[0]) return;
-  var url = URL.createObjectURL(input.files[0]);
-  preview.innerHTML = '<img src="'+url+'" style="width:100%;max-height:200px;object-fit:contain;border-radius:10px;border:1px solid var(--border)" onload="URL.revokeObjectURL(this.src)">';
+  var file = input.files[0];
+  if (file.type === 'application/pdf') {
+    preview.innerHTML = '<div style="background:rgba(56,139,253,.1);border:1px solid rgba(56,139,253,.3);border-radius:10px;padding:16px;text-align:center;color:#388bfd;font-size:13px">'
+      +'📄 <strong>'+esc(file.name)+'</strong><br><span style="font-size:11px;color:var(--muted)">'+Math.round(file.size/1024)+'KB — PDF listo para subir</span></div>';
+  } else {
+    var url = URL.createObjectURL(file);
+    preview.innerHTML = '<img src="'+url+'" style="width:100%;max-height:200px;object-fit:contain;border-radius:10px;border:1px solid var(--border)" onload="URL.revokeObjectURL(this.src)">';
+  }
 }
+
+function _paSubirIncapacidad(b64, tipoArchivo, fileName, btn, fechaInicio, fechaFin, dias, motivo) {
+  var folio = 'INC-'+paGenId().toUpperCase();
+  var docData = {
+    empresa:        PA.empresa,
+    empleadoId:     PA.empleado.id,
+    empleadoNombre: PA.empleado.nombre,
+    motivo:         motivo,
+    dias:           dias,
+    fechaInicio:    fechaInicio,
+    fechaFin:       fechaFin,
+    foto:           b64,
+    tipoArchivo:    tipoArchivo,
+    fileName:       fileName || '',
+    ts:             Date.now(),
+    estado:         'pendiente',
+    folio:          folio
+  };
+  paDb.collection('paIncapacidades').add(docData).then(function() {
+    // AP por incapacidad
+    if (PA.empleado) {
+      paDb.collection('paAccionesPersonal').add({
+        empresa: PA.empresa, empleadoId: PA.empleado.id,
+        empleadoNombre: PA.empleado.nombre, cargo: PA.empleado.cargo||'',
+        tipo: 'INCAPACIDAD', fechaInicio: docData.fechaInicio,
+        fechaFin: docData.fechaFin, dias: docData.dias,
+        motivo: docData.motivo||'', tipoArchivo: tipoArchivo,
+        foto: b64.slice(0,100), // referencia truncada para consultas
+        estado: 'emitida', fechaEmision: paHoy(), ts: Date.now()
+      }).catch(function(e){ console.warn('[AP Inc]', e.message); });
+    }
+    PA._incapacidades = PA._incapacidades || [];
+    PA._incapacidades.push({ fechaInicio:fechaInicio, fechaFin:fechaFin, estado:'pendiente' });
+    var ov = document.getElementById('incapacidadOverlay'); if(ov) ov.remove();
+    paToast('✅ Incapacidad registrada correctamente');
+    if (btn) { btn.disabled = false; btn.textContent = 'Guardar incapacidad'; }
+  }).catch(function(e) {
+    paToast('Error al guardar: '+e.message, true);
+    if (btn) { btn.disabled = false; btn.textContent = 'Guardar incapacidad'; }
+  });
+}
+
 
 function paGuardarIncapacidad() {
   var fechaInicio = (document.getElementById('incFechaInicio')||{}).value||'';
@@ -2279,17 +2365,38 @@ function paGuardarIncapacidad() {
   if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
 
   var file = fotoInput.files[0];
+
+  // RAMA PDF: subir directo sin canvas (no necesita resize)
+  if (file.type === 'application/pdf') {
+    var pdfReader = new FileReader();
+    pdfReader.onload = function(e) {
+      var pdfB64 = e.target.result; // data:application/pdf;base64,...
+      _paSubirIncapacidad(pdfB64, 'pdf', file.name, btn, fechaInicio, fechaFin, dias, motivo);
+    };
+    pdfReader.onerror = function() {
+      paToast('Error al leer el PDF', true);
+      if (btn) { btn.disabled = false; btn.textContent = 'Guardar incapacidad'; }
+    };
+    pdfReader.readAsDataURL(file);
+    return;
+  }
+
+  // RAMA IMAGEN: canvas resize para evitar OOM
   var url = URL.createObjectURL(file);
   var img = new Image();
   img.onload = function() {
     try {
-      var maxW = 800;
+      // Redimensionar agresivamente para evitar OOM en teléfonos con poca RAM
+      var maxW = 600, maxH = 800;
       var w = img.naturalWidth, h = img.naturalHeight;
       if (w > maxW) { h = Math.round(h*(maxW/w)); w = maxW; }
+      if (h > maxH) { w = Math.round(w*(maxH/h)); h = maxH; }
       var canvas = document.createElement('canvas');
       canvas.width = w; canvas.height = h;
       canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      var b64 = canvas.toDataURL('image/jpeg', 0.65);
+      var b64 = canvas.toDataURL('image/jpeg', 0.60);
+      // Liberar memoria inmediatamente
+      img.onload = null; img.src = '';
       URL.revokeObjectURL(url);
       canvas.width = 1; canvas.height = 1;
 
@@ -2303,6 +2410,7 @@ function paGuardarIncapacidad() {
         fechaInicio:   fechaInicio,
         fechaFin:      fechaFin,
         foto:          b64,
+        tipoArchivo:   'imagen',
         ts:            Date.now(),
         estado:        'pendiente',
         folio:         folio
@@ -2321,8 +2429,7 @@ function paGuardarIncapacidad() {
           }).catch(function(e){ console.warn('[AP Inc]', e.message); });
         }
         // Agregar a cache local para bloqueo inmediato
-        // AP por incapacidad
-        if (PA.empleado) { paDb.collection('paAccionesPersonal').add({ empresa:PA.empresa, empleadoId:PA.empleado.id, empleadoNombre:PA.empleado.nombre, cargo:PA.empleado.cargo||'', tipo:'INCAPACIDAD', fechaInicio:docData.fechaInicio, fechaFin:docData.fechaFin, dias:docData.dias, motivo:docData.motivo||'', estado:'emitida', fechaEmision:paHoy(), ts:Date.now() }).catch(function(e){}); }
+        // AP por incapacidad guardada arriba ↑
         PA._incapacidades = PA._incapacidades || [];
         PA._incapacidades.push(Object.assign({ id: folio }, docData));
         var ov = document.getElementById('incapacidadOverlay');
@@ -2882,6 +2989,69 @@ function paCerrarWarningTard() {
   if (ov) ov.remove();
 }
 
+// ── Gestión de avisos no persistentes por quincena ──────────────
+function _paCheckAvisosYMostrar(tard, bindDocId) {
+  if (!tard || !paDb || !bindDocId) {
+    // Sin datos suficientes → mostrar siempre (fallback seguro)
+    if (tard && tard.totalTard >= 2) paMostrarWarningTardanzas(tard);
+    return;
+  }
+
+  var q = _quincenaActual();
+  var pd = PA._horasMap && PA._horasMap[PA.empleado && PA.empleado.id];
+  var avisos = (pd && pd.avisosPA) ? pd.avisosPA : {};
+  var mismaQuincena = avisos.quincena === q.desde;
+
+  // Si cambia la quincena → resetear avisos
+  if (!mismaQuincena) {
+    avisos = { quincena: q.desde, tardanza2: false, tardanza4: false, faltas: [] };
+  }
+
+  var totalTard = tard.totalTard;
+  var mostrar = false;
+  var nuevoFlag = {};
+
+  if (totalTard >= 4 && !avisos.tardanza4) {
+    // 4+ tardanzas → AP aplicada, mostrar UNA vez
+    mostrar = true;
+    nuevoFlag = { tardanza4: true, tardanza2: true }; // ambos marcados
+  } else if (totalTard >= 2 && totalTard < 4 && !avisos.tardanza2) {
+    // 2-3 tardanzas → aviso temprano, mostrar UNA vez
+    mostrar = true;
+    nuevoFlag = { tardanza2: true };
+  }
+  // Si ya se mostró el aviso correspondiente → silencio
+
+  if (mostrar) {
+    // Guardar flag en Firestore ANTES de mostrar
+    var updateData = Object.assign({}, { avisosPA: Object.assign({}, avisos, nuevoFlag) });
+    paDb.collection('paPins').doc(bindDocId)
+      .update(updateData)
+      .catch(function(e){ console.warn('[avisosPA]', e.message); });
+    // Actualizar cache local también
+    if (pd) pd.avisosPA = updateData.avisosPA;
+    paMostrarWarningTardanzas(tard);
+  }
+}
+
+// ── Marcar falta notificada (llamado al generar AP por falta) ────
+function _paMarcarFaltaNotificada(bindDocId, fechaFalta) {
+  if (!paDb || !bindDocId) return;
+  var pd = PA._horasMap && PA._horasMap[PA.empleado && PA.empleado.id];
+  var avisos = (pd && pd.avisosPA) ? pd.avisosPA : {};
+  var q = _quincenaActual();
+  var mismaQuincena = avisos.quincena === q.desde;
+  if (!mismaQuincena) avisos = { quincena: q.desde, tardanza2: false, tardanza4: false, faltas: [] };
+  var faltas = avisos.faltas || [];
+  if (faltas.indexOf(fechaFalta) >= 0) return; // ya notificado
+  faltas = faltas.concat([fechaFalta]);
+  var updated = Object.assign({}, avisos, { faltas: faltas });
+  paDb.collection('paPins').doc(bindDocId).update({ avisosPA: updated })
+    .catch(function(e){ console.warn('[avisosPA falta]', e.message); });
+  if (pd) pd.avisosPA = updated;
+}
+
+
 function paMostrarWarningTardanzas(tard) {
   var old = document.getElementById('tardanzaWarningOv'); if(old) old.remove();
   var ov = document.createElement('div');
@@ -3103,7 +3273,8 @@ function paCapturarFoto() {
   if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
   canvas.width = w; canvas.height = h;
   canvas.getContext('2d').drawImage(video, 0, 0, w, h);
-  var b64 = canvas.toDataURL('image/jpeg', 0.70);
+  var b64 = canvas.toDataURL('image/jpeg', 0.65);
+  canvas.width = 1; canvas.height = 1; // liberar memoria
   paProcessCapturedImage(b64);
 }
 
@@ -5023,7 +5194,17 @@ function paCargarAPs(tipo) {
           detalleHtml = '<div style="margin-top:6px;font-size:11px;color:var(--muted)">Fecha de falta: '+(ap.fecha||'—')+'</div>';
         }
         if (ap.tipo==='INCAPACIDAD') {
-          detalleHtml = '<div style="margin-top:6px;font-size:11px;color:var(--muted)">Período: '+(ap.fechaInicio||'?')+' al '+(ap.fechaFin||'?')+' · '+(ap.dias||'?')+' día(s)</div>';
+          var _apFotoB64 = ap.foto || '';
+          var _apTipo    = ap.tipoArchivo || 'imagen';
+          var _verBtn    = '';
+          if (_apFotoB64 && _apFotoB64.length > 100) {
+            window._paAPMap[ap._id] = window._paAPMap[ap._id] || ap;
+            window._paAPMap[ap._id]._fotoB64 = _apFotoB64;
+            _verBtn = '<br><button data-apid="'+ap._id+'" onclick="paVerArchivoIncapacidad(this.dataset.apid)" '
+              +'style="margin-top:6px;background:rgba(56,139,253,.12);border:1px solid rgba(56,139,253,.3);color:#388bfd;border-radius:8px;padding:4px 10px;cursor:pointer;font-size:11px">'
+              +(_apTipo==='pdf' ? '📄 Ver PDF' : '🖼️ Ver imagen')+'</button>';
+          }
+          detalleHtml = '<div style="margin-top:6px;font-size:11px;color:var(--muted)">Período: '+(ap.fechaInicio||'?')+' al '+(ap.fechaFin||'?')+' · '+(ap.dias||'?')+' día(s)'+_verBtn+'</div>';
         }
         html += '<div class="report-row" style="border-left:3px solid '+ti.color+'">'
           +'<div style="flex:1">'
@@ -5059,6 +5240,37 @@ function paCargarAPs(tipo) {
         +'</div>';
     });
 }
+
+function paVerArchivoIncapacidad(apId) {
+  var ap = window._paAPMap && window._paAPMap[apId];
+  var b64 = ap && (ap._fotoB64 || ap.foto);
+  if (!b64 || b64.length < 100) { paToast('Sin archivo disponible', true); return; }
+  var tipoArchivo = (ap && ap.tipoArchivo) || 'imagen';
+
+  if (tipoArchivo === 'pdf') {
+    // PDF: abrir en nueva pestaña (es una URL de datos, no un documento interno)
+    var w = window.open('', '_blank');
+    if (w) {
+      w.document.write('<iframe src="'+b64+'" style="width:100%;height:100vh;border:none"></iframe>');
+      w.document.close();
+    } else {
+      paToast('Activa los popups para ver el PDF', true);
+    }
+  } else {
+    // Imagen: overlay en página
+    var old = document.getElementById('incImagenOverlay'); if(old) old.remove();
+    var ov = document.createElement('div');
+    ov.id = 'incImagenOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:99997;background:rgba(0,0,0,.9);display:flex;align-items:center;justify-content:center;padding:16px';
+    ov.onclick = function(){ ov.remove(); };
+    var img = document.createElement('img');
+    img.src = b64;
+    img.style.cssText = 'max-width:100%;max-height:90vh;object-fit:contain;border-radius:10px';
+    ov.appendChild(img);
+    document.body.appendChild(ov);
+  }
+}
+
 
 function paEliminarAP(apId) {
   if (!confirm('¿Eliminar esta Acción de Personal?')) return;
@@ -5351,7 +5563,14 @@ function paAdminEmps(content) {
       // Actualizar _horasMap en memoria con datos frescos
       snap.forEach(function(d){
         var pd = d.data();
-        if (pd.empleadoId) PA._horasMap[pd.empleadoId] = pd;
+        if (pd.empleadoId) {
+          PA._horasMap[pd.empleadoId]  = pd;
+          PA._pinsDocMap = PA._pinsDocMap || {};
+          PA._pinsDocMap[pd.empleadoId] = d.id;
+        }
+        // Siempre actualizar _pinsByDevice
+        PA._pinsByDevice = PA._pinsByDevice || {};
+        if (pd.deviceId) PA._pinsByDevice[pd.deviceId] = { docId: d.id, data: pd };
       });
       _paAdminEmpsRender(content);
     })
@@ -6050,8 +6269,22 @@ function paImprimirResumenHE(data) {
       +'</tr>';
   }).join('');
 
-  var w = window.open('','_blank','width=900,height=800');
-  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8">'
+  // Overlay en lugar de window.open (bloqueado en iOS)
+  var _heOld = document.getElementById('heResumenOverlay');
+  if (_heOld) _heOld.remove();
+  var _heOv = document.createElement('div');
+  _heOv.id = 'heResumenOverlay';
+  _heOv.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99997;background:#fff;overflow-y:auto;-webkit-overflow-scrolling:touch';
+  var _heBar = document.createElement('div');
+  _heBar.style.cssText = 'position:sticky;top:0;background:#1a3a5c;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;z-index:1';
+  _heBar.innerHTML = '<span style="color:#fff;font-size:14px;font-weight:700">⏰ Resumen Horas Extra</span>'
+    +'<div style="display:flex;gap:10px">'
+    +'<button id="hePrintBtn" style="background:#3fb950;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir</button>'
+    +'<button id="heCloseBtn" style="background:#ddd;color:#333;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer">✕ Cerrar</button>'
+    +'</div>';
+  var _heCont = document.createElement('div');
+  // Extraer body del HTML generado
+  var _heHtml = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
     +'<title>Horas Extra — '+data.desde+' al '+data.hasta+'</title>'
     +'<style>'
     +'body{font-family:Arial,sans-serif;font-size:12px;color:#111;padding:20px}'
@@ -6083,8 +6316,20 @@ function paImprimirResumenHE(data) {
     +'<button onclick="window.print()" style="background:#1a3a5c;color:#fff;border:none;border-radius:6px;padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer">'
     +'🖨️ Imprimir / Guardar PDF</button></div>'
     +'<script>window.onload=function(){window.print();}<\/script>'
-    +'</body></html>');
-  w.document.close();
+    +'</body></html>';
+  var _heBodyS = _heHtml.indexOf('<body');
+  var _heBodyE = _heHtml.lastIndexOf('</body>');
+  var _heBody = (_heBodyS > -1 && _heBodyE > -1)
+    ? _heHtml.slice(_heHtml.indexOf('>', _heBodyS)+1, _heBodyE)
+    : _heHtml;
+  _heCont.innerHTML = _heBody;
+  _heOv.appendChild(_heBar);
+  _heOv.appendChild(_heCont);
+  document.body.appendChild(_heOv);
+  document.getElementById('hePrintBtn').onclick = function(){ window.print(); };
+  document.getElementById('heCloseBtn').onclick = function(){
+    var o = document.getElementById('heResumenOverlay'); if(o) o.remove();
+  };
 }
 
 
@@ -6372,7 +6617,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-13-K';
+var PA_VERSION = 'v2026-06-15-B';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
@@ -6476,6 +6721,19 @@ var PA_VERSION = 'v2026-06-13-K';
 
 })();
 
+window.addEventListener('online', function() {
+  var badge = document.getElementById('offlineBadge');
+  if (badge) badge.remove();
+});
+window.addEventListener('offline', function() {
+  if (!document.getElementById('offlineBadge')) {
+    var b = document.createElement('div');
+    b.id = 'offlineBadge';
+    b.style.cssText = 'position:fixed;bottom:30px;left:50%;transform:translateX(-50%);z-index:9999;background:#e8a020;color:#000;padding:6px 16px;border-radius:20px;font-size:12px;font-weight:700;white-space:nowrap;pointer-events:none';
+    b.textContent = '📵 Sin internet — las marcaciones se guardarán al reconectarse';
+    document.body.appendChild(b);
+  }
+});
 window.addEventListener('DOMContentLoaded', function() {
   // Chequeo de versión inmediato al cargar — para usuarios con versión vieja
   // Se ejecuta antes de cualquier interacción, a los 3 segundos de carga
