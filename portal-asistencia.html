@@ -1978,8 +1978,8 @@ function paAfterAuth() {
       document.body.appendChild(ovUpd);
       // Limpiar flag EN FIRESTORE antes de recargar — reload dentro del .then para garantizar orden
       var _doReload = function(){
-        if(window.caches) caches.keys().then(function(k){k.forEach(function(n){caches.delete(n)});location.reload(true);}).catch(function(){location.reload(true);});
-        else location.reload(true);
+        if(window.caches) caches.keys().then(function(k){k.forEach(function(n){caches.delete(n)});window.location.replace(window.location.pathname+'?nocache='+Date.now());}).catch(function(){window.location.replace(window.location.pathname+'?nocache='+Date.now());});
+        else window.location.replace(window.location.pathname+'?nocache='+Date.now());
       };
       paDb.collection('paPins').doc(bindDocId).update({ requireUpdate: false })
         .then(_doReload).catch(_doReload);
@@ -6372,7 +6372,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-13-J';
+var PA_VERSION = 'v2026-06-13-K';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
@@ -6381,15 +6381,20 @@ var PA_VERSION = 'v2026-06-13-J';
   var _baseUrl = window.location.href.split('?')[0].split('#')[0];
 
   function _limpiarCacheYRecargar() {
+    // window.location.replace(window.location.pathname+'?nocache='+Date.now()) está DEPRECADO en browsers modernos y no bypassa CDN cache
+    // Usamos location.replace con URL única → fuerza petición nueva al CDN
+    var freshUrl = window.location.pathname + '?nocache=' + Date.now();
+    function _irFresh() { window.location.replace(freshUrl); }
     try {
       if (window.caches) {
-        caches.keys().then(function(keys){
-          Promise.all(keys.map(function(k){ return caches.delete(k); }))
-            .then(function(){ location.reload(true); })
-            .catch(function(){ location.reload(true); });
-        }).catch(function(){ location.reload(true); });
-      } else { location.reload(true); }
-    } catch(e) { location.reload(true); }
+        caches.keys()
+          .then(function(keys){
+            return Promise.all(keys.map(function(k){ return caches.delete(k); }));
+          })
+          .then(_irFresh)
+          .catch(_irFresh);
+      } else { _irFresh(); }
+    } catch(e) { _irFresh(); }
   }
 
   function _mostrarOverlayActualizar() {
@@ -6495,7 +6500,7 @@ window.addEventListener('DOMContentLoaded', function() {
           var banner = document.createElement('div');
           banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#e8a020;color:#000;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:14px;font-weight:700;box-shadow:0 3px 12px rgba(0,0,0,.4)';
           banner.innerHTML = '<span>⚠️ Nueva versión disponible. Actualiza para continuar correctamente.</span>'
-            +'<button onclick="(window.caches?caches.keys().then(function(k){k.forEach(function(n){caches.delete(n)});}):Promise.resolve()).then(function(){location.reload(true);})" '
+            +'<button onclick="_limpiarCacheYRecargar()" '
             +'style="background:#000;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">🔄 Actualizar</button>';
           document.body.appendChild(banner);
         }
