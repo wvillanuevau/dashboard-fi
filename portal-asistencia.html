@@ -1981,16 +1981,20 @@ function paAfterAuth() {
   if (thisDevice && !storedDevice) {
     var bindData = { deviceId: thisDevice, deviceVinculado: new Date().toISOString() };
     if (bindDocId) {
-      paDb.collection('paPins').doc(bindDocId).update(bindData)
+      // Actualiza deviceId en paPins existente
+      var _bindUpd = Object.assign({}, bindData, { lastVersion: PA_VERSION, lastSeen: Date.now(), empleadoId: emp.id, empresa: PA.empresa });
+      paDb.collection('paPins').doc(bindDocId).update(_bindUpd)
         .then(function() {
           emp.deviceId = thisDevice;
           if (PA._deviceMap) PA._deviceMap[emp.id] = thisDevice;
           paToast('Dispositivo vinculado correctamente.');
         }).catch(function(e) { paToast('Error al vincular: ' + e.message, true); });
     } else {
+      // Crea nuevo doc paPins con lastVersion incluida desde el inicio
       paDb.collection('paPins').add({
         empresa: PA.empresa, empleadoId: emp.id, pin: emp.pin || '',
-        deviceId: thisDevice, deviceVinculado: new Date().toISOString()
+        deviceId: thisDevice, deviceVinculado: new Date().toISOString(),
+        lastVersion: PA_VERSION, lastSeen: Date.now()
       }).then(function(ref) {
         emp.deviceId = thisDevice;
         PA._pinsDocMap[emp.id] = ref.id;
@@ -2026,7 +2030,7 @@ function paAfterAuth() {
     // Guardar versión actual del portal para que el admin pueda verla
     paDb.collection('paPins').doc(bindDocId)
       .update({ lastVersion: PA_VERSION, lastSeen: Date.now(), empleadoId: emp.id, empresa: PA.empresa })
-      .catch(function(){});
+      .catch(function(e){ console.warn('[lastVersion write failed]', e && e.message); });
   }
 
   // ── Configurar notificaciones ────────────────────────────────────
@@ -2618,8 +2622,8 @@ function _paToMs(ts) {
 // ══════════════════════════════════════════════════════
 function paAutoCompletarAlmuerzo(marcacionesHoy, fecha, empData, callback) {
   var HORA_ALMUERZO = 60 * 60 * 1000; // 60 minutos en ms
-  var HORA_CENA_INICIO = 19 * 60; // 19:00 en minutos del día
-  var HORA_CENA_FIN   = 20 * 60; // 20:00 en minutos del día
+  var HORA_CENA_INICIO = 20 * 60; // Cena solo después de las 20:00 // 19:00 en minutos del día
+  var HORA_CENA_FIN   = 21 * 60; // Cena: 20:00-21:00 // 20:00 en minutos del día
 
   function _tsAlmuerzoBase() {
     var dLocal = new Date();
@@ -6617,7 +6621,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-15-B';
+var PA_VERSION = 'v2026-06-15-D';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
