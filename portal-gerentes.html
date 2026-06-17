@@ -4005,7 +4005,13 @@ function paAdminHoy(content) {
       paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).get()
         .then(function(snapH) {
           var docsHEPend = [];
-          snapH.forEach(function(d){ var r=d.data(); if(r.estado==='pendiente') docsHEPend.push({id:d.id,h:r}); });
+          snapH.forEach(function(d){
+            var r=d.data();
+            if(r.estado!=='pendiente') return;
+            // Solo gerentes de zona
+            if(!PA.empleados||!PA.empleados.some(function(e){return e.id===r.empleadoId;})) return;
+            docsHEPend.push({id:d.id,h:r});
+          });
           if (docsHEPend.length > 0) {
             html += '<div class="section-title" style="margin-top:20px">⏳ Horas extra pendientes ('+docsHEPend.length+')</div>';
             docsHEPend.forEach(function(entry) {
@@ -6508,7 +6514,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-15-GZ-D';
+var PA_VERSION = 'v2026-06-15-GZ-E';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
