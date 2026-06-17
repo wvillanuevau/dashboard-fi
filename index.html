@@ -1678,184 +1678,7 @@ function applyMobileTableFix(){
   });
 }
 
-// Fecha local en formato YYYY-MM-DD (evita desfase UTC en El Salvador UTC-6)
-function _localDateStr(d) {
-  var dt = d || new Date();
-  return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
-}
-
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
-
-function ccImprimirReporte(){
-  var el=document.getElementById('ccReporteImprimible');
-  if(!el){toast('Genera el reporte primero',true);return;}
-  var w=window.open('','_blank','width=1100,height=800');
-  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8">');
-  w.document.write('<title>Reintegro Caja Chica</title>');
-  w.document.write('<style>');
-  w.document.write('body{font-family:Arial,sans-serif;background:#fff;color:#111;margin:0;padding:20px}');
-  w.document.write('table{border-collapse:collapse;width:100%}');
-  w.document.write('th,td{padding:6px 8px;font-size:11px;border:1px solid #cdd6e0}');
-  w.document.write('@media print{@page{margin:10mm;size:A4 landscape}body{padding:0}}');
-  w.document.write('</style></head><body>');
-  w.document.write(el.outerHTML);
-  w.document.write('<script>window.onload=function(){window.print();}<\/script>');
-  w.document.write('</body></html>');
-  w.document.close();
-}
-
-
-// ── Caja Chica — selección manual ────────────────────────────────────
-function ccToggleAll(chk){
-  document.querySelectorAll('.cc-chk').forEach(function(c){ c.checked=chk.checked; });
-  ccActualizarTotal();
-}
-
-function ccActualizarTotal(){
-  var tot=0;
-  document.querySelectorAll('.cc-chk:checked').forEach(function(c){ tot+=parseFloat(c.getAttribute('data-val'))||0; });
-  var el=document.getElementById('ccTotalSel');
-  if(el)el.textContent='$'+tot.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  var all=document.querySelectorAll('.cc-chk');
-  var chkd=document.querySelectorAll('.cc-chk:checked');
-  var allChk=document.getElementById('ccChkAll');
-  if(allChk)allChk.indeterminate=(chkd.length>0&&chkd.length<all.length);
-  if(allChk&&chkd.length===all.length)allChk.checked=true;
-  if(allChk&&chkd.length===0)allChk.checked=false;
-}
-
-function ccGenerarReporte(){
-  var ids=[];
-  document.querySelectorAll('.cc-chk:checked').forEach(function(c){ ids.push(c.getAttribute('data-id')); });
-  if(!ids.length){ toast('Selecciona al menos un gasto',true); return; }
-
-  var gastoCC=S.gastos.filter(function(g){ return ids.indexOf(g.id)>=0; });
-
-  var resp=(document.getElementById('ccRptResp')||{}).value||'';
-  var fondo=parseFloat((document.getElementById('ccRptFondo')||{}).value)||2000;
-  var empresa=(document.getElementById('ccRptEmpresa')||{}).value||((S.config&&S.config.ccEmpresa)||'FRANQUICIAS INTERNACIONALES, S.A. DE C.V.');
-  var dpto=(document.getElementById('ccRptDpto')||{}).value||((S.config&&S.config.ccDpto)||'MANTENIMIENTO');
-  var revisor=(document.getElementById('ccRptRev')||{}).value||'';
-  var autorizador=(document.getElementById('ccRptAut')||{}).value||'';
-  var logoUrl=(S.config&&S.config.logoUrl)||'';
-  var desde=(document.getElementById('rpDesde')||{}).value||'';
-  var hasta=(document.getElementById('rpHasta')||{}).value||'';
-
-  var totNeto=gastoCC.reduce(function(s,g){ return s+(parseFloat(g.valor)||0); },0);
-  var fondoDisp=fondo-totNeto;
-  var hoyStr=new Date().toLocaleDateString('es-SV',{day:'2-digit',month:'2-digit',year:'numeric'});
-  var periodoStr=(desde?fmtDate(desde):'—')+' al '+(hasta?fmtDate(hasta):'—');
-
-  var AZUL='#1a3a5c';
-  var AZUL_LIGHT='#e8f0f8';
-
-  var rows=gastoCC.map(function(g,i){
-    var pname=g.proyectoId?(S.proyectos.find(function(x){return x.id===g.proyectoId;})||{}).nombre||'—':'—';
-    var cc=g.centroId?(S.centros.find(function(x){return x.id===g.centroId;})||{}).nombre||'—':'—';
-    var bg=i%2===0?'#fff':'#f7faff';
-    return '<tr style="background:'+bg+'">'
-      +'<td style="padding:6px 8px;font-size:11px;border:1px solid #cdd6e0">'+esc(cc!=='—'?cc:pname)+'</td>'
-      +'<td style="padding:6px 8px;font-size:11px;border:1px solid #cdd6e0;text-align:center">'+(i+1)+'</td>'
-      +'<td style="padding:6px 8px;font-size:11px;border:1px solid #cdd6e0">'+fmtDate(g.fecha)+'</td>'
-      +'<td style="padding:6px 8px;font-size:11px;border:1px solid #cdd6e0">'+esc(g.proveedor||'—')+'</td>'
-      +'<td style="padding:6px 8px;font-size:11px;border:1px solid #cdd6e0">'+esc(g.factura||'—')+'</td>'
-      +'<td style="padding:6px 8px;font-size:11px;border:1px solid #cdd6e0">'+esc(g.descripcion||'—')+'</td>'
-      +'<td style="padding:6px 8px;font-size:11px;border:1px solid #cdd6e0;text-align:right">-</td>'
-      +'<td style="padding:6px 8px;font-size:11px;border:1px solid #cdd6e0;text-align:right">-</td>'
-      +'<td style="padding:6px 8px;font-size:11px;border:1px solid #cdd6e0;text-align:right">-</td>'
-      +'<td style="padding:6px 8px;font-size:11px;border:1px solid #cdd6e0;text-align:right;font-weight:700">'+fmtCur(g.valor)+'</td>'
-      +'</tr>';
-  }).join('');
-
-  var thStyle='padding:8px;font-size:10px;color:#fff;font-weight:700;border:1px solid #2a5a8c;text-align:left;background:'+AZUL;
-
-  var html='<div id="ccReporteImprimible" style="background:#fff;color:#111;padding:28px 32px;max-width:900px;margin:0 auto;font-family:Arial,sans-serif;font-size:12px">'
-    // ── Encabezado ──
-    +'<div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:10px;border-bottom:2px solid '+AZUL+';margin-bottom:14px">'
-      +'<div style="display:flex;align-items:center;gap:10px">'
-        +(logoUrl?'<img src="'+logoUrl+'" style="height:48px;width:auto;object-fit:contain">':'<div style="width:48px;height:48px;background:#eee;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:22px">💵</div>')
-        +'<div>'
-          +'<div style="font-weight:700;font-size:14px">'+esc(empresa)+'</div>'
-          +'<div style="font-size:12px;color:#555">'+esc(dpto)+'</div>'
-        +'</div>'
-      +'</div>'
-      +'<div style="font-size:11px;color:#555;text-align:right">Impreso: '+hoyStr+'</div>'
-    +'</div>'
-    // ── Título ──
-    +'<div style="text-align:center;font-weight:700;font-size:14px;text-decoration:underline;text-transform:uppercase;margin-bottom:14px">Reintegro de Fondo de Caja Chica</div>'
-    // ── Info box ──
-    +'<table style="width:100%;border-collapse:collapse;margin-bottom:14px;border:1px solid #cdd6e0">'
-      +'<tr>'
-        +'<td style="padding:7px 10px;border:1px solid #cdd6e0;background:'+AZUL_LIGHT+'"><strong>Período:</strong> '+periodoStr+'</td>'
-        +'<td style="padding:7px 10px;border:1px solid #cdd6e0;background:'+AZUL_LIGHT+'"><strong>Responsable:</strong> '+esc(resp||'—')+'</td>'
-      +'</tr>'
-      +'<tr>'
-        +'<td style="padding:7px 10px;border:1px solid #cdd6e0;background:'+AZUL_LIGHT+'"><strong>Nombre:</strong> CAJA CHICA</td>'
-        +'<td style="padding:7px 10px;border:1px solid #cdd6e0;background:'+AZUL_LIGHT+'"><strong>Fondo Autorizado:</strong> '+fmtCur(fondo)+'</td>'
-      +'</tr>'
-    +'</table>'
-    // ── Tabla ──
-    +'<table style="width:100%;border-collapse:collapse;margin-bottom:14px">'
-      +'<thead>'
-        +'<tr style="background:'+AZUL+'">'
-          +'<th style="'+thStyle+'">C.Costo</th>'
-          +'<th style="'+thStyle+';text-align:center;width:28px">No.</th>'
-          +'<th style="'+thStyle+'">Fecha</th>'
-          +'<th style="'+thStyle+'">Proveedor</th>'
-          +'<th style="'+thStyle+'">No. Documento</th>'
-          +'<th style="'+thStyle+'">Concepto</th>'
-          +'<th style="'+thStyle+';text-align:right">Monto Neto sin IVA</th>'
-          +'<th style="'+thStyle+';text-align:right">IVA</th>'
-          +'<th style="'+thStyle+';text-align:right">Retención</th>'
-          +'<th style="'+thStyle+';text-align:right">Monto Total</th>'
-        +'</tr>'
-      +'</thead>'
-      +'<tbody>'+rows+'</tbody>'
-      +'<tfoot>'
-        +'<tr style="background:'+AZUL_LIGHT+';font-weight:700">'
-          +'<td colspan="9" style="padding:7px 10px;text-align:right;font-size:12px;border:1px solid #cdd6e0">TOTAL</td>'
-          +'<td style="padding:7px 10px;text-align:right;font-size:13px;border:1px solid #cdd6e0">'+fmtCur(totNeto)+'</td>'
-        +'</tr>'
-      +'</tfoot>'
-    +'</table>'
-    // ── Resumen ──
-    +'<div style="background:'+AZUL+';border-radius:6px;padding:14px 20px;display:flex;gap:0;justify-content:space-around;margin-bottom:28px">'
-      +'<div style="text-align:center;color:#fff">'
-        +'<div style="font-size:10px;font-weight:700;letter-spacing:.6px;margin-bottom:5px">FONDO DE CAJA CHICA</div>'
-        +'<div style="font-size:20px;font-weight:700">'+fmtCur(fondo)+'</div>'
-      +'</div>'
-      +'<div style="text-align:center;color:#fff;border-left:1px solid rgba(255,255,255,.3);border-right:1px solid rgba(255,255,255,.3);padding:0 32px">'
-        +'<div style="font-size:10px;font-weight:700;letter-spacing:.6px;margin-bottom:5px">LIQUIDACIÓN ACTUAL</div>'
-        +'<div style="font-size:20px;font-weight:700;color:#ff9999">'+fmtCur(totNeto)+'</div>'
-      +'</div>'
-      +'<div style="text-align:center;color:#fff">'
-        +'<div style="font-size:10px;font-weight:700;letter-spacing:.6px;margin-bottom:5px">FONDO DISPONIBLE</div>'
-        +'<div style="font-size:20px;font-weight:700;color:'+(fondoDisp>=0?'#90ee90':'#ff9999')+'">'+fmtCur(fondoDisp)+'</div>'
-      +'</div>'
-    +'</div>'
-    // ── Firmas ──
-    +'<div style="display:flex;justify-content:space-around;gap:20px">'
-      +[['Responsable de Caja Chica',resp],['Revisado',revisor],['Autorizado',autorizador]].map(function(par){
-        return '<div style="flex:1;text-align:center">'
-          +'<div style="border-top:1.5px solid #111;margin-bottom:8px;padding-top:8px"></div>'
-          +'<div style="font-weight:700;font-size:12px;min-height:18px">'+esc(par[1]||'')+'</div>'
-          +'<div style="font-size:11px;color:#555">'+par[0]+'</div>'
-          +'</div>';
-      }).join('')
-    +'</div>'
-  +'</div>';
-
-  var out=document.getElementById('reportOutput');
-  if(out){
-    out.innerHTML=html
-      +'<div style="display:flex;gap:8px;margin-top:12px">'
-      +'<button class="btn btn-primary" onclick="ccImprimirReporte()">🖨 Imprimir / PDF</button>'
-      +'<button class="btn btn-secondary" onclick="renderReporteOutput()">← Volver a selección</button>'
-      +'</div>';
-  }
-}
-
-
 
 // ── Mini Calendario Reutilizable ─────────────────────────
 function miniCalHTML(currentDate, onSelectFn, markedDates, maxDate){
@@ -1898,7 +1721,7 @@ function miniCalHTML(currentDate, onSelectFn, markedDates, maxDate){
   html+='</div></div>';
   return html;
 }
-function fmt(n){return fmtCur(n);} // alias → fmtCur para consistencia
+function fmt(n){return'$'+(parseFloat(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
 
 // ── Helpers de ordenamiento de tablas (genéricos, reusables, sin tocar datos) ──
 // Uso: thSort('gastos','valor','Valor', {style:'text-align:right', cls:'hide-sm'})
@@ -2678,7 +2501,7 @@ async function _doSaveFirebase(){
       if(asisSize>500000){
         console.warn('[PP] asistencia muy grande:',Math.round(asisSize/1024)+'KB — truncando >90 días');
         var cutoff=new Date();cutoff.setDate(cutoff.getDate()-90);
-        var cutStr=_localDateStr(cutoff);
+        var cutStr=cutoff.toISOString().slice(0,10);
         if(S.asistencia&&S.asistencia.registros)
           S.asistencia.registros=S.asistencia.registros.filter(function(r){return(r.fecha||'')>=cutStr;});
         toast('ℹ Historial de asistencia compactado para optimizar el guardado',false);
@@ -2753,7 +2576,7 @@ function loadBadges(){
 
   var t=S.taller||{};
   var m=S.mantenimiento||{};
-  var hoy=_localDateStr(); // fecha local El Salvador
+  var hoy=new Date().toISOString().slice(0,10);
 
   // OTs VENCIDAS únicamente (pendientes normales no requieren acción urgente)
   var otsVenc=((t.ots||[]).filter(function(o){
@@ -2799,19 +2622,20 @@ function loadBadges(){
   // Re-renderizar nav con datos locales inmediatamente
   if(S.currentUser)_renderNavBadges();
 
-  // Solicitudes nuevas — single WHERE para evitar índice compuesto
+  // Solicitudes nuevas (Firestore) — async
   var db=firebase.firestore();
   db.collection('solicitudesTaller')
-    .where('empresa','==',S.empresa).get()
+    .where('empresa','==',S.empresa).where('estado','==','nueva').get()
     .then(function(snap){
-      var n=0; snap.forEach(function(d){ if(d.data().estado==='nueva') n++; });
-      S._badges.taller_solicitudes=n; _renderNavBadges();
+      S._badges.taller_solicitudes=snap.size||0;
+      _renderNavBadges();
     }).catch(function(){});
+
   db.collection('solicitudesMant')
-    .where('empresa','==',S.empresa).get()
+    .where('empresa','==',S.empresa).where('estado','==','nueva').get()
     .then(function(snap){
-      var n=0; snap.forEach(function(d){ if(d.data().estado==='nueva') n++; });
-      S._badges.mant_solicitudes=n; _renderNavBadges();
+      S._badges.mant_solicitudes=snap.size||0;
+      _renderNavBadges();
     }).catch(function(){});
 }
 
@@ -2972,7 +2796,7 @@ function confirmarReconstruccion(n){
     S.inventario.productos.push(prod);
     // Crear movimiento de entrada
     movs.push({id:genId(),_ca:Date.now(),tipo:'entrada',prodId:prod.id,bodegaId:bodegaId,
-      cantidad:cant,fecha:_localDateStr(),nota:'Recuperado de logs',origen:null,destino:null});
+      cantidad:cant,fecha:new Date().toISOString().slice(0,10),nota:'Recuperado de logs',origen:null,destino:null});
     importados++;
   }
   if(movs.length){
@@ -3048,8 +2872,7 @@ function _syncPortalPublico(){
     .filter(function(e){return !e.estado||e.estado==='activo';})
     .map(function(e){return{id:e.id,nombre:e.nombre,ubicacionId:e.ubicacionId||e.centroId||'',ubicacionTipo:e.ubicacionTipo||'centro',categoria:e.categoria||''};});
   var centrosPublicos=(S.centros||[]).map(function(c){return{id:c.id,nombre:c.nombre};});
-  // Tecnicos desde S (fuente principal del sistema)
-  var tecnicosDeS=((S.mantenimiento&&S.mantenimiento.tecnicos)||[])
+  var tecnicosPublicos=((S.mantenimiento&&S.mantenimiento.tecnicos)||[])
     .filter(function(t){return t.activo!==false;})
     .map(function(t){return{id:t.id,nombre:t.nombre,cargo:t.cargo||'tecnico',telefono:t.telefono||''};});
   var vehiculosPublicos=((S.taller&&S.taller.vehiculos)||[])
@@ -3070,44 +2893,15 @@ function _syncPortalPublico(){
         origenSolicitud:o.origenSolicitud||''
       };
     });
-  // MERGE SEGURO: leer portalesPublicos primero y preservar empleados que
-  // no están en S.mantenimiento.tecnicos (previene borrado por datos desactualizados)
-  // IDs de TODOS los empleados en S (incluye inactivos con activo:false)
-  // Esto distingue "ausente por dato desactualizado" de "borrado intencionalmente"
-  var todosIdsEnS=((S.mantenimiento&&S.mantenimiento.tecnicos)||[]).map(function(t){return t.id;});
-
-  var docRef=db.collection('portalesPublicos').doc(S.empresa);
-  docRef.get().then(function(snap){
-    var tecnicosExistentes=snap.exists?(snap.data().tecnicos||[]):[];
-    // Preservar SOLO los que están en Firestore pero AUSENTES de S por completo
-    // (no los que están en S con activo:false — esos fueron borrados intencionalmente)
-    var tecnosPreservados=tecnicosExistentes.filter(function(t){
-      return t.activo!==false && todosIdsEnS.indexOf(t.id)<0;
-    });
-    var tecnicosPublicos=tecnicosDeS.concat(tecnosPreservados);
-    console.log('[PortalSync] tecnicos S:'+tecnicosDeS.length+' preservados:'+tecnosPreservados.length+' total:'+tecnicosPublicos.length);
-    docRef.set({
-      empresa:S.empresa,
-      centros:centrosPublicos,
-      equipos:equiposPublicos,
-      tecnicos:tecnicosPublicos,
-      vehiculos:vehiculosPublicos,
-      ots:otsPublicas,
-      _ts:Date.now()
-    },{merge:true}).catch(function(e){console.warn('[Portal] Sync error:',e.message);});
-  }).catch(function(e){
-    // Fallback: escribir con los datos de S solamente
-    console.warn('[Portal] No se pudo leer estado previo, usando S local:',e.message);
-    docRef.set({
-      empresa:S.empresa,
-      centros:centrosPublicos,
-      equipos:equiposPublicos,
-      tecnicos:tecnicosDeS,
-      vehiculos:vehiculosPublicos,
-      ots:otsPublicas,
-      _ts:Date.now()
-    },{merge:true}).catch(function(e2){console.warn('[Portal] Sync error:',e2.message);});
-  });
+  db.collection('portalesPublicos').doc(S.empresa).set({
+    empresa:S.empresa,
+    centros:centrosPublicos,
+    equipos:equiposPublicos,
+    tecnicos:tecnicosPublicos,
+    vehiculos:vehiculosPublicos,
+    ots:otsPublicas,
+    _ts:Date.now()
+  },{merge:true}).catch(function(e){console.warn('[Portal] Sync error:',e.message);});
 }
 
 function applyBranding(){
@@ -3264,8 +3058,6 @@ function enterApp(email,rol,nombre,permisos,proyectosPermitidos){
 }
 
 async function logout(){
-  try{
-
   logAction('LOGOUT','auth','Sesión cerrada');
   stopSessionTimer(); // detener timer de inactividad
   window.FB&&window.FB.stopListen&&window.FB.stopListen();
@@ -3280,8 +3072,6 @@ async function logout(){
   document.getElementById('step1Err').textContent='';
   document.getElementById('loginErr').textContent='';
   showStep(1);closeSB();
-
-  }catch(e){console.error('[logout]',e.message);toast('Error: '+e.message,true);}
 }
 
 // ═══════════════════════════════════════════════════════
@@ -3340,8 +3130,6 @@ function renderSA(){
 function goSATab(t){SA_TAB=t;renderSA()}
 
 async function renderSADashboard(){
-  try{
-
   const [empresas,usuarios]=await Promise.all([window.FB.getAllEmpresas(),window.FB.getAllUsuarios()]);
   const activas=empresas.filter(e=>e.activa!==false).length;
   const suspendidas=empresas.filter(e=>e.activa===false).length;
@@ -3381,8 +3169,6 @@ async function renderSADashboard(){
       </tr>`;
     }).join('')}</tbody>
   </table></div>`;
-
-  }catch(e){console.error('[renderSADashboard]',e.message);toast('Error: '+e.message,true);}
 }
 
 async function renderSAEmpresas(){
@@ -3557,8 +3343,6 @@ function updPlanInfo(){
 }
 
 async function guardarEmpresa(editId){
-  try{
-
   const codigo=((document.getElementById('eCodigo')||{}).value||'').trim().toUpperCase();
   const nombre=((document.getElementById('eNombre')||{}).value||'').trim();
   if(!codigo){toast('El código es requerido',true);return}
@@ -3610,8 +3394,6 @@ async function guardarEmpresa(editId){
     document.getElementById('modalEmp').style.display='none';
     renderSA();
   } else toast('Error: '+r.err,true);
-
-  }catch(e){console.error('[guardarEmpresa]',e.message);toast('Error: '+e.message,true);}
 }
 
 async function toggleEmpresa(id,activa){
@@ -3916,8 +3698,6 @@ async function eliminarUsuarioSA(uid,email){
 }
 
 async function eliminarEmpresaSA(id){
-  try{
-
   if(!confirm(`¿ELIMINAR PERMANENTEMENTE la empresa:\n${id}\n\n⚠ ADVERTENCIA: Se eliminarán los registros de _empresas y empresas.\nLos usuarios de esta empresa quedarán sin acceso.\nEsta acción NO se puede deshacer.`))return;
   const r=await window.FB.deleteEmpresaDoc(id);
   if(r.ok){
@@ -3925,8 +3705,6 @@ async function eliminarEmpresaSA(id){
     await window.FB.logSA('ELIMINAR_EMPRESA',`Empresa ${id} eliminada permanentemente`);
     renderSAEmpresas();
   } else toast('Error: '+r.err,true);
-
-  }catch(e){console.error('[eliminarEmpresaSA]',e.message);toast('Error: '+e.message,true);}
 }
 
 async function toggleUsuarioSA(uid,activo){
@@ -3989,7 +3767,7 @@ async function renderSAFacturacion(){
     <div class="row3">
       <div class="fg"><label>Empresa *</label><select id="fEmp" onchange="cargarFacturas()"><option value="">— Seleccionar —</option>${empOpts}</select></div>
       <div class="fg"><label>Monto ($) *</label><input type="number" id="fMonto" min="0" placeholder="0.00"></div>
-      <div class="fg"><label>Fecha *</label><input type="date" id="fFecha" value="${_localDateStr()}"></div>
+      <div class="fg"><label>Fecha *</label><input type="date" id="fFecha" value="${new Date().toISOString().slice(0,10)}"></div>
     </div>
     <div class="row3">
       <div class="fg"><label>Plan facturado</label><select id="fPlan"><option value="">—</option>${PLANES_DEF.map(p=>`<option value="${p.id}">${p.label}</option>`).join('')}</select></div>
@@ -4228,8 +4006,6 @@ function elimProyecto(id){
   if(!confirm(`¿Eliminar "${p.nombre}"?`))return;
   S.proyectos=S.proyectos.filter(x=>x.id!==id);
   S.centros=S.centros.filter(c=>!(c.proyectoId===id&&c.auto));
-  // Desvincular gastos huérfanos (proyectoId → null para no romper reportes)
-  S.gastos.forEach(function(g){ if(g.proyectoId===id){ g.proyectoId=null; g.sumarAlProy=false; } });
   logAction('ELIMINAR','proyectos',`Proyecto: ${p.nombre}`);
   saveData();closeModal('modalDP');render();toast('✓ Eliminado');
 }
@@ -4960,7 +4736,7 @@ function renderGastos(){
     </div>
     <div class="row3">
       <div class="fg"><label>Valor * ($)</label><input type="number" min="0" step="0.01" id="gValor" placeholder="0.00"></div>
-      <div class="fg"><label>Fecha</label><input type="date" id="gFecha" value="${_localDateStr()}"></div>
+      <div class="fg"><label>Fecha</label><input type="date" id="gFecha" value="${new Date().toISOString().slice(0,10)}"></div>
       <div class="fg"><label>Descripción</label><input id="gDesc" placeholder="Concepto del gasto"></div>
     </div>
     <div class="fg">
@@ -5967,7 +5743,7 @@ function renderReportes(){
         </select>
       </div>
       <div class="fg"><label>Desde</label><input type="date" id="rpDesde" onchange="renderReporteOutput()"></div>
-      <div class="fg"><label>Hasta</label><input type="date" id="rpHasta" value="${_localDateStr()}" onchange="renderReporteOutput()"></div>
+      <div class="fg"><label>Hasta</label><input type="date" id="rpHasta" value="${new Date().toISOString().slice(0,10)}" onchange="renderReporteOutput()"></div>
       <div class="fg"><label>Proyecto</label>
         <select id="rpProyecto" onchange="renderReporteOutput()">
           <option value="">Todos</option>
@@ -6312,34 +6088,116 @@ function renderReporteOutput(){
   }
 
   else if(tipo==='reintegro_caja_chica'){
-    // ── Reintegro de Caja Chica con selección manual ──────────────────
-    var _ccFechaIngreso=function(g){
-      if(g.creadoEn)return new Date(g.creadoEn).toISOString().slice(0,10);
-      if(g._ca)return new Date(g._ca).toISOString().slice(0,10);
-      if(g.id&&g.id.length>=8){var ts=parseInt(g.id.slice(0,11),16);if(!isNaN(ts)&&ts>1e12)return new Date(ts).toISOString().slice(0,10);}
-      return g.fecha||'';
-    };
-    var _fmtFI=function(g){
-      var fi=_ccFechaIngreso(g);return fi?fmtDate(fi):'—';
-    };
-    var gastosDisp=S.gastos.filter(function(g){return g.cajaChica===true&&!g.reintegradoEn;});
-    if(desde)gastosDisp=gastosDisp.filter(function(g){return _ccFechaIngreso(g)>=desde;});
-    if(hasta)gastosDisp=gastosDisp.filter(function(g){return _ccFechaIngreso(g)<=hasta;});
-    if(proyId)gastosDisp=gastosDisp.filter(function(g){return g.proyectoId===proyId;});
+    // Gastos de caja chica en el rango de fechas (solo los no reintegrados aún)
+    let gastoCC=S.gastos.filter(g=>g.cajaChica===true&&!g.reintegradoEn);
+    if(desde)gastoCC=gastoCC.filter(g=>g.fecha>=desde);
+    if(hasta)gastoCC=gastoCC.filter(g=>g.fecha<=hasta);
+    if(proyId)gastoCC=gastoCC.filter(g=>g.proyectoId===proyId);
 
-    // Mostrar selector manual
-    var checkRows=gastosDisp.map(function(g,i){
-      var pname=g.proyectoId?(S.proyectos.find(function(x){return x.id===g.proyectoId;})||{}).nombre||'—':'—';
-      var cc=g.centroId?(S.centros.find(function(x){return x.id===g.centroId;})||{}).nombre||'—':'—';
-      var ingreso=_fmtFI(g);
-      return '<tr style="cursor:pointer" onclick="this.querySelector(\'input\').click()">'        +'<td style="text-align:center;padding:6px 8px"><input type="checkbox" class="cc-chk" data-id="'+esc(g.id)+'" data-val="'+esc(String(g.valor||0))+'" checked onclick="event.stopPropagation();ccActualizarTotal()"></td>'        +'<td style="padding:6px 8px;font-size:12px">'+esc(cc!=='—'?cc:pname)+'</td>'        +'<td style="padding:6px 8px;font-size:12px">'+fmtDate(g.fecha)+'</td>'        +'<td style="padding:6px 8px;font-size:12px;color:var(--muted)">'+ingreso+'</td>'        +'<td style="padding:6px 8px;font-size:12px">'+esc(g.proveedor||'—')+'</td>'        +'<td style="padding:6px 8px;font-size:12px">'+esc(g.factura||'—')+'</td>'        +'<td style="padding:6px 8px;font-size:12px">'+esc(g.descripcion||'—')+'</td>'        +'<td style="padding:6px 8px;font-size:12px;font-weight:700;text-align:right">'+fmtCur(g.valor)+'</td>'        +'</tr>';
-    }).join('');
+    // Leer valores de los campos extra si existen
+    const resp=(document.getElementById('ccRptResp')||{}).value||'';
+    const fondo=parseFloat((document.getElementById('ccRptFondo')||{}).value)||2000;
+    const empresa=(document.getElementById('ccRptEmpresa')||{}).value||((S.config&&S.config.ccEmpresa)||'FRANQUICIAS INTERNACIONALES, S.A. DE C.V.');
+    const dpto=(document.getElementById('ccRptDpto')||{}).value||((S.config&&S.config.ccDpto)||'MANTENIMIENTO');
 
-    html='<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px">'      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">'      +'<div style="font-weight:700;font-size:14px">Selecciona los gastos a incluir en el reintegro</div>'      +'<div style="display:flex;gap:8px;align-items:center">'      +'<span style="font-size:12px;color:var(--muted)">Total seleccionado:</span>'      +'<span id="ccTotalSel" style="font-size:16px;font-weight:700;color:var(--accent)">$0.00</span>'      +'</div></div>'      +(gastosDisp.length===0?'<div class="empty" style="padding:20px;text-align:center">Sin gastos de caja chica en el período</div>':        '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">'        +'<thead><tr style="background:var(--surface2)">'        +'<th style="padding:7px 8px;font-size:10px;border:1px solid var(--border)"><input type="checkbox" id="ccChkAll" checked onclick="ccToggleAll(this)" title="Seleccionar todos"></th>'        +'<th style="padding:7px 8px;text-align:left;font-size:10px;border:1px solid var(--border)">C.Costo / Proyecto</th>'        +'<th style="padding:7px 8px;text-align:left;font-size:10px;border:1px solid var(--border)">F. Factura</th>'        +'<th style="padding:7px 8px;text-align:left;font-size:10px;border:1px solid var(--border)">F. Ingreso</th>'        +'<th style="padding:7px 8px;text-align:left;font-size:10px;border:1px solid var(--border)">Proveedor</th>'        +'<th style="padding:7px 8px;text-align:left;font-size:10px;border:1px solid var(--border)">Documento</th>'        +'<th style="padding:7px 8px;text-align:left;font-size:10px;border:1px solid var(--border)">Concepto</th>'        +'<th style="padding:7px 8px;text-align:right;font-size:10px;border:1px solid var(--border)">Monto</th>'        +'</tr></thead>'        +'<tbody>'+checkRows+'</tbody>'        +'</table></div>'        +'<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">'        +'<button class="btn btn-primary" onclick="ccGenerarReporte()">📄 Generar reporte con selección</button>'        +'</div>'      )+      '</div>';
+    const totNeto=gastoCC.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
+    // Para caja chica, el valor del gasto se trata como Monto Total (neto+iva-ret incluidos)
+    const fondoDisp=fondo-totNeto;
 
+    let rows=gastoCC.length===0
+      ?`<tr><td colspan="7" class="empty" style="text-align:center;padding:20px">Sin gastos de caja chica en el período seleccionado</td></tr>`
+      :'';
+    gastoCC.forEach((g,i)=>{
+      const pname=g.proyectoId?(S.proyectos.find(x=>x.id===g.proyectoId)||{}).nombre||'—':'—';
+      const cc=g.centroId?(S.centros.find(x=>x.id===g.centroId)||{}).nombre||'—':'—';
+      rows+=`<tr>
+        <td style="font-size:12px">${cc!=='—'?cc:pname}</td>
+        <td style="text-align:center;font-size:12px">${i+1}</td>
+        <td style="font-size:12px">${fmtDate(g.fecha)}</td>
+        <td style="font-size:12px">${esc(g.proveedor||'—')}</td>
+        <td style="font-size:12px">${esc(g.factura||'—')}</td>
+        <td style="font-size:12px">${esc(g.descripcion||'—')}</td>
+        <td style="text-align:right;font-size:12px;font-weight:700">${fmtCur(g.valor)}</td>
+      </tr>`;
+    });
+
+    const logoUrl=(S.config&&S.config.logoUrl)||'';
+
+    html=`
+    <div style="border-radius:12px;border:1px solid var(--border);overflow:hidden;background:var(--surface)">
+      <!-- Encabezado -->
+      <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:16px">
+          ${logoUrl?`<img src="${logoUrl}" style="height:52px;width:auto;object-fit:contain;border-radius:6px;background:#fff;padding:4px">`:
+            `<div style="width:52px;height:52px;border-radius:8px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:24px;border:1px solid var(--border)">💵</div>`}
+          <div>
+            <div style="font-weight:700;font-size:15px">${esc(empresa)}</div>
+            <div style="color:var(--muted);font-size:13px;margin-top:2px">${esc(dpto)}</div>
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:14px;font-weight:700;text-decoration:underline;text-transform:uppercase">Reintegro de Fondo de Caja Chica</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:6px">Período: <strong>${desde?fmtDate(desde):'—'}</strong> al <strong>${hasta?fmtDate(hasta):'—'}</strong></div>
+          <div style="font-size:12px;color:var(--muted)">Responsable: <strong>${esc(resp)||'—'}</strong></div>
+          <div style="font-size:12px;color:var(--muted)">Fondo Autorizado: <strong>${fmtCur(fondo)}</strong></div>
+        </div>
+      </div>
+      <!-- Tabla de gastos -->
+      <div style="padding:16px 22px;border-bottom:1px solid var(--border);overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr style="background:var(--surface2)">
+              <th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid var(--border)">C.Costo</th>
+              <th style="padding:8px 10px;text-align:center;font-size:11px;border:1px solid var(--border)">No.</th>
+              <th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid var(--border)">Fecha</th>
+              <th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid var(--border)">Proveedor</th>
+              <th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid var(--border)">No. Documento</th>
+              <th style="padding:8px 10px;text-align:left;font-size:11px;border:1px solid var(--border)">Concepto</th>
+              <th style="padding:8px 10px;text-align:right;font-size:11px;border:1px solid var(--border)">Monto Total</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+          <tfoot>
+            <tr style="background:var(--surface2);font-weight:700">
+              <td colspan="6" style="padding:8px 10px;text-align:right;font-size:12px;border:1px solid var(--border)">TOTAL LIQUIDACIÓN</td>
+              <td style="padding:8px 10px;text-align:right;font-size:12px;border:1px solid var(--border);color:var(--red)">${fmtCur(totNeto)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <!-- Resumen de fondo -->
+      <div style="padding:16px 22px;border-bottom:1px solid var(--border);display:flex;gap:32px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Fondo de Caja Chica</div>
+          <div style="font-size:20px;font-weight:700">${fmtCur(fondo)}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Liquidación Actual</div>
+          <div style="font-size:20px;font-weight:700;color:var(--red)">${fmtCur(totNeto)}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Fondo Disponible</div>
+          <div style="font-size:20px;font-weight:700;color:${fondoDisp>=0?'var(--green)':'var(--red)'}">${fmtCur(fondoDisp)}</div>
+        </div>
+        <div style="margin-left:auto;align-self:center">
+          <span style="font-size:12px;color:var(--muted)">${gastoCC.length} gasto${gastoCC.length!==1?'s':''} de caja chica en el período</span>
+        </div>
+      </div>
+      <!-- Bloque de firmas -->
+      <div style="padding:22px 22px;display:flex;gap:0;justify-content:space-around">
+        ${['Responsable de Caja Chica','Revisado','Autorizado'].map((cargo,i)=>{
+          const nombres=[resp,(document.getElementById('ccRptRev')||{}).value||'',(document.getElementById('ccRptAut')||{}).value||''];
+          return`<div style="text-align:center;flex:1;padding:0 12px">
+            <div style="border-top:1px solid var(--text);padding-top:10px;margin-bottom:6px"></div>
+            <div style="font-weight:700;font-size:12px">${esc(nombres[i])||'_____________________'}</div>
+            <div style="font-size:11px;color:var(--muted)">${cargo}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
   }
 
-    else if(tipo==='herramientas_por_empleado'){
+  else if(tipo==='herramientas_por_empleado'){
     const hoyStr=new Date().toLocaleDateString('es-SV',{day:'2-digit',month:'2-digit',year:'numeric'});
     const tecnicos=((S.mantenimiento&&S.mantenimiento.tecnicos)||[]).filter(function(t){return t.activo!==false;});
     const todasHerr=((S.inventario&&S.inventario.productos)||[]).filter(function(p){return p.categoria==='Herramientas';});
@@ -6677,17 +6535,10 @@ function ccRptImprimir(histId){
 }
 
 function ccGuardarReintegro(){
-  // Leer IDs seleccionados de los checkboxes
-  var idsSeleccionados=[];
-  document.querySelectorAll('.cc-chk:checked').forEach(function(c){ idsSeleccionados.push(c.getAttribute('data-id')); });
-  // Leer campos del formulario vía _ccGetFormData pero sobrescribir gastoCC con selección
   const data=_ccGetFormData();
-  if(idsSeleccionados.length>0){
-    data.gastoCC=S.gastos.filter(function(g){ return idsSeleccionados.indexOf(g.id)>=0; });
-  }
   if(!data.resp){toast('Ingresa el nombre del responsable antes de guardar',true);return;}
-  if(!data.gastoCC.length){toast('Selecciona al menos un gasto para guardar',true);return;}
-  if(!confirm('¿Guardar reintegro con '+data.gastoCC.length+' gasto'+(data.gastoCC.length!==1?'s':'')+' seleccionado'+(data.gastoCC.length!==1?'s':'')+' por '+fmtCur(data.gastoCC.reduce(function(s,g){return s+(parseFloat(g.valor)||0);},0))+'?'))return;
+  if(!data.gastoCC.length){toast('Sin gastos de caja chica pendientes en el período',true);return;}
+  if(!confirm(`¿Guardar reintegro del período ${data.desde?fmtDate(data.desde):'—'} al ${fmtDate(data.hasta)} con ${data.gastoCC.length} gastos?`))return;
   if(!S.cajachica)S.cajachica={reintegros:[]};
   const reintegroId=genId();
   // Snapshot de los gastos al momento de guardar
@@ -7999,7 +7850,7 @@ function guardarProducto(btn){
   if(fotoData){window.FB.saveComprobante(S.empresa,'prod_'+prodId,fotoData).catch(console.error);}
   if(cant>0){
     S.inventario.movimientos.push({id:genId(),_ca:Date.now(),tipo:'entrada',prodId:prod.id,bodegaId,cantidad:cant,
-      fecha:_localDateStr(),nota:'Stock inicial',ts:Date.now()});
+      fecha:new Date().toISOString().slice(0,10),nota:'Stock inicial',ts:Date.now()});
   }
   saveData();
   logAction('CREAR','inventario','Producto: '+nombre+' (cant: '+cant+')');
@@ -8030,7 +7881,7 @@ function movInventario(prodId,tipo){
         <select id="mvBod">${bodegas.map(b=>`<option value="${b.id}" ${b.id===prod.bodegaId?'selected':''}>${esc(b.nombre)}</option>`).join('')}</select>
       </div>
     </div>
-    <div class="fg"><label>Fecha</label><input type="date" id="mvFecha" value="${_localDateStr()}"></div>
+    <div class="fg"><label>Fecha</label><input type="date" id="mvFecha" value="${new Date().toISOString().slice(0,10)}"></div>
 
     ${tipo==='entrada'?`
     <!-- ENTRADA: Proveedor O Centro de Costo -->
@@ -8915,7 +8766,7 @@ function renderDashboard(){
         var maxFecha='';
         todasSubs.forEach(function(s){if(s.fechaInicio&&s.fechaInicio>maxFecha)maxFecha=s.fechaInicio;});
         if(maxFecha){
-          var hoy=_localDateStr();
+          var hoy=new Date().toISOString().slice(0,10);
           var diff=Math.ceil((new Date(maxFecha)-new Date(hoy))/(86400000));
           if(diff>0)diasRestTxt=diff+' días rest.';
           else if(diff<0)diasRestTxt=Math.abs(diff)+' días vencido';
@@ -10058,7 +9909,7 @@ function mantBadgePrioridad(p){
   return p==='urgente'?'<span class="badge b-err">Urgente</span>':'<span class="badge b-neu">Normal</span>';
 }
 
-function mantHoy(){return _localDateStr();} // fecha local, no UTC
+function mantHoy(){return new Date().toISOString().slice(0,10);}
 
 function mantEnSemana(fecha){
   if(!fecha)return false;
@@ -10158,7 +10009,6 @@ function eliminarRegistroMant(id){
   m.registros=m.registros.filter(function(r){return r.id!==id;});
   var eq=reg?(m.equipos||[]).find(function(e){return e.id===reg.equipoId;}):null;
   logAction('ELIMINAR','mantenimiento','Registro de: '+(eq?eq.nombre:id));
-  markDirty('mantenimiento');
   saveData();
   renderMantPanel();
   toast('Registro eliminado');
@@ -10784,7 +10634,6 @@ function guardarEquipo(id){
       (datos.origen==='compra_local'?'Compra local':'Equipo preexistente'));
     logAction('CREAR','mant_equipo','Equipo: '+nombre);
   }
-  markDirty('mantenimiento');
   saveData();
   var div=document.getElementById('modalEquipoDiv');
   if(div)div.remove();
@@ -10799,7 +10648,7 @@ function _registrarMovimientoEquipo(equipoId, origenTipo, origenId, destinoTipo,
   m.movimientosEquipos.push({
     id:'me_'+Date.now().toString(36),
     equipoId:equipoId,
-    fecha:_localDateStr(),
+    fecha:new Date().toISOString().slice(0,10),
     ts:Date.now(),
     usuario:S.currentUser?S.currentUser.email:'sistema',
     tipoMov:tipoMov, // 'ingreso' | 'traslado' | 'baja'
@@ -10886,7 +10735,7 @@ function ejecutarMoverEquipo(id){
 
   if(tipoMov==='baja'){
     eq.estado='baja';
-    eq.fechaBaja=_localDateStr();
+    eq.fechaBaja=new Date().toISOString().slice(0,10);
     eq.motivoBaja=motivo;
     _registrarMovimientoEquipo(id, oldTipo, oldId, null, null, 'baja', motivo);
     logAction('BAJA','mant_equipo','Baja: '+eq.nombre);
@@ -10916,7 +10765,6 @@ function delEquipo(id){
   var eq=(m.equipos||[]).find(function(e){return e.id===id;});
   m.equipos=m.equipos.filter(function(e){return e.id!==id;});
   if(eq)logAction('ELIMINAR','mantenimiento','Equipo: '+eq.nombre);
-  markDirty('mantenimiento');
   saveData();renderMantEquipos();toast('Equipo eliminado');
 }
 
@@ -10995,7 +10843,6 @@ function guardarRegistroMant(eqId){
   if(!eq.ultimoMant||fecha>eq.ultimoMant){
     eq.ultimoMant=fecha;
   }
-  markDirty('mantenimiento');
   saveData();
   var modal=document.getElementById('modalRegMant');
   if(modal)modal.remove();
@@ -11615,7 +11462,7 @@ function adminAprobarCierreOT(docId, otId, origenSolicitud) {
   var ot=(m.ots||[]).find(function(o){return o.id===otId;});
   if(ot){
     ot.estado='completada';
-    ot.fechaCompletada=_localDateStr();
+    ot.fechaCompletada=new Date().toISOString().slice(0,10);
     markDirty('taller');
     saveData();
   }
@@ -11713,7 +11560,6 @@ function mantNuevoChecklist(){
 function mantEliminarCL(ci){
   if(!confirm('¿Eliminar checklist?'))return;
   mantData().checklists.splice(ci,1);
-  markDirty('mantenimiento');
   saveData();renderMantChecklists();
 }
 function mantActualizarCL(ci,campo,val){
@@ -12093,7 +11939,7 @@ function motIrReportar(){
   var veh = _motData.vehiculos.find(function(v){return v.id===sel.vehId;})||{placa:sel.vehId};
   var area = document.getElementById('portalMotArea');
   if(!area) return;
-  var hoy = _localDateStr();
+  var hoy = new Date().toISOString().slice(0,10);
 
   area.innerHTML =
     '<div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">'
@@ -12131,7 +11977,6 @@ function motEnviarKm(){
   if(errEl)errEl.style.display='none';
   if(!fecha){if(errEl){errEl.textContent='Selecciona la fecha';errEl.style.display='block';}return;}
   if(!kmOdo){if(errEl){errEl.textContent='Ingresa el km del odómetro';errEl.style.display='block';}return;}
-  if(gal>200){if(errEl){errEl.textContent='Los galones ingresados parecen incorrectos (máx 200). Verifica el valor.';errEl.style.display='block';}return;}
   if(btn){btn.disabled=true;btn.textContent='Enviando...';}
   var folio='REP-'+Date.now().toString(36).toUpperCase();
   firebase.firestore().collection('reportesMotoristas').doc(folio).set({
@@ -12145,7 +11990,7 @@ function motEnviarKm(){
       +'<div style="font-size:52px;margin-bottom:16px">✅</div>'
       +'<div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:8px">¡Km registrado!</div>'
       +'<div style="font-size:14px;color:#888;margin-bottom:24px">Tu reporte de kilometraje quedó guardado.</div>'
-      +'<button onclick="renderMotSeleccion()" style="padding:12px 28px;background:#232338;color:#e4e2dd;border:1px solid #333;border-radius:10px;cursor:pointer;font-size:14px">← Volver</button>'
+      +'<button onclick="motIrReportar()" style="padding:12px 28px;background:#232338;color:#e4e2dd;border:1px solid #333;border-radius:10px;cursor:pointer;font-size:14px">← Volver</button>'
       +'</div>';
   }).catch(function(e){
     if(btn){btn.disabled=false;btn.textContent='📊 Enviar km';}
@@ -12173,7 +12018,7 @@ function motEnviarFalla(){
       +'<div style="font-size:52px;margin-bottom:16px">🔧</div>'
       +'<div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:8px">¡Falla reportada!</div>'
       +'<div style="font-size:14px;color:#888;margin-bottom:24px">El taller fue notificado. Revisarán tu vehículo a la brevedad.</div>'
-      +'<button onclick="renderMotSeleccion()" style="padding:12px 28px;background:#232338;color:#e4e2dd;border:1px solid #333;border-radius:10px;cursor:pointer;font-size:14px">← Volver</button>'
+      +'<button onclick="motIrReportar()" style="padding:12px 28px;background:#232338;color:#e4e2dd;border:1px solid #333;border-radius:10px;cursor:pointer;font-size:14px">← Volver</button>'
       +'</div>';
   }).catch(function(e){
     if(btn){btn.disabled=false;btn.textContent='🔧 Reportar falla';}
@@ -12288,16 +12133,16 @@ function renderMantTecnicos(){
   var cats=getCfgCategoriasArea();
 
   var CARGO_LABELS={
-    gerente:'🏪 Gerente', subgerente:'👔 Subgerente',
+    gerente:'🏪 Gerente', subgerente:'👔 Subgerente', 'gerente de zona':'📋 Gerente de Zona',
     tecnico:'🔧 Técnico', mecanico:'⚙️ Mecánico',
     motorista:'🚛 Motorista', otro:'👤 Otro'
   };
-  var CARGO_ORDER=['gerente','subgerente','tecnico','mecanico','motorista','otro'];
+  var CARGO_ORDER=['gerente','subgerente','gerente de zona','tecnico','mecanico','motorista','otro'];
 
   // Agrupar por cargo
   var grupos={};
   CARGO_ORDER.forEach(function(c){grupos[c]=[];});
-  m.tecnicos.filter(function(t){return t.activo!==false;}).forEach(function(t){
+  m.tecnicos.forEach(function(t){
     var c=t.cargo||'tecnico';
     if(!grupos[c])grupos[c]=[];
     grupos[c].push(t);
@@ -12330,7 +12175,7 @@ function renderMantTecnicos(){
         +'</div></div>';
     });
   });
-  if(!m.tecnicos.filter(function(t){return t.activo!==false;}).length) html='<div class="empty">Sin personal registrado. Agrega el primer empleado con el botón de arriba.</div>';
+  if(!m.tecnicos.length) html='<div class="empty">Sin personal registrado. Agrega el primer empleado con el botón de arriba.</div>';
 
   var totalPorCargo=CARGO_ORDER.map(function(c){
     var n=(grupos[c]||[]).length;
@@ -12392,6 +12237,7 @@ function modalTecnico(id){
     +'<option value="mecanico"'+(t&&t.cargo==='mecanico'?' selected':'')+'>⚙️ Mecánico</option>'
     +'<option value="gerente"'+(t&&t.cargo==='gerente'?' selected':'')+'>🏪 Gerente</option>'
     +'<option value="subgerente"'+(t&&t.cargo==='subgerente'?' selected':'')+'>👔 Subgerente</option>'
+    +'<option value="gerente de zona"'+(t&&t.cargo==='gerente de zona'?' selected':'')+'>📋 Gerente de Zona</option>'
     +'<option value="otro"'+(t&&t.cargo==='otro'?' selected':'')+'>👤 Otro</option>'
     +'</select></div>'
     +'<div class="row2">'
@@ -12452,7 +12298,6 @@ function guardarTecnico(id){
     logAction('CREAR','tecnicos','Nuevo t\u00e9cnico: '+nombre);
     toast('\u2713 T\u00e9cnico creado');
   }
-  markDirty('mantenimiento');
   saveData();
   (function(_e){if(_e)_e.remove();})(document.getElementById('modalTecDiv'));
   renderMantTecnicos();
@@ -12575,15 +12420,9 @@ function verOTsTecnico(tecId){
 function delTecnico(id){
   if(!confirm('¿Eliminar este registro de personal?'))return;
   var m=mantData();
-  var tx=m.tecnicos.find(function(t){return t.id===id;});
-  if(!tx)return;
-  // Soft-delete: marcar activo:false en lugar de borrar del array.
-  // Esto permite que _syncPortalPublico distinga borrado intencional
-  // de dato desactualizado en otro tab (previene reaparición de empleados).
-  tx.activo=false;
-  tx._borradoEn=Date.now();
-  logAction('ELIMINAR','empleados','Empleado: '+tx.nombre);
-  markDirty('mantenimiento');
+  m.tecnicos=m.tecnicos.filter(function(t){return t.id!==id;});
+  var tx=(mantData().tecnicos||[]).find(function(t){return t.id===id;});
+  if(tx)logAction('ELIMINAR','empleados','Empleado: '+tx.nombre);
   saveData();renderMantTecnicos();toast('Técnico eliminado');
 }
 
@@ -12744,7 +12583,6 @@ function mantEliminarOT(otId){
   if(!confirm('¿Eliminar esta OT?'))return;
   var m=mantData();
   m.ots=m.ots.filter(function(o){return o.id!==otId;});
-  markDirty('mantenimiento');
   saveData();
   var div=document.getElementById('modalOTDiv');
   if(div)div.remove();
@@ -13353,7 +13191,7 @@ function renderEIPrediccion() {
 // ── 6. CHECKLIST OPERATIVO DIARIO ───────────────────────
 function renderEIChecklist() {
   var ei = eiData();
-  var hoy=_localDateStr();
+  var hoy = new Date().toISOString().slice(0,10);
   var fecha = S._eiChkFecha || hoy;
   var centroId = S._eiChkCentro || '';
 
@@ -14298,15 +14136,7 @@ function impApply(result) {
   if (!items.length) return;
 
   if (target === 'gastos') {
-    // Prevenir duplicados: verificar por factura + proveedor + valor + fecha
-    items.forEach(function(g) {
-      var dup = S.gastos.find(function(x) {
-        return x.factura && x.factura === g.factura &&
-               x.proveedor === g.proveedor &&
-               x.fecha === g.fecha;
-      });
-      if (!dup) S.gastos.push(g);
-    });
+    items.forEach(function(g) { S.gastos.push(g); });
   } else if (target === 'proveedores') {
     items.forEach(function(p) { S.proveedores.push(p); });
   } else if (target === 'centros') {
@@ -14423,10 +14253,10 @@ function renderAsistencia(){
 
 // ── Pestaña 1: Registro diario ─────────────────────────────────────
 function asistRenderRegistro(tecnicos){
-  var hoy=_localDateStr(); // fecha local El Salvador
+  var hoy=new Date().toISOString().slice(0,10);
   // Por defecto: día anterior (los empleados reportan hasta medianoche, se evalúa al día siguiente)
   var ayer=new Date();ayer.setDate(ayer.getDate()-1);
-  var ayerStr=_localDateStr(ayer);
+  var ayerStr=ayer.toISOString().slice(0,10);
   var fechaSel=S._asistFecha||ayerStr;
   var registros=asistRegistros().filter(function(r){return r.fecha===fechaSel;});
 
@@ -14660,12 +14490,12 @@ function asistRenderSemanal(tecnicos){
   if(!S._asistSemana){
     var hoy=new Date();var dia=hoy.getDay()||7;
     var lun=new Date(hoy);lun.setDate(hoy.getDate()-(dia-1));
-    S._asistSemana=_localDateStr(lun);
+    S._asistSemana=lun.toISOString().slice(0,10);
   }
   var lunDate=new Date(S._asistSemana+'T12:00:00');
   var dias=[];
   for(var i=0;i<6;i++){var d=new Date(lunDate);d.setDate(lunDate.getDate()+i);dias.push(d);}
-  var diasStr=dias.map(function(d){return _localDateStr(d);});
+  var diasStr=dias.map(function(d){return d.toISOString().slice(0,10);});
   var diasLabel=['LUN','MAR','MIÉ','JUE','VIE','SÁB'];
   var mesesNom=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
@@ -14716,9 +14546,9 @@ function asistRenderSemanal(tecnicos){
         +'<div><div style="font-size:14px;font-weight:700">CONTROL DE REPORTE DIARIO</div><div style="font-size:12px;color:var(--muted)">'+esc(mesesNom[dias[0].getMonth()])+' '+dias[0].getFullYear()+'</div></div>'
         +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
           +'<div style="display:flex;align-items:center;gap:8px">'
-            +'<button class="btn btn-secondary btn-sm" onclick="S._asistSemana=\''+_localDateStr(prevLun)+'\';renderAsistencia()">‹</button>'
+            +'<button class="btn btn-secondary btn-sm" onclick="S._asistSemana=\''+prevLun.toISOString().slice(0,10)+'\';renderAsistencia()">‹</button>'
             +'<span style="font-weight:700;color:var(--accent);font-size:13px;min-width:160px;text-align:center">'+semLabel+'</span>'
-            +'<button class="btn btn-secondary btn-sm" onclick="S._asistSemana=\''+_localDateStr(nextLun)+'\';renderAsistencia()">›</button>'
+            +'<button class="btn btn-secondary btn-sm" onclick="S._asistSemana=\''+nextLun.toISOString().slice(0,10)+'\';renderAsistencia()">›</button>'
           +'</div>'
           +'<button class="btn btn-secondary btn-sm" onclick="asistImprimirSemanal()">🖨 Imprimir</button>'
         +'</div>'
@@ -15013,7 +14843,7 @@ function audGuardar(){
   var aud={
     id:genId(),
     tecnicoId:S._audTec,
-    fecha:_localDateStr(),
+    fecha:new Date().toISOString().slice(0,10),
     ts:Date.now(),
     auditadoPor:S.currentUser?S.currentUser.email:'Anónimo',
     observacionGeneral:S._audObsGen||'',
@@ -15427,7 +15257,7 @@ function renderTallerDashboard(){
     if(!ruta)return;
     // Tomar reportes últimos 7 días
     var hace7=new Date();hace7.setDate(hace7.getDate()-7);
-    var hace7Str=_localDateStr(hace7);
+    var hace7Str=hace7.toISOString().slice(0,10);
     var reps=(t.reportesDiarios||[]).filter(function(r){return r.vehiculoId===v.id&&r.fecha>=hace7Str;});
     if(reps.length===0)return;
     var sKm=reps.reduce(function(s,r){return s+(r.kmRecorridos||0);},0);
@@ -15944,7 +15774,7 @@ function modalFalla(vehId,fallaId){
   var v=t.vehiculos.find(function(x){return x.id===vehId;});
   if(!v)return;
   var f=fallaId?((v.fallas||[]).find(function(x){return x.id===fallaId;})||null):null;
-  var hoy=_localDateStr();
+  var hoy=new Date().toISOString().slice(0,10);
 
   var catOpts=null;// ahora usa optsCategoriasFallas
   var estOpts=[
@@ -16825,7 +16655,7 @@ function cambiarEstadoOT(otId,nuevoEstado){
 
   // Si se marca como "listo" o "entregado", auto-llenar fecha de salida si está vacía
   if((nuevoEstado==='listo'||nuevoEstado==='entregado')&&!o.fechaSalida){
-    o.fechaSalida=_localDateStr();
+    o.fechaSalida=new Date().toISOString().slice(0,10);
   }
 
   // Log
@@ -16896,7 +16726,7 @@ function _otOrigenBox(o,t){
 function modalOT(id,vehIdPrefill){
   var t=tallerData();
   var o=id?t.ots.find(function(x){return x.id===id;}):null;
-  var hoy=_localDateStr();
+  var hoy=new Date().toISOString().slice(0,10);
 
   // Inicializar buffer de servicios aplicados
   S._otServiciosBuffer=(o&&o.serviciosAplicados)?o.serviciosAplicados.slice():[];
@@ -17908,7 +17738,7 @@ function renderChoferPortal(){
 
 // ── Reporte diario ──
 function choferRenderReporte(veh){
-  var hoy=_localDateStr();
+  var hoy=new Date().toISOString().slice(0,10);
   var rep=getReporteDelDia(veh.id,hoy);
   var deadline=getDeadlineReporteKm();
   var ahora=new Date();
@@ -18011,7 +17841,7 @@ function choferGuardarReporte(vehId){
   var kmActual=veh.kmActual||0;
   if(km<kmActual){toast('El km nuevo no puede ser menor al actual ('+kmActual+')',true);return;}
 
-  var hoy=_localDateStr();
+  var hoy=new Date().toISOString().slice(0,10);
   // Calcular km recorridos
   var reps=t.reportesDiarios.filter(function(r){return r.vehiculoId===vehId;}).sort(function(a,b){return (b.fecha+'').localeCompare(a.fecha+'');});
   var ultimoReporte=reps.find(function(r){return r.fecha<hoy;});
@@ -18225,7 +18055,7 @@ function choferEnviarSolicitud(vehId){
   var sol={
     id:solId,
     vehiculoId:vehId,
-    fecha:_localDateStr(),
+    fecha:new Date().toISOString().slice(0,10),
     ts:Date.now(),
     choferId:S.currentUser?S.currentUser.email:null,
     choferNombre:S.currentUser?S.currentUser.nombre:'Chofer',
@@ -18627,7 +18457,7 @@ function solAprobarYCrearOT(solId){
     vehiculoId:s.vehiculoId,
     tipo:'correctivo',
     estado:'recibido',
-    fechaIngreso:_localDateStr(),
+    fechaIngreso:new Date().toISOString().slice(0,10),
     mecanicoId:mecId||null,
     serviciosAplicados:serviciosAplicados,
     descripcion:descAuto,
@@ -18946,8 +18776,8 @@ function _renderTrabajosLista(trabajos){
 // ── Avanzar etapa ─────────────────────────────────────────────────
 function tjAvanzar(docId, nuevaEtapa){
   var updates={etapa:nuevaEtapa, _ts:Date.now()};
-  if(nuevaEtapa==='en_proceso') updates.fechaInicio=_localDateStr();
-  if(nuevaEtapa==='finalizado') updates.fechaFin=_localDateStr();
+  if(nuevaEtapa==='en_proceso') updates.fechaInicio=new Date().toISOString().slice(0,10);
+  if(nuevaEtapa==='finalizado') updates.fechaFin=new Date().toISOString().slice(0,10);
 
   // Item local (OT o solicitud del sistema)
   if(docId.indexOf('ot_')===0){
@@ -19036,7 +18866,7 @@ function tjCrearDesdeOT(ot, vehiculo){
     descripcion:ot.descripcion||ot.tipo||'Orden de trabajo',
     servicios:(ot.servicios||[]).map(function(s){return s.nombre||s;}),
     etapa:'asignado',
-    fechaCreacion:_localDateStr(),
+    fechaCreacion:new Date().toISOString().slice(0,10),
     creadoPor:(S.currentUser&&S.currentUser.nombre)||'',
     ts:Date.now()
   }).catch(function(e){console.warn('[TJ] Error creando desde OT:',e.message);});
@@ -19053,7 +18883,7 @@ function tjCrearDesdeSolicitud(sol){
     mecanicoId:'',
     descripcion:sol.descripcion||'Revisión solicitada por motorista',
     etapa:'asignado',
-    fechaCreacion:_localDateStr(),
+    fechaCreacion:new Date().toISOString().slice(0,10),
     creadoPor:'Portal motorista',
     motoristaNombre:sol.motoristaNombre||sol.choferNombre||'',
     ts:Date.now()
@@ -19081,7 +18911,7 @@ function tjCrearDesdeProgramado(prog){
     descripcion:'Mantenimiento programado: '+esc(prog.servicio||''),
     servicios:[prog.servicio||''],
     etapa:'asignado',
-    fechaCreacion:_localDateStr(),
+    fechaCreacion:new Date().toISOString().slice(0,10),
     creadoPor:(S.currentUser&&S.currentUser.nombre)||'Mecánico',
     ts:Date.now()
   }).then(function(){
@@ -19118,7 +18948,7 @@ function tjGuardarNuevo(){
     mecanicoId:mecId,
     descripcion:desc,
     etapa:'asignado',
-    fechaCreacion:_localDateStr(),
+    fechaCreacion:new Date().toISOString().slice(0,10),
     creadoPor:(S.currentUser&&S.currentUser.nombre)||'',
     ts:Date.now()
   }).then(function(){
@@ -19310,7 +19140,7 @@ function guardarRevision(vehId){
   var rev={
     id:revId,
     vehiculoId:vehId,
-    fecha:_localDateStr(),
+    fecha:new Date().toISOString().slice(0,10),
     ts:Date.now(),
     mecanicoEmail:S.currentUser?S.currentUser.email:null,
     mecanicoNombre:S.currentUser?S.currentUser.nombre||S.currentUser.email:'',
@@ -19507,7 +19337,6 @@ function verFotoRevision(refId){
 //  ADMIN — REPORTES DIARIOS DE CHOFERES (vista admin)
 // ═══════════════════════════════════════════════════════════════════
 function renderTallerReportesChoferes(){
-  window._rdcScrollY=window.scrollY||window.pageYOffset||0;
   // Al ver este módulo, limpiar el badge
   if(S._badges){ S._badges.taller_reportes_choferes=0; _renderNavBadges(); }
 
@@ -19516,8 +19345,8 @@ function renderTallerReportesChoferes(){
 
   // Inicializar filtros
   if(!S._rdcFiltroVeh)S._rdcFiltroVeh='';
-  if(!S._rdcFiltroDesde){var d0=new Date();d0.setDate(d0.getDate()-30);S._rdcFiltroDesde=_localDateStr(d0);}
-  if(!S._rdcFiltroHasta)S._rdcFiltroHasta=_localDateStr();
+  if(!S._rdcFiltroDesde){var d0=new Date();d0.setDate(d0.getDate()-30);S._rdcFiltroDesde=d0.toISOString().slice(0,10);}
+  if(!S._rdcFiltroHasta)S._rdcFiltroHasta=new Date().toISOString().slice(0,10);
 
   var t=tallerData();
   // Reportes locales (sistema legacy)
@@ -19544,7 +19373,7 @@ function renderTallerReportesChoferes(){
         var r=d.data();
         repFirestore.push({
           id:r.id||d.id, vehiculoId:r.vehiculoId, vehiculoPlaca:r.vehiculoPlaca||'',
-          motoristaNombre:r.motoristaNombre||'', fecha:r.fecha||(r.ts?_localDateStr(new Date(r.ts)):''),
+          motoristaNombre:r.motoristaNombre||'', fecha:r.fecha||(r.ts?new Date(r.ts).toISOString().slice(0,10):''),
           kmOdometro:r.kmOdometro||0, kmRecorridos:r.kmRecorridos||0,
           galonesCargados:r.galonesCargados||0, costoGasolina:r.costoGasolina||0,
           novedad:r.novedad||'', origen:'portal'
@@ -19566,8 +19395,6 @@ function renderTallerReportesChoferes(){
       });
       todosRep.sort(function(a,b){return (a.fecha||'').localeCompare(b.fecha||'');});
       _renderReportesChoferes(todosRep);
-    var _sy=window._rdcScrollY||0;
-    requestAnimationFrame(function(){requestAnimationFrame(function(){window.scrollTo(0,_sy);});});
     }).catch(function(err){
       console.error('[ReportesMotoristas] Firestore error:', err);
       // Si falla Firestore, mostrar locales con aviso
@@ -19588,7 +19415,7 @@ function _renderReportesChoferes(reportes){
   // Filtros
   if(!S._rdcFiltroVeh)S._rdcFiltroVeh='';
   if(!S._rdcFiltroDesde){var d=new Date();d.setDate(d.getDate()-30);S._rdcFiltroDesde=d.toISOString().slice(0,10);}
-  if(!S._rdcFiltroHasta)S._rdcFiltroHasta=_localDateStr();
+  if(!S._rdcFiltroHasta)S._rdcFiltroHasta=new Date().toISOString().slice(0,10);
 
   var rep=reportes.filter(function(r){
     if(S._rdcFiltroVeh&&r.vehiculoId!==S._rdcFiltroVeh)return false;
@@ -19775,12 +19602,12 @@ function _renderReportesChoferes(reportes){
   if(!S._rdcSemana){
     var hoyD=new Date();var diaD=hoyD.getDay()||7;
     var lunD=new Date(hoyD);lunD.setDate(hoyD.getDate()-(diaD-1));
-    S._rdcSemana=_localDateStr(lunD); // usar fecha local, no UTC
+    S._rdcSemana=lunD.toISOString().slice(0,10);
   }
   var lunDate2=new Date(S._rdcSemana+'T12:00:00');
   var semDias=[];
   for(var sd=0;sd<7;sd++){var sd2=new Date(lunDate2);sd2.setDate(lunDate2.getDate()+sd);semDias.push(sd2);}
-  var semDiasStr=semDias.map(function(d){return _localDateStr(d);});
+  var semDiasStr=semDias.map(function(d){return d.toISOString().slice(0,10);});
   var semLabels=['LUN','MAR','MIÉ','JUE','VIE','SÁB','DOM'];
   var mesesN=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   var semLabel=semDias[0].getDate()+' – '+semDias[6].getDate()+' de '+mesesN[semDias[0].getMonth()]+' '+semDias[0].getFullYear();
@@ -19798,35 +19625,19 @@ function _renderReportesChoferes(reportes){
   });
 
   // Filas: un vehículo por fila
-  window._rdcCells=[];
-  var _rdcIsAdmin=S.currentUser&&(S.currentUser.rol==='admin'||S.currentUser.rol==='supervisor');
   var semRows=t.vehiculos.filter(function(v){return v.estado!=='baja';}).map(function(v){
     var celdas=semDiasStr.map(function(f){
       var r=repMap[v.id+'|'+f];
-      var ci=window._rdcCells.length;
-      window._rdcCells.push({vehId:v.id,fecha:f,repId:r?r.id:null,origen:r?r.origen:null,km:r?r.kmOdometro:null,gal:r?r.galonesCargados:null});
-      if(!r){
-        var tdStyle='text-align:center;color:var(--border)';
-        if(_rdcIsAdmin){
-          return '<td id="rdcEmpty'+ci+'" onclick="rdcCrearRep('+ci+')" style="text-align:center;color:var(--border);cursor:pointer" title="Click para agregar reporte">+</td>';
-        }
-        return '<td style="text-align:center;color:var(--border)">—</td>';
-      }
+      if(!r)return '<td style="text-align:center;color:var(--border)">—</td>';
       var gal=r.galonesCargados?r.galonesCargados.toFixed(1):'';
       var kmOdo=r.kmOdometro?(r.kmOdometro).toLocaleString('en-US'):'';
       var novColor=r.novedad?'background:#fff3e0':'';
       var tip=r.motoristaNombre||r.choferNombre||'';
-      var tdContent='<td id="rdcCell'+ci+'" style="text-align:center;font-size:11px;'+novColor+';padding:6px 4px" title="'+esc(tip)+'">';
-      if(_rdcIsAdmin){
-        tdContent+='<div class="rdc-km" data-rci="'+ci+'" onclick="rdcCellClick(this)" style="font-weight:700;color:var(--accent);cursor:pointer" title="Editar km">'+kmOdo+'</div>';
-        if(gal)tdContent+='<div class="rdc-gal" data-rci="'+ci+'" onclick="rdcCellClick(this)" style="color:#facc15;font-size:10px;cursor:pointer" title="Editar galones">⛽'+gal+'</div>';
-      } else {
-        tdContent+='<div style="font-weight:700;color:var(--accent)">'+kmOdo+'</div>';
-        if(gal)tdContent+='<div style="color:#facc15;font-size:10px">⛽'+gal+'</div>';
-      }
-      if(r.novedad)tdContent+='<div style="color:var(--accent);font-size:9px">⚠</div>';
-      tdContent+='</td>';
-      return tdContent;
+      return '<td style="text-align:center;font-size:11px;'+novColor+';padding:6px 4px" title="'+esc(tip)+'">'
+        +'<div style="font-weight:700;color:var(--accent)">'+kmOdo+'</div>'
+        +(gal?'<div style="color:#facc15;font-size:10px">⛽'+gal+'</div>':'')
+        +(r.novedad?'<div style="color:var(--accent);font-size:9px">⚠</div>':'')
+        +'</td>';
     }).join('');
     // Total galones de la semana para este vehículo
     var semGal=semDiasStr.reduce(function(s,f){
@@ -20052,202 +19863,6 @@ function guardarCorreccionReporte(repId){
   document.getElementById('modalEditRep').remove();
   toast('✓ Reporte corregido');
   if(typeof renderTallerReportesChoferes==='function')renderTallerReportesChoferes();
-}
-
-// ── Edición inline tabla semanal km ────────────────────────────────
-function rdcCellClick(el){
-  var ci=parseInt(el.getAttribute('data-rci'));
-  var campo=el.classList.contains('rdc-gal')?'gal':'km';
-  rdcEditInline(ci,campo);
-}
-
-function rdcCerrarActivo(){
-  // Cerrar cualquier input inline activo antes de abrir otro
-  if(window._rdcCeldaActiva!=null){
-    var oldCell=document.getElementById('rdcCell'+window._rdcCeldaActiva);
-    if(oldCell){rdcRestaurarCelda(window._rdcCeldaActiva);}
-    window._rdcCeldaActiva=null;
-  }
-}
-
-function rdcRestaurarCelda(ci){
-  var info=window._rdcCells&&window._rdcCells[ci];
-  if(!info)return;
-  var cell=document.getElementById('rdcCell'+ci);
-  if(!cell)return;
-  var km=info.km;var gal=info.gal;
-  var kmStr=km?(km).toLocaleString('en-US'):'';
-  var galStr=gal?gal.toFixed(1):'';
-  var html='<div class="rdc-km" data-rci="'+ci+'" onclick="rdcCellClick(this)" style="font-weight:700;color:var(--accent);cursor:pointer" title="Editar km">'+kmStr+'</div>';
-  if(galStr)html+='<div class="rdc-gal" data-rci="'+ci+'" onclick="rdcCellClick(this)" style="color:#facc15;font-size:10px;cursor:pointer" title="Editar galones">⛽'+galStr+'</div>';
-  cell.innerHTML=html;
-}
-
-function rdcEditInline(ci,campo){
-  if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
-    toast('Solo administradores pueden editar directamente',true);return;
-  }
-  // Cerrar cualquier otro input activo primero
-  rdcCerrarActivo();
-  var info=window._rdcCells&&window._rdcCells[ci];
-  if(!info||!info.repId)return;
-  var cell=document.getElementById('rdcCell'+ci);
-  if(!cell)return;
-  window._rdcCeldaActiva=ci;
-  // Leer valor desde _rdcCells (siempre correcto, sin depender del DOM)
-  var val=campo==='km'?(info.km||0):(info.gal||0);
-  var color=campo==='km'?'#4ea8de':'#facc15';
-  var inp=document.createElement('input');
-  inp.type='number';inp.min='0';
-  inp.step=campo==='km'?'1':'0.01';
-  inp.value=val;
-  inp.style.cssText='width:72px;font-size:12px;text-align:center;background:#0d1117;border:1px solid '+color+';color:'+color+';border-radius:4px;padding:3px 4px;outline:none';
-  var committed=false;
-  function commit(v){
-    if(committed)return;committed=true;
-    window._rdcCeldaActiva=null;
-    rdcGuardarInline(ci,campo,v);
-  }
-  function cancelar(){
-    if(committed)return;committed=true;
-    window._rdcCeldaActiva=null;
-    rdcRestaurarCelda(ci);
-  }
-  inp.addEventListener('keydown',function(e){
-    if(e.key==='Enter'){e.preventDefault();commit(inp.value);}
-    if(e.key==='Escape'){cancelar();}
-  });
-  inp.addEventListener('click',function(e){e.stopPropagation();});
-  inp.addEventListener('blur',function(){
-    setTimeout(function(){
-      if(document.activeElement&&cell.contains(document.activeElement))return;
-      commit(inp.value);
-    },150);
-  });
-  cell.innerHTML='';
-  cell.appendChild(inp);
-  inp.focus();inp.select();
-}
-
-function rdcGuardarInline(ci,campo,valor){
-  var info=window._rdcCells&&window._rdcCells[ci];
-  if(!info||!info.repId){rdcRestaurarCelda(ci);return;}
-  var nuevoVal=campo==='km'?parseInt(valor)||0:parseFloat(valor)||0;
-  if(nuevoVal<0){toast('Valor inválido',true);rdcRestaurarCelda(ci);return;}
-  // Sin cambio → restaurar sin guardar
-  var valorActual=campo==='km'?(info.km||0):(info.gal||0);
-  if(nuevoVal===valorActual){rdcRestaurarCelda(ci);return;}
-  // Actualizar _rdcCells inmediatamente para que restaurar muestre el nuevo valor
-  if(campo==='km')info.km=nuevoVal; else info.gal=nuevoVal;
-  rdcRestaurarCelda(ci);
-  toast('Guardando...');
-
-  if(info.origen==='portal'){
-    // Reportes del PORTAL → Firestore
-    var updateData={corregidoPor:S.currentUser.email,fechaCorreccion:Date.now(),motivoCorreccion:'Corrección desde tabla semanal'};
-    if(campo==='km'){updateData.kmOdometro=nuevoVal;}
-    else{updateData.galonesCargados=nuevoVal;updateData.costoGasolina=nuevoVal*getPrecioGasolina();}
-    db.collection('reportesMotoristas').doc(info.repId).update(updateData)
-      .then(function(){toast('✓ Guardado');})
-      .catch(function(e){toast('Error al guardar: '+e.message,true);});
-  } else {
-    // Reportes LOCALES → S.taller.reportesDiarios
-    var t=tallerData();
-    var rep=(t.reportesDiarios||[]).find(function(r){return r.id===info.repId;});
-    if(!rep){toast('Reporte no encontrado',true);return;}
-    if(campo==='km'){
-      var repsVeh=(t.reportesDiarios||[]).filter(function(r){return r.vehiculoId===rep.vehiculoId&&r.id!==rep.id;});
-      repsVeh.sort(function(a,b){return (a.fecha+'').localeCompare(b.fecha+'');});
-      var prevRep=null;
-      for(var ii=0;ii<repsVeh.length;ii++){if(repsVeh[ii].fecha<rep.fecha){prevRep=repsVeh[ii];}}
-      rep.kmOdometro=nuevoVal;
-      rep.kmRecorridos=nuevoVal-(prevRep?(prevRep.kmOdometro||0):0);
-      rep.costoGasolina=(rep.galonesCargados||0)*getPrecioGasolina();
-    } else {
-      rep.galonesCargados=nuevoVal;
-      rep.costoGasolina=nuevoVal*getPrecioGasolina();
-      var cb=t.combustible&&t.combustible.find(function(c){return c.reporteDiarioId===rep.id;});
-      if(cb){cb.galones=nuevoVal;cb.total=rep.costoGasolina;}
-    }
-    rep.corregidoPor=S.currentUser.email;
-    rep.fechaCorreccion=Date.now();
-    markDirty('taller');
-    saveData();
-    toast('✓ Guardado');
-  }
-}
-
-function rdcCrearRep(ci){
-  if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
-    toast('Solo administradores pueden agregar reportes',true);return;
-  }
-  var info=window._rdcCells&&window._rdcCells[ci];
-  if(!info)return;
-  // El td tiene id="rdcEmpty{ci}"
-  var cell=document.getElementById('rdcEmpty'+ci);
-  if(!cell)return;
-  cell.removeAttribute('onclick'); // evitar que clicks en inputs re-disparen rdcCrearRep
-  cell.style.minWidth='90px';
-  cell.style.padding='4px';
-  cell.style.cursor='default';
-  // Km input
-  var inpKm=document.createElement('input');
-  inpKm.type='number';inpKm.min='0';inpKm.placeholder='km';
-  inpKm.style.cssText='width:70px;font-size:11px;text-align:center;background:#0d1117;border:1px solid #4ea8de;color:#4ea8de;border-radius:4px;padding:2px 3px;outline:none;display:block;margin-bottom:3px';
-  inpKm.addEventListener('click',function(e){e.stopPropagation();});
-  // Gal input
-  var inpGal=document.createElement('input');
-  inpGal.type='number';inpGal.min='0';inpGal.step='0.01';inpGal.placeholder='gal';
-  inpGal.style.cssText='width:70px;font-size:11px;text-align:center;background:#0d1117;border:1px solid #facc15;color:#facc15;border-radius:4px;padding:2px 3px;outline:none;display:block';
-  inpGal.addEventListener('click',function(e){e.stopPropagation();});
-  // Buttons row
-  var btnRow=document.createElement('div');
-  btnRow.style.cssText='display:flex;gap:3px;margin-top:3px';
-  var btnOk=document.createElement('button');
-  btnOk.textContent='✓';
-  btnOk.style.cssText='flex:1;font-size:10px;padding:2px;background:#4ea8de;color:#000;border:none;border-radius:3px;cursor:pointer';
-  btnOk.addEventListener('click',function(){rdcConfirmarNuevo(ci,inpKm.value,inpGal.value);});
-  var btnX=document.createElement('button');
-  btnX.textContent='✕';
-  btnX.style.cssText='flex:1;font-size:10px;padding:2px;background:#333;color:#fff;border:none;border-radius:3px;cursor:pointer';
-  btnX.addEventListener('click',function(){renderTallerReportesChoferes();});
-  btnRow.appendChild(btnOk);btnRow.appendChild(btnX);
-  cell.innerHTML='';
-  cell.appendChild(inpKm);cell.appendChild(inpGal);cell.appendChild(btnRow);
-  inpKm.focus();
-}
-
-function rdcConfirmarNuevo(ci,kmVal,galVal){
-  if(window._rdcGuardando)return;
-  window._rdcGuardando=true;
-  setTimeout(function(){window._rdcGuardando=false;},600);
-  var info=window._rdcCells&&window._rdcCells[ci];
-  if(!info){renderTallerReportesChoferes();return;}
-  var km=parseInt(kmVal)||0;
-  var gal=parseFloat(galVal)||0;
-  if(!km){toast('Ingresa el km del odómetro',true);window._rdcGuardando=false;return;}
-  var t=tallerData();
-  var veh=t.vehiculos.find(function(v){return v.id===info.vehId;})||{};
-  var repsVeh=(t.reportesDiarios||[]).filter(function(r){return r.vehiculoId===info.vehId;});
-  repsVeh.sort(function(a,b){return (a.fecha+'').localeCompare(b.fecha+'');});
-  var prevRep=null;
-  for(var i=0;i<repsVeh.length;i++){if(repsVeh[i].fecha<info.fecha){prevRep=repsVeh[i];}}
-  var kmBase=prevRep?(prevRep.kmOdometro||0):0;
-  var folio='REP-'+Date.now().toString(36).toUpperCase();
-  var nuevo={
-    id:folio,empresa:S.empresa,vehiculoId:info.vehId,vehiculoPlaca:veh.placa||'',
-    choferNombre:veh.motorista||'',choferId:veh.choferId||'',
-    fecha:info.fecha,kmOdometro:km,kmRecorridos:km-kmBase,
-    galonesCargados:gal,costoGasolina:gal*getPrecioGasolina(),
-    novedad:'',ts:Date.now(),tipo:'reporte_diario',
-    creadoPor:S.currentUser.email,motivoCorreccion:'Creado manualmente desde tabla semanal'
-  };
-  if(!t.reportesDiarios)t.reportesDiarios=[];
-  t.reportesDiarios.push(nuevo);
-  markDirty('taller');
-  saveData();
-  toast('✓ Reporte creado');
-  renderTallerReportesChoferes();
 }
 
 function eliminarReporteChofer(repId){
@@ -20958,7 +20573,6 @@ function previsualizarImportFlota(input){
 }
 function confirmarImportFlota(){
   if(!_importFlotaParsed||_importFlotaParsed.length===0){toast('Nada que importar',true);return;}
-  if(!confirm('¿Importar '+_importFlotaParsed.length+' vehículos? Los existentes (misma placa) serán actualizados.'))return;
   var t=tallerData();
   var creados=0,actualizados=0;
   _importFlotaParsed.forEach(function(p){
@@ -21225,7 +20839,7 @@ function editarCombustible(id){
   if(!r)return;S._combEdit=r;abrirModalCombustible();
 }
 function abrirModalCombustible(){
-  var r=S._combEdit||{fecha:_localDateStr(),vehiculoId:'',rutaId:'',rutaLibre:'',conductor:'',kmInicial:'',kmFinal:'',costo:'',observ:''};
+  var r=S._combEdit||{fecha:new Date().toISOString().slice(0,10),vehiculoId:'',rutaId:'',rutaLibre:'',conductor:'',kmInicial:'',kmFinal:'',costo:'',observ:''};
   var vehiculos=(S.taller&&S.taller.vehiculos)||[];
   var rutas=(S.taller&&S.taller.rutas)||[];
   var vehOpts='<option value="">— Seleccionar —</option>'+vehiculos.map(function(v){
