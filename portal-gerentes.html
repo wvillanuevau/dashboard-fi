@@ -1427,7 +1427,7 @@ function paLoadEmpleados(callback) {
       });
 
       PA.empleados = tecnicos
-        .filter(function(t){ return t.activo !== false; })
+        .filter(function(t){ return t.activo !== false && (t.cargo||'').toLowerCase()==='gerente de zona'; })
         .map(function(t){
           return {
             id:    t.id,
@@ -1452,7 +1452,7 @@ function paLoadEmpleados(callback) {
       // paPins sin reglas aún — continuar sin PINs
       console.warn('[Portal] paPins:', e.message);
       PA.empleados = tecnicos
-        .filter(function(t){ return t.activo !== false; })
+        .filter(function(t){ return t.activo !== false && (t.cargo||'').toLowerCase()==='gerente de zona'; })
         .map(function(t){
           return {id:t.id, nombre:t.nombre||'—', cargo:t.cargo||'—',
                   ruta:t.ruta||'', pin:'', credId:null,
@@ -6491,7 +6491,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-15-GZ-A';
+var PA_VERSION = 'v2026-06-15-GZ-B';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
