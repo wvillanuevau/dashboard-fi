@@ -4030,7 +4030,9 @@ function paAdminHoy(content) {
           var incsHoy = [];
           snapInc.forEach(function(d) {
             var inc = Object.assign({ id: d.id }, d.data());
-            if (inc.fechaFin < hoy) return; // filtro cliente — reemplaza where fechaFin>=hoy
+            if (inc.fechaFin < hoy) return;
+            // Solo gerentes de zona
+            if (!PA.empleados || !PA.empleados.some(function(e){ return e.id===inc.empleadoId; })) return;
             if (inc.fechaInicio <= hoy && inc.fechaFin >= hoy) incsHoy.push(inc);
           });
           if (incsHoy.length) {
@@ -6514,7 +6516,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-15-GZ-E';
+var PA_VERSION = 'v2026-06-15-GZ-F';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
