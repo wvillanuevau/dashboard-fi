@@ -5032,6 +5032,8 @@ function paCargarAPs(tipo) {
       var docs = [];
       snap.forEach(function(d) {
         var r = Object.assign({ _id: d.id }, d.data());
+        // Solo gerentes de zona
+        if (!PA.empleados || !PA.empleados.some(function(e){ return e.id===r.empleadoId; })) return;
         var fDoc = r.fechaEmision || (r.fecha ? r.fecha : '');
         if (fDoc < desde || fDoc > hasta) return;
         if (filtroTipo !== 'todos') {
@@ -5586,19 +5588,27 @@ function paAdminExtra(content) {
       var r=Object.assign({id:d.id}, d.data());
       if(r.ts&&typeof r.ts==='object'&&r.ts.toMillis) r.ts=r.ts.toMillis();
       else if(r.ts&&r.ts.seconds) r.ts=r.ts.seconds*1000+Math.round((r.ts.nanoseconds||0)/1e6);
+      // Solo gerentes de zona
+      if (!PA.empleados || !PA.empleados.some(function(e){ return e.id===r.empleadoId; })) return;
       heList.push(r);
     });
     heList.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
 
     // ── Datos canjes ─────────────────────────────────────────────
     var canjes = [];
-    snapCanjes.forEach(function(d){ canjes.push(Object.assign({id:d.id}, d.data())); });
+    snapCanjes.forEach(function(d){
+      var _cr = d.data();
+      if (!PA.empleados || !PA.empleados.some(function(e){ return e.id===_cr.empleadoId; })) return;
+      canjes.push(Object.assign({id:d.id}, _cr));
+    });
     canjes.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
 
     // ── Mapa de saldos por empleado (desde paPins) ───────────────
     var saldoMap = {};  // empId → { acum, canjeadas }
     snapPins.forEach(function(d){
       var p = d.data();
+      // Solo gerentes de zona
+      if (!PA.empleados || !PA.empleados.some(function(e){ return e.id===p.empleadoId; })) return;
       saldoMap[p.empleadoId] = {
         pinDocId: d.id,
         acum:     parseFloat(p.horasExtraAcum     || 0),
@@ -6043,6 +6053,8 @@ function paGenerarReporte() {
       if (r.ts && typeof r.ts==='object' && r.ts.toMillis) r.ts = r.ts.toMillis();
       else if (r.ts && r.ts.seconds) r.ts = r.ts.seconds*1000 + Math.round((r.ts.nanoseconds||0)/1e6);
       var empId = r.empleadoId;
+      // Solo gerentes de zona
+      if (!PA.empleados || !PA.empleados.some(function(e){ return e.id===empId; })) return;
       if (!marcaciones[empId]) marcaciones[empId] = {};
       if (!marcaciones[empId][r.fecha]) marcaciones[empId][r.fecha] = [];
       marcaciones[empId][r.fecha].push(r);
@@ -6496,7 +6508,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-15-GZ-C';
+var PA_VERSION = 'v2026-06-15-GZ-D';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
