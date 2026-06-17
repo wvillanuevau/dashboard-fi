@@ -3953,6 +3953,9 @@ function paAdminHoy(content) {
         // Filtrar por empresa en cliente (evita índice compuesto)
         if (m.empresa !== PA.empresa) return;
         var empId = m.empleadoId;
+        // Solo mostrar gerentes de zona (filtrar por PA.empleados)
+        var _esGerente = PA.empleados && PA.empleados.some(function(e){ return e.id === empId; });
+        if (!_esGerente) return;
         if (!marcs[empId]) marcs[empId] = { nombre: m.empleadoNombre, tipos: [], tarde: 0, centro: '', registros: [] };
         marcs[empId].tipos.push(m.tipo);
         marcs[empId].registros.push(m);
@@ -4501,6 +4504,8 @@ function paCargarHistorialRango() {
         if (m.empresa !== PA.empresa) return;
         if (!m.fecha || m.fecha < desde || m.fecha > hasta) return; // filtro fecha en cliente
         PA._marcacionesDetalle[m._id] = m;
+        // Solo gerentes de zona
+        if (!PA.empleados || !PA.empleados.some(function(e){ return e.id === m.empleadoId; })) return;
         if (!byEmp[m.empleadoId]) byEmp[m.empleadoId] = { nombre: m.empleadoNombre, fechas: {} };
         if (!byEmp[m.empleadoId].fechas[m.fecha]) byEmp[m.empleadoId].fechas[m.fecha] = [];
         byEmp[m.empleadoId].fechas[m.fecha].push(m);
@@ -6491,7 +6496,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-15-GZ-B';
+var PA_VERSION = 'v2026-06-15-GZ-C';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
