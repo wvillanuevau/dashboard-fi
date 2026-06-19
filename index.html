@@ -4074,12 +4074,16 @@ function verProy(id){
 }
 
 function swTab(tab,id){
-  const p=S.proyectos.find(x=>x.id===id);if(!p)return;
-  const panel=document.getElementById('dpPanel');if(!panel)return;
+  const p=S.proyectos.find(x=>x.id===id||x.id===String(id)||String(x.id)===String(id));
+  if(!p){console.warn('[swTab] proyecto no encontrado:',id);return;}
+  const panel=document.getElementById('dpPanel');
+  if(!panel){console.warn('[swTab] dpPanel no encontrado');return;}
+  console.log('[swTab] tab=',tab,' proyId=',id);
   if(tab==='gen')panel.innerHTML=tplGen(p);
   else if(tab==='plan')panel.innerHTML=tplPlan(p);
   else if(tab==='cron')panel.innerHTML=tplCron(p);
   else if(tab==='pagosygastos'||tab==='pagos')panel.innerHTML=tplPagosYGastos(p);
+  else console.warn('[swTab] tab desconocido:',tab);
 }
 function reloadTab(tab,id){const active=document.querySelector('#dpTabs .tab.active');if(active&&active.dataset.t===tab)swTab(tab,id)}
 
