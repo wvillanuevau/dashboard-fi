@@ -279,7 +279,7 @@ window.FB={
         if(mainDoc.asistencia&&mainDoc.asistencia.registros&&mainDoc.asistencia.registros.length>500){
           var hace90dias=new Date();
           hace90dias.setDate(hace90dias.getDate()-90);
-          var cutoff=hace90dias.toISOString().slice(0,10);
+          var cutoff=localDate(hace90dias);
           var antes=mainDoc.asistencia.registros.length;
           mainDoc.asistencia={...mainDoc.asistencia,registros:mainDoc.asistencia.registros.filter(function(r){return (r.fecha||'')>=cutoff;})};
           console.warn('[FB] Truncados registros asistencia: '+antes+' → '+mainDoc.asistencia.registros.length+' (mantenidos últimos 90 días)');
@@ -289,7 +289,7 @@ window.FB={
         if(mainDoc.taller&&mainDoc.taller.reportesDiarios&&mainDoc.taller.reportesDiarios.length>500){
           var hace90b=new Date();
           hace90b.setDate(hace90b.getDate()-90);
-          var cutoff2=hace90b.toISOString().slice(0,10);
+          var cutoff2=localDate(hace90b);
           var antes2=mainDoc.taller.reportesDiarios.length;
           mainDoc.taller={...mainDoc.taller,reportesDiarios:mainDoc.taller.reportesDiarios.filter(function(r){return (r.fecha||'')>=cutoff2;})};
           console.warn('[FB] Truncados reportes diarios: '+antes2+' → '+mainDoc.taller.reportesDiarios.length);
@@ -929,8 +929,8 @@ input[type=date]{color-scheme:dark}
 
 /* ── CRONOGRAMA ───────────────────────────────── */
 .cron-table{width:100%;border-collapse:collapse;font-size:12.5px}
-.cron-table th,.cron-table td{border:1px solid var(--border);padding:6px 8px;white-space:nowrap;vertical-align:middle}
-.cron-table th{background:var(--surface2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700}
+.cron-table th,.cron-table td{border:1px solid var(--border);padding:6px 8px;vertical-align:top;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word}
+.cron-table th{background:var(--surface2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700;overflow:hidden}
 .cron-table tr:hover td{background:var(--surface2)}
 .cron-gantt-bar{height:14px;border-radius:4px;background:var(--accent);opacity:.75;transition:opacity .15s}
 .cron-gantt-bar:hover{opacity:1}
@@ -1477,6 +1477,19 @@ const SB_GRUPOS=[
   {id:'config_grp',label:'Configuración General',ic:'⚙',items:['log','usuarios','config','importar']},
 ];
 // Estado de grupos colapsados (persistir en sessionStorage)
+
+// ── Helper: fecha local (evita bug timezone UTC de toISOString) ──────────
+function localDate(d){
+  if(!d) d=new Date();
+  else if(!(d instanceof Date)) d=new Date(d);
+  if(isNaN(d.getTime())) return '';
+  var y=d.getFullYear();
+  var m=String(d.getMonth()+1).padStart(2,'0');
+  var day=String(d.getDate()).padStart(2,'0');
+  return y+'-'+m+'-'+day;
+}
+
+
 function getSBCollapsed(){try{return JSON.parse(sessionStorage.getItem('sb_collapsed')||'{}');}catch(e){return{};}}
 function setSBCollapsed(id,v){const c=getSBCollapsed();c[id]=v;sessionStorage.setItem('sb_collapsed',JSON.stringify(c));}
 function toggleSBGrupo(id){const c=getSBCollapsed();setSBCollapsed(id,!c[id]);S._sbKeepOpen=true;render();}
@@ -1684,14 +1697,14 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 function miniCalHTML(currentDate, onSelectFn, markedDates, maxDate){
   var d=new Date(currentDate+'T12:00:00');
   var year=d.getFullYear(),month=d.getMonth();
-  var today=new Date().toISOString().slice(0,10);
+  var today=localDate(new Date());
   var maxD=maxDate||today;
   var DS=['Do','Lu','Ma','Mi','Ju','Vi','Sa'];
   var MS=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   var primerDia=new Date(year,month,1).getDay();
   var totalDias=new Date(year,month+1,0).getDate();
-  var prevMes=new Date(year,month-1,1).toISOString().slice(0,10);
-  var nextMes=new Date(year,month+1,1).toISOString().slice(0,10);
+  var prevMes=localDate(new Date(year,month-1,1));
+  var nextMes=localDate(new Date(year,month+1,1));
   var canNext=nextMes.slice(0,7)<=maxD.slice(0,7);
   var md=markedDates||[];
   var html='<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px;user-select:none">'
@@ -1855,11 +1868,11 @@ function fmtDate(d){if(!d)return'—';const[y,m,dd]=d.split('-');return`${dd}/${
 function fmtTs(ts){
   if(!ts)return'—';
   var d=new Date(ts);
-  var fecha=fmtDate(d.toISOString().slice(0,10));
+  var fecha=fmtDate(localDate(d));
   var hora=d.toLocaleTimeString('es-SV',{hour:'2-digit',minute:'2-digit',hour12:true});
   return fecha+' '+hora;
 }
-function addDias(ds,dias){if(!ds||!dias)return'';const d=new Date(ds+'T12:00:00');d.setDate(d.getDate()+parseInt(dias));return d.toISOString().slice(0,10)}
+function addDias(ds,dias){if(!ds||!dias)return'';const d=new Date(ds+'T12:00:00');d.setDate(d.getDate()+parseInt(dias));return localDate(d)}
 function toast(msg,err=false){const t=document.getElementById('toast');t.textContent=msg;t.style.borderLeftColor=err?'var(--red)':'var(--green)';t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',3200)}
 function openModal(id){const m=document.getElementById(id);if(!m)return;m.classList.add('open');setTimeout(()=>_focusFirst(m),80);}
 function closeModal(id){
@@ -2157,7 +2170,7 @@ function migrateData(){
         eq.estado='activo';
       }
       if(!eq.origen)eq.origen='preexistente';
-      if(!eq.fechaIngreso&&eq.creadoEn)eq.fechaIngreso=new Date(eq.creadoEn).toISOString().slice(0,10);
+      if(!eq.fechaIngreso&&eq.creadoEn)eq.fechaIngreso=localDate(new Date(eq.creadoEn));
       // ── Fix: equipos sin categoría reciben "general" para que reciban auto-asignación de OT ──
       if(!eq.categoria||eq.categoria==='(sin categoría)'){
         eq.categoria='general';
@@ -2501,7 +2514,7 @@ async function _doSaveFirebase(){
       if(asisSize>500000){
         console.warn('[PP] asistencia muy grande:',Math.round(asisSize/1024)+'KB — truncando >90 días');
         var cutoff=new Date();cutoff.setDate(cutoff.getDate()-90);
-        var cutStr=cutoff.toISOString().slice(0,10);
+        var cutStr=localDate(cutoff);
         if(S.asistencia&&S.asistencia.registros)
           S.asistencia.registros=S.asistencia.registros.filter(function(r){return(r.fecha||'')>=cutStr;});
         toast('ℹ Historial de asistencia compactado para optimizar el guardado',false);
@@ -2576,7 +2589,7 @@ function loadBadges(){
 
   var t=S.taller||{};
   var m=S.mantenimiento||{};
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=localDate(new Date());
 
   // OTs VENCIDAS únicamente (pendientes normales no requieren acción urgente)
   var otsVenc=((t.ots||[]).filter(function(o){
@@ -2671,7 +2684,7 @@ function diagnosticarAsistencia(){
     var data=doc.data();
     var regs=(data.asistencia&&data.asistencia.registros)||[];
     var hace7=new Date();hace7.setDate(hace7.getDate()-7);
-    var hace7str=hace7.toISOString().slice(0,10);
+    var hace7str=localDate(hace7);
     var recientes=regs.filter(function(r){return (r.fecha||'')>=hace7str;});
     var porFecha={};
     recientes.forEach(function(r){var f=r.fecha||'?';if(!porFecha[f])porFecha[f]=0;porFecha[f]++;});
@@ -2789,14 +2802,14 @@ function confirmarReconstruccion(n){
     if(!nombre)continue;
     // Crear producto
     var prod={id:genId(),_ca:Date.now(),nombre:nombre,codigo:'',categoria:'herramienta',
-      unidad:'unidad',stock:{},stockMinimo:1,descripcion:'Recuperado de logs '+new Date().toISOString().slice(0,10)};
+      unidad:'unidad',stock:{},stockMinimo:1,descripcion:'Recuperado de logs '+localDate(new Date())};
     prod.stock[bodegaId]=cant;
     if(!S.inventario)S.inventario={bodegas:[],productos:[],movimientos:[]};
     if(!S.inventario.productos)S.inventario.productos=[];
     S.inventario.productos.push(prod);
     // Crear movimiento de entrada
     movs.push({id:genId(),_ca:Date.now(),tipo:'entrada',prodId:prod.id,bodegaId:bodegaId,
-      cantidad:cant,fecha:new Date().toISOString().slice(0,10),nota:'Recuperado de logs',origen:null,destino:null});
+      cantidad:cant,fecha:localDate(new Date()),nota:'Recuperado de logs',origen:null,destino:null});
     importados++;
   }
   if(movs.length){
@@ -3235,7 +3248,7 @@ async function abrirModalEmpresa(id){
   }
   const planes=await window.FB.getPlanes()||{};
   const planOpts=PLANES_DEF.map(p=>`<option value="${p.id}" ${e.plan===p.id?'selected':''}>${p.label} — $${(planes[p.id]&&planes[p.id].precio)||p.precio}/mes</option>`).join('');
-  const today=new Date().toISOString().slice(0,10);
+  const today=localDate(new Date());
   body.innerHTML=`
   <!-- TABS del modal -->
   <div class="tabs" id="empModalTabs">
@@ -3310,7 +3323,7 @@ async function abrirModalEmpresa(id){
     <div id="planInfoBox" class="info-box" style="margin:8px 0"></div>
     <div class="row2">
       <div class="fg"><label>Fecha inicio servicio</label><input type="date" id="eFechaInicio" value="${e.fechaInicio||today}"></div>
-      <div class="fg"><label>Fecha vencimiento licencia</label><input type="date" id="eLicVence" value="${e.licenciaVence?new Date(e.licenciaVence).toISOString().slice(0,10):''}"></div>
+      <div class="fg"><label>Fecha vencimiento licencia</label><input type="date" id="eLicVence" value="${e.licenciaVence?localDate(new Date(e.licenciaVence)):''}"></div>
     </div>
     <div class="row2">
       <div class="fg"><label>Estado de pago</label><select id="eEstadoPago"><option value="aldía" ${e.estadoPago==='aldía'?'selected':''}>Al día</option><option value="pendiente" ${e.estadoPago==='pendiente'?'selected':''}>Pendiente</option><option value="vencido" ${e.estadoPago==='vencido'?'selected':''}>Vencido</option></select></div>
@@ -3767,7 +3780,7 @@ async function renderSAFacturacion(){
     <div class="row3">
       <div class="fg"><label>Empresa *</label><select id="fEmp" onchange="cargarFacturas()"><option value="">— Seleccionar —</option>${empOpts}</select></div>
       <div class="fg"><label>Monto ($) *</label><input type="number" id="fMonto" min="0" placeholder="0.00"></div>
-      <div class="fg"><label>Fecha *</label><input type="date" id="fFecha" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div class="fg"><label>Fecha *</label><input type="date" id="fFecha" value="${localDate(new Date())}"></div>
     </div>
     <div class="row3">
       <div class="fg"><label>Plan facturado</label><select id="fPlan"><option value="">—</option>${PLANES_DEF.map(p=>`<option value="${p.id}">${p.label}</option>`).join('')}</select></div>
@@ -4010,9 +4023,9 @@ function elimProyecto(id){
   saveData();closeModal('modalDP');render();toast('✓ Eliminado');
 }
 function updP(id,campo,val){const p=S.proyectos.find(x=>x.id===id);if(p){p[campo]=val;saveData()}}
-function updOC(pid,val){updP(pid,'montoObraCivil',Math.max(0,parseFloat(val)||0));reloadTab('pagos',pid)}
-function updImpMonto(pid,val){const p=S.proyectos.find(x=>x.id===pid);if(!p)return;p.pagos.imp={monto:Math.max(0,parseFloat(val)||0),paid:((p.pagos&&p.pagos.imp)||{}).paid||false};saveData();reloadTab('pagos',pid)}
-function updImpPaid(pid,val){const p=S.proyectos.find(x=>x.id===pid);if(!p)return;p.pagos.imp={monto:((p.pagos&&p.pagos.imp)||{}).monto||0,paid:val};saveData();reloadTab('pagos',pid)}
+function updOC(pid,val){updP(pid,'montoObraCivil',Math.max(0,parseFloat(val)||0));reloadTab('pagosygastos',pid)}
+function updImpMonto(pid,val){const p=S.proyectos.find(x=>x.id===pid);if(!p)return;p.pagos.imp={monto:Math.max(0,parseFloat(val)||0),paid:((p.pagos&&p.pagos.imp)||{}).paid||false};saveData();reloadTab('pagosygastos',pid)}
+function updImpPaid(pid,val){const p=S.proyectos.find(x=>x.id===pid);if(!p)return;p.pagos.imp={monto:((p.pagos&&p.pagos.imp)||{}).monto||0,paid:val};saveData();reloadTab('pagosygastos',pid)}
 
 function verProy(id){
   const p=S.proyectos.find(x=>x.id===id);if(!p)return;
@@ -4066,7 +4079,7 @@ function swTab(tab,id){
   if(tab==='gen')panel.innerHTML=tplGen(p);
   else if(tab==='plan')panel.innerHTML=tplPlan(p);
   else if(tab==='cron')panel.innerHTML=tplCron(p);
-  else if(tab==='pagosygastos')panel.innerHTML=tplPagosYGastos(p);
+  else if(tab==='pagosygastos'||tab==='pagos')panel.innerHTML=tplPagosYGastos(p);
 }
 function reloadTab(tab,id){const active=document.querySelector('#dpTabs .tab.active');if(active&&active.dataset.t===tab)swTab(tab,id)}
 
@@ -4087,7 +4100,7 @@ function updTramoOC(pid,i,field,val){
   if(!p.pagos.tramos)p.pagos.tramos=[{pct:65,paid:false},{pct:25,paid:false},{pct:10,paid:false}];
   p.pagos.tramos[i][field]=val;
   // Recalcular para mostrar
-  saveData();reloadTab('pagos',pid);
+  saveData();reloadTab('pagosygastos',pid);
 }
 function updTramosPct(pid){
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
@@ -4097,7 +4110,7 @@ function updTramosPct(pid){
   const total=t0+t1+t2;
   if(Math.abs(total-100)>0.1){toast('Los porcentajes deben sumar 100% (actual: '+total+'%)',true);return;}
   p.pagos.tramos[0].pct=t0;p.pagos.tramos[1].pct=t1;p.pagos.tramos[2].pct=t2;
-  saveData();reloadTab('pagos',pid);toast('✓ Porcentajes actualizados');
+  saveData();reloadTab('pagosygastos',pid);toast('✓ Porcentajes actualizados');
 }
 
 function tplPagos(p){
@@ -4311,25 +4324,25 @@ function tplCron(p){
   <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;overflow-x:auto;margin-bottom:16px;-webkit-overflow-scrolling:touch">
   <table class="cron-table" style="table-layout:fixed;width:100%;min-width:580px">
     <colgroup>
-      <col style="width:${isCerrado?'24':'22'}%">
-      <col style="width:9%">
-      <col style="width:7%">
-      <col style="width:9%">
-      <col style="width:6%">
+      <col style="width:${isCerrado?'38':'34'}%">
+      <col style="width:8%">
       <col style="width:6%">
       <col style="width:9%">
-      <col style="width:${isCerrado?'15':'12'}%">
-      ${!isCerrado?'<col style="width:8%">':''}
+      <col style="width:5%">
+      <col style="width:5%">
+      <col style="width:9%">
+      <col style="width:${isCerrado?'16':'13'}%">
+      ${!isCerrado?'<col style="width:7%">':''}
     </colgroup>
     <thead><tr style="background:var(--surface2)">
-      <th>Partida / Subpartida</th>
-      <th>Unidad</th>
-      <th style="text-align:right">Cant.</th>
-      <th style="text-align:right">P.Unit.</th>
-      <th style="text-align:center">Días</th>
-      <th style="text-align:center">✓</th>
-      <th style="text-align:right">Total</th>
-      <th style="text-align:center">Fecha inicio</th>
+      <th style="word-wrap:break-word;overflow-wrap:break-word">Partida / Subpartida</th>
+      <th style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Unidad</th>
+      <th style="text-align:right;overflow:hidden">Cant.</th>
+      <th style="text-align:right;overflow:hidden">P.Unit.</th>
+      <th style="text-align:center;overflow:hidden">Días</th>
+      <th style="text-align:center;overflow:hidden">✓</th>
+      <th style="text-align:right;overflow:hidden">Total</th>
+      <th style="text-align:center;overflow:hidden;white-space:nowrap">Fecha inicio</th>
       ${!isCerrado?'<th></th>':''}
     </tr></thead>
     <tbody>`;
@@ -4343,10 +4356,10 @@ function tplCron(p){
     const partidaFechaFin=addDias(partidaFechaInicio,dp);
 
     html+=`<tr style="background:var(--surface2)">
-      <td>
+      <td style="word-wrap:break-word;overflow-wrap:break-word;white-space:normal">
         ${(!isCerrado&&!esContratista)
-          ?`<input value="${esc(m.nombre)}" style="font-weight:700;background:transparent;border:none;color:var(--text);width:100%;font-size:13px" onchange="updPartida('${p.id}',${mi},'nombre',this.value)">`
-          :`<span style="font-weight:700;font-size:13px">${esc(m.nombre)}</span>`}
+          ?`<input value="${esc(m.nombre)}" style="font-weight:700;background:transparent;border:none;color:var(--text);width:100%;font-size:13px;word-wrap:break-word;overflow-wrap:break-word;white-space:normal" onchange="updPartida('${p.id}',${mi},'nombre',this.value)">`
+          :`<span style="font-weight:700;font-size:13px;display:block;word-wrap:break-word;overflow-wrap:break-word">${esc(m.nombre)}</span>`}
         <div style="font-size:10px;color:var(--muted);margin-top:2px">${m.sub.length} subpartida(s)</div>
       </td>
       <td></td><td></td><td></td>
@@ -4377,13 +4390,13 @@ function tplCron(p){
 
       const subFechaInicio=sub.fechaInicio||partidaFechaInicio||cr.fechaInicio||'';
       html+=`<tr style="background:${rowBg}">
-        <td style="padding-left:16px">
-          <div style="display:flex;align-items:center;gap:6px">
-            <input type="checkbox" ${isDone?'checked':''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--green);flex-shrink:0"
+        <td style="padding-left:16px;word-wrap:break-word;overflow-wrap:break-word;white-space:normal">
+          <div style="display:flex;align-items:flex-start;gap:6px">
+            <input type="checkbox" ${isDone?'checked':''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--green);flex-shrink:0;margin-top:2px"
               onchange="marcarSubhecha('${p.id}',${mi},${si},this.checked)">
             ${(!isCerrado&&!esContratista)
-              ?`<input value="${esc(sub.desc||'')}" placeholder="Actividad..." style="color:${textColor};font-size:13px" onchange="updSub('${p.id}',${mi},${si},'desc',this.value)">`
-              :`<span style="color:${textColor};font-size:13px">${esc(sub.desc||'—')}</span>`}
+              ?`<input value="${esc(sub.desc||'')}" placeholder="Actividad..." style="color:${textColor};font-size:13px;width:100%;min-width:0;word-wrap:break-word;overflow-wrap:break-word;white-space:normal" onchange="updSub('${p.id}',${mi},${si},'desc',this.value)">`
+              :`<span style="color:${textColor};font-size:13px;word-wrap:break-word;overflow-wrap:break-word;display:block;min-width:0;flex:1">${esc(sub.desc||'—')}</span>`}
             ${isDone?`<span style="color:var(--green);font-size:11px;flex-shrink:0;font-weight:700">✓</span>`:''}
           </div>
         </td>
@@ -4736,7 +4749,7 @@ function renderGastos(){
     </div>
     <div class="row3">
       <div class="fg"><label>Valor * ($)</label><input type="number" min="0" step="0.01" id="gValor" placeholder="0.00"></div>
-      <div class="fg"><label>Fecha</label><input type="date" id="gFecha" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div class="fg"><label>Fecha</label><input type="date" id="gFecha" value="${localDate(new Date())}"></div>
       <div class="fg"><label>Descripción</label><input id="gDesc" placeholder="Concepto del gasto"></div>
     </div>
     <div class="fg">
@@ -5743,7 +5756,7 @@ function renderReportes(){
         </select>
       </div>
       <div class="fg"><label>Desde</label><input type="date" id="rpDesde" onchange="renderReporteOutput()"></div>
-      <div class="fg"><label>Hasta</label><input type="date" id="rpHasta" value="${new Date().toISOString().slice(0,10)}" onchange="renderReporteOutput()"></div>
+      <div class="fg"><label>Hasta</label><input type="date" id="rpHasta" value="${localDate(new Date())}" onchange="renderReporteOutput()"></div>
       <div class="fg"><label>Proyecto</label>
         <select id="rpProyecto" onchange="renderReporteOutput()">
           <option value="">Todos</option>
@@ -5760,7 +5773,7 @@ function renderReportes(){
   <div class="report-output" id="reportOutput"><div class="empty">Configura los filtros y haz clic en Generar reporte</div></div>`;
   // Inicializar fechas
   const hoy=new Date();const hace30=new Date(hoy);hace30.setDate(hace30.getDate()-30);
-  document.getElementById('rpDesde').value=hace30.toISOString().slice(0,10);
+  document.getElementById('rpDesde').value=localDate(hace30);
 }
 
 function getReporteData(){
@@ -5775,10 +5788,10 @@ function getReporteData(){
   if(tipo==='reporte_entrega_gastos'){
     var fechaCreacion=function(g){
       // Si tiene creadoEn, úsalo; si no, derivar del id (genId() empieza con timestamp hex)
-      if(g.creadoEn)return new Date(g.creadoEn).toISOString().slice(0,10);
+      if(g.creadoEn)return localDate(new Date(g.creadoEn));
       if(g.id&&g.id.length>=8){
         var ts=parseInt(g.id.slice(0,11),16);
-        if(!isNaN(ts)&&ts>1e12)return new Date(ts).toISOString().slice(0,10);
+        if(!isNaN(ts)&&ts>1e12)return localDate(new Date(ts));
       }
       return g.fecha||''; // fallback a fecha de factura
     };
@@ -6381,7 +6394,7 @@ function renderReporteOutput(){
 
 function _ccGetFormData(){
   const desde=(document.getElementById('rpDesde')||{}).value||'';
-  const hasta=(document.getElementById('rpHasta')||{}).value||new Date().toISOString().slice(0,10);
+  const hasta=(document.getElementById('rpHasta')||{}).value||localDate(new Date());
   const proyId=(document.getElementById('rpProyecto')||{}).value||'';
   const resp=(document.getElementById('ccRptResp')||{}).value||'';
   const fondo=parseFloat((document.getElementById('ccRptFondo')||{}).value)||2000;
@@ -6614,7 +6627,7 @@ function exportarReporteCSV(){
     csv+=`"${g.factura}","${g.descripcion||''}","${g.proveedor}",${g.valor},"${g.fecha}","${pname}"\n`;
   });
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
-  const a=document.createElement('a');var _dlUrl2=URL.createObjectURL(blob);a.href=_dlUrl2;a.download=`reporte_${tipo}_${new Date().toISOString().slice(0,10)}.csv`;a.click();
+  const a=document.createElement('a');var _dlUrl2=URL.createObjectURL(blob);a.href=_dlUrl2;a.download=`reporte_${tipo}_${localDate(new Date())}.csv`;a.click();
   toast('✓ CSV exportado');
 }
 
@@ -7850,7 +7863,7 @@ function guardarProducto(btn){
   if(fotoData){window.FB.saveComprobante(S.empresa,'prod_'+prodId,fotoData).catch(console.error);}
   if(cant>0){
     S.inventario.movimientos.push({id:genId(),_ca:Date.now(),tipo:'entrada',prodId:prod.id,bodegaId,cantidad:cant,
-      fecha:new Date().toISOString().slice(0,10),nota:'Stock inicial',ts:Date.now()});
+      fecha:localDate(new Date()),nota:'Stock inicial',ts:Date.now()});
   }
   saveData();
   logAction('CREAR','inventario','Producto: '+nombre+' (cant: '+cant+')');
@@ -7881,7 +7894,7 @@ function movInventario(prodId,tipo){
         <select id="mvBod">${bodegas.map(b=>`<option value="${b.id}" ${b.id===prod.bodegaId?'selected':''}>${esc(b.nombre)}</option>`).join('')}</select>
       </div>
     </div>
-    <div class="fg"><label>Fecha</label><input type="date" id="mvFecha" value="${new Date().toISOString().slice(0,10)}"></div>
+    <div class="fg"><label>Fecha</label><input type="date" id="mvFecha" value="${localDate(new Date())}"></div>
 
     ${tipo==='entrada'?`
     <!-- ENTRADA: Proveedor O Centro de Costo -->
@@ -8176,7 +8189,7 @@ function calcFechaInicioReal(cr){
   });
 
   if(earliest===Infinity)return fallback;
-  return new Date(earliest).toISOString().slice(0,10);
+  return localDate(new Date(earliest));
 }
 
 function ganttHTML(p){
@@ -8766,7 +8779,7 @@ function renderDashboard(){
         var maxFecha='';
         todasSubs.forEach(function(s){if(s.fechaInicio&&s.fechaInicio>maxFecha)maxFecha=s.fechaInicio;});
         if(maxFecha){
-          var hoy=new Date().toISOString().slice(0,10);
+          var hoy=localDate(new Date());
           var diff=Math.ceil((new Date(maxFecha)-new Date(hoy))/(86400000));
           if(diff>0)diasRestTxt=diff+' días rest.';
           else if(diff<0)diasRestTxt=Math.abs(diff)+' días vencido';
@@ -9909,7 +9922,7 @@ function mantBadgePrioridad(p){
   return p==='urgente'?'<span class="badge b-err">Urgente</span>':'<span class="badge b-neu">Normal</span>';
 }
 
-function mantHoy(){return new Date().toISOString().slice(0,10);}
+function mantHoy(){return localDate(new Date());}
 
 function mantEnSemana(fecha){
   if(!fecha)return false;
@@ -10626,7 +10639,7 @@ function guardarEquipo(id){
   } else {
     datos.id=genId();
     datos.creadoEn=Date.now();
-    if(!datos.fechaIngreso)datos.fechaIngreso=new Date().toISOString().slice(0,10);
+    if(!datos.fechaIngreso)datos.fechaIngreso=localDate(new Date());
     m.equipos.push(datos);
     // Registrar ingreso como movimiento
     _registrarMovimientoEquipo(datos.id, null, null, ubTipo, ubId, 'ingreso',
@@ -10648,7 +10661,7 @@ function _registrarMovimientoEquipo(equipoId, origenTipo, origenId, destinoTipo,
   m.movimientosEquipos.push({
     id:'me_'+Date.now().toString(36),
     equipoId:equipoId,
-    fecha:new Date().toISOString().slice(0,10),
+    fecha:localDate(new Date()),
     ts:Date.now(),
     usuario:S.currentUser?S.currentUser.email:'sistema',
     tipoMov:tipoMov, // 'ingreso' | 'traslado' | 'baja'
@@ -10735,7 +10748,7 @@ function ejecutarMoverEquipo(id){
 
   if(tipoMov==='baja'){
     eq.estado='baja';
-    eq.fechaBaja=new Date().toISOString().slice(0,10);
+    eq.fechaBaja=localDate(new Date());
     eq.motivoBaja=motivo;
     _registrarMovimientoEquipo(id, oldTipo, oldId, null, null, 'baja', motivo);
     logAction('BAJA','mant_equipo','Baja: '+eq.nombre);
@@ -11356,7 +11369,7 @@ function solMantProcesar(solId) {
     +'<div style="background:var(--surface2);padding:10px 12px;border-radius:8px;margin-bottom:14px;font-size:13px">Solicitud: <strong>'+solId+'</strong></div>'
     +'<div class="row2">'
     +'<div class="fg"><label>Prioridad *</label><select id="smPrioridad"><option value="normal">Normal</option><option value="urgente">Urgente</option></select></div>'
-    +'<div class="fg"><label>Fecha programada *</label><input type="date" id="smFecha" value="'+new Date().toISOString().slice(0,10)+'"></div>'
+    +'<div class="fg"><label>Fecha programada *</label><input type="date" id="smFecha" value="'+localDate(new Date())+'"></div>'
     +'</div>'
     +'<div class="fg" style="margin-bottom:14px"><label>Técnico asignado</label><select id="smTecnico">'+tecOpts+'</select>'
     +'<div style="font-size:11px;color:var(--muted);margin-top:3px">Sugerido: menor carga actual</div></div>'
@@ -11369,7 +11382,7 @@ function solMantProcesar(solId) {
 
 function solMantConfirmarOT(solId) {
   var prioridad=(document.getElementById('smPrioridad')||{}).value||'normal';
-  var fecha=(document.getElementById('smFecha')||{}).value||new Date().toISOString().slice(0,10);
+  var fecha=(document.getElementById('smFecha')||{}).value||localDate(new Date());
   var tecId=(document.getElementById('smTecnico')||{}).value||'';
   var db=firebase.firestore();
   db.collection('solicitudesMant').doc(solId).get().then(function(doc){
@@ -11462,7 +11475,7 @@ function adminAprobarCierreOT(docId, otId, origenSolicitud) {
   var ot=(m.ots||[]).find(function(o){return o.id===otId;});
   if(ot){
     ot.estado='completada';
-    ot.fechaCompletada=new Date().toISOString().slice(0,10);
+    ot.fechaCompletada=localDate(new Date());
     markDirty('taller');
     saveData();
   }
@@ -11653,7 +11666,7 @@ function portalTecVerMisOTs() {
     centroMap: {},
     activas: [],
     completadas: [],
-    hoy: new Date().toISOString().slice(0,10)
+    hoy: localDate(new Date())
   };
   _tecData.centros.forEach(function(c){ window._tecPortalState.centroMap[c.id]=c.nombre; });
   var misOTs = _tecData.ots.filter(function(o){ return o.tecnicoId===tecId; });
@@ -11939,7 +11952,7 @@ function motIrReportar(){
   var veh = _motData.vehiculos.find(function(v){return v.id===sel.vehId;})||{placa:sel.vehId};
   var area = document.getElementById('portalMotArea');
   if(!area) return;
-  var hoy = new Date().toISOString().slice(0,10);
+  var hoy = localDate(new Date());
 
   area.innerHTML =
     '<div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">'
@@ -13191,7 +13204,7 @@ function renderEIPrediccion() {
 // ── 6. CHECKLIST OPERATIVO DIARIO ───────────────────────
 function renderEIChecklist() {
   var ei = eiData();
-  var hoy = new Date().toISOString().slice(0,10);
+  var hoy = localDate(new Date());
   var fecha = S._eiChkFecha || hoy;
   var centroId = S._eiChkCentro || '';
 
@@ -13307,7 +13320,7 @@ function eiSubirEvidencia(input, tipo) {
   var file = input.files[0];
   if (!file) return;
   var centroId = S._eiChkCentro;
-  var fecha = S._eiChkFecha || new Date().toISOString().slice(0,10);
+  var fecha = S._eiChkFecha || localDate(new Date());
   if (!centroId) { toast('Selecciona una tienda primero', true); return; }
 
   leerArchivoBase64(file, function(b64, f) {
@@ -13785,7 +13798,7 @@ function impFmtDate(val) {
   var n = parseInt(val);
   if (!isNaN(n) && n > 40000) {
     var d = new Date((n - 25569) * 86400 * 1000);
-    return d.toISOString().slice(0,10);
+    return localDate(d);
   }
   return val;
 }
@@ -14253,10 +14266,10 @@ function renderAsistencia(){
 
 // ── Pestaña 1: Registro diario ─────────────────────────────────────
 function asistRenderRegistro(tecnicos){
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=localDate(new Date());
   // Por defecto: día anterior (los empleados reportan hasta medianoche, se evalúa al día siguiente)
   var ayer=new Date();ayer.setDate(ayer.getDate()-1);
-  var ayerStr=ayer.toISOString().slice(0,10);
+  var ayerStr=localDate(ayer);
   var fechaSel=S._asistFecha||ayerStr;
   var registros=asistRegistros().filter(function(r){return r.fecha===fechaSel;});
 
@@ -14490,12 +14503,12 @@ function asistRenderSemanal(tecnicos){
   if(!S._asistSemana){
     var hoy=new Date();var dia=hoy.getDay()||7;
     var lun=new Date(hoy);lun.setDate(hoy.getDate()-(dia-1));
-    S._asistSemana=lun.toISOString().slice(0,10);
+    S._asistSemana=localDate(lun);
   }
   var lunDate=new Date(S._asistSemana+'T12:00:00');
   var dias=[];
   for(var i=0;i<6;i++){var d=new Date(lunDate);d.setDate(lunDate.getDate()+i);dias.push(d);}
-  var diasStr=dias.map(function(d){return d.toISOString().slice(0,10);});
+  var diasStr=dias.map(function(d){return localDate(d);});
   var diasLabel=['LUN','MAR','MIÉ','JUE','VIE','SÁB'];
   var mesesNom=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
@@ -14546,9 +14559,9 @@ function asistRenderSemanal(tecnicos){
         +'<div><div style="font-size:14px;font-weight:700">CONTROL DE REPORTE DIARIO</div><div style="font-size:12px;color:var(--muted)">'+esc(mesesNom[dias[0].getMonth()])+' '+dias[0].getFullYear()+'</div></div>'
         +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
           +'<div style="display:flex;align-items:center;gap:8px">'
-            +'<button class="btn btn-secondary btn-sm" onclick="S._asistSemana=\''+prevLun.toISOString().slice(0,10)+'\';renderAsistencia()">‹</button>'
+            +'<button class="btn btn-secondary btn-sm" onclick="S._asistSemana=\''+localDate(prevLun)+'\';renderAsistencia()">‹</button>'
             +'<span style="font-weight:700;color:var(--accent);font-size:13px;min-width:160px;text-align:center">'+semLabel+'</span>'
-            +'<button class="btn btn-secondary btn-sm" onclick="S._asistSemana=\''+nextLun.toISOString().slice(0,10)+'\';renderAsistencia()">›</button>'
+            +'<button class="btn btn-secondary btn-sm" onclick="S._asistSemana=\''+localDate(nextLun)+'\';renderAsistencia()">›</button>'
           +'</div>'
           +'<button class="btn btn-secondary btn-sm" onclick="asistImprimirSemanal()">🖨 Imprimir</button>'
         +'</div>'
@@ -14843,7 +14856,7 @@ function audGuardar(){
   var aud={
     id:genId(),
     tecnicoId:S._audTec,
-    fecha:new Date().toISOString().slice(0,10),
+    fecha:localDate(new Date()),
     ts:Date.now(),
     auditadoPor:S.currentUser?S.currentUser.email:'Anónimo',
     observacionGeneral:S._audObsGen||'',
@@ -15059,7 +15072,7 @@ function renderTallerDashboard(){
   var alertasCriticas=[];
 
   // Alerta: choferes que no reportaron km hoy
-  var hoyStr=new Date().toISOString().slice(0,10);
+  var hoyStr=localDate(new Date());
   var ahoraStr=(new Date().getHours().toString().padStart(2,'0'))+':'+(new Date().getMinutes().toString().padStart(2,'0'));
   var deadlineKm=getDeadlineReporteKm();
   var camionesConChofer=vehs.filter(function(v){return v.choferId&&v.estado!=='baja';});
@@ -15244,7 +15257,7 @@ function renderTallerDashboard(){
   // ═══════════════════════════════════════════════════════════════════
   // TARJETA: REPORTES DE CHOFERES (resumen rápido)
   // ═══════════════════════════════════════════════════════════════════
-  var hoyChStr=new Date().toISOString().slice(0,10);
+  var hoyChStr=localDate(new Date());
   var camsConChofer=t.vehiculos.filter(function(v){return v.choferId&&v.estado!=='baja';});
   var reportesHoy=(t.reportesDiarios||[]).filter(function(r){return r.fecha===hoyChStr;});
   var nReportoHoy=reportesHoy.length;
@@ -15257,7 +15270,7 @@ function renderTallerDashboard(){
     if(!ruta)return;
     // Tomar reportes últimos 7 días
     var hace7=new Date();hace7.setDate(hace7.getDate()-7);
-    var hace7Str=hace7.toISOString().slice(0,10);
+    var hace7Str=localDate(hace7);
     var reps=(t.reportesDiarios||[]).filter(function(r){return r.vehiculoId===v.id&&r.fecha>=hace7Str;});
     if(reps.length===0)return;
     var sKm=reps.reduce(function(s,r){return s+(r.kmRecorridos||0);},0);
@@ -15774,7 +15787,7 @@ function modalFalla(vehId,fallaId){
   var v=t.vehiculos.find(function(x){return x.id===vehId;});
   if(!v)return;
   var f=fallaId?((v.fallas||[]).find(function(x){return x.id===fallaId;})||null):null;
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=localDate(new Date());
 
   var catOpts=null;// ahora usa optsCategoriasFallas
   var estOpts=[
@@ -16655,7 +16668,7 @@ function cambiarEstadoOT(otId,nuevoEstado){
 
   // Si se marca como "listo" o "entregado", auto-llenar fecha de salida si está vacía
   if((nuevoEstado==='listo'||nuevoEstado==='entregado')&&!o.fechaSalida){
-    o.fechaSalida=new Date().toISOString().slice(0,10);
+    o.fechaSalida=localDate(new Date());
   }
 
   // Log
@@ -16726,7 +16739,7 @@ function _otOrigenBox(o,t){
 function modalOT(id,vehIdPrefill){
   var t=tallerData();
   var o=id?t.ots.find(function(x){return x.id===id;}):null;
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=localDate(new Date());
 
   // Inicializar buffer de servicios aplicados
   S._otServiciosBuffer=(o&&o.serviciosAplicados)?o.serviciosAplicados.slice():[];
@@ -17480,8 +17493,8 @@ function delProgramado(id){
 function renderTallerReportes(){
   var t=tallerData();
   if(!S._tallerRepTipo)S._tallerRepTipo='costo_vehiculo';
-  if(!S._tallerRepDesde){var d=new Date();d.setDate(1);S._tallerRepDesde=d.toISOString().slice(0,10);}
-  if(!S._tallerRepHasta)S._tallerRepHasta=new Date().toISOString().slice(0,10);
+  if(!S._tallerRepDesde){var d=new Date();d.setDate(1);S._tallerRepDesde=localDate(d);}
+  if(!S._tallerRepHasta)S._tallerRepHasta=localDate(new Date());
 
   var tipo=S._tallerRepTipo;
   var ots=t.ots.filter(function(o){return o.fechaIngreso>=S._tallerRepDesde&&o.fechaIngreso<=S._tallerRepHasta;});
@@ -17738,7 +17751,7 @@ function renderChoferPortal(){
 
 // ── Reporte diario ──
 function choferRenderReporte(veh){
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=localDate(new Date());
   var rep=getReporteDelDia(veh.id,hoy);
   var deadline=getDeadlineReporteKm();
   var ahora=new Date();
@@ -17841,7 +17854,7 @@ function choferGuardarReporte(vehId){
   var kmActual=veh.kmActual||0;
   if(km<kmActual){toast('El km nuevo no puede ser menor al actual ('+kmActual+')',true);return;}
 
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=localDate(new Date());
   // Calcular km recorridos
   var reps=t.reportesDiarios.filter(function(r){return r.vehiculoId===vehId;}).sort(function(a,b){return (b.fecha+'').localeCompare(a.fecha+'');});
   var ultimoReporte=reps.find(function(r){return r.fecha<hoy;});
@@ -18055,7 +18068,7 @@ function choferEnviarSolicitud(vehId){
   var sol={
     id:solId,
     vehiculoId:vehId,
-    fecha:new Date().toISOString().slice(0,10),
+    fecha:localDate(new Date()),
     ts:Date.now(),
     choferId:S.currentUser?S.currentUser.email:null,
     choferNombre:S.currentUser?S.currentUser.nombre:'Chofer',
@@ -18457,7 +18470,7 @@ function solAprobarYCrearOT(solId){
     vehiculoId:s.vehiculoId,
     tipo:'correctivo',
     estado:'recibido',
-    fechaIngreso:new Date().toISOString().slice(0,10),
+    fechaIngreso:localDate(new Date()),
     mecanicoId:mecId||null,
     serviciosAplicados:serviciosAplicados,
     descripcion:descAuto,
@@ -18607,7 +18620,7 @@ function renderTallerTrabajos(){
         descripcion:o.descripcion||('OT-'+o.numero+' · '+o.tipo),
         servicios:(o.serviciosAplicados||[]).map(function(s){return s.nombre||s;}),
         etapa:etapa,
-        fechaCreacion:o.fechaIngreso||new Date(o.creadoEn||Date.now()).toISOString().slice(0,10),
+        fechaCreacion:o.fechaIngreso||localDate(new Date(o.creadoEn||Date.now())),
         fechaFin:o.fechaSalida||'',
         creadoPor:'',
         ts:o.creadoEn||0
@@ -18629,7 +18642,7 @@ function renderTallerTrabajos(){
         mecanicoId:s.mecanicoId||'',
         descripcion:s.descripcion||'Revisión solicitada por motorista',
         etapa:etapa,
-        fechaCreacion:s.ts?new Date(s.ts).toISOString().slice(0,10):'',
+        fechaCreacion:s.ts?localDate(new Date(s.ts)):'',
         creadoPor:s.choferNombre||s.choferId||'Portal motorista',
         motoristaNombre:s.choferNombre||s.choferId||'',
         ts:s.ts||0
@@ -18656,7 +18669,7 @@ function renderTallerTrabajos(){
               mecanicoId:s.mecanicoId||'',
               descripcion:s.descripcion||'Revisión solicitada por motorista',
               etapa:etapa,
-              fechaCreacion:s.ts?new Date(s.ts).toISOString().slice(0,10):'',
+              fechaCreacion:s.ts?localDate(new Date(s.ts)):'',
               creadoPor:s.motoristaNombre||'Portal motorista',
               motoristaNombre:s.motoristaNombre||'',
               ts:s.ts||0
@@ -18776,8 +18789,8 @@ function _renderTrabajosLista(trabajos){
 // ── Avanzar etapa ─────────────────────────────────────────────────
 function tjAvanzar(docId, nuevaEtapa){
   var updates={etapa:nuevaEtapa, _ts:Date.now()};
-  if(nuevaEtapa==='en_proceso') updates.fechaInicio=new Date().toISOString().slice(0,10);
-  if(nuevaEtapa==='finalizado') updates.fechaFin=new Date().toISOString().slice(0,10);
+  if(nuevaEtapa==='en_proceso') updates.fechaInicio=localDate(new Date());
+  if(nuevaEtapa==='finalizado') updates.fechaFin=localDate(new Date());
 
   // Item local (OT o solicitud del sistema)
   if(docId.indexOf('ot_')===0){
@@ -18866,7 +18879,7 @@ function tjCrearDesdeOT(ot, vehiculo){
     descripcion:ot.descripcion||ot.tipo||'Orden de trabajo',
     servicios:(ot.servicios||[]).map(function(s){return s.nombre||s;}),
     etapa:'asignado',
-    fechaCreacion:new Date().toISOString().slice(0,10),
+    fechaCreacion:localDate(new Date()),
     creadoPor:(S.currentUser&&S.currentUser.nombre)||'',
     ts:Date.now()
   }).catch(function(e){console.warn('[TJ] Error creando desde OT:',e.message);});
@@ -18883,7 +18896,7 @@ function tjCrearDesdeSolicitud(sol){
     mecanicoId:'',
     descripcion:sol.descripcion||'Revisión solicitada por motorista',
     etapa:'asignado',
-    fechaCreacion:new Date().toISOString().slice(0,10),
+    fechaCreacion:localDate(new Date()),
     creadoPor:'Portal motorista',
     motoristaNombre:sol.motoristaNombre||sol.choferNombre||'',
     ts:Date.now()
@@ -18911,7 +18924,7 @@ function tjCrearDesdeProgramado(prog){
     descripcion:'Mantenimiento programado: '+esc(prog.servicio||''),
     servicios:[prog.servicio||''],
     etapa:'asignado',
-    fechaCreacion:new Date().toISOString().slice(0,10),
+    fechaCreacion:localDate(new Date()),
     creadoPor:(S.currentUser&&S.currentUser.nombre)||'Mecánico',
     ts:Date.now()
   }).then(function(){
@@ -18948,7 +18961,7 @@ function tjGuardarNuevo(){
     mecanicoId:mecId,
     descripcion:desc,
     etapa:'asignado',
-    fechaCreacion:new Date().toISOString().slice(0,10),
+    fechaCreacion:localDate(new Date()),
     creadoPor:(S.currentUser&&S.currentUser.nombre)||'',
     ts:Date.now()
   }).then(function(){
@@ -19029,7 +19042,7 @@ function modalNuevaRevision(vehId){
     +'<div style="background:var(--surface2);padding:10px;border-radius:8px;margin-bottom:12px;font-size:12px">'
       +'<div><strong>Vehículo:</strong> '+esc(v.placa)+' · '+esc(v.marca||'')+' '+esc(v.modelo||'')+'</div>'
       +'<div><strong>Mecánico:</strong> '+esc(S.currentUser?S.currentUser.nombre||S.currentUser.email:'—')+'</div>'
-      +'<div><strong>Fecha:</strong> '+fmtDate(new Date().toISOString().slice(0,10))+'</div>'
+      +'<div><strong>Fecha:</strong> '+fmtDate(localDate(new Date()))+'</div>'
     +'</div>'
     +'<div class="fg"><label>📸 Subir fotos (libre — frontal, motor, llantas, lo que quieras documentar)</label>'
       +'<input type="file" id="revFotoInput" accept="image/*" capture="environment" multiple onchange="revAgregarFotos(this)">'
@@ -19140,7 +19153,7 @@ function guardarRevision(vehId){
   var rev={
     id:revId,
     vehiculoId:vehId,
-    fecha:new Date().toISOString().slice(0,10),
+    fecha:localDate(new Date()),
     ts:Date.now(),
     mecanicoEmail:S.currentUser?S.currentUser.email:null,
     mecanicoNombre:S.currentUser?S.currentUser.nombre||S.currentUser.email:'',
@@ -19345,8 +19358,8 @@ function renderTallerReportesChoferes(){
 
   // Inicializar filtros
   if(!S._rdcFiltroVeh)S._rdcFiltroVeh='';
-  if(!S._rdcFiltroDesde){var d0=new Date();d0.setDate(d0.getDate()-30);S._rdcFiltroDesde=d0.toISOString().slice(0,10);}
-  if(!S._rdcFiltroHasta)S._rdcFiltroHasta=new Date().toISOString().slice(0,10);
+  if(!S._rdcFiltroDesde){var d0=new Date();d0.setDate(d0.getDate()-30);S._rdcFiltroDesde=localDate(d0);}
+  if(!S._rdcFiltroHasta)S._rdcFiltroHasta=localDate(new Date());
 
   var t=tallerData();
   // Reportes locales (sistema legacy)
@@ -19373,7 +19386,7 @@ function renderTallerReportesChoferes(){
         var r=d.data();
         repFirestore.push({
           id:r.id||d.id, vehiculoId:r.vehiculoId, vehiculoPlaca:r.vehiculoPlaca||'',
-          motoristaNombre:r.motoristaNombre||'', fecha:r.fecha||(r.ts?new Date(r.ts).toISOString().slice(0,10):''),
+          motoristaNombre:r.motoristaNombre||'', fecha:r.fecha||(r.ts?localDate(new Date(r.ts)):''),
           kmOdometro:r.kmOdometro||0, kmRecorridos:r.kmRecorridos||0,
           galonesCargados:r.galonesCargados||0, costoGasolina:r.costoGasolina||0,
           novedad:r.novedad||'', origen:'portal'
@@ -19414,8 +19427,8 @@ function _renderReportesChoferes(reportes){
   var t=tallerData(); // necesario para acceder a vehiculos, rutas, reportesDiarios
   // Filtros
   if(!S._rdcFiltroVeh)S._rdcFiltroVeh='';
-  if(!S._rdcFiltroDesde){var d=new Date();d.setDate(d.getDate()-30);S._rdcFiltroDesde=d.toISOString().slice(0,10);}
-  if(!S._rdcFiltroHasta)S._rdcFiltroHasta=new Date().toISOString().slice(0,10);
+  if(!S._rdcFiltroDesde){var d=new Date();d.setDate(d.getDate()-30);S._rdcFiltroDesde=localDate(d);}
+  if(!S._rdcFiltroHasta)S._rdcFiltroHasta=localDate(new Date());
 
   var rep=reportes.filter(function(r){
     if(S._rdcFiltroVeh&&r.vehiculoId!==S._rdcFiltroVeh)return false;
@@ -19431,7 +19444,7 @@ function _renderReportesChoferes(reportes){
   var rendimiento=totalGal>0?(totalKm/totalGal).toFixed(2):'—';
 
   // Estado de hoy
-  var hoyStr=new Date().toISOString().slice(0,10);
+  var hoyStr=localDate(new Date());
   // Todos los vehículos activos (no solo los con choferId asignado)
   var todosVehs=t.vehiculos.filter(function(v){return v.estado!=='baja';});
   var statusHoy=todosVehs.map(function(v){
@@ -19493,7 +19506,7 @@ function _renderReportesChoferes(reportes){
 
     // Histórico (últimos 6 meses excluyendo período actual) — para detectar tendencias
     var hace6m=new Date();hace6m.setMonth(hace6m.getMonth()-6);
-    var hace6mStr=hace6m.toISOString().slice(0,10);
+    var hace6mStr=localDate(hace6m);
     var histReps=(t.reportesDiarios||[]).filter(function(r){
       return r.vehiculoId===vid&&r.fecha>=hace6mStr&&r.fecha<S._rdcFiltroDesde;
     });
@@ -19602,12 +19615,12 @@ function _renderReportesChoferes(reportes){
   if(!S._rdcSemana){
     var hoyD=new Date();var diaD=hoyD.getDay()||7;
     var lunD=new Date(hoyD);lunD.setDate(hoyD.getDate()-(diaD-1));
-    S._rdcSemana=lunD.toISOString().slice(0,10);
+    S._rdcSemana=localDate(lunD);
   }
   var lunDate2=new Date(S._rdcSemana+'T12:00:00');
   var semDias=[];
   for(var sd=0;sd<7;sd++){var sd2=new Date(lunDate2);sd2.setDate(lunDate2.getDate()+sd);semDias.push(sd2);}
-  var semDiasStr=semDias.map(function(d){return d.toISOString().slice(0,10);});
+  var semDiasStr=semDias.map(function(d){return localDate(d);});
   var semLabels=['LUN','MAR','MIÉ','JUE','VIE','SÁB','DOM'];
   var mesesN=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   var semLabel=semDias[0].getDate()+' – '+semDias[6].getDate()+' de '+mesesN[semDias[0].getMonth()]+' '+semDias[0].getFullYear();
@@ -19713,8 +19726,8 @@ function _renderReportesChoferes(reportes){
     +'<div class="sec-hdr">🔍 Filtros del análisis</div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">'
     +'<div class="fg" style="margin:0"><label>Vehículo</label><select onchange="S._rdcFiltroVeh=this.value;renderTallerReportesChoferes()">'+vehOpts+'</select></div>'
-    +'<div class="fg" style="margin:0"><label>Desde</label>'+miniCalHTML(S._rdcFiltroDesde,'rdcCalDesde',[],new Date().toISOString().slice(0,10))+'</div>'
-    +'<div class="fg" style="margin:0"><label>Hasta</label>'+miniCalHTML(S._rdcFiltroHasta,'rdcCalHasta',[],new Date().toISOString().slice(0,10))+'</div>'
+    +'<div class="fg" style="margin:0"><label>Desde</label>'+miniCalHTML(localDate(S._rdcFiltroDesde),'rdcCalDesde',[],new Date())+'</div>'
+    +'<div class="fg" style="margin:0"><label>Hasta</label>'+miniCalHTML(localDate(S._rdcFiltroHasta),'rdcCalHasta',[],new Date())+'</div>'
     +'</div></div>'
     // Análisis comparativo
     +'<div class="sec-hdr" style="margin:18px 0 10px 0">🚨 ANÁLISIS COMPARATIVO POR VEHÍCULO</div>'
@@ -19725,9 +19738,9 @@ function _renderReportesChoferes(reportes){
     +'<div><div style="font-weight:700;font-size:14px">📋 CONTROL SEMANAL DE KM</div>'
     +'<div style="font-size:12px;color:var(--muted)">'+mesesN[semDias[0].getMonth()]+' '+semDias[0].getFullYear()+'</div></div>'
     +'<div style="display:flex;align-items:center;gap:8px">'
-    +'<button class="btn btn-secondary btn-sm" data-sem="'+prevLun2.toISOString().slice(0,10)+'" onclick="S._rdcSemana=this.getAttribute(\'data-sem\');renderTallerReportesChoferes()">‹</button>'
+    +'<button class="btn btn-secondary btn-sm" data-sem="'+localDate(prevLun2)+'" onclick="S._rdcSemana=this.getAttribute(\'data-sem\');renderTallerReportesChoferes()">‹</button>'
     +'<span style="font-weight:700;color:var(--accent);font-size:13px;min-width:180px;text-align:center">'+semLabel+'</span>'
-    +'<button class="btn btn-secondary btn-sm" data-sem="'+nextLun2.toISOString().slice(0,10)+'" onclick="S._rdcSemana=this.getAttribute(\'data-sem\');renderTallerReportesChoferes()">›</button>'
+    +'<button class="btn btn-secondary btn-sm" data-sem="'+localDate(nextLun2)+'" onclick="S._rdcSemana=this.getAttribute(\'data-sem\');renderTallerReportesChoferes()">›</button>'
     +'</div></div>'
     +'<div class="tbl-wrap asist-semanal-wrap" style="border:none;border-radius:0"><table>'
     +'<thead><tr>'
@@ -20839,7 +20852,7 @@ function editarCombustible(id){
   if(!r)return;S._combEdit=r;abrirModalCombustible();
 }
 function abrirModalCombustible(){
-  var r=S._combEdit||{fecha:new Date().toISOString().slice(0,10),vehiculoId:'',rutaId:'',rutaLibre:'',conductor:'',kmInicial:'',kmFinal:'',costo:'',observ:''};
+  var r=S._combEdit||{fecha:localDate(new Date()),vehiculoId:'',rutaId:'',rutaLibre:'',conductor:'',kmInicial:'',kmFinal:'',costo:'',observ:''};
   var vehiculos=(S.taller&&S.taller.vehiculos)||[];
   var rutas=(S.taller&&S.taller.rutas)||[];
   var vehOpts='<option value="">— Seleccionar —</option>'+vehiculos.map(function(v){
