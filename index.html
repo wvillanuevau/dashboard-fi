@@ -5223,7 +5223,7 @@ function tplPagosYGastos(p){
   <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
     <div class="kpi"><div class="kpi-lbl">Obra Civil</div><div class="kpi-val" style="font-size:18px">${fmt(oc)}</div><div class="kpi-sub">Pagado: ${fmt(pagadoOC)}</div></div>
     <div class="kpi"><div class="kpi-lbl">Imprevistos</div><div class="kpi-val" style="font-size:18px;color:var(--accent)">${fmt(imp)}</div><div class="kpi-sub">${impPaid?'✓ Pagado':'Pendiente'}</div></div>
-    <div class="kpi"><div class="kpi-lbl">Gastos</div><div class="kpi-val" style="font-size:18px;color:var(--red)">${fmt(gp)}</div><div class="kpi-sub">${listaTotal.length} factura(s) · ${lista.length} suman</div></div>
+    <div class="kpi"><div class="kpi-lbl">Gastos</div><div class="kpi-val" style="font-size:18px;color:var(--red)">${fmt(gp)}</div><div class="kpi-sub">${lista.length} factura(s) · ${lista.length} suman</div></div>
     <div class="kpi" style="border-color:var(--accent)"><div class="kpi-lbl">Total</div><div class="kpi-val" style="font-size:18px;color:var(--accent)">${fmt(oc+imp+gp)}</div></div>
   </div>
 

@@ -6252,28 +6252,216 @@ function paImprimirReporteHE() {
 }
 
 function paImprimirResumenHE(data) {
+  var desde = data.desde, hasta = data.hasta;
+  var feriados = (PA.config && PA.config.feriados) || [];
+  var JORNADA_NORMAL = 8 * 60; // 480 min
+
+  function tipodia(fechaStr) {
+    var d = new Date(fechaStr + 'T12:00:00');
+    var dow = d.getDay(); // 0=dom, 6=sab
+    if (feriados.indexOf(fechaStr) >= 0) return 'F';
+    if (dow === 0) return 'NL';
+    if (dow === 6) return 'NL';
+    return 'L';
+  }
+
+  function fmtH(mins) {
+    if (!mins || mins <= 0) return '--';
+    var h = Math.floor(mins/60), m = mins%60;
+    if (h > 0 && m > 0) return h + 'h ' + m + ' min';
+    if (h > 0) return h + 'h';
+    return m + ' min';
+  }
+
+  function fmtHora(ts) {
+    if (!ts) return '--';
+    var d = new Date(ts);
+    return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  }
+
+  function fmtFecha(fechaStr) {
+    var dias = ['dom','lun','mar','mié','jue','vie','sáb'];
+    var meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    var d = new Date(fechaStr + 'T12:00:00');
+    return dias[d.getDay()]+', '+d.getDate()+' '+meses[d.getMonth()]+' '+d.getFullYear();
+  }
+
+  // Generar lista de fechas del período
+  function fechasEnRango(desde, hasta) {
+    var arr = [], d = new Date(desde+'T12:00:00'), fin = new Date(hasta+'T12:00:00');
+    while (d <= fin) {
+      arr.push(d.toISOString().slice(0,10));
+      d.setDate(d.getDate()+1);
+    }
+    return arr;
+  }
+
   var empIds = Object.keys(data.porEmp).sort(function(a,b){
     return data.porEmp[a].nombre.localeCompare(data.porEmp[b].nombre);
   });
+
+  // Totales generales
   var totDiu=0, totNoc=0, totFer=0, totFin=0;
-  empIds.forEach(function(eid){ var e=data.porEmp[eid];
+  empIds.forEach(function(eid){
+    var e=data.porEmp[eid];
     totDiu+=(e.diurna||0); totNoc+=(e.nocturna||0);
     totFer+=(e.feriado||0); totFin+=(e.finde||0);
   });
-  var rowsHtml = empIds.map(function(eid, i) {
-    var e = data.porEmp[eid];
-    var bg = i%2===0?'#fff':'#f0f4ff';
-    return '<tr style="background:'+bg+'">'
-      +'<td style="font-weight:600;padding:5px 8px">'+esc(e.nombre)+'</td>'
-      +'<td style="text-align:center">'+((e.diurna||0).toFixed(2))+'</td>'
-      +'<td style="text-align:center">'+((e.nocturna||0).toFixed(2))+'</td>'
-      +'<td style="text-align:center">'+((e.feriado||0).toFixed(2))+'</td>'
-      +'<td style="text-align:center">'+((e.finde||0).toFixed(2))+'</td>'
-      +'<td style="text-align:right;font-weight:700;color:#1a3a5c">'+e.total.toFixed(2)+'h</td>'
+
+  var css = '<style>'
+    +'body{font-family:Arial,sans-serif;font-size:11px;color:#000;margin:16px}'
+    +'h1{font-size:13px;font-weight:700;margin:0 0 2px}'
+    +'.legend{font-size:10px;color:#555}'
+    +'.emp-block{margin-bottom:24px;page-break-inside:avoid}'
+    +'.emp-info{border:1px solid #888;border-bottom:none;padding:3px 6px;background:#f5f5f5}'
+    +'.emp-info td{padding:2px 8px 2px 0;font-size:11px}'
+    +'.emp-info td:first-child{font-weight:700;width:100px}'
+    +'table.horas{border-collapse:collapse;width:100%}'
+    +'table.horas th,table.horas td{border:1px solid #888;padding:2px 5px;font-size:10px;text-align:center}'
+    +'table.horas th{background:#1a3a5c;color:#fff;font-weight:700}'
+    +'table.horas .hdr-sec{background:#2d5a8e;color:#fff;font-size:10px;font-weight:700}'
+    +'table.horas td.fecha{text-align:left}'
+    +'table.horas .nl{background:#f0f0f0;color:#888}'
+    +'table.horas .tot-row{background:#d0d8e8;font-weight:700}'
+    +'table.horas .he-val{font-weight:700;color:#c00}'
+    +'.resumen-table{border-collapse:collapse;width:100%;margin-bottom:20px}'
+    +'.resumen-table th{background:#1a3a5c;color:#fff;padding:4px 6px;font-size:10px}'
+    +'.resumen-table td{border:1px solid #aaa;padding:3px 6px;font-size:10px}'
+    +'.resumen-table .tot{background:#1a3a5c;color:#fff;font-weight:700}'
+    +'@media print{@page{margin:10mm;size:A4}button{display:none}}'
+    +'</style>';
+
+  // Tabla resumen general
+  var resumenRows = empIds.map(function(eid,i){
+    var e=data.porEmp[eid];
+    var tot=(e.diurna||0)+(e.nocturna||0)+(e.feriado||0)+(e.finde||0);
+    return '<tr>'
+      +'<td>'+esc(e.nombre)+'</td>'
+      +'<td>'+(e.diurna>0?e.diurna.toFixed(2):'—')+'</td>'
+      +'<td>'+(e.nocturna>0?e.nocturna.toFixed(2):'—')+'</td>'
+      +'<td>'+(e.feriado>0?e.feriado.toFixed(2):'—')+'</td>'
+      +'<td>'+(e.finde>0?e.finde.toFixed(2):'—')+'</td>'
+      +'<td style="font-weight:700">'+tot.toFixed(2)+'h</td>'
       +'</tr>';
   }).join('');
 
-  // Overlay en lugar de window.open (bloqueado en iOS)
+  // Bloques por empleado (formato imagen)
+  var bloques = empIds.map(function(eid) {
+    var e = data.porEmp[eid];
+    var marcs = data.marcaciones[eid] || {};
+    var emp = PA.empleados.find(function(x){ return x.id===eid; });
+    var afiliacion = (emp && emp.afiliacion) || '';
+    var fechas = fechasEnRango(desde, hasta);
+
+    var totalHETrabajadas = 0; // min HE diurnas
+    var totalHENocturnas  = 0;
+
+    var rows = fechas.map(function(f) {
+      var tipo = tipodia(f);
+      var mDia = marcs[f] || [];
+      var entrada = mDia.find(function(m){ return m.tipo==='entrada' || m.tipo==='entrada_adicional'; });
+      var salida  = mDia.find(function(m){ return m.tipo==='salida'  || m.tipo==='salida_adicional'; });
+
+      var fmtF = fmtFecha(f) + ' ('+tipo+')';
+      var horaIn  = entrada ? fmtHora(_paToMs(entrada.ts)) : '--';
+      var horaFin = salida  ? fmtHora(_paToMs(salida.ts))  : '--';
+
+      var minsTrabajados = 0;
+      if (entrada && salida) {
+        minsTrabajados = Math.round((_paToMs(salida.ts) - _paToMs(entrada.ts)) / 60000);
+        // Restar almuerzo (si existe)
+        var alSal = mDia.find(function(m){ return m.tipo==='almuerzo_salida'; });
+        var alReg = mDia.find(function(m){ return m.tipo==='almuerzo_regreso'; });
+        if (alSal && alReg) {
+          minsTrabajados -= Math.round((_paToMs(alReg.ts) - _paToMs(alSal.ts)) / 60000);
+        }
+      }
+
+      var totalStr = minsTrabajados > 0 ? fmtH(minsTrabajados) : '--';
+
+      // HE = tiempo > jornada normal
+      var heMin = tipo === 'L' ? Math.max(0, minsTrabajados - JORNADA_NORMAL) : minsTrabajados;
+      var heNoc = (e.dias && e.dias[f] && e.dias[f].nocturna) ? Math.round((e.dias[f].nocturna||0)*60) : 0;
+      var heDiu = (e.dias && e.dias[f] && e.dias[f].diurna)   ? Math.round((e.dias[f].diurna||0)*60)   : 0;
+      totalHETrabajadas += heDiu;
+      totalHENocturnas  += heNoc;
+
+      var heStr   = (heDiu>0||heNoc>0) ? fmtH(heDiu+heNoc) : '0 min.';
+      var heDiuStr = heDiu>0 ? '<b class="he-val">'+fmtH(heDiu)+'</b>' : '--';
+      var heNocStr = heNoc>0 ? '<b class="he-val">'+fmtH(heNoc)+'</b>' : '--';
+      var horasNorm = tipo==='L' && minsTrabajados>=JORNADA_NORMAL ? '1h' : '--';
+
+      var rowClass = (tipo==='NL'||tipo==='F') ? ' class="nl"' : '';
+      return '<tr'+rowClass+'>'
+        +'<td class="fecha">'+fmtF+'</td>'
+        +'<td>'+(horaIn!=='--'?horaIn:'--')+'</td>'
+        +'<td>'+(horaFin!=='--'?horaFin:'--')+'</td>'
+        +'<td>'+totalStr+'</td>'
+        +'<td>'+heStr+'</td>'
+        +'<td>'+horasNorm+'</td>'
+        +'<td>'+totalStr+'</td>'
+        +'<td>'+heDiuStr+'</td>'
+        +'<td>'+heNocStr+'</td>'
+        +'</tr>';
+    }).join('');
+
+    return '<div class="emp-block">'
+      +'<table class="emp-info" style="width:100%;border-collapse:collapse">'
+      +'<tr><td>Empleado</td><td>'+esc(e.nombre)+'</td></tr>'
+      +'<tr><td>N° Afiliación</td><td>'+esc(afiliacion)+'</td></tr>'
+      +'<tr><td>Intervalo</td><td>'+desde+' — '+hasta+'</td></tr>'
+      +'</table>'
+      +'<table class="horas">'
+      +'<thead>'
+      +'<tr><th colspan="9" class="hdr-sec">HORAS TRABAJADAS</th></tr>'
+      +'<tr>'
+      +'<th style="text-align:left;width:20%">Fecha</th>'
+      +'<th>Hora ini.</th>'
+      +'<th>Hora fin</th>'
+      +'<th>Total</th>'
+      +'<th>Horas extras</th>'
+      +'<th>Horas</th>'
+      +'<th>Tiempo</th>'
+      +'<th>H.E.</th>'
+      +'<th>H.E.N.</th>'
+      +'</tr>'
+      +'</thead>'
+      +'<tbody>'+rows+'</tbody>'
+      +'<tfoot>'
+      +'<tr class="tot-row">'
+      +'<td class="fecha" colspan="6">Total</td>'
+      +'<td>'+fmtH(totalHETrabajadas+totalHENocturnas)+'</td>'
+      +'<td>'+(totalHETrabajadas>0?'<b class="he-val">'+fmtH(totalHETrabajadas)+'</b>':'--')+'</td>'
+      +'<td>'+(totalHENocturnas>0?'<b class="he-val">'+fmtH(totalHENocturnas)+'</b>':'--')+'</td>'
+      +'</tr>'
+      +'</tfoot>'
+      +'</table></div>';
+  }).join('');
+
+  var _heHtml = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+    +'<title>Horas Extra — '+desde+' al '+hasta+'</title>'
+    +css+'</head><body>'
+    +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">'
+    +'<div>'
+    +'<h1>FRANQUICIAS INTERNACIONALES, S.A. DE C.V.</h1>'
+    +'<div class="legend">Laborable (L) &nbsp; No laborable (NL) &nbsp; Festivo (F)</div>'
+    +'</div>'
+    +'<button onclick="window.print()" style="background:#1a3a5c;color:#fff;border:none;border-radius:6px;padding:8px 18px;font-size:12px;cursor:pointer">🖨️ Imprimir / PDF</button>'
+    +'</div>'
+    +'<div style="font-size:11px;color:#555;margin-bottom:14px;font-weight:700">RESUMEN — '+desde+' al '+hasta+'</div>'
+    +'<table class="resumen-table">'
+    +'<thead><tr><th style="text-align:left">Empleado</th><th>H.E. Diurnas</th><th>H.E. Nocturnas</th><th>H.E. Feriado</th><th>H.E. Fin semana</th><th>TOTAL</th></tr></thead>'
+    +'<tbody>'+resumenRows+'</tbody>'
+    +'<tfoot><tr class="tot">'
+    +'<td>TOTAL GENERAL</td>'
+    +'<td>'+totDiu.toFixed(2)+'</td><td>'+totNoc.toFixed(2)+'</td>'
+    +'<td>'+totFer.toFixed(2)+'</td><td>'+totFin.toFixed(2)+'</td>'
+    +'<td>'+(totDiu+totNoc+totFer+totFin).toFixed(2)+'h</td>'
+    +'</tr></tfoot></table>'
+    +'<hr style="margin:20px 0;border:none;border-top:2px solid #1a3a5c">'
+    +bloques
+    +'</body></html>';
+
   var _heOld = document.getElementById('heResumenOverlay');
   if (_heOld) _heOld.remove();
   var _heOv = document.createElement('div');
@@ -6281,58 +6469,23 @@ function paImprimirResumenHE(data) {
   _heOv.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99997;background:#fff;overflow-y:auto;-webkit-overflow-scrolling:touch';
   var _heBar = document.createElement('div');
   _heBar.style.cssText = 'position:sticky;top:0;background:#1a3a5c;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;z-index:1';
-  _heBar.innerHTML = '<span style="color:#fff;font-size:14px;font-weight:700">⏰ Resumen Horas Extra</span>'
+  _heBar.innerHTML = '<span style="color:#fff;font-size:14px;font-weight:700">⏰ Horas Extra — '+desde+' al '+hasta+'</span>'
     +'<div style="display:flex;gap:10px">'
     +'<button id="hePrintBtn" style="background:#3fb950;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir</button>'
     +'<button id="heCloseBtn" style="background:#ddd;color:#333;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer">✕ Cerrar</button>'
     +'</div>';
   var _heCont = document.createElement('div');
-  // Extraer body del HTML generado
-  var _heHtml = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
-    +'<title>Horas Extra — '+data.desde+' al '+data.hasta+'</title>'
-    +'<style>'
-    +'body{font-family:Arial,sans-serif;font-size:12px;color:#111;padding:20px}'
-    +'table{border-collapse:collapse;width:100%}'
-    +'td,th{border:1px solid #bcd;padding:5px 8px;font-size:11px}'
-    +'.hdr{background:#1a3a5c;color:#fff;font-weight:700;text-align:center}'
-    +'.total-row{background:#f0f4ff;font-weight:700}'
-    +'@media print{@page{margin:10mm;size:A4 landscape}body{padding:0}button{display:none}}'
-    +'</style></head><body>'
-    +'<div style="font-size:14px;font-weight:700;margin-bottom:4px">'+esc('FRANQUICIAS INTERNACIONALES, S.A. DE C.V.')+'</div>'
-    +'<div style="font-size:12px;color:#555;margin-bottom:14px">Resumen Horas Extra — '+data.desde+' al '+data.hasta+'</div>'
-    +'<table><thead><tr>'
-    +'<th class="hdr" style="text-align:left">Empleado</th>'
-    +'<th class="hdr">H.E. Diurnas</th>'
-    +'<th class="hdr">H.E. Nocturnas</th>'
-    +'<th class="hdr">H.E. Feriado</th>'
-    +'<th class="hdr">H.E. Fin semana</th>'
-    +'<th class="hdr">TOTAL</th>'
-    +'</tr></thead><tbody>'+rowsHtml+'</tbody>'
-    +'<tfoot><tr class="total-row">'
-    +'<td><b>TOTAL GENERAL</b></td>'
-    +'<td style="text-align:center"><b>'+totDiu.toFixed(2)+'</b></td>'
-    +'<td style="text-align:center"><b>'+totNoc.toFixed(2)+'</b></td>'
-    +'<td style="text-align:center"><b>'+totFer.toFixed(2)+'</b></td>'
-    +'<td style="text-align:center"><b>'+totFin.toFixed(2)+'</b></td>'
-    +'<td style="text-align:right"><b>'+(totDiu+totNoc+totFer+totFin).toFixed(2)+'h</b></td>'
-    +'</tr></tfoot></table>'
-    +'<div style="text-align:right;margin-top:12px">'
-    +'<button onclick="window.print()" style="background:#1a3a5c;color:#fff;border:none;border-radius:6px;padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer">'
-    +'🖨️ Imprimir / Guardar PDF</button></div>'
-    +'<script>window.onload=function(){window.print();}<\/script>'
-    +'</body></html>';
+  _heCont.style.cssText = 'padding:16px';
   var _heBodyS = _heHtml.indexOf('<body');
   var _heBodyE = _heHtml.lastIndexOf('</body>');
-  var _heBody = (_heBodyS > -1 && _heBodyE > -1)
-    ? _heHtml.slice(_heHtml.indexOf('>', _heBodyS)+1, _heBodyE)
-    : _heHtml;
+  var _heBody  = (_heBodyS>-1&&_heBodyE>-1) ? _heHtml.slice(_heHtml.indexOf('>',_heBodyS)+1,_heBodyE) : _heHtml;
   _heCont.innerHTML = _heBody;
   _heOv.appendChild(_heBar);
   _heOv.appendChild(_heCont);
   document.body.appendChild(_heOv);
   document.getElementById('hePrintBtn').onclick = function(){ window.print(); };
   document.getElementById('heCloseBtn').onclick = function(){
-    var o = document.getElementById('heResumenOverlay'); if(o) o.remove();
+    var o=document.getElementById('heResumenOverlay'); if(o) o.remove();
   };
 }
 
@@ -6621,7 +6774,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-15-D';
+var PA_VERSION = 'v2026-06-15-F';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
