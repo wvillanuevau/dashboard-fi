@@ -1484,7 +1484,7 @@ function paRenderEmpList(emps) {
       + '<div class="emp-cargo">'+(e.cargo||'—')+(e.ruta?' · '+e.ruta:'')+'</div></div>'
       + '<div style="color:var(--muted);font-size:20px">›</div>'
       + '</div>';
-  }).join('');
+  });
 }
 
 function paFilterEmps(q) {
@@ -6254,20 +6254,20 @@ function paImprimirReporteHE() {
 function paImprimirResumenHE(data) {
   var desde = data.desde, hasta = data.hasta;
   var feriados = (PA.config && PA.config.feriados) || [];
-  var JORNADA_NORMAL = 8 * 60; // 480 min
+  var JORNADA_L   = 8 * 60;  // 480 min — lun-vie
+  var JORNADA_SAB = 4 * 60;  // 240 min — sábado (media jornada)
 
   function tipodia(fechaStr) {
     var d = new Date(fechaStr + 'T12:00:00');
-    var dow = d.getDay(); // 0=dom, 6=sab
+    var dow = d.getDay();
     if (feriados.indexOf(fechaStr) >= 0) return 'F';
-    if (dow === 0) return 'NL';
-    if (dow === 6) return 'NL';
-    return 'L';
+    if (dow === 0) return 'NL'; // solo domingo = NL
+    return 'L';                  // lun-sáb = L
   }
 
-  function fmtH(mins) {
+  function fmtMins(mins) {
     if (!mins || mins <= 0) return '--';
-    var h = Math.floor(mins/60), m = mins%60;
+    var h = Math.floor(mins / 60), m = mins % 60;
     if (h > 0 && m > 0) return h + 'h ' + m + ' min';
     if (h > 0) return h + 'h';
     return m + ' min';
@@ -6280,143 +6280,205 @@ function paImprimirResumenHE(data) {
   }
 
   function fmtFecha(fechaStr) {
-    var dias = ['dom','lun','mar','mié','jue','vie','sáb'];
-    var meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    var dias   = ['dom','lun','mar','mié','jue','vie','sáb'];
+    var meses  = ['enero','febrero','marzo','abril','mayo','junio',
+                  'julio','agosto','septiembre','octubre','noviembre','diciembre'];
     var d = new Date(fechaStr + 'T12:00:00');
-    return dias[d.getDay()]+', '+d.getDate()+' '+meses[d.getMonth()]+' '+d.getFullYear();
+    return dias[d.getDay()] + ', ' + d.getDate() + ' ' +
+           meses[d.getMonth()] + ' ' + d.getFullYear();
   }
 
-  // Generar lista de fechas del período
-  function fechasEnRango(desde, hasta) {
-    var arr = [], d = new Date(desde+'T12:00:00'), fin = new Date(hasta+'T12:00:00');
+  function fechasEnRango(d0, d1) {
+    var arr = [], d = new Date(d0 + 'T12:00:00'), fin = new Date(d1 + 'T12:00:00');
     while (d <= fin) {
-      arr.push(d.toISOString().slice(0,10));
-      d.setDate(d.getDate()+1);
+      arr.push(d.getFullYear() + '-' +
+        String(d.getMonth()+1).padStart(2,'0') + '-' +
+        String(d.getDate()).padStart(2,'0'));
+      d.setDate(d.getDate() + 1);
     }
     return arr;
   }
 
-  var empIds = Object.keys(data.porEmp).sort(function(a,b){
-    return data.porEmp[a].nombre.localeCompare(data.porEmp[b].nombre);
+  // ── Lista de empleados: TODOS con marcaciones + los de HE ───────
+  var empMap = {};
+  // Primero todos con marcaciones
+  Object.keys(data.marcaciones || {}).forEach(function(eid) {
+    var mDias = data.marcaciones[eid];
+    var nombre = '';
+    Object.keys(mDias).forEach(function(f) {
+      mDias[f].forEach(function(m) {
+        if (m.empleadoNombre) nombre = m.empleadoNombre;
+      });
+    });
+    if (!empMap[eid]) empMap[eid] = { nombre: nombre, dias: {} };
+  });
+  // Sobrescribir/enriquecer con datos de HE
+  Object.keys(data.porEmp || {}).forEach(function(eid) {
+    var e = data.porEmp[eid];
+    if (!empMap[eid]) empMap[eid] = { nombre: e.nombre, dias: {} };
+    empMap[eid].heData = e;
   });
 
-  // Totales generales
-  var totDiu=0, totNoc=0, totFer=0, totFin=0;
-  empIds.forEach(function(eid){
-    var e=data.porEmp[eid];
-    totDiu+=(e.diurna||0); totNoc+=(e.nocturna||0);
-    totFer+=(e.feriado||0); totFin+=(e.finde||0);
+  var empIds = Object.keys(empMap).sort(function(a, b) {
+    return empMap[a].nombre.localeCompare(empMap[b].nombre);
   });
 
+  // ── CSS ──────────────────────────────────────────────────────────
   var css = '<style>'
-    +'body{font-family:Arial,sans-serif;font-size:11px;color:#000;margin:16px}'
-    +'h1{font-size:13px;font-weight:700;margin:0 0 2px}'
-    +'.legend{font-size:10px;color:#555}'
-    +'.emp-block{margin-bottom:24px;page-break-inside:avoid}'
-    +'.emp-info{border:1px solid #888;border-bottom:none;padding:3px 6px;background:#f5f5f5}'
-    +'.emp-info td{padding:2px 8px 2px 0;font-size:11px}'
-    +'.emp-info td:first-child{font-weight:700;width:100px}'
-    +'table.horas{border-collapse:collapse;width:100%}'
-    +'table.horas th,table.horas td{border:1px solid #888;padding:2px 5px;font-size:10px;text-align:center}'
-    +'table.horas th{background:#1a3a5c;color:#fff;font-weight:700}'
-    +'table.horas .hdr-sec{background:#2d5a8e;color:#fff;font-size:10px;font-weight:700}'
-    +'table.horas td.fecha{text-align:left}'
-    +'table.horas .nl{background:#f0f0f0;color:#888}'
-    +'table.horas .tot-row{background:#d0d8e8;font-weight:700}'
-    +'table.horas .he-val{font-weight:700;color:#c00}'
-    +'.resumen-table{border-collapse:collapse;width:100%;margin-bottom:20px}'
-    +'.resumen-table th{background:#1a3a5c;color:#fff;padding:4px 6px;font-size:10px}'
-    +'.resumen-table td{border:1px solid #aaa;padding:3px 6px;font-size:10px}'
-    +'.resumen-table .tot{background:#1a3a5c;color:#fff;font-weight:700}'
-    +'@media print{@page{margin:10mm;size:A4}button{display:none}}'
-    +'</style>';
+    + 'body{font-family:Arial,sans-serif;font-size:11px;color:#000;margin:10px}'
+    + 'h1{font-size:13px;font-weight:700;margin:0}'
+    + '.legend{font-size:10px;margin-top:2px}'
+    + '.emp-block{margin-bottom:20px;page-break-inside:avoid}'
+    + '.info-table{border-collapse:collapse;border:1px solid #888;width:100%;margin-bottom:0}'
+    + '.info-table td{padding:2px 6px;border:1px solid #888;font-size:11px}'
+    + '.info-table td.lbl{font-weight:700;background:#f0f0f0;width:130px}'
+    + '.hdr-main{background:#1a3a5c;color:#fff;font-weight:700;padding:4px 6px;'
+    +   'font-size:11px;border:1px solid #1a3a5c}'
+    + 'table.htable{border-collapse:collapse;width:100%}'
+    + 'table.htable th{background:#1a3a5c;color:#fff;font-size:10px;font-weight:700;'
+    +   'padding:3px 5px;border:1px solid #555;text-align:center}'
+    + 'table.htable th.left{text-align:left}'
+    + 'table.htable td{border:1px solid #aaa;padding:2px 5px;font-size:10px;text-align:center}'
+    + 'table.htable td.fecha{text-align:left}'
+    + 'table.htable tr.nl td{background:#f5f5f5;color:#888}'
+    + 'table.htable tr.tot td{background:#1a3a5c;color:#fff;font-weight:700;border:1px solid #1a3a5c}'
+    + '.he-val{font-weight:700;color:#c00}'
+    + '.page-title{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}'
+    + '@media print{'
+    + '  @page{margin:8mm;size:A4}'
+    + '  button,.no-print{display:none}'
+    + '  .emp-block{page-break-inside:avoid}'
+    + '}'
+    + '</style>';
 
-  // Tabla resumen general
-  var resumenRows = empIds.map(function(eid,i){
-    var e=data.porEmp[eid];
-    var tot=(e.diurna||0)+(e.nocturna||0)+(e.feriado||0)+(e.finde||0);
+  // ── Totales generales para el resumen ────────────────────────────
+  var totDiu=0, totNoc=0;
+  empIds.forEach(function(eid) {
+    var he = empMap[eid].heData;
+    if (he) { totDiu+=(he.diurna||0); totNoc+=(he.nocturna||0); }
+  });
+
+  // ── Resumen general ──────────────────────────────────────────────
+  var resRows = empIds.map(function(eid) {
+    var e = empMap[eid];
+    var he = e.heData || {};
+    var tot = (he.diurna||0)+(he.nocturna||0)+(he.feriado||0)+(he.finde||0);
     return '<tr>'
-      +'<td>'+esc(e.nombre)+'</td>'
-      +'<td>'+(e.diurna>0?e.diurna.toFixed(2):'—')+'</td>'
-      +'<td>'+(e.nocturna>0?e.nocturna.toFixed(2):'—')+'</td>'
-      +'<td>'+(e.feriado>0?e.feriado.toFixed(2):'—')+'</td>'
-      +'<td>'+(e.finde>0?e.finde.toFixed(2):'—')+'</td>'
-      +'<td style="font-weight:700">'+tot.toFixed(2)+'h</td>'
+      +'<td style="text-align:left;padding:3px 6px;border:1px solid #aaa">'+esc(e.nombre)+'</td>'
+      +'<td style="border:1px solid #aaa;padding:3px 5px;text-align:center">'+(he.diurna>0?(he.diurna).toFixed(2):'—')+'</td>'
+      +'<td style="border:1px solid #aaa;padding:3px 5px;text-align:center">'+(he.nocturna>0?(he.nocturna).toFixed(2):'—')+'</td>'
+      +'<td style="border:1px solid #aaa;padding:3px 5px;text-align:center;font-weight:700">'+(tot>0?tot.toFixed(2)+'h':'—')+'</td>'
       +'</tr>';
   }).join('');
 
-  // Bloques por empleado (formato imagen)
-  var bloques = empIds.map(function(eid) {
-    var e = data.porEmp[eid];
+  // ── Bloques por empleado ─────────────────────────────────────────
+  var fechas = fechasEnRango(desde, hasta);
+  var empBloques = {};
+  empIds.forEach(function(eid) {
+    var e    = empMap[eid];
+    var he   = e.heData || {};
     var marcs = data.marcaciones[eid] || {};
-    var emp = PA.empleados.find(function(x){ return x.id===eid; });
-    var afiliacion = (emp && emp.afiliacion) || '';
-    var fechas = fechasEnRango(desde, hasta);
+    var emp  = PA.empleados.find(function(x){ return x.id===eid; });
+    var afil = (emp && emp.afiliacion) ? emp.afiliacion : '';
 
-    var totalHETrabajadas = 0; // min HE diurnas
-    var totalHENocturnas  = 0;
+    var totHEDiu = 0, totHENoc = 0;
 
     var rows = fechas.map(function(f) {
-      var tipo = tipodia(f);
-      var mDia = marcs[f] || [];
-      var entrada = mDia.find(function(m){ return m.tipo==='entrada' || m.tipo==='entrada_adicional'; });
-      var salida  = mDia.find(function(m){ return m.tipo==='salida'  || m.tipo==='salida_adicional'; });
+      var tipo   = tipodia(f);
+      var mDia   = marcs[f] || [];
+      var isNL   = (tipo === 'NL');
 
-      var fmtF = fmtFecha(f) + ' ('+tipo+')';
+      // Marcaciones del día
+      var entrada = null, salida = null, alSal = null, alReg = null;
+      mDia.forEach(function(m) {
+        if (m.tipo === 'entrada')              entrada = m;
+        else if (m.tipo === 'salida')          salida  = m;
+        else if (m.tipo === 'almuerzo_salida') alSal   = m;
+        else if (m.tipo === 'almuerzo_regreso')alReg   = m;
+        else if (m.tipo === 'entrada_adicional' && !entrada) entrada = m;
+        else if (m.tipo === 'salida_adicional'  && !salida)  salida  = m;
+      });
+
+      // Sin marcaciones en día NL → fila vacía
+      if (isNL && !entrada && !salida) {
+        return '<tr class="nl">'
+          +'<td class="fecha">'+fmtFecha(f)+' ('+tipo+')</td>'
+          +'<td>--</td><td>--</td><td>--</td>'
+          +'<td>0 min.</td><td>--</td><td>--</td><td>--</td><td>--</td>'
+          +'</tr>';
+      }
+
       var horaIn  = entrada ? fmtHora(_paToMs(entrada.ts)) : '--';
       var horaFin = salida  ? fmtHora(_paToMs(salida.ts))  : '--';
 
-      var minsTrabajados = 0;
+      // Tiempo trabajado bruto
+      var rawMins = 0;
       if (entrada && salida) {
-        minsTrabajados = Math.round((_paToMs(salida.ts) - _paToMs(entrada.ts)) / 60000);
-        // Restar almuerzo (si existe)
-        var alSal = mDia.find(function(m){ return m.tipo==='almuerzo_salida'; });
-        var alReg = mDia.find(function(m){ return m.tipo==='almuerzo_regreso'; });
-        if (alSal && alReg) {
-          minsTrabajados -= Math.round((_paToMs(alReg.ts) - _paToMs(alSal.ts)) / 60000);
-        }
+        rawMins = Math.round((_paToMs(salida.ts) - _paToMs(entrada.ts)) / 60000);
       }
 
-      var totalStr = minsTrabajados > 0 ? fmtH(minsTrabajados) : '--';
+      // Descontar almuerzo
+      var almuerzoMins = 0;
+      if (alSal && alReg) {
+        almuerzoMins = Math.round((_paToMs(alReg.ts) - _paToMs(alSal.ts)) / 60000);
+      } else if (rawMins >= 7 * 60) {
+        // Si no hay registro de almuerzo pero trabajó 7h+, asumir 60min
+        almuerzoMins = 60;
+      }
+      var trabajadoMins = rawMins - almuerzoMins;
+      if (trabajadoMins < 0) trabajadoMins = 0;
 
-      // HE = tiempo > jornada normal
-      var heMin = tipo === 'L' ? Math.max(0, minsTrabajados - JORNADA_NORMAL) : minsTrabajados;
-      var heNoc = (e.dias && e.dias[f] && e.dias[f].nocturna) ? Math.round((e.dias[f].nocturna||0)*60) : 0;
-      var heDiu = (e.dias && e.dias[f] && e.dias[f].diurna)   ? Math.round((e.dias[f].diurna||0)*60)   : 0;
-      totalHETrabajadas += heDiu;
-      totalHENocturnas  += heNoc;
+      // Jornada normal según tipo de día
+      var d = new Date(f + 'T12:00:00');
+      var dow = d.getDay();
+      var jornadaNormal = (dow === 6) ? JORNADA_SAB : (tipo === 'L' ? JORNADA_L : 0);
 
-      var heStr   = (heDiu>0||heNoc>0) ? fmtH(heDiu+heNoc) : '0 min.';
-      var heDiuStr = heDiu>0 ? '<b class="he-val">'+fmtH(heDiu)+'</b>' : '--';
-      var heNocStr = heNoc>0 ? '<b class="he-val">'+fmtH(heNoc)+'</b>' : '--';
-      var horasNorm = tipo==='L' && minsTrabajados>=JORNADA_NORMAL ? '1h' : '--';
+      // Horas extra diurnas del día (desde data.porEmp si disponible)
+      var heDiuMins = 0, heNocMins = 0;
+      if (he.dias && he.dias[f]) {
+        heDiuMins = Math.round((he.dias[f].diurna || 0) * 60);
+        heNocMins = Math.round((he.dias[f].nocturna || 0) * 60);
+      } else if (tipo !== 'NL' && trabajadoMins > jornadaNormal) {
+        heDiuMins = trabajadoMins - jornadaNormal;
+      }
+      totHEDiu += heDiuMins;
+      totHENoc += heNocMins;
 
-      var rowClass = (tipo==='NL'||tipo==='F') ? ' class="nl"' : '';
+      var heTotal = heDiuMins + heNocMins;
+      var heExtrasStr  = heTotal > 0 ? fmtMins(heTotal) : '0 min.';
+      var heDiuStr  = heDiuMins > 0
+        ? '<span class="he-val">' + fmtMins(heDiuMins) + '</span>' : '--';
+      var heNocStr  = heNocMins > 0
+        ? '<span class="he-val">' + fmtMins(heNocMins) + '</span>' : '--';
+      var almStr    = almuerzoMins > 0 ? fmtMins(almuerzoMins) : '--';
+      var trabStr   = trabajadoMins > 0 ? fmtMins(trabajadoMins) : '--';
+
+      var rowClass  = isNL ? ' class="nl"' : (tipo==='F'?' style="background:#fff8e0"':'');
       return '<tr'+rowClass+'>'
-        +'<td class="fecha">'+fmtF+'</td>'
-        +'<td>'+(horaIn!=='--'?horaIn:'--')+'</td>'
-        +'<td>'+(horaFin!=='--'?horaFin:'--')+'</td>'
-        +'<td>'+totalStr+'</td>'
-        +'<td>'+heStr+'</td>'
-        +'<td>'+horasNorm+'</td>'
-        +'<td>'+totalStr+'</td>'
+        +'<td class="fecha">'+fmtFecha(f)+' ('+tipo+')</td>'
+        +'<td>'+horaIn+'</td>'
+        +'<td>'+horaFin+'</td>'
+        +'<td>'+trabStr+'</td>'
+        +'<td>'+heExtrasStr+'</td>'
+        +'<td>'+almStr+'</td>'
+        +'<td>'+trabStr+'</td>'
         +'<td>'+heDiuStr+'</td>'
         +'<td>'+heNocStr+'</td>'
         +'</tr>';
     }).join('');
 
-    return '<div class="emp-block">'
-      +'<table class="emp-info" style="width:100%;border-collapse:collapse">'
-      +'<tr><td>Empleado</td><td>'+esc(e.nombre)+'</td></tr>'
-      +'<tr><td>N° Afiliación</td><td>'+esc(afiliacion)+'</td></tr>'
-      +'<tr><td>Intervalo</td><td>'+desde+' — '+hasta+'</td></tr>'
+    empBloques[eid] = '<table class="info-table">'
+      +'<tr><td class="lbl">Empleado</td><td colspan="3">'+esc(e.nombre)+'</td></tr>'
+      +'<tr><td class="lbl">N° Afiliación</td><td colspan="3">'+esc(afil)+'</td></tr>'
+      +'<tr><td class="lbl">Intervalo</td><td colspan="3">'+desde+' — '+hasta+'</td></tr>'
       +'</table>'
-      +'<table class="horas">'
+      // Tabla horas
+      +'<table class="htable">'
       +'<thead>'
-      +'<tr><th colspan="9" class="hdr-sec">HORAS TRABAJADAS</th></tr>'
+      +'<tr><th colspan="9" class="left" style="font-size:11px;padding:4px 6px">HORAS TRABAJADAS</th></tr>'
       +'<tr>'
-      +'<th style="text-align:left;width:20%">Fecha</th>'
-      +'<th>Hora ini.</th>'
+      +'<th class="left" style="width:22%">Fecha</th>'
+      +'<th>hora ini.</th>'
       +'<th>Hora fin</th>'
       +'<th>Total</th>'
       +'<th>Horas extras</th>'
@@ -6428,70 +6490,139 @@ function paImprimirResumenHE(data) {
       +'</thead>'
       +'<tbody>'+rows+'</tbody>'
       +'<tfoot>'
-      +'<tr class="tot-row">'
-      +'<td class="fecha" colspan="6">Total</td>'
-      +'<td>'+fmtH(totalHETrabajadas+totalHENocturnas)+'</td>'
-      +'<td>'+(totalHETrabajadas>0?'<b class="he-val">'+fmtH(totalHETrabajadas)+'</b>':'--')+'</td>'
-      +'<td>'+(totalHENocturnas>0?'<b class="he-val">'+fmtH(totalHENocturnas)+'</b>':'--')+'</td>'
+      +'<tr class="tot">'
+      +'<td class="fecha" colspan="6" style="text-align:right">Total</td>'
+      +'<td>'+(totHEDiu+totHENoc>0 ? fmtMins(totHEDiu+totHENoc) : '--')+'</td>'
+      +'<td>'+(totHEDiu>0?'<span style="color:#ffd">'+fmtMins(totHEDiu)+'</span>':'--')+'</td>'
+      +'<td>'+(totHENoc>0?'<span style="color:#ffd">'+fmtMins(totHENoc)+'</span>':'--')+'</td>'
       +'</tr>'
       +'</tfoot>'
-      +'</table></div>';
+      +'</table>'
+      +'</div>';
   }).join('');
 
-  var _heHtml = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+  // ── HTML completo ────────────────────────────────────────────────
+  var heHtml = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
     +'<title>Horas Extra — '+desde+' al '+hasta+'</title>'
     +css+'</head><body>'
-    +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">'
+    +'<div class="page-title">'
     +'<div>'
     +'<h1>FRANQUICIAS INTERNACIONALES, S.A. DE C.V.</h1>'
-    +'<div class="legend">Laborable (L) &nbsp; No laborable (NL) &nbsp; Festivo (F)</div>'
+    +'<div class="legend">Laborable (L) &nbsp;&nbsp; No laborable (NL) &nbsp;&nbsp; Festivo (F)</div>'
     +'</div>'
-    +'<button onclick="window.print()" style="background:#1a3a5c;color:#fff;border:none;border-radius:6px;padding:8px 18px;font-size:12px;cursor:pointer">🖨️ Imprimir / PDF</button>'
+    +'<button onclick="window.print()" class="no-print" style="background:#1a3a5c;color:#fff;'
+    +'border:none;border-radius:5px;padding:7px 16px;font-size:12px;cursor:pointer">'
+    +'🖨️ Imprimir / PDF</button>'
     +'</div>'
-    +'<div style="font-size:11px;color:#555;margin-bottom:14px;font-weight:700">RESUMEN — '+desde+' al '+hasta+'</div>'
-    +'<table class="resumen-table">'
-    +'<thead><tr><th style="text-align:left">Empleado</th><th>H.E. Diurnas</th><th>H.E. Nocturnas</th><th>H.E. Feriado</th><th>H.E. Fin semana</th><th>TOTAL</th></tr></thead>'
-    +'<tbody>'+resumenRows+'</tbody>'
-    +'<tfoot><tr class="tot">'
-    +'<td>TOTAL GENERAL</td>'
-    +'<td>'+totDiu.toFixed(2)+'</td><td>'+totNoc.toFixed(2)+'</td>'
-    +'<td>'+totFer.toFixed(2)+'</td><td>'+totFin.toFixed(2)+'</td>'
-    +'<td>'+(totDiu+totNoc+totFer+totFin).toFixed(2)+'h</td>'
-    +'</tr></tfoot></table>'
-    +'<hr style="margin:20px 0;border:none;border-top:2px solid #1a3a5c">'
-    +bloques
+    // Resumen
+    +'<table style="border-collapse:collapse;width:100%;margin-bottom:18px">'
+    +'<thead><tr>'
+    +'<th style="background:#1a3a5c;color:#fff;padding:4px 6px;text-align:left;border:1px solid #555">Empleado</th>'
+    +'<th style="background:#1a3a5c;color:#fff;padding:4px 6px;border:1px solid #555">H.E. Diurnas</th>'
+    +'<th style="background:#1a3a5c;color:#fff;padding:4px 6px;border:1px solid #555">H.E. Nocturnas</th>'
+    +'<th style="background:#1a3a5c;color:#fff;padding:4px 6px;border:1px solid #555">Total</th>'
+    +'</tr></thead>'
+    +'<tbody>'+resRows+'</tbody>'
+    +'<tfoot><tr style="background:#1a3a5c;color:#fff;font-weight:700">'
+    +'<td style="padding:4px 6px">TOTAL GENERAL</td>'
+    +'<td style="text-align:center">'+totDiu.toFixed(2)+'</td>'
+    +'<td style="text-align:center">'+totNoc.toFixed(2)+'</td>'
+    +'<td style="text-align:center">'+(totDiu+totNoc).toFixed(2)+'h</td>'
+    +'</tr></tfoot>'
+    +'</table>'
+    +'<hr style="border:none;border-top:2px solid #1a3a5c;margin-bottom:16px">'
+    + bloques
     +'</body></html>';
 
-  var _heOld = document.getElementById('heResumenOverlay');
-  if (_heOld) _heOld.remove();
-  var _heOv = document.createElement('div');
-  _heOv.id = 'heResumenOverlay';
-  _heOv.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99997;background:#fff;overflow-y:auto;-webkit-overflow-scrolling:touch';
-  var _heBar = document.createElement('div');
-  _heBar.style.cssText = 'position:sticky;top:0;background:#1a3a5c;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;z-index:1';
-  _heBar.innerHTML = '<span style="color:#fff;font-size:14px;font-weight:700">⏰ Horas Extra — '+desde+' al '+hasta+'</span>'
-    +'<div style="display:flex;gap:10px">'
-    +'<button id="hePrintBtn" style="background:#3fb950;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir</button>'
-    +'<button id="heCloseBtn" style="background:#ddd;color:#333;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer">✕ Cerrar</button>'
+  // ── Overlay ─────────────────────────────────────────────────────
+  var old = document.getElementById('heResumenOverlay');
+  if (old) old.remove();
+  var styleEl = document.getElementById('_heStyles');
+  if (styleEl) styleEl.remove();
+  styleEl = document.createElement('style');
+  styleEl.id = '_heStyles';
+  styleEl.textContent = [
+    '.htable{border-collapse:collapse;width:100%}',
+    '.htable th{background:#1a3a5c;color:#fff;font-size:10px;font-weight:700;padding:3px 5px;border:1px solid #555;text-align:center}',
+    '.htable th.left{text-align:left}',
+    '.htable td{border:1px solid #aaa;padding:2px 5px;font-size:10px;text-align:center}',
+    '.htable td.fecha{text-align:left}',
+    '.htable tr.nl td{background:#f5f5f5;color:#888}',
+    '.htable tr.tot td{background:#1a3a5c;color:#fff;font-weight:700;border:1px solid #1a3a5c}',
+    '.he-val{font-weight:700;color:#c00}',
+    '.info-table{border-collapse:collapse;border:1px solid #888;width:100%;margin-bottom:0}',
+    '.info-table td{padding:2px 6px;border:1px solid #888;font-size:11px}',
+    '.info-table td.lbl{font-weight:700;background:#f0f0f0;width:130px}',
+    '@media print{@page{margin:8mm;size:A4}#_heBar{display:none!important}.emp-block{page-break-inside:avoid}}'
+  ].join('');
+  document.head.appendChild(styleEl);
+
+  var ov = document.createElement('div');
+  ov.id = 'heResumenOverlay';
+  ov.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99997;background:#fff;overflow-y:auto;-webkit-overflow-scrolling:touch';
+
+  var bar = document.createElement('div');
+  bar.id = '_heBar';
+  bar.style.cssText = 'position:sticky;top:0;background:#1a3a5c;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;z-index:1';
+  bar.innerHTML = '<span style="color:#fff;font-size:13px;font-weight:700">⏰ Horas Extra — '+desde+' al '+hasta
+    +' <span style="font-size:11px;opacity:.8">('+empIds.length+' empleados)</span></span>'
+    +'<div style="display:flex;gap:8px">'
+    +'<button id="hePrintBtn" style="background:#3fb950;color:#fff;border:none;border-radius:7px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer">🖨️ Imprimir</button>'
+    +'<button id="heCloseBtn" style="background:#555;color:#fff;border:none;border-radius:7px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer">✕ Cerrar</button>'
     +'</div>';
-  var _heCont = document.createElement('div');
-  _heCont.style.cssText = 'padding:16px';
-  var _heBodyS = _heHtml.indexOf('<body');
-  var _heBodyE = _heHtml.lastIndexOf('</body>');
-  var _heBody  = (_heBodyS>-1&&_heBodyE>-1) ? _heHtml.slice(_heHtml.indexOf('>',_heBodyS)+1,_heBodyE) : _heHtml;
-  _heCont.innerHTML = _heBody;
-  _heOv.appendChild(_heBar);
-  _heOv.appendChild(_heCont);
-  document.body.appendChild(_heOv);
+  ov.appendChild(bar);
+
+  var cont = document.createElement('div');
+  cont.style.cssText = 'padding:14px;font-family:Arial,sans-serif;font-size:11px';
+
+  // Header
+  var hdrDiv = document.createElement('div');
+  hdrDiv.style.cssText = 'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px';
+  hdrDiv.innerHTML = '<div>'
+    +'<div style="font-size:13px;font-weight:700">FRANQUICIAS INTERNACIONALES, S.A. DE C.V.</div>'
+    +'<div style="font-size:10px;margin-top:2px">Laborable (L) &nbsp; No laborable (NL) &nbsp; Festivo (F)</div>'
+    +'</div>';
+  cont.appendChild(hdrDiv);
+
+  // Tabla resumen
+  var resDiv = document.createElement('div');
+  resDiv.innerHTML = '<table style="border-collapse:collapse;width:100%;margin-bottom:16px;font-size:10px">'
+    +'<thead><tr>'
+    +'<th style="background:#1a3a5c;color:#fff;padding:4px 6px;text-align:left;border:1px solid #555">Empleado</th>'
+    +'<th style="background:#1a3a5c;color:#fff;padding:4px 6px;border:1px solid #555">H.E. Diurnas</th>'
+    +'<th style="background:#1a3a5c;color:#fff;padding:4px 6px;border:1px solid #555">H.E. Nocturnas</th>'
+    +'<th style="background:#1a3a5c;color:#fff;padding:4px 6px;border:1px solid #555">Total</th>'
+    +'</tr></thead>'
+    +'<tbody>'+resRows+'</tbody>'
+    +'<tfoot><tr style="background:#1a3a5c;color:#fff;font-weight:700">'
+    +'<td style="padding:4px 6px">TOTAL GENERAL</td>'
+    +'<td style="text-align:center">'+totDiu.toFixed(2)+'</td>'
+    +'<td style="text-align:center">'+totNoc.toFixed(2)+'</td>'
+    +'<td style="text-align:center">'+(totDiu+totNoc).toFixed(2)+'h</td>'
+    +'</tr></tfoot></table>'
+    +'<hr style="border:none;border-top:2px solid #1a3a5c;margin-bottom:16px">';
+  cont.appendChild(resDiv);
+
+  // Un div por empleado — evita problemas de innerHTML masivo
+  empIds.forEach(function(eid) {
+    var blk = document.createElement('div');
+    blk.className = 'emp-block';
+    blk.style.marginBottom = '20px';
+    blk.innerHTML = empBloques[eid] || '';
+    cont.appendChild(blk);
+  });
+
+  ov.appendChild(cont);
+  document.body.appendChild(ov);
+
   document.getElementById('hePrintBtn').onclick = function(){ window.print(); };
-  document.getElementById('heCloseBtn').onclick = function(){
+  document.getElementById('heCloseBtn').onclick  = function(){
     var o=document.getElementById('heResumenOverlay'); if(o) o.remove();
+    var s=document.getElementById('_heStyles'); if(s) s.remove();
   };
 }
 
-
-function paExportarExcel() {
-  var data = PA._rptData;
+function paExportarExcel() {ata = PA._rptData;
   if (!data || !data.porEmp) { paToast('Genera el reporte primero', true); return; }
 
   var empresa  = 'FRANQUICIAS INTERNACIONALES, S.A. DE C.V.';
@@ -6667,8 +6798,7 @@ function paExportarExcel() {
   document.body.appendChild(a); a.click();
   setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
   paToast('✅ Excel descargado — formato nómina');
-}
-  
+} 
 
 // ══════════════════════════════════════════════════════
 // ADMIN ACTIONS
@@ -6774,7 +6904,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-15-F';
+var PA_VERSION = 'v2026-06-23-A';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
