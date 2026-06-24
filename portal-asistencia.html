@@ -1926,6 +1926,11 @@ window.addEventListener('load', function() {
 });
 
 function paAfterAuth() {
+  // Verificar versión en background (no bloquea el login)
+  if (window._paCheckVersion && !window._paVersionCheckedAtLogin) {
+    window._paVersionCheckedAtLogin = true;
+    setTimeout(function(){ window._paCheckVersion(); }, 1000);
+  }
   var emp = PA.empleado;
   PA.horasExtraAcum = parseFloat(emp.horasExtraAcum || 0);
   PA.diasVacDisp = parseInt(emp.diasVacacionesDisponibles || 15);
@@ -6998,13 +7003,14 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-24-A';
+var PA_VERSION = 'v2026-06-24-B';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
   var _overlayShown  = false;
   // URL limpia sin query params para el fetch
   var _baseUrl = window.location.href.split('?')[0].split('#')[0];
+  window._paVersionCheckedAtLogin = false; // reset en cada carga
 
   function _limpiarCacheYRecargar() {
     // window.location.replace(window.location.pathname+'?nocache='+Date.now()) está DEPRECADO en browsers modernos y no bypassa CDN cache
@@ -7093,12 +7099,22 @@ var PA_VERSION = 'v2026-06-24-A';
 
   // Exponer _verificarVersion para que paSelectEmp la llame
   window._paCheckVersion = _verificarVersion;
-  // Fallback: también verificar al volver al tab (si alguien deja el portal abierto)
+  // 1. Chequeo al cambiar de tab
   document.addEventListener('visibilitychange', function() {
     if (document.visibilityState === 'visible' && !_overlayShown) {
       _verificarVersion();
     }
   });
+
+  // 2. Chequeo periódico cada 5 minutos (para usuarios que no cambian de tab)
+  setInterval(function() {
+    if (!_overlayShown) _verificarVersion();
+  }, 5 * 60 * 1000);
+
+  // 3. Chequeo inicial 4 segundos después de cargar la página
+  setTimeout(function() {
+    if (!_overlayShown) _verificarVersion();
+  }, 4000);
 
 })();
 
