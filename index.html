@@ -1366,6 +1366,8 @@ input[type=date]{color-scheme:dark}
 // ═══════════════════════════════════════════════════════
 //  DETECCIÓN TEMPRANA DE MODO PORTAL (antes de cualquier init)
 // ═══════════════════════════════════════════════════════
+var APP_VERSION = 'v2026-06-24-A'; // Actualizar en cada deploy
+
 var _portalModeActive = (function(){
   var params = new URLSearchParams(window.location.search);
   var empresa = params.get('portal');
@@ -12357,6 +12359,7 @@ function modalTecnico(id){
     +'<option value="mecanico"'+(t&&t.cargo==='mecanico'?' selected':'')+'>⚙️ Mecánico</option>'
     +'<option value="gerente"'+(t&&t.cargo==='gerente'?' selected':'')+'>🏪 Gerente</option>'
     +'<option value="subgerente"'+(t&&t.cargo==='subgerente'?' selected':'')+'>👔 Subgerente</option>'
+    +'<option value="gerente de zona"'+(t&&t.cargo==='gerente de zona'?' selected':'')+'>📋 Gerente de Zona</option>'
     +'<option value="otro"'+(t&&t.cargo==='otro'?' selected':'')+'>👤 Otro</option>'
     +'</select></div>'
     +'<div class="row2">'
@@ -21098,6 +21101,91 @@ function delCombustible(id){
   saveData();renderTallerCombustible();toast('Registro eliminado');
 }
 
+</script>
+
+<div id="appVersionBadge" style="position:fixed;bottom:6px;right:8px;z-index:9000;font-size:9px;color:rgba(255,255,255,.2);pointer-events:none;font-family:monospace"></div>
+<script>
+// ── Sistema de versiones — Dashboard-FI ─────────────────────────────────────
+;(function() {
+  var _appOverlayShown = false;
+  var _appBaseUrl = window.location.href.split('?')[0].split('#')[0];
+
+  // Badge de versión
+  var _badge = document.getElementById('appVersionBadge');
+  if (_badge && typeof APP_VERSION !== 'undefined') _badge.textContent = APP_VERSION;
+
+  function _appLimpiarYRecargar() {
+    var freshUrl = window.location.pathname + window.location.search.replace(/[?&]nocache=[^&]*/,'') + (window.location.search?'&':'?') + 'nocache=' + Date.now();
+    function _ir() { window.location.replace(freshUrl); }
+    try {
+      if (window.caches) {
+        caches.keys().then(function(keys){
+          return Promise.all(keys.map(function(k){ return caches.delete(k); }));
+        }).then(_ir).catch(_ir);
+      } else { _ir(); }
+    } catch(e) { _ir(); }
+  }
+
+  function _appMostrarOverlay() {
+    if (_appOverlayShown) return;
+    _appOverlayShown = true;
+    var ov = document.createElement('div');
+    ov.id = 'appUpdateOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(1,4,9,.92);display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(8px)';
+    ov.innerHTML = '<div style="background:#0d1117;border:2px solid #1a3a5c;border-radius:20px;padding:36px 28px;width:100%;max-width:360px;text-align:center;font-family:system-ui">'
+      + '<div style="font-size:52px;margin-bottom:16px">🔄</div>'
+      + '<div style="font-size:19px;font-weight:700;color:#e6edf3;margin-bottom:10px">Nueva versión disponible</div>'
+      + '<div style="font-size:13px;color:#7d8590;margin-bottom:28px;line-height:1.5">El sistema fue actualizado. Recarga para continuar con la versión más reciente.</div>'
+      + '<button id="appBtnUpdate" style="width:100%;padding:15px;background:#3b82f6;color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit">🔄 Actualizar ahora</button>'
+      + '<div style="font-size:11px;color:#484f58;margin-top:10px" id="appUpdateCountdown">Se actualizará automáticamente en 15s...</div>'
+      + '</div>';
+    document.body.appendChild(ov);
+    document.getElementById('appBtnUpdate').addEventListener('click', _appLimpiarYRecargar);
+    var secs = 15;
+    var timer = setInterval(function(){
+      secs--;
+      var el = document.getElementById('appUpdateCountdown');
+      if (el) el.textContent = 'Se actualizará automáticamente en ' + secs + 's...';
+      if (secs <= 0) { clearInterval(timer); _appLimpiarYRecargar(); }
+    }, 1000);
+  }
+
+  function _appVerificarVersion() {
+    if (_appOverlayShown) return;
+    var timeout = setTimeout(function(){ }, 3000);
+    fetch(_appBaseUrl + '?_appv=' + Date.now(), {
+      method: 'GET',
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' }
+    })
+    .then(function(resp){ return resp.ok ? resp.text() : null; })
+    .then(function(html){
+      clearTimeout(timeout);
+      if (!html) return;
+      var m = html.match(/APP_VERSION\s*=\s*['"]([^'"]+)['"]/);
+      if (!m) return;
+      var serverVer = m[1];
+      console.log('[AppUpdate] local=' + APP_VERSION + ' servidor=' + serverVer);
+      if (serverVer !== APP_VERSION) _appMostrarOverlay();
+    })
+    .catch(function(e){ clearTimeout(timeout); console.warn('[AppUpdate]', e.message); });
+  }
+
+  // Exponer para llamada manual
+  window._appVerificarVersion = _appVerificarVersion;
+
+  // 1. Chequeo inicial 5s después de cargar
+  setTimeout(function(){ _appVerificarVersion(); }, 5000);
+
+  // 2. Chequeo periódico cada 5 minutos
+  setInterval(function(){ _appVerificarVersion(); }, 5 * 60 * 1000);
+
+  // 3. Chequeo al volver al tab
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState === 'visible' && !_appOverlayShown) _appVerificarVersion();
+  });
+
+})();
 </script>
 </body>
 </html>

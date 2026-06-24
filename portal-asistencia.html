@@ -3351,6 +3351,11 @@ function paConfirmarMarca() {
   var tieneGPS  = !!(PA.location && PA.location.lat);
   var errEl = document.getElementById('marcarError');
 
+  // Foto obligatoria
+  if (!tieneFoto) {
+    if (errEl) { errEl.textContent = '📸 Debes tomar una foto antes de confirmar el registro.'; errEl.style.display = 'block'; }
+    return;
+  }
   // GPS obligatorio siempre
   if (!tieneGPS) {
     if (errEl) { errEl.textContent = '⚠ Ubicación GPS obligatoria. Activa el GPS y espera a que se obtenga la ubicación antes de continuar.'; errEl.style.display = 'block'; }
@@ -7003,7 +7008,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-24-B';
+var PA_VERSION = 'v2026-06-24-C';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
