@@ -589,47 +589,32 @@ button:active{opacity:.8;transform:scale(.95)}
       <!-- Captured photo shown here -->
       <img id="capturedPhoto" style="display:none;width:100%;height:100%;object-fit:cover">
     </div>
-    <div style="display:flex;gap:10px;margin-bottom:16px">
-      <button class="big-btn" id="captureBtn" onclick="paCapturarFoto()" style="max-width:180px">
+    <button class="big-btn" id="captureBtn" onclick="paCapturarFoto()" style="margin-bottom:16px">
         📸 Tomar foto
-      </button>
-      <button class="big-btn outline" id="retakeBtn" onclick="paRetake()" style="display:none;max-width:120px">
-        ↺ Repetir
-      </button>
-    </div>
+    </button>
+    <!-- Retake hidden but kept for JS compatibility -->
+    <button id="retakeBtn" style="display:none" onclick="paRetake()"></button>
 
-    <!-- Location -->
-    <div class="section-title">📍 Ubicación</div>
-    <div class="loc-card" id="locCard">
-      <div class="loc-icon">📍</div>
-      <div class="loc-text">
-        <div class="loc-name" id="locName">Obteniendo ubicación...</div>
-        <div class="loc-coords" id="locCoords">—</div>
-        <div class="loc-status loading" id="locStatus">⟳ Localizando...</div>
+    <!-- Recuadro único: Hora + Ubicación -->
+    <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-size:13px;color:var(--muted)">⏱️ Hora de registro</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--accent2)" id="marcarHora">—</div>
       </div>
+      <div class="loc-card" id="locCard" style="background:transparent;border:none;padding:0;margin:0">
+        <div class="loc-icon">📍</div>
+        <div class="loc-text">
+          <div class="loc-name" id="locName">Obteniendo ubicación...</div>
+          <div class="loc-coords" id="locCoords">—</div>
+          <div class="loc-status loading" id="locStatus">⟳ Localizando...</div>
+        </div>
+      </div>
+      <div id="gpsWarning" style="display:none;color:#f85149;font-size:12px;margin-top:6px"></div>
     </div>
-    <div id="gpsWarning" style="display:none;background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.4);border-radius:10px;padding:10px 12px;font-size:13px;color:#f85149;margin-top:8px;text-align:center"></div>
-
-    <!-- Centro de trabajo -->
-    <div class="section-title">🏢 Sucursal / Centro de trabajo</div>
-    <div class="fg" style="margin-bottom:16px">
-      <select id="marcarCentro" style="font-size:16px;width:100%;padding:13px 14px;background:var(--surface);border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:inherit;-webkit-appearance:none">
-        <option value="">— Seleccionar sucursal —</option>
-      </select>
-    </div>
-
-    <!-- Hora actual -->
-    <div class="section-title">⏱️ Hora de registro</div>
-    <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">
-      <div style="font-size:13px;color:var(--muted)">Hora actual</div>
-      <div style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--accent2)" id="marcarHora">—</div>
-    </div>
-
-    <!-- Observación -->
-    <div class="fg">
-      <label>Observación (opcional)</label>
-      <textarea id="marcarObs" rows="2" placeholder="Ej: Llegué tarde por accidente en carretera..." style="resize:none;width:100%;padding:12px 14px;background:var(--surface);border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:inherit;font-size:14px;outline:none"></textarea>
-    </div>
+    <!-- Obs hidden for JS compatibility -->
+    <textarea id="marcarObs" style="display:none"></textarea>
+    <!-- Centro hidden for JS compatibility -->
+    <select id="marcarCentro" style="display:none"><option value="">—</option></select>
 
     <div id="marcarError" style="color:var(--red);font-size:13px;margin-bottom:8px;display:none"></div>
     <button class="big-btn" id="btnConfirmarMarca" onclick="paConfirmarMarca()">
@@ -6024,7 +6009,9 @@ function paAdminReporte(content) {
   var hoy  = paHoy();
   // Default: quincena actual (1-15 o 16-fin del mes)
   var dia  = new Date().getDate();
-  var defDesde, defHasta;
+  var defDesde, defHast
+  html += '</div>';
+a;
   if (dia <= 15) {
     defDesde = hoy.slice(0,8) + '01';
     defHasta = hoy.slice(0,8) + '15';
@@ -6034,17 +6021,19 @@ function paAdminReporte(content) {
     defHasta = hoy.slice(0,8) + (ultimoDia < 10 ? '0'+ultimoDia : ultimoDia);
   }
   var html = '<div class="info-box">Reporte de horas extra aprobadas por período. Puedes definir cualquier rango de fechas — quincenal, semanal, mensual, etc.</div>';
-  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
-    +'<div class="fg" style="margin:0"><label>Desde</label><input type="date" id="rptDesde" value="'+defDesde+'" max="'+hoy+'" style="font-size:16px" ></div>'
-    +'<div class="fg" style="margin:0"><label>Hasta</label><input type="date" id="rptHasta" value="'+defHasta+'" max="'+hoy+'" style="font-size:16px" ></div>'
+    html += '<div style="position:sticky;top:0;z-index:10;background:var(--bg);padding-bottom:10px;border-bottom:1px solid var(--border)">'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
+    +'<div class="fg" style="margin:0"><label>Desde</label><input type="date" id="rptDesde" value="'+defDesde+'" max="'+hoy+'" style="font-size:16px"></div>'
+    +'<div class="fg" style="margin:0"><label>Hasta</label><input type="date" id="rptHasta" value="'+defHasta+'" max="'+hoy+'" style="font-size:16px"></div>'
     +'</div>'
-    +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:14px">'
+    +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px">'
     +'<button class="big-btn outline" style="padding:8px;font-size:11px" onclick="paSetPeriodo(\'q1\')">1-15</button>'
     +'<button class="big-btn outline" style="padding:8px;font-size:11px" onclick="paSetPeriodo(\'q2\')">16-fin</button>'
     +'<button class="big-btn outline" style="padding:8px;font-size:11px" onclick="paSetPeriodo(\'mes\')">Mes completo</button>'
     +'</div>'
-    +'<div style="margin-top:10px"><button onclick="paGenerarReporte()" style="width:100%;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer">🔍 Generar Reporte</button></div>'
-    +'<div id="reporteContent"></div>';
+    +'<button onclick="paGenerarReporte()" style="width:100%;padding:11px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">🔍 Generar Reporte</button>'
+    +'</div>'
+    +'<div id="reporteContent" style="padding-top:12px"></div>';
   content.innerHTML = html;
   paGenerarReporte();
 }
@@ -7009,7 +6998,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-23-A';
+var PA_VERSION = 'v2026-06-24-A';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
