@@ -6624,283 +6624,270 @@ function paExportarExcel() {
   var data = PA._rptData;
   if (!data) { paToast('Genera el reporte primero', true); return; }
 
-  function _doExport() {
-    var EX = window.ExcelJS;
-    var wb = new EX.Workbook();
-    wb.creator = 'FISDC';
+  var empIds = Object.keys(data.porEmp || {}).sort(function(a,b){
+    return (data.porEmp[a].nombre||'').localeCompare(data.porEmp[b].nombre||'');
+  });
+  if (!empIds.length) { paToast('Sin empleados con horas extra en este período', true); return; }
 
-    var feriados = (PA.config && PA.config.feriados) || [];
-    var empIds = Object.keys(data.porEmp || {}).sort(function(a,b){
-      return (data.porEmp[a].nombre||'').localeCompare(data.porEmp[b].nombre||'');
-    });
+  paToast('⏳ Generando Excel... (' + empIds.length + ' empleados)', false, 3000);
 
-    // ── Colores ─────────────────────────────────────────────────
-    var NAVY = 'FF1F3864';
-    var BLUE = 'FF2F5496';
-    var GRAY = 'FFD9D9D9';
-    var LGRAY= 'FFF2F2F2';
-    var RED  = 'FFC00000';
-    var WHITE= 'FFFFFFFF';
-    var BLACK= 'FF000000';
-
-    function _thin(){ return {style:'thin'}; }
-    function _border(){ return {top:_thin(),bottom:_thin(),left:_thin(),right:_thin()}; }
-
-    function _styleHdr(cell, bg, fg){
-      cell.font = {bold:true, size:9, color:{argb:fg||WHITE}};
-      cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:bg||NAVY}};
-      cell.border = _border();
-      cell.alignment = {horizontal:'center', vertical:'middle', wrapText:true};
-    }
-    function _styleLbl(cell){
-      cell.font = {bold:true, size:9};
-      cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:GRAY}};
-      cell.border = _border();
-      cell.alignment = {horizontal:'left', vertical:'middle'};
-    }
-    function _styleVal(cell){
-      cell.font = {size:9};
-      cell.border = _border();
-      cell.alignment = {horizontal:'left', vertical:'middle'};
-    }
-    function _styleData(cell, bg, center){
-      cell.font = {size:9};
-      cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:bg||WHITE}};
-      cell.border = _border();
-      cell.alignment = {horizontal:center?'center':'left', vertical:'middle'};
-    }
-    function _styleTot(cell){
-      cell.font = {bold:true, size:9, color:{argb:WHITE}};
-      cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:NAVY}};
-      cell.border = _border();
-      cell.alignment = {horizontal:'center', vertical:'middle'};
-    }
-    function _styleHE(cell){
-      cell.font = {bold:true, size:9, color:{argb:RED}};
-      cell.border = _border();
-      cell.alignment = {horizontal:'center', vertical:'middle'};
-    }
-
-    // ── Helpers ─────────────────────────────────────────────────
-    function _tipodia(f){
-      var d=new Date(f+'T12:00:00'),dow=d.getDay();
-      if(feriados.indexOf(f)>=0)return 'F';
-      if(dow===0)return 'NL'; return 'L';
-    }
-    function _tprev(f){
-      var dow=new Date(f+'T12:00:00').getDay();
-      if(dow===0)return ' -- '; if(dow===6)return '4 h '; return '8 h ';
-    }
-    function _fmtTs(ts){
-      if(!ts)return '--';
-      var d=new Date(ts);
-      return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
-    }
-    function _minsToStr(m){
-      if(!m||m===0)return ' -- ';
-      var neg=m<0; m=Math.abs(m);
-      var h=Math.floor(m/60),mn=m%60;
-      var s=h>0&&mn>0?h+' h '+mn+' min':h>0?h+' h ':mn+' min';
-      return neg?'-'+s:s;
-    }
-    function _hStr(hDec){
-      if(!hDec||hDec<=0)return ' -- ';
-      var tot=Math.round(hDec*60),h=Math.floor(tot/60),m=tot%60;
-      return h+':'+String(m).padStart(2,'0');
-    }
-    function _fechas(d0,d1){
-      var arr=[],d=new Date(d0+'T12:00:00'),fin=new Date(d1+'T12:00:00');
-      while(d<=fin){arr.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'));d.setDate(d.getDate()+1);}
-      return arr;
-    }
-    function _diaLabel(f){
-      var dias=['dom','lun','mar','mié','jue','vie','sáb'];
-      var meses=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-      var d=new Date(f+'T12:00:00');
-      return dias[d.getDay()]+', '+d.getDate()+' '+meses[d.getMonth()]+' '+d.getFullYear()+' ('+_tipodia(f)+')';
-    }
-
-    // ════════════════════════════════════════
-    // HOJA RESUMEN
-    // ════════════════════════════════════════
-    var wsR = wb.addWorksheet('RESUMEN');
-    wsR.columns = [
-      {width:14},{width:30},{width:12},{width:16},
-      {width:12},{width:24},{width:10},{width:10},
-      {width:10},{width:8},{width:8}
-    ];
-
-    // Fila 1: Título
-    var r1 = wsR.addRow(['RESUMEN DE HORAS EXTRA  '+data.desde+' AL '+data.hasta]);
-    wsR.mergeCells(1,1,1,11);
-    r1.height = 20;
-    r1.getCell(1).font = {bold:true, size:11};
-
-    // Fila 2: Encabezados
-    var hdrRow = wsR.addRow(['Codigo','Nombre','Codigo CC','Nombre CC','Cod Concepto','Nombre Concepto','Cantidad','total hrs','Monto','Nomina','canje']);
-    hdrRow.height = 18;
-    hdrRow.eachCell(function(cell){ _styleHdr(cell, NAVY, WHITE); });
-
-    // Datos
-    var tDiu=0,tNoc=0,tFer=0;
-    empIds.forEach(function(eid, ei){
-      var e=data.porEmp[eid];
-      var emp=PA.empleados.find(function(x){return x.id===eid;});
-      var cod=(emp&&emp.codigo)||eid;
-      var bg=ei%2===0?WHITE:LGRAY;
-      [['0001-B002','Horas Extras Diurnas',e.diurna||0],
-       ['0001-B003','Horas Extras Nocturnas',e.nocturna||0],
-       ['0001-B010','HORAS EN FERIADO',e.feriado||0]
-      ].forEach(function(c){
-        var row=wsR.addRow([cod,e.nombre,'008-00-00','Mantenimiento',c[0],c[1],
-          (e.diurna||0)+(e.nocturna||0)+(e.feriado||0),c[2],0,'0001',0]);
-        row.height=15;
-        row.eachCell(function(cell,i){
-          _styleData(cell,bg,i>2);
-        });
+  function _descarga(buffer, fname) {
+    try {
+      var blob = new Blob([buffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       });
-      tDiu+=(e.diurna||0); tNoc+=(e.nocturna||0); tFer+=(e.feriado||0);
-    });
+      // FileSaver approach (más confiable)
+      if (window.saveAs) {
+        window.saveAs(blob, fname);
+        paToast('✅ Excel descargado');
+        return;
+      }
+      // Fallback manual
+      var url = URL.createObjectURL(blob);
+      var link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', fname);
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      window.setTimeout(function() {
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }, 2000);
+      paToast('✅ Excel descargado');
+    } catch(e) {
+      paToast('Error al descargar: ' + e.message, true);
+      console.error('[Excel]', e);
+    }
+  }
 
-    // Totales resumen
-    wsR.addRow([]);
-    [['Total Horas Diurnas',tDiu],['Total Horas Nocturnas',tNoc],['Total de días festivo',tFer]].forEach(function(t){
-      var tRow=wsR.addRow(['','','','','',t[0],'',t[1],'','','']);
-      tRow.height=16;
-      _styleHdr(tRow.getCell(6),BLUE,WHITE);
-      wsR.mergeCells(tRow.number,6,tRow.number,7);
-      _styleHdr(tRow.getCell(8),BLUE,WHITE);
-    });
+  function _doExport() {
+    try {
+      var EX = window.ExcelJS;
+      var wb = new EX.Workbook();
+      wb.creator = 'FISDC';
+      var feriados = (PA.config && PA.config.feriados) || [];
 
-    // ════════════════════════════════════════
-    // HOJAS POR EMPLEADO
-    // ════════════════════════════════════════
-    var fechasList=_fechas(data.desde,data.hasta);
-    empIds.forEach(function(eid){
-      var e=data.porEmp[eid];
-      var marcs=(data.marcaciones||{})[eid]||{};
-      var emp=PA.empleados.find(function(x){return x.id===eid;});
-      var afil=(emp&&emp.afiliacion)||'';
-      var sheetName=(e.nombre||eid).replace(/[\/\\\?\*\[\]]/g,'').slice(0,31);
-      var ws=wb.addWorksheet(sheetName);
-      ws.columns=[{width:28},{width:10},{width:10},{width:10},{width:16},{width:14},{width:14},{width:16},{width:14},{width:14}];
-
-      // Fila 1: HORAS TRABAJADAS
-      var t1=ws.addRow([null,'HORAS TRABAJADAS']);
-      ws.mergeCells(1,2,1,10);
-      t1.height=20;
-      _styleHdr(t1.getCell(2),NAVY,WHITE);
-
-      // Filas 2-5: Info
-      var infoIzq=['Empresa','CIF','Centro de trabajo',null];
-      var infoIzqVal=['Franquicias Internacionales S.A. de C.V.',null,'Oficinas Administrativas',null];
-      var infoDer=['Empleado','Nº Afiliación','Intervalo',null];
-      var infoDerVal=[e.nombre,afil,data.desde+' - '+data.hasta,null];
-      var leyenda=['Laborable (L)','No laborable (NL)','Festivo (F)','Vacaciones (V)'];
-      for(var li=0;li<4;li++){
-        var ir=ws.addRow([infoIzq[li]||null,infoIzqVal[li]||null,null,infoDer[li]||null,infoDerVal[li]||null,null,null,leyenda[li]||null]);
-        ir.height=15;
-        if(infoIzq[li]){_styleLbl(ir.getCell(1));}
-        if(infoIzqVal[li]){_styleVal(ir.getCell(2)); ws.mergeCells(ir.number,2,ir.number,3);}
-        if(infoDer[li]){_styleLbl(ir.getCell(4));}
-        if(infoDerVal[li]){_styleVal(ir.getCell(5)); ws.mergeCells(ir.number,5,ir.number,7);}
-        if(leyenda[li]){_styleVal(ir.getCell(8)); ws.mergeCells(ir.number,8,ir.number,10);}
+      var NAVY='FF1F3864', BLUE='FF2F5496', GRAY='FFD9D9D9', LGRAY='FFF5F5F5';
+      var WHITE='FFFFFFFF', RED='FFC00000', BLACK='FF000000';
+      function _thin(){ return {style:'thin'}; }
+      function _border(){ return {top:_thin(),bottom:_thin(),left:_thin(),right:_thin()}; }
+      function _styleHdr(cell,bg,fg){
+        cell.font={bold:true,size:9,color:{argb:fg||WHITE}};
+        cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:bg||NAVY}};
+        cell.border=_border();
+        cell.alignment={horizontal:'center',vertical:'middle',wrapText:true};
+      }
+      function _styleLbl(cell){
+        cell.font={bold:true,size:9};
+        cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:GRAY}};
+        cell.border=_border();
+        cell.alignment={horizontal:'left',vertical:'middle'};
+      }
+      function _styleVal(cell){
+        cell.font={size:9};
+        cell.border=_border();
+        cell.alignment={horizontal:'left',vertical:'middle',wrapText:true};
+      }
+      function _styleData(cell,bg,center){
+        cell.font={size:9};
+        cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:bg||WHITE}};
+        cell.border=_border();
+        cell.alignment={horizontal:center?'center':'left',vertical:'middle'};
+      }
+      function _styleTot(cell){
+        cell.font={bold:true,size:9,color:{argb:WHITE}};
+        cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:NAVY}};
+        cell.border=_border();
+        cell.alignment={horizontal:'center',vertical:'middle'};
+      }
+      function _styleHE(cell){
+        cell.font={bold:true,size:9,color:{argb:RED}};
+        cell.border=_border();
+        cell.alignment={horizontal:'center',vertical:'middle'};
+      }
+      function _tipodia(f){
+        var d=new Date(f+'T12:00:00'),dow=d.getDay();
+        if(feriados.indexOf(f)>=0)return 'F';
+        if(dow===0)return 'NL'; return 'L';
+      }
+      function _tprev(f){
+        var dow=new Date(f+'T12:00:00').getDay();
+        if(dow===0)return '--'; if(dow===6)return '4 h'; return '8 h';
+      }
+      function _fmtTs(ts){
+        if(!ts)return '--';
+        var d=new Date(ts);
+        return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+      }
+      function _mins(m){
+        if(!m||m===0)return '--';
+        var h=Math.floor(Math.abs(m)/60),mn=Math.abs(m)%60;
+        return (m<0?'-':'')+(h>0&&mn>0?h+'h '+mn+'min':h>0?h+'h':mn+'min');
+      }
+      function _hDec(hDec){
+        if(!hDec||hDec<=0)return '--';
+        var t=Math.round(hDec*60),h=Math.floor(t/60),m=t%60;
+        return h+':'+String(m).padStart(2,'0');
+      }
+      function _fechas(d0,d1){
+        var arr=[],d=new Date(d0+'T12:00:00'),fin=new Date(d1+'T12:00:00');
+        while(d<=fin){
+          arr.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'));
+          d.setDate(d.getDate()+1);
+        }
+        return arr;
+      }
+      function _diaLabel(f){
+        var dias=['dom','lun','mar','mié','jue','vie','sáb'];
+        var meses=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+        var d=new Date(f+'T12:00:00');
+        return dias[d.getDay()]+', '+d.getDate()+' de '+meses[d.getMonth()]+' '+d.getFullYear()+' ('+_tipodia(f)+')';
       }
 
-      // Fila 6: Encabezados tabla
-      var thRow=ws.addRow(['Fecha','T. previsto','Hora inicio','Hora fin','Total trabajado','Horas extras','Horas descanso','Tiempo remunerado','H. Extra\nDiurna\n06:00–19:00','H. Extra\nNocturna\n19:01–05:59']);
-      thRow.height=42;
-      thRow.eachCell(function(cell){_styleHdr(cell,NAVY,WHITE);});
-
-      var totHEDiu=0,totHENoc=0;
-      fechasList.forEach(function(f,fi){
-        var tipo=_tipodia(f);
-        var mDia=marcs[f]||[];
-        var entrada=null,salida=null,alSal=null,alReg=null;
-        mDia.forEach(function(m){
-          if(m.tipo==='entrada')entrada=m;
-          else if(m.tipo==='salida')salida=m;
-          else if(m.tipo==='almuerzo_salida')alSal=m;
-          else if(m.tipo==='almuerzo_regreso')alReg=m;
-          else if(m.tipo==='entrada_adicional'&&!entrada)entrada=m;
-          else if(m.tipo==='salida_adicional'&&!salida)salida=m;
+      // ── HOJA RESUMEN ──────────────────────────────────────────
+      var wsR=wb.addWorksheet('RESUMEN');
+      wsR.columns=[{width:14},{width:30},{width:12},{width:16},{width:12},{width:24},{width:10},{width:10},{width:10},{width:8},{width:8}];
+      var r1=wsR.addRow(['RESUMEN DE HORAS EXTRA  '+data.desde+' AL '+data.hasta]);
+      wsR.mergeCells(1,1,1,11); r1.height=20; r1.getCell(1).font={bold:true,size:11};
+      var hR=wsR.addRow(['Codigo','Nombre','Codigo CC','Nombre CC','Cod Concepto','Nombre Concepto','Cantidad','total hrs','Monto','Nomina','canje']);
+      hR.height=18; hR.eachCell(function(cell){_styleHdr(cell,NAVY,WHITE);});
+      var tDiu=0,tNoc=0,tFer=0;
+      empIds.forEach(function(eid,ei){
+        var e=data.porEmp[eid];
+        var emp=PA.empleados.find(function(x){return x.id===eid;});
+        var cod=(emp&&emp.codigo)||eid;
+        var bg=ei%2===0?WHITE:LGRAY;
+        [['0001-B002','Horas Extras Diurnas',e.diurna||0],
+         ['0001-B003','Horas Extras Nocturnas',e.nocturna||0],
+         ['0001-B010','HORAS EN FERIADO',e.feriado||0]
+        ].forEach(function(c){
+          var row=wsR.addRow([cod,e.nombre,'008-00-00','Mantenimiento',c[0],c[1],
+            (e.diurna||0)+(e.nocturna||0)+(e.feriado||0),c[2],0,'0001',0]);
+          row.height=14; row.eachCell(function(cell,ci){_styleData(cell,bg,ci>2);});
         });
-        var horaIn=entrada?_fmtTs(_paToMs(entrada.ts)):'--';
-        var horaFin=salida?_fmtTs(_paToMs(salida.ts)):'--';
-        var rawMins=0;
-        if(entrada&&salida)rawMins=Math.round((_paToMs(salida.ts)-_paToMs(entrada.ts))/60000);
-        var almMins=0;
-        if(alSal&&alReg)almMins=Math.round((_paToMs(alReg.ts)-_paToMs(alSal.ts))/60000);
-        else if(rawMins>=7*60)almMins=60;
-        var trabMins=Math.max(0,rawMins-almMins);
-        var dow=new Date(f+'T12:00:00').getDay();
-        var jorNormal=dow===6?4*60:(tipo==='L'?8*60:0);
-        var heDiuMins=0,heNocMins=0;
-        if(e.dias&&e.dias[f]){heDiuMins=Math.round((e.dias[f].diurna||0)*60);heNocMins=Math.round((e.dias[f].nocturna||0)*60);}
-        else if(tipo!=='NL'&&trabMins>jorNormal)heDiuMins=trabMins-jorNormal;
-        totHEDiu+=heDiuMins; totHENoc+=heNocMins;
-        var heTotal=heDiuMins+heNocMins;
-        var isNL=(tipo==='NL'&&!entrada&&!salida);
-        var bg=isNL?LGRAY:(fi%2===0?WHITE:'FFF9F9F9');
-
-        var rowVals=[
-          _diaLabel(f), _tprev(f),
-          isNL?'--':horaIn, isNL?'--':horaFin,
-          isNL?' -- ':(trabMins>0?_minsToStr(trabMins):(horaIn==='--'?' -- ':'0 min.')),
-          isNL?' -- ':(heTotal>0?_minsToStr(heTotal):'0 min.'),
-          isNL?' -- ':(almMins>0?_minsToStr(almMins):' -- '),
-          isNL?' -- ':(trabMins>0?_minsToStr(trabMins):(horaIn==='--'?' -- ':'0 min.')),
-          heDiuMins>0?_hStr(heDiuMins/60):' -- ',
-          heNocMins>0?_hStr(heNocMins/60):' -- '
-        ];
-        var dRow=ws.addRow(rowVals);
-        dRow.height=14;
-        dRow.eachCell(function(cell,i){
-          if(i>=9&&cell.value!==' -- ')_styleHE(cell);
-          else _styleData(cell,bg,i>1);
-          if(isNL)cell.font={size:9,color:{argb:'FF888888'},italic:true};
-        });
+        tDiu+=(e.diurna||0); tNoc+=(e.nocturna||0); tFer+=(e.feriado||0);
+      });
+      wsR.addRow([]);
+      [['Total Horas Diurnas',tDiu],['Total Horas Nocturnas',tNoc],['Total de días festivo',tFer]].forEach(function(t){
+        var tr=wsR.addRow(['','','','','',t[0],'',t[1]]);
+        tr.height=16; _styleHdr(tr.getCell(6),BLUE,WHITE);
+        wsR.mergeCells(tr.number,6,tr.number,7); _styleHdr(tr.getCell(8),BLUE,WHITE);
       });
 
-      // Fila Total
-      var totRow=ws.addRow([null,null,null,'Total',null,null,null,null,
-        totHEDiu>0?_hStr(totHEDiu/60):' -- ',
-        totHENoc>0?_hStr(totHENoc/60):' -- ']);
-      totRow.height=16;
-      ws.mergeCells(totRow.number,1,totRow.number,4);
-      totRow.eachCell(function(cell){_styleTot(cell);});
+      // ── HOJAS POR EMPLEADO ────────────────────────────────────
+      var fechas=_fechas(data.desde,data.hasta);
+      empIds.forEach(function(eid){
+        var e=data.porEmp[eid];
+        var marcs=(data.marcaciones||{})[eid]||{};
+        var emp2=PA.empleados.find(function(x){return x.id===eid;});
+        var afil=(emp2&&emp2.afiliacion)||'';
+        var sname=(e.nombre||eid).replace(/[\/\\\?\*\[\]:]/g,'').slice(0,31);
+        var ws=wb.addWorksheet(sname);
+        ws.columns=[{width:30},{width:10},{width:10},{width:10},{width:16},{width:14},{width:14},{width:16},{width:14},{width:14}];
+        var t1=ws.addRow([null,'HORAS TRABAJADAS']);
+        ws.mergeCells(1,2,1,10); t1.height=20; _styleHdr(t1.getCell(2),NAVY,WHITE);
+        var infoL=['Empresa','CIF','Centro de trabajo',null];
+        var infoLV=['Franquicias Internacionales S.A. de C.V.',null,'Oficinas Administrativas',null];
+        var infoR=['Empleado','Nº Afiliación','Intervalo',null];
+        var infoRV=[e.nombre,afil,data.desde+' - '+data.hasta,null];
+        var ley=['Laborable (L)','No laborable (NL)','Festivo (F)','Vacaciones (V)'];
+        for(var li=0;li<4;li++){
+          var ir=ws.addRow([infoL[li]||null,infoLV[li]||null,null,infoR[li]||null,infoRV[li]||null,null,null,ley[li]||null]);
+          ir.height=15;
+          if(infoL[li])_styleLbl(ir.getCell(1));
+          if(infoLV[li]){_styleVal(ir.getCell(2));ws.mergeCells(ir.number,2,ir.number,3);}
+          if(infoR[li])_styleLbl(ir.getCell(4));
+          if(infoRV[li]){_styleVal(ir.getCell(5));ws.mergeCells(ir.number,5,ir.number,7);}
+          if(ley[li]){_styleVal(ir.getCell(8));ws.mergeCells(ir.number,8,ir.number,10);}
+        }
+        var th=ws.addRow(['Fecha','T. previsto','Hora inicio','Hora fin','Total trabajado','Horas extras','Horas descanso','Tiempo remunerado','H. Extra\nDiurna\n06:00-19:00','H. Extra\nNocturna\n19:01-05:59']);
+        th.height=42; th.eachCell(function(cell){_styleHdr(cell,NAVY,WHITE);});
+        var totD=0,totN=0;
+        fechas.forEach(function(f,fi){
+          var tipo=_tipodia(f),mDia=marcs[f]||[];
+          var ent=null,sal=null,alS=null,alR=null;
+          mDia.forEach(function(m){
+            if(m.tipo==='entrada')ent=m;
+            else if(m.tipo==='salida')sal=m;
+            else if(m.tipo==='almuerzo_salida')alS=m;
+            else if(m.tipo==='almuerzo_regreso')alR=m;
+            else if(m.tipo==='entrada_adicional'&&!ent)ent=m;
+            else if(m.tipo==='salida_adicional'&&!sal)sal=m;
+          });
+          var hIn=ent?_fmtTs(_paToMs(ent.ts)):'--';
+          var hFin=sal?_fmtTs(_paToMs(sal.ts)):'--';
+          var raw=0; if(ent&&sal)raw=Math.round((_paToMs(sal.ts)-_paToMs(ent.ts))/60000);
+          var alm=0; if(alS&&alR)alm=Math.round((_paToMs(alR.ts)-_paToMs(alS.ts))/60000);
+          else if(raw>=420)alm=60;
+          var trab=Math.max(0,raw-alm);
+          var dow=new Date(f+'T12:00:00').getDay();
+          var jn=dow===6?240:(tipo==='L'?480:0);
+          var heDiu=0,heNoc=0;
+          if(e.dias&&e.dias[f]){heDiu=Math.round((e.dias[f].diurna||0)*60);heNoc=Math.round((e.dias[f].nocturna||0)*60);}
+          else if(tipo!=='NL'&&trab>jn)heDiu=trab-jn;
+          totD+=heDiu; totN+=heNoc;
+          var isNL=(tipo==='NL'&&!ent&&!sal);
+          var bg=isNL?LGRAY:(fi%2===0?WHITE:'FFF9F9F9');
+          var dr=ws.addRow([
+            _diaLabel(f),_tprev(f),
+            isNL?'--':hIn, isNL?'--':hFin,
+            isNL?'--':(trab>0?_mins(trab):(hIn==='--'?'--':'0 min')),
+            isNL?'--':((heDiu+heNoc)>0?_mins(heDiu+heNoc):'0 min'),
+            isNL?'--':(alm>0?_mins(alm):'--'),
+            isNL?'--':(trab>0?_mins(trab):(hIn==='--'?'--':'0 min')),
+            heDiu>0?_hDec(heDiu/60):'--',
+            heNoc>0?_hDec(heNoc/60):'--'
+          ]);
+          dr.height=14;
+          dr.eachCell(function(cell,ci){
+            if(ci>=9&&cell.value&&cell.value!=='--')_styleHE(cell);
+            else _styleData(cell,bg,ci>1);
+            if(isNL&&ci>1)cell.font={size:9,color:{argb:'FF888888'},italic:true};
+          });
+        });
+        var tr2=ws.addRow([null,null,null,'Total',null,null,null,null,totD>0?_hDec(totD/60):'--',totN>0?_hDec(totN/60):'--']);
+        tr2.height=16; ws.mergeCells(tr2.number,1,tr2.number,4);
+        tr2.eachCell(function(cell){_styleTot(cell);});
+        ws.addRow(['Firma empleado']).height=22;
+        ws.addRow(['Firma y sello empresa']).height=22;
+      });
 
-      // Firmas
-      var fRow1=ws.addRow(['Firma empleado']);
-      fRow1.height=22; fRow1.getCell(1).font={bold:true,size:9};
-      var fRow2=ws.addRow(['Firma y sello empresa']);
-      fRow2.height=22; fRow2.getCell(1).font={bold:true,size:9};
-    });
+      var fname='HE-'+data.desde+'-'+data.hasta+'.xlsx';
+      wb.xlsx.writeBuffer().then(function(buffer){
+        _descarga(buffer, fname);
+      }).catch(function(e){
+        paToast('Error generando Excel: '+e.message, true);
+        console.error('[Excel writeBuffer]', e);
+      });
 
-    // ── Descargar ────────────────────────────────────────────────
-    wb.xlsx.writeBuffer().then(function(buffer){
-      var blob=new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-      var url=URL.createObjectURL(blob);
-      var a=document.createElement('a');
-      a.href=url; a.download='HE-'+data.desde+'-'+data.hasta+'.xlsx';
-      document.body.appendChild(a); a.click();
-      setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(url);},1000);
-      paToast('✅ Excel descargado — '+empIds.length+' empleados');
-    }).catch(function(e){
-      paToast('Error generando Excel: '+e.message,true);
-    });
+    } catch(e) {
+      paToast('Error en exportación: '+e.message, true);
+      console.error('[Excel _doExport]', e);
+    }
   }
 
-  if (window.ExcelJS) {
-    _doExport();
-  } else {
-    var script=document.createElement('script');
-    script.src='https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js';
-    script.onload=function(){_doExport();};
-    script.onerror=function(){paToast('Error cargando librería — verifica conexión',true);};
-    document.head.appendChild(script);
-    paToast('Cargando librería Excel...',false,1800);
+  // Cargar ExcelJS + FileSaver.js
+  function _cargarLibs(cb) {
+    var pendiente = 2;
+    function _check(){ if(--pendiente===0) cb(); }
+    if (!window.ExcelJS) {
+      var s1=document.createElement('script');
+      s1.src='https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js';
+      s1.onload=_check;
+      s1.onerror=function(){ paToast('Error cargando ExcelJS', true); };
+      document.head.appendChild(s1);
+    } else { _check(); }
+    if (!window.saveAs) {
+      var s2=document.createElement('script');
+      s2.src='https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js';
+      s2.onload=_check;
+      s2.onerror=function(){ _check(); }; // FileSaver es opcional (fallback manual)
+      document.head.appendChild(s2);
+    } else { _check(); }
   }
+
+  _cargarLibs(function(){ _doExport(); });
 } 
 
 // ══════════════════════════════════════════════════════
@@ -7007,7 +6994,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-24-D';
+var PA_VERSION = 'v2026-06-24-E';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
