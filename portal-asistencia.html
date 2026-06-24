@@ -6035,14 +6035,15 @@ function paAdminReporte(content) {
   }
   var html = '<div class="info-box">Reporte de horas extra aprobadas por período. Puedes definir cualquier rango de fechas — quincenal, semanal, mensual, etc.</div>';
   html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
-    +'<div class="fg" style="margin:0"><label>Desde</label><input type="date" id="rptDesde" value="'+defDesde+'" max="'+hoy+'" style="font-size:16px" onchange="paGenerarReporte()"></div>'
-    +'<div class="fg" style="margin:0"><label>Hasta</label><input type="date" id="rptHasta" value="'+defHasta+'" max="'+hoy+'" style="font-size:16px" onchange="paGenerarReporte()"></div>'
+    +'<div class="fg" style="margin:0"><label>Desde</label><input type="date" id="rptDesde" value="'+defDesde+'" max="'+hoy+'" style="font-size:16px" ></div>'
+    +'<div class="fg" style="margin:0"><label>Hasta</label><input type="date" id="rptHasta" value="'+defHasta+'" max="'+hoy+'" style="font-size:16px" ></div>'
     +'</div>'
     +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:14px">'
     +'<button class="big-btn outline" style="padding:8px;font-size:11px" onclick="paSetPeriodo(\'q1\')">1-15</button>'
     +'<button class="big-btn outline" style="padding:8px;font-size:11px" onclick="paSetPeriodo(\'q2\')">16-fin</button>'
     +'<button class="big-btn outline" style="padding:8px;font-size:11px" onclick="paSetPeriodo(\'mes\')">Mes completo</button>'
     +'</div>'
+    +'<div style="margin-top:10px"><button onclick="paGenerarReporte()" style="width:100%;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer">🔍 Generar Reporte</button></div>'
     +'<div id="reporteContent"></div>';
   content.innerHTML = html;
   paGenerarReporte();
