@@ -6624,6 +6624,31 @@ function paExportarExcel() {
   var data = PA._rptData;
   if (!data) { paToast('Genera el reporte primero', true); return; }
 
+  // Detectar y loguear empleados con IDs distintos pero mismo nombre
+  var _nombreVisto = {};
+  Object.keys(data.porEmp || {}).forEach(function(eid) {
+    var nom = (data.porEmp[eid].nombre||'').trim();
+    if (_nombreVisto[nom]) {
+      console.warn('[Excel] Empleado duplicado por nombre:', nom,
+        '| IDs:', _nombreVisto[nom], 'y', eid,
+        '| Mergeando en exportación...');
+      // Mergear en el primero
+      var first = _nombreVisto[nom];
+      data.porEmp[first].diurna   = (data.porEmp[first].diurna||0)   + (data.porEmp[eid].diurna||0);
+      data.porEmp[first].nocturna = (data.porEmp[first].nocturna||0) + (data.porEmp[eid].nocturna||0);
+      data.porEmp[first].feriado  = (data.porEmp[first].feriado||0)  + (data.porEmp[eid].feriado||0);
+      data.porEmp[first].finde    = (data.porEmp[first].finde||0)    + (data.porEmp[eid].finde||0);
+      // Fusionar marcaciones
+      if (data.marcaciones && data.marcaciones[eid]) {
+        if (!data.marcaciones[first]) data.marcaciones[first] = {};
+        Object.assign(data.marcaciones[first], data.marcaciones[eid]);
+      }
+      delete data.porEmp[eid]; // eliminar duplicado
+    } else {
+      _nombreVisto[nom] = eid;
+    }
+  });
+
   var empIds = Object.keys(data.porEmp || {}).sort(function(a,b){
     return (data.porEmp[a].nombre||'').localeCompare(data.porEmp[b].nombre||'');
   });
@@ -6782,7 +6807,9 @@ function paExportarExcel() {
         var marcs=(data.marcaciones||{})[eid]||{};
         var emp2=PA.empleados.find(function(x){return x.id===eid;});
         var afil=(emp2&&emp2.afiliacion)||'';
-        var sname=(e.nombre||eid).replace(/[\/\\\?\*\[\]:]/g,'').slice(0,31);
+        var _snameBase=(e.nombre||eid).replace(/[\/\\\?\*\[\]:]/g,'').slice(0,28);
+        var sname=_snameBase; var _snIdx=2;
+        while(wb.getWorksheet(sname)){sname=_snameBase.slice(0,25)+' '+_snIdx++;}
         var ws=wb.addWorksheet(sname);
         ws.columns=[{width:30},{width:10},{width:10},{width:10},{width:16},{width:14},{width:14},{width:16},{width:14},{width:14}];
         var t1=ws.addRow([null,'HORAS TRABAJADAS']);
@@ -6994,7 +7021,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-24-E';
+var PA_VERSION = 'v2026-06-24-G';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
