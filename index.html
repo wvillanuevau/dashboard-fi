@@ -929,8 +929,8 @@ input[type=date]{color-scheme:dark}
 
 /* ── CRONOGRAMA ───────────────────────────────── */
 .cron-table{width:100%;border-collapse:collapse;font-size:12.5px}
-.cron-table th,.cron-table td{border:1px solid var(--border);padding:6px 8px;vertical-align:top;overflow:hidden;word-wrap:break-word;overflow-wrap:break-word}
-.cron-table th{background:var(--surface2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700;overflow:hidden}
+.cron-table th,.cron-table td{border:1px solid var(--border);padding:6px 8px;white-space:nowrap;vertical-align:middle}
+.cron-table th{background:var(--surface2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700}
 .cron-table tr:hover td{background:var(--surface2)}
 .cron-gantt-bar{height:14px;border-radius:4px;background:var(--accent);opacity:.75;transition:opacity .15s}
 .cron-gantt-bar:hover{opacity:1}
@@ -1477,19 +1477,6 @@ const SB_GRUPOS=[
   {id:'config_grp',label:'Configuración General',ic:'⚙',items:['log','usuarios','config','importar']},
 ];
 // Estado de grupos colapsados (persistir en sessionStorage)
-
-// ── Helper: fecha local (evita bug timezone UTC de toISOString) ──────────
-function localDate(d){
-  if(!d) d=new Date();
-  else if(!(d instanceof Date)) d=new Date(d);
-  if(isNaN(d.getTime())) return '';
-  var y=d.getFullYear();
-  var m=String(d.getMonth()+1).padStart(2,'0');
-  var day=String(d.getDate()).padStart(2,'0');
-  return y+'-'+m+'-'+day;
-}
-
-
 function getSBCollapsed(){try{return JSON.parse(sessionStorage.getItem('sb_collapsed')||'{}');}catch(e){return{};}}
 function setSBCollapsed(id,v){const c=getSBCollapsed();c[id]=v;sessionStorage.setItem('sb_collapsed',JSON.stringify(c));}
 function toggleSBGrupo(id){const c=getSBCollapsed();setSBCollapsed(id,!c[id]);S._sbKeepOpen=true;render();}
@@ -2449,7 +2436,46 @@ document.addEventListener('visibilitychange', function(){
   }
 });
 
-async function saveData(seccion){
+async 
+// ── Actualización atómica por proyecto (evita conflictos concurrentes) ──────
+// updaterFn recibe el proyecto actual y debe retornar el proyecto modificado
+function _saveProyecto(proyId, updaterFn) {
+  if (!window._db) { saveData('proyectos'); return; }
+  var ref = window._db.collection('empresas').doc(S.empresa);
+  return window._db.runTransaction(function(tx) {
+    return tx.get(ref).then(function(doc) {
+      if (!doc.exists) throw new Error('empresa no encontrada');
+      var data = doc.data();
+      var proyectos = (data.proyectos || []).slice();
+      var idx = proyectos.findIndex(function(p){ return p.id === proyId; });
+      if (idx < 0) throw new Error('proyecto ' + proyId + ' no encontrado');
+      var updated = updaterFn(proyectos[idx]);
+      if (updated) proyectos[idx] = updated;
+      tx.update(ref, { proyectos: proyectos, _ts: Date.now() });
+    });
+  }).then(function() {
+    // Sincronizar S local con el cambio
+    var localIdx = S.proyectos.findIndex(function(p){ return p.id === proyId; });
+    if (localIdx >= 0) {
+      var fresh = updaterFn(S.proyectos[localIdx]);
+      if (fresh) S.proyectos[localIdx] = fresh;
+    }
+    console.log('[_saveProyecto] OK:', proyId);
+  }).catch(function(e) {
+    console.warn('[_saveProyecto] error, fallback saveData:', e.message);
+    markDirty('proyectos');
+    saveData();
+  });
+}
+
+
+function localDate(d){
+  if(!d) d=new Date();
+  else if(!(d instanceof Date)) d=new Date(d);
+  if(isNaN(d.getTime())) return '';
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function saveData(seccion){
   // Si se pasa sección, marcarla dirty automáticamente
   if(seccion){markDirty(seccion);}
   // Si no se pasa sección pero hay un módulo activo, inferirlo
@@ -2636,7 +2662,7 @@ function loadBadges(){
   if(S.currentUser)_renderNavBadges();
 
   // Solicitudes nuevas (Firestore) — async
-  var db=firebase.firestore();
+  var db=firebase.firestore();window._db=db;
   db.collection('solicitudesTaller')
     .where('empresa','==',S.empresa).where('estado','==','nueva').get()
     .then(function(snap){
@@ -2880,7 +2906,7 @@ function recuperarDesdeLocalStorage(){
 
 function _syncPortalPublico(){
   if(!S.empresa||!window.FB||!window.FB.currentUser())return;
-  var db=firebase.firestore();
+  var db=firebase.firestore();window._db=db;
   var equiposPublicos=((S.mantenimiento&&S.mantenimiento.equipos)||[])
     .filter(function(e){return !e.estado||e.estado==='activo';})
     .map(function(e){return{id:e.id,nombre:e.nombre,ubicacionId:e.ubicacionId||e.centroId||'',ubicacionTipo:e.ubicacionTipo||'centro',categoria:e.categoria||''};});
@@ -4004,6 +4030,7 @@ function abrirModalNuevoProyecto(){
   openModal('modalNP');
 }
 function crearProyecto(){
+  markDirty('proyectos');
   const nombre=document.getElementById('npNombre').value.trim();
   if(!nombre){toast('Ingrese nombre',true);return}
   const pid=genId();
@@ -4015,6 +4042,7 @@ function crearProyecto(){
   render();toast('✓ Proyecto creado');
 }
 function elimProyecto(id){
+  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===id);if(!p)return;
   if(!confirm(`¿Eliminar "${p.nombre}"?`))return;
   S.proyectos=S.proyectos.filter(x=>x.id!==id);
@@ -4022,10 +4050,15 @@ function elimProyecto(id){
   logAction('ELIMINAR','proyectos',`Proyecto: ${p.nombre}`);
   saveData();closeModal('modalDP');render();toast('✓ Eliminado');
 }
-function updP(id,campo,val){const p=S.proyectos.find(x=>x.id===id);if(p){p[campo]=val;saveData()}}
-function updOC(pid,val){updP(pid,'montoObraCivil',Math.max(0,parseFloat(val)||0));reloadTab('pagosygastos',pid)}
-function updImpMonto(pid,val){const p=S.proyectos.find(x=>x.id===pid);if(!p)return;p.pagos.imp={monto:Math.max(0,parseFloat(val)||0),paid:((p.pagos&&p.pagos.imp)||{}).paid||false};saveData();reloadTab('pagosygastos',pid)}
-function updImpPaid(pid,val){const p=S.proyectos.find(x=>x.id===pid);if(!p)return;p.pagos.imp={monto:((p.pagos&&p.pagos.imp)||{}).monto||0,paid:val};saveData();reloadTab('pagosygastos',pid)}
+function updP(id,campo,val){
+  const p=S.proyectos.find(x=>x.id===id);if(!p)return;
+  p[campo]=val;
+  _saveProyecto(id,function(proj){proj[campo]=val;return proj;});}
+function updOC(pid,val){updP(pid,'montoObraCivil',Math.max(0,parseFloat(val)||0));reloadTab('pagos',pid)}
+function updImpMonto(pid,val){
+  markDirty('proyectos');const p=S.proyectos.find(x=>x.id===pid);if(!p)return;p.pagos.imp={monto:Math.max(0,parseFloat(val)||0),paid:((p.pagos&&p.pagos.imp)||{}).paid||false};saveData();reloadTab('pagos',pid)}
+function updImpPaid(pid,val){
+  markDirty('proyectos');const p=S.proyectos.find(x=>x.id===pid);if(!p)return;p.pagos.imp={monto:((p.pagos&&p.pagos.imp)||{}).monto||0,paid:val};saveData();reloadTab('pagos',pid)}
 
 function verProy(id){
   const p=S.proyectos.find(x=>x.id===id);if(!p)return;
@@ -4074,16 +4107,12 @@ function verProy(id){
 }
 
 function swTab(tab,id){
-  const p=S.proyectos.find(x=>x.id===id||x.id===String(id)||String(x.id)===String(id));
-  if(!p){console.warn('[swTab] proyecto no encontrado:',id);return;}
-  const panel=document.getElementById('dpPanel');
-  if(!panel){console.warn('[swTab] dpPanel no encontrado');return;}
-  console.log('[swTab] tab=',tab,' proyId=',id);
+  const p=S.proyectos.find(x=>x.id===id);if(!p)return;
+  const panel=document.getElementById('dpPanel');if(!panel)return;
   if(tab==='gen')panel.innerHTML=tplGen(p);
   else if(tab==='plan')panel.innerHTML=tplPlan(p);
   else if(tab==='cron')panel.innerHTML=tplCron(p);
-  else if(tab==='pagosygastos'||tab==='pagos')panel.innerHTML=tplPagosYGastos(p);
-  else console.warn('[swTab] tab desconocido:',tab);
+  else if(tab==='pagosygastos')panel.innerHTML=tplPagosYGastos(p);
 }
 function reloadTab(tab,id){const active=document.querySelector('#dpTabs .tab.active');if(active&&active.dataset.t===tab)swTab(tab,id)}
 
@@ -4100,13 +4129,15 @@ function tplGen(p){return`
 function pctTramo(p,i){var t=(p.pagos&&p.pagos.tramos&&p.pagos.tramos[i])||null;var v=t&&t.pct;return (v!=null)?v:([65,25,10][i]||0);}
 function tramoPaid(p,i){var t=(p.pagos&&p.pagos.tramos&&p.pagos.tramos[i])||null;return (t&&t.paid)||false;}
 function updTramoOC(pid,i,field,val){
+  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   if(!p.pagos.tramos)p.pagos.tramos=[{pct:65,paid:false},{pct:25,paid:false},{pct:10,paid:false}];
   p.pagos.tramos[i][field]=val;
   // Recalcular para mostrar
-  saveData();reloadTab('pagosygastos',pid);
+  saveData();reloadTab('pagos',pid);
 }
 function updTramosPct(pid){
+  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   const t0=parseFloat((document.getElementById('tp0')||{}).value)||0;
   const t1=parseFloat((document.getElementById('tp1')||{}).value)||0;
@@ -4114,7 +4145,7 @@ function updTramosPct(pid){
   const total=t0+t1+t2;
   if(Math.abs(total-100)>0.1){toast('Los porcentajes deben sumar 100% (actual: '+total+'%)',true);return;}
   p.pagos.tramos[0].pct=t0;p.pagos.tramos[1].pct=t1;p.pagos.tramos[2].pct=t2;
-  saveData();reloadTab('pagosygastos',pid);toast('✓ Porcentajes actualizados');
+  saveData();reloadTab('pagos',pid);toast('✓ Porcentajes actualizados');
 }
 
 function tplPagos(p){
@@ -4224,6 +4255,7 @@ function calcAvanceReal(p){
 }
 
 function syncAvance(pid){
+  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   if(p.cronograma.aceptado){
     p.avanceFisico=calcAvanceReal(p);
@@ -4328,25 +4360,25 @@ function tplCron(p){
   <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;overflow-x:auto;margin-bottom:16px;-webkit-overflow-scrolling:touch">
   <table class="cron-table" style="table-layout:fixed;width:100%;min-width:580px">
     <colgroup>
-      <col style="width:${isCerrado?'38':'34'}%">
-      <col style="width:8%">
+      <col style="width:${isCerrado?'24':'22'}%">
+      <col style="width:9%">
+      <col style="width:7%">
+      <col style="width:9%">
+      <col style="width:6%">
       <col style="width:6%">
       <col style="width:9%">
-      <col style="width:5%">
-      <col style="width:5%">
-      <col style="width:9%">
-      <col style="width:${isCerrado?'16':'13'}%">
-      ${!isCerrado?'<col style="width:7%">':''}
+      <col style="width:${isCerrado?'15':'12'}%">
+      ${!isCerrado?'<col style="width:8%">':''}
     </colgroup>
     <thead><tr style="background:var(--surface2)">
-      <th style="word-wrap:break-word;overflow-wrap:break-word">Partida / Subpartida</th>
-      <th style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Unidad</th>
-      <th style="text-align:right;overflow:hidden">Cant.</th>
-      <th style="text-align:right;overflow:hidden">P.Unit.</th>
-      <th style="text-align:center;overflow:hidden">Días</th>
-      <th style="text-align:center;overflow:hidden">✓</th>
-      <th style="text-align:right;overflow:hidden">Total</th>
-      <th style="text-align:center;overflow:hidden;white-space:nowrap">Fecha inicio</th>
+      <th>Partida / Subpartida</th>
+      <th>Unidad</th>
+      <th style="text-align:right">Cant.</th>
+      <th style="text-align:right">P.Unit.</th>
+      <th style="text-align:center">Días</th>
+      <th style="text-align:center">✓</th>
+      <th style="text-align:right">Total</th>
+      <th style="text-align:center">Fecha inicio</th>
       ${!isCerrado?'<th></th>':''}
     </tr></thead>
     <tbody>`;
@@ -4360,10 +4392,10 @@ function tplCron(p){
     const partidaFechaFin=addDias(partidaFechaInicio,dp);
 
     html+=`<tr style="background:var(--surface2)">
-      <td style="word-wrap:break-word;overflow-wrap:break-word;white-space:normal">
+      <td>
         ${(!isCerrado&&!esContratista)
-          ?`<input value="${esc(m.nombre)}" style="font-weight:700;background:transparent;border:none;color:var(--text);width:100%;font-size:13px;word-wrap:break-word;overflow-wrap:break-word;white-space:normal" onchange="updPartida('${p.id}',${mi},'nombre',this.value)">`
-          :`<span style="font-weight:700;font-size:13px;display:block;word-wrap:break-word;overflow-wrap:break-word">${esc(m.nombre)}</span>`}
+          ?`<input value="${esc(m.nombre)}" style="font-weight:700;background:transparent;border:none;color:var(--text);width:100%;font-size:13px" onchange="updPartida('${p.id}',${mi},'nombre',this.value)">`
+          :`<span style="font-weight:700;font-size:13px">${esc(m.nombre)}</span>`}
         <div style="font-size:10px;color:var(--muted);margin-top:2px">${m.sub.length} subpartida(s)</div>
       </td>
       <td></td><td></td><td></td>
@@ -4394,13 +4426,13 @@ function tplCron(p){
 
       const subFechaInicio=sub.fechaInicio||partidaFechaInicio||cr.fechaInicio||'';
       html+=`<tr style="background:${rowBg}">
-        <td style="padding-left:16px;word-wrap:break-word;overflow-wrap:break-word;white-space:normal">
-          <div style="display:flex;align-items:flex-start;gap:6px">
-            <input type="checkbox" ${isDone?'checked':''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--green);flex-shrink:0;margin-top:2px"
+        <td style="padding-left:16px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="checkbox" ${isDone?'checked':''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--green);flex-shrink:0"
               onchange="marcarSubhecha('${p.id}',${mi},${si},this.checked)">
             ${(!isCerrado&&!esContratista)
-              ?`<input value="${esc(sub.desc||'')}" placeholder="Actividad..." style="color:${textColor};font-size:13px;width:100%;min-width:0;word-wrap:break-word;overflow-wrap:break-word;white-space:normal" onchange="updSub('${p.id}',${mi},${si},'desc',this.value)">`
-              :`<span style="color:${textColor};font-size:13px;word-wrap:break-word;overflow-wrap:break-word;display:block;min-width:0;flex:1">${esc(sub.desc||'—')}</span>`}
+              ?`<input value="${esc(sub.desc||'')}" placeholder="Actividad..." style="color:${textColor};font-size:13px" onchange="updSub('${p.id}',${mi},${si},'desc',this.value)">`
+              :`<span style="color:${textColor};font-size:13px">${esc(sub.desc||'—')}</span>`}
             ${isDone?`<span style="color:var(--green);font-size:11px;flex-shrink:0;font-weight:700">✓</span>`:''}
           </div>
         </td>
@@ -4455,6 +4487,7 @@ function tplCron(p){
 }
 
 function cerrarOferta(pid){
+  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   // Calcular total del cronograma
   const totalCron=p.cronograma.partidas.reduce((s,m)=>s+m.sub.reduce((ss,x)=>ss+((parseFloat(x.cantidad)||0)*(parseFloat(x.precio)||0)),0),0);
@@ -4471,6 +4504,7 @@ function cerrarOferta(pid){
 }
 
 function reabrirOferta(pid){
+  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   // Solo Admin puede reabrir
   if((S.currentUser&&S.currentUser.rol)!=='admin'){
@@ -4486,17 +4520,23 @@ function reabrirOferta(pid){
 function marcarSubhecha(pid,mi,si,val){
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   p.cronograma.partidas[mi].sub[si].done=val;
-  // Recalcular avance real
   const total=p.cronograma.partidas.reduce((s,m)=>s+m.sub.length,0);
   const done=p.cronograma.partidas.reduce((s,m)=>s+m.sub.filter(x=>x.done).length,0);
   p.avanceFisico=total>0?Math.round((done/total)*100):0;
-  saveData();reloadTab('cron',pid);
-  // Si el dashboard está visible, refrescarlo
+  var avanceFisico=p.avanceFisico;
+  _saveProyecto(pid,function(proj){
+    if(proj.cronograma&&proj.cronograma.partidas&&proj.cronograma.partidas[mi]&&proj.cronograma.partidas[mi].sub)
+      proj.cronograma.partidas[mi].sub[si].done=val;
+    proj.avanceFisico=avanceFisico;
+    return proj;
+  });
+  reloadTab('cron',pid);
   if(S.activeTab==='dashboard')render();
 }
 
 // Sincronizar fecha de partida con la menor fecha de sus subpartidas
 function syncPartidaFecha(pid,mi){
+  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   const m=p.cronograma.partidas[mi];if(!m)return;
   const fechas=m.sub.map(s=>s.fechaInicio).filter(Boolean).sort();
@@ -4569,22 +4609,42 @@ function inputFecha(value,onchangeCode,disabled=false,extraStyle=''){
     onkeydown="if(event.key==='Enter'){const v=parseFechaInput(this.value);if(v){${onchangeCode}}event.target.blur()}">`;
 }
 
-function updCron(pid,c,v){const p=S.proyectos.find(x=>x.id===pid);if(p){p.cronograma[c]=v;saveData();reloadTab('cron',pid)}}
+function updCron(pid,c,v){
+  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
+  p.cronograma[c]=v;
+  _saveProyecto(pid,function(proj){proj.cronograma[c]=v;return proj;}).then&&reloadTab('cron',pid);}
 
 // Guardar condiciones con debounce para no saturar Firestore al escribir
 let _condTimer=null;
 function updCronCondiciones(pid,val){
+  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   p.cronograma.condiciones=val; // actualizar en memoria inmediatamente
   clearTimeout(_condTimer);
   _condTimer=setTimeout(()=>{ saveData(); },800); // guardar 800ms después de dejar de escribir
 }
-function toggleCronAcept(pid,v){const p=S.proyectos.find(x=>x.id===pid);if(p){p.cronograma.aceptado=v;saveData();reloadTab('cron',pid)}}
-function updPartida(pid,mi,c,v){const p=S.proyectos.find(x=>x.id===pid);if((p&&p.cronograma).partidas[mi]){p.cronograma.partidas[mi][c]=v;saveData()}}
-function updSub(pid,mi,si,c,v){const p=S.proyectos.find(x=>x.id===pid);if(p&&p.cronograma&&p.cronograma.partidas&&p.cronograma.partidas[mi]&&p.cronograma.partidas[mi].sub&&p.cronograma.partidas[mi].sub[si]){p.cronograma.partidas[mi].sub[si][c]=v;saveData();if(c==='dias')reloadTab('cron',pid)}}
-function addPartida(pid){const p=S.proyectos.find(x=>x.id===pid);if(!p)return;p.cronograma.partidas.push({id:genId(),_ca:Date.now(),nombre:'Nueva Partida',sub:[]});saveData();reloadTab('cron',pid)}
-function addSub(pid,mi){const p=S.proyectos.find(x=>x.id===pid);if(!(p&&p.cronograma).partidas[mi])return;p.cronograma.partidas[mi].sub.push({id:genId(),_ca:Date.now(),desc:'',cantidad:0,precio:0,dias:1,done:false});saveData();reloadTab('cron',pid)}
+function toggleCronAcept(pid,v){
+  markDirty('proyectos');const p=S.proyectos.find(x=>x.id===pid);if(p){p.cronograma.aceptado=v;saveData();reloadTab('cron',pid)}}
+function updPartida(pid,mi,c,v){
+  const p=S.proyectos.find(x=>x.id===pid);if(!p||!p.cronograma||!p.cronograma.partidas[mi])return;
+  p.cronograma.partidas[mi][c]=v;
+  _saveProyecto(pid,function(proj){if(proj.cronograma&&proj.cronograma.partidas[mi])proj.cronograma.partidas[mi][c]=v;return proj;});}
+function updSub(pid,mi,si,c,v){
+  const p=S.proyectos.find(x=>x.id===pid);
+  if(!p||!p.cronograma||!p.cronograma.partidas||!p.cronograma.partidas[mi]||!p.cronograma.partidas[mi].sub||!p.cronograma.partidas[mi].sub[si])return;
+  p.cronograma.partidas[mi].sub[si][c]=v;
+  _saveProyecto(pid,function(proj){
+    if(proj.cronograma&&proj.cronograma.partidas&&proj.cronograma.partidas[mi]&&proj.cronograma.partidas[mi].sub&&proj.cronograma.partidas[mi].sub[si])
+      proj.cronograma.partidas[mi].sub[si][c]=v;
+    return proj;
+  });
+  if(c==='dias')reloadTab('cron',pid);}
+function addPartida(pid){
+  markDirty('proyectos');const p=S.proyectos.find(x=>x.id===pid);if(!p)return;p.cronograma.partidas.push({id:genId(),_ca:Date.now(),nombre:'Nueva Partida',sub:[]});saveData();reloadTab('cron',pid)}
+function addSub(pid,mi){
+  markDirty('proyectos');const p=S.proyectos.find(x=>x.id===pid);if(!(p&&p.cronograma).partidas[mi])return;p.cronograma.partidas[mi].sub.push({id:genId(),_ca:Date.now(),desc:'',cantidad:0,precio:0,dias:1,done:false});saveData();reloadTab('cron',pid)}
 function updSubCalc(pid,mi,si,campo,val){
+  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);
   if(!p||!p.cronograma||!p.cronograma.partidas||!p.cronograma.partidas[mi]||!p.cronograma.partidas[mi].sub||!p.cronograma.partidas[mi].sub[si])return;
   p.cronograma.partidas[mi].sub[si][campo]=val;
@@ -4594,6 +4654,7 @@ function updSubCalc(pid,mi,si,campo,val){
 
 // Versión admin: al modificar precio con oferta cerrada, recalcula montoObraCivil
 function updSubCalcAdmin(pid,mi,si,campo,val){
+  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);
   if(!p||!p.cronograma||!p.cronograma.partidas||!p.cronograma.partidas[mi]||!p.cronograma.partidas[mi].sub||!p.cronograma.partidas[mi].sub[si])return;
   p.cronograma.partidas[mi].sub[si][campo]=val;
@@ -4607,8 +4668,10 @@ function updSubCalcAdmin(pid,mi,si,campo,val){
   reloadTab('cron',pid);
 }
 
-function delPartida(pid,mi){const p=S.proyectos.find(x=>x.id===pid);if(!p)return;if(!confirm('¿Eliminar partida?'))return;p.cronograma.partidas.splice(mi,1);saveData();reloadTab('cron',pid)}
-function delSub(pid,mi,si){const p=S.proyectos.find(x=>x.id===pid);if(!p||!p.cronograma||!p.cronograma.partidas||!p.cronograma.partidas[mi])return;p.cronograma.partidas[mi].sub.splice(si,1);saveData();reloadTab('cron',pid)}
+function delPartida(pid,mi){
+  markDirty('proyectos');const p=S.proyectos.find(x=>x.id===pid);if(!p)return;if(!confirm('¿Eliminar partida?'))return;p.cronograma.partidas.splice(mi,1);saveData();reloadTab('cron',pid)}
+function delSub(pid,mi,si){
+  markDirty('proyectos');const p=S.proyectos.find(x=>x.id===pid);if(!p||!p.cronograma||!p.cronograma.partidas||!p.cronograma.partidas[mi])return;p.cronograma.partidas[mi].sub.splice(si,1);saveData();reloadTab('cron',pid)}
 
 // ═══════════════════════════════════════════════════════
 //  MÓDULO GASTOS
@@ -5107,6 +5170,7 @@ function tplPlan(p){
 }
 
 function agregarDrive(pid){
+  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   const nombre=document.getElementById(('gdNombre_'+pid)||{}).value.trim();
   const url=document.getElementById(('gdUrl_'+pid)||{}).value.trim();
@@ -5153,6 +5217,7 @@ function verImagen(data,nombre){
 }
 
 function subirArchPlan(pid,input){
+  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   if(!p.planificacion)p.planificacion={archivos:[]};
   const files=Array.from(input.files);
@@ -5197,6 +5262,7 @@ function renderPlanArchivos(pid){
 }
 
 function delArchPlan(pid,idx){
+  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   if(!confirm('¿Eliminar este archivo?'))return;
   p.planificacion.archivos.splice(idx,1);
@@ -5316,6 +5382,7 @@ function tplPagosYGastos(p){
 }
 
 function confirmarOC(pid){
+  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   const v=parseFloat(document.getElementById(('ocInput_'+pid)||{}).value)||0;
   p.montoObraCivil=v;
@@ -5324,6 +5391,7 @@ function confirmarOC(pid){
 }
 
 function updImpComp(pid,val){
+  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   if(!p.pagos)p.pagos={imp:{monto:0,paid:false},tramos:[]};
   if(!p.pagos.imp)p.pagos.imp={monto:0,paid:false};
@@ -5345,6 +5413,7 @@ async function verComprobanteImp(pid){
 }
 
 function subirComprobanteImp(pid,input){
+  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   const file=input.files[0];if(!file)return;
   leerArchivoBase64(file,(b64)=>{
@@ -5361,6 +5430,7 @@ function subirComprobanteImp(pid,input){
 }
 
 function subirComprobante(pid,tramoIdx,input){
+  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   const file=input.files[0];if(!file)return;
   if(file.size>2*1024*1024){toast('Comprobante supera 2MB',true);return;}
@@ -5646,8 +5716,10 @@ function renderProveedores(){
   </div>
   <div class="tbl-wrap"><table><thead><tr>${thSort('proveedores','nombre','Nombre',{})}${thSort('proveedores','tipo','Tipo',{})}${thSort('proveedores','tel','Teléfono',{})}<th></th></tr></thead><tbody id="tblProveedores">${rows}</tbody></table></div>`;
 }
-function addProv(){const n=document.getElementById('pvN').value.trim();if(!n){toast('Nombre requerido',true);document.getElementById('pvN').focus();return}S.proveedores.push({id:genId(),_ca:Date.now(),nombre:n,tipo:document.getElementById('pvT').value.trim(),tel:document.getElementById('pvTel').value.trim()});saveData();render();toast('✓ Proveedor registrado');setTimeout(()=>_focusFirst('#content .card'),40);}
-function delProv(id){if(!confirm('¿Eliminar proveedor?'))return;var p=S.proveedores.find(x=>x.id===id);S.proveedores=S.proveedores.filter(x=>x.id!==id);if(p)logAction('ELIMINAR','proveedores','Proveedor: '+p.nombre);saveData();render()}
+function addProv(){
+  markDirty('proveedores');const n=document.getElementById('pvN').value.trim();if(!n){toast('Nombre requerido',true);document.getElementById('pvN').focus();return}S.proveedores.push({id:genId(),_ca:Date.now(),nombre:n,tipo:document.getElementById('pvT').value.trim(),tel:document.getElementById('pvTel').value.trim()});saveData();render();toast('✓ Proveedor registrado');setTimeout(()=>_focusFirst('#content .card'),40);}
+function delProv(id){
+  markDirty('proveedores');if(!confirm('¿Eliminar proveedor?'))return;var p=S.proveedores.find(x=>x.id===id);S.proveedores=S.proveedores.filter(x=>x.id!==id);if(p)logAction('ELIMINAR','proveedores','Proveedor: '+p.nombre);saveData();render()}
 
 // ═══════════════════════════════════════════════════════
 //  CENTROS DE COSTO
@@ -5698,8 +5770,10 @@ function renderCentros(){
     +'<div class="tbl-wrap"><table>'+theadHtml+'<tbody id="tblCentros">'+rows+'</tbody></table></div>'
     +'<div id="modalEditCentro" class="modal"><div class="modal-box sm"><div class="modal-hdr"><div class="modal-ttl">✏ Editar Centro</div><button class="btn btn-secondary btn-sm" onclick="closeModal(\"modalEditCentro\")">✕</button></div><div id="modalEditCentroBody"></div></div></div>';
 }
-function addCentro(){var n=document.getElementById('ccN').value.trim();if(!n){toast('Nombre requerido',true);document.getElementById('ccN').focus();return;}S.centros.push({id:genId(),_ca:Date.now(),nombre:n,descripcion:document.getElementById('ccD').value.trim(),proyectoId:document.getElementById('ccP').value||null,auto:false});saveData();render();toast('✓ Centro registrado');setTimeout(function(){_focusFirst('#content .card');},40);}
-function delCentro(id){var c=S.centros.find(function(x){return x.id===id;});if(c&&c.auto){toast('Centro automático — elimina el proyecto para borrarlo',true);return;}if(!confirm('¿Eliminar?'))return;var cn=S.centros.find(function(x){return x.id===id;});S.centros=S.centros.filter(function(x){return x.id!==id;});if(cn)logAction('ELIMINAR','centros','Centro: '+cn.nombre);saveData();render();}
+function addCentro(){
+  markDirty('centros');var n=document.getElementById('ccN').value.trim();if(!n){toast('Nombre requerido',true);document.getElementById('ccN').focus();return;}S.centros.push({id:genId(),_ca:Date.now(),nombre:n,descripcion:document.getElementById('ccD').value.trim(),proyectoId:document.getElementById('ccP').value||null,auto:false});saveData();render();toast('✓ Centro registrado');setTimeout(function(){_focusFirst('#content .card');},40);}
+function delCentro(id){
+  markDirty('centros');var c=S.centros.find(function(x){return x.id===id;});if(c&&c.auto){toast('Centro automático — elimina el proyecto para borrarlo',true);return;}if(!confirm('¿Eliminar?'))return;var cn=S.centros.find(function(x){return x.id===id;});S.centros=S.centros.filter(function(x){return x.id!==id;});if(cn)logAction('ELIMINAR','centros','Centro: '+cn.nombre);saveData();render();}
 function modalEditarCentro(id){
   var c=S.centros.find(function(x){return x.id===id;});
   if(!c)return;
@@ -5721,6 +5795,7 @@ function modalEditarCentro(id){
   openModal('modalEditCentro');
 }
 function guardarEditCentro(id){
+  markDirty('centros');
   var c=S.centros.find(function(x){return x.id===id;});
   if(!c)return;
   var n=document.getElementById('ecN').value.trim();
@@ -6552,6 +6627,7 @@ function ccRptImprimir(histId){
 }
 
 function ccGuardarReintegro(){
+  markDirty('cuentasCorrientes');
   const data=_ccGetFormData();
   if(!data.resp){toast('Ingresa el nombre del responsable antes de guardar',true);return;}
   if(!data.gastoCC.length){toast('Sin gastos de caja chica pendientes en el período',true);return;}
@@ -6587,6 +6663,7 @@ function ccGuardarReintegro(){
 }
 
 function ccEliminarHistorial(id){
+  markDirty('cuentasCorrientes');
   if(!confirm('¿Eliminar este reintegro? Los gastos volverán a estar disponibles para el próximo reintegro.'))return;
   // Desmarcar gastos que pertenecían a este reintegro
   S.gastos.forEach(g=>{if(g.reintegradoEn===id)delete g.reintegradoEn;});
@@ -6597,6 +6674,7 @@ function ccEliminarHistorial(id){
 }
 
 function ccEditarHistorial(id){
+  markDirty('cuentasCorrientes');
   const r=((S.cajachica&&S.cajachica.reintegros)||[]).find(x=>x.id===id);
   if(!r)return;
   // Cargar datos en los campos del formulario
@@ -7125,6 +7203,7 @@ function verTokensFCM(){
 }
 
 function renderConfig(){
+  markDirty('config');
   const cfg=S.config||{};
   const mH=S.marcas.map((m,i)=>`<div style="display:flex;gap:8px;margin-bottom:8px"><input value="${esc(m)}" onchange="S.marcas[${i}]=this.value;saveData();refreshMarcaSel()"><button class="btn btn-danger btn-sm" onclick="S.marcas.splice(${i},1);saveData();render()">✕</button></div>`).join('');
   document.getElementById('content').innerHTML=`
@@ -7400,6 +7479,7 @@ function scrollToCatalog(id){
 }
 
 function cfgCatEditarCampo(key,idx,campo,valor,tipo){
+  markDirty('config');
   if(!S.config[key])S.config[key]=_CFG_DEFAULTS[key]||[];
   if(tipo==='csv'){
     S.config[key][idx][campo]=valor.split(',').map(function(v){return v.trim();}).filter(Boolean);
@@ -7410,6 +7490,7 @@ function cfgCatEditarCampo(key,idx,campo,valor,tipo){
 }
 
 function cfgCatEliminar(key,idx){
+  markDirty('config');
   if(!S.config[key])S.config[key]=(_CFG_DEFAULTS[key]||[]).slice();
   if(S.config[key].length<=1){toast('Debe quedar al menos un elemento',true);return;}
   S.config[key].splice(idx,1);
@@ -7419,6 +7500,7 @@ function cfgCatEliminar(key,idx){
 }
 
 function cfgCatAgregar(key,tipo){
+  markDirty('config');
   if(!S.config[key])S.config[key]=(_CFG_DEFAULTS[key]||[]).slice();
   var newId='item_'+Date.now().toString(36);
   if(tipo==='stringArray'){
@@ -7442,8 +7524,10 @@ function cfgCatAgregar(key,tipo){
 }
 
 
-function handleLogoUpload(input){const file=input.files[0];if(!file)return;if(file.size>500000){toast('Logo muy grande — máx 500KB',true);return}const reader=new FileReader();reader.onload=e=>{S.config.logoUrl=e.target.result;saveData();applyBranding();render();toast('✓ Logo actualizado')};reader.readAsDataURL(file)}
-function addMarca(){const n=(document.getElementById('nmarca')||{}).value.trim();if(!n||S.marcas.includes(n))return;S.marcas.push(n);saveData();render();toast('✓ Marca agregada')}
+function handleLogoUpload(input){
+  markDirty('config');const file=input.files[0];if(!file)return;if(file.size>500000){toast('Logo muy grande — máx 500KB',true);return}const reader=new FileReader();reader.onload=e=>{S.config.logoUrl=e.target.result;saveData();applyBranding();render();toast('✓ Logo actualizado')};reader.readAsDataURL(file)}
+function addMarca(){
+  markDirty('inventario');const n=(document.getElementById('nmarca')||{}).value.trim();if(!n||S.marcas.includes(n))return;S.marcas.push(n);saveData();render();toast('✓ Marca agregada')}
 
 // ── Herramientas de diagnóstico y recuperación ──────────
 async function diagData(){
@@ -7812,6 +7896,7 @@ function onProdCatChange(){
 }
 
 function guardarProducto(btn){
+  markDirty('inventario');
   const nombre=document.getElementById('npNom').value.trim();
   const bodegaId=document.getElementById('npBod').value;
   if(!nombre){toast('Ingresa un nombre',true);document.getElementById('npNom').focus();return;}
@@ -7970,6 +8055,7 @@ function prevFotoMov(input){
 }
 
 function confirmarMov(prodId,tipo,btn){
+  markDirty('inventario');
   const cant=parseFloat(document.getElementById('mvCant').value)||0;
   const bod=document.getElementById('mvBod').value;
   const fecha=document.getElementById('mvFecha').value;
@@ -8008,6 +8094,7 @@ function confirmarMov(prodId,tipo,btn){
 }
 
 function delProducto(prodId){
+  markDirty('inventario');
   if(!confirm('¿Eliminar este producto del inventario?'))return;
   var prodNombre=(S.inventario.productos.find(function(p){return p.id===prodId;})||{}).nombre||'(sin nombre)';
   logAction('ELIMINAR','inventario','Producto: '+prodNombre);
@@ -8072,6 +8159,7 @@ function editarBodega(id){
 }
 
 function guardarEditBodega(id,btn){
+  markDirty('inventario');
   const b=((S.inventario&&S.inventario.bodegas)||[]).find(x=>x.id===id);if(!b)return;
   b.nombre=document.getElementById('ebNombre').value.trim()||b.nombre;
   b.ubicacion=document.getElementById('ebUbic').value.trim();
@@ -8079,6 +8167,7 @@ function guardarEditBodega(id,btn){
 }
 
 function delBodega(id){
+  markDirty('inventario');
   const prods=((S.inventario&&S.inventario.productos)||[]).filter(p=>p.bodegaId===id).length;
   if(prods>0){toast(`No se puede eliminar — tiene ${prods} producto(s) asignados`,true);return;}
   if(!confirm('¿Eliminar esta bodega?'))return;
@@ -8104,6 +8193,7 @@ function modalNuevaBodega(){
 }
 
 function guardarBodega(btn){
+  markDirty('inventario');
   const nombre=document.getElementById('nbNombre').value.trim();
   const ubic=document.getElementById('nbUbic').value.trim();
   if(!nombre){toast('Ingresa un nombre',true);return;}
@@ -9625,6 +9715,7 @@ function ccEliminarItem(idx){
 }
 
 function ccGuardar(){
+  markDirty('cuentasCorrientes');
   const fecha=((document.getElementById('ccFecha')||{}).value||'').trim();
   const resp=((document.getElementById('ccResp')||{}).value||'').trim();
   if(!fecha){toast('Fecha de corte requerida',true);return}
@@ -9654,6 +9745,7 @@ function ccGuardar(){
 }
 
 function ccEliminar(id){
+  markDirty('cuentasCorrientes');
   if(!confirm('¿Eliminar este reintegro?'))return;
   S.cajachica.reintegros=S.cajachica.reintegros.filter(r=>r.id!==id);
   saveData();renderCajaChica();toast('Reintegro eliminado');
@@ -10020,6 +10112,7 @@ function renderMantPanel(){
 }
 
 function eliminarRegistroMant(id){
+  markDirty('equipos');
   if(!confirm('¿Eliminar este registro de mantenimiento?'))return;
   var m=mantData();
   var reg=m.registros.find(function(r){return r.id===id;});
@@ -10031,6 +10124,7 @@ function eliminarRegistroMant(id){
   toast('Registro eliminado');
 }
 function mantGenerarOTs(){
+  markDirty('equipos');
   var m=mantData();
   var hoy=mantHoy();
   var mesActual=hoy.slice(0,7);
@@ -10143,6 +10237,7 @@ function mantGenerarOTs(){
 
 // Generación forzada con auto-asignación
 function mantGenerarOTsForzado(){
+  markDirty('equipos');
   var m=mantData();
   var hoy=mantHoy();
   var mesActual=hoy.slice(0,7);
@@ -10208,6 +10303,7 @@ function mantGenerarOTsForzado(){
 
 // ── Botón "Reasignar todas las OT pendientes" (útil tras cambiar técnicos) ──
 function mantReasignarOTsPendientes(){
+  markDirty('equipos');
   if(!confirm('¿Reasignar todas las OT pendientes según las especialidades actuales de los técnicos?'))return;
   var m=mantData();
   var hoy=mantHoy();
@@ -10302,6 +10398,7 @@ function mantReasignarOTsPendientes(){
 // del Dashboard del Taller que llevan a páginas vacías. NO toca OT, ni reportes,
 // ni combustible, ni equipos, ni ningún otro dato.
 function resetearContadoresAlertas(){
+  markDirty('equipos');
   if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
     toast('Solo administradores',true);return;
   }
@@ -10593,6 +10690,7 @@ function modalEquipo(id){
 }
 
 function guardarEquipo(id){
+  markDirty('equipos');
   var m=mantData();
   var nombre=(document.getElementById('eqNom').value||'').trim();
   var ubTipo=document.getElementById('eqUbTipo').value;
@@ -10740,6 +10838,7 @@ function _actualizarMover(){
 }
 
 function ejecutarMoverEquipo(id){
+  markDirty('equipos');
   var m=mantData();
   var eq=m.equipos.find(function(e){return e.id===id;});
   if(!eq){toast('Equipo no encontrado',true);return;}
@@ -10777,6 +10876,7 @@ function ejecutarMoverEquipo(id){
 }
 
 function delEquipo(id){
+  markDirty('equipos');
   if(!confirm('¿Eliminar equipo?'))return;
   var m=mantData();
   var eq=(m.equipos||[]).find(function(e){return e.id===id;});
@@ -10835,6 +10935,7 @@ function registrarMantModal(eqId){
 }
 
 function guardarRegistroMant(eqId){
+  markDirty('equipos');
   var m=mantData();
   var eq=m.equipos.find(function(e){return e.id===eqId;});
   if(!eq){toast('Equipo no encontrado',true);return;}
@@ -11388,7 +11489,7 @@ function solMantConfirmarOT(solId) {
   var prioridad=(document.getElementById('smPrioridad')||{}).value||'normal';
   var fecha=(document.getElementById('smFecha')||{}).value||localDate(new Date());
   var tecId=(document.getElementById('smTecnico')||{}).value||'';
-  var db=firebase.firestore();
+  var db=firebase.firestore();window._db=db;
   db.collection('solicitudesMant').doc(solId).get().then(function(doc){
     if(!doc.exists){toast('Solicitud no encontrada',true);return;}
     var sol=doc.data(); var m=mantData();
@@ -11474,7 +11575,7 @@ function aplicarActualizacionesTec() {
 
 function adminAprobarCierreOT(docId, otId, origenSolicitud) {
   if(!confirm('¿Aprobar el cierre de esta OT?'))return;
-  var db=firebase.firestore();
+  var db=firebase.firestore();window._db=db;
   var m=mantData();
   var ot=(m.ots||[]).find(function(o){return o.id===otId;});
   if(ot){
@@ -11538,6 +11639,7 @@ if(_portalModeActive){
 
 // ── mant_checklists ──────────────────────────────────────
 function renderMantChecklists(){
+  markDirty('equipos');
   var m=mantData();
   var html='<div style="display:flex;justify-content:flex-end;margin-bottom:14px">'
     +'<button class="btn btn-primary" onclick="mantNuevoChecklist()">+ Nuevo checklist</button></div>';
@@ -11575,6 +11677,7 @@ function mantNuevoChecklist(){
   renderMantChecklists();
 }
 function mantEliminarCL(ci){
+  markDirty('equipos');
   if(!confirm('¿Eliminar checklist?'))return;
   mantData().checklists.splice(ci,1);
   saveData();renderMantChecklists();
@@ -11827,7 +11930,7 @@ function portalTecEnviarSolicitudCierre(otId) {
       canvas.getContext('2d').drawImage(img,0,0,w,h);
       var b64=canvas.toDataURL('image/jpeg',0.7);
 
-      var db=firebase.firestore();
+      var db=firebase.firestore();window._db=db;
       var docData={
         otId:       otId,
         tecnicoId:  _tecSelId||'',
@@ -12150,11 +12253,11 @@ function renderMantTecnicos(){
   var cats=getCfgCategoriasArea();
 
   var CARGO_LABELS={
-    gerente:'🏪 Gerente', subgerente:'👔 Subgerente', 'gerente de zona':'📋 Gerente de Zona',
+    gerente:'🏪 Gerente', subgerente:'👔 Subgerente',
     tecnico:'🔧 Técnico', mecanico:'⚙️ Mecánico',
     motorista:'🚛 Motorista', otro:'👤 Otro'
   };
-  var CARGO_ORDER=['gerente','subgerente','gerente de zona','tecnico','mecanico','motorista','otro'];
+  var CARGO_ORDER=['gerente','subgerente','tecnico','mecanico','motorista','otro'];
 
   // Agrupar por cargo
   var grupos={};
@@ -12254,7 +12357,6 @@ function modalTecnico(id){
     +'<option value="mecanico"'+(t&&t.cargo==='mecanico'?' selected':'')+'>⚙️ Mecánico</option>'
     +'<option value="gerente"'+(t&&t.cargo==='gerente'?' selected':'')+'>🏪 Gerente</option>'
     +'<option value="subgerente"'+(t&&t.cargo==='subgerente'?' selected':'')+'>👔 Subgerente</option>'
-    +'<option value="gerente de zona"'+(t&&t.cargo==='gerente de zona'?' selected':'')+'>📋 Gerente de Zona</option>'
     +'<option value="otro"'+(t&&t.cargo==='otro'?' selected':'')+'>👤 Otro</option>'
     +'</select></div>'
     +'<div class="row2">'
@@ -12283,6 +12385,7 @@ function modalTecnico(id){
 }
 
 function guardarTecnico(id){
+  markDirty('taller');
   var nombre=((document.getElementById('tecNom')||{}).value||'').trim();
   if(!nombre){toast('Nombre requerido',true);return;}
   var roles=[];
@@ -12322,6 +12425,7 @@ function guardarTecnico(id){
 
 
 function agregarEspecialidadRapida(){
+  markDirty('taller');
   var nombre=prompt('Nombre de la nueva especialidad:\n(Ej: Pintura, Carpintería, Soldadura...)','');
   if(!nombre||!nombre.trim())return;
   nombre=nombre.trim();
@@ -12435,6 +12539,7 @@ function verOTsTecnico(tecId){
 }
 
 function delTecnico(id){
+  markDirty('taller');
   if(!confirm('¿Eliminar este registro de personal?'))return;
   var m=mantData();
   m.tecnicos=m.tecnicos.filter(function(t){return t.id!==id;});
@@ -12446,6 +12551,7 @@ function delTecnico(id){
 
 // ── modalVerOT ───────────────────────────────────────────
 function modalVerOT(otId){
+  markDirty('taller');
   var m=mantData();
   var ot=m.ots.find(function(o){return o.id===otId;});
   if(!ot){toast('OT no encontrada',true);return;}
@@ -12570,6 +12676,7 @@ function mantVincularGasto(otId,gastoId){
 }
 
 function mantCerrarOT(otId){
+  markDirty('taller');
   var m=mantData();
   var ot=m.ots.find(function(o){return o.id===otId;});
   if(!ot)return;
@@ -12597,6 +12704,7 @@ function mantCerrarOT(otId){
 }
 
 function mantEliminarOT(otId){
+  markDirty('taller');
   if(!confirm('¿Eliminar esta OT?'))return;
   var m=mantData();
   m.ots=m.ots.filter(function(o){return o.id!==otId;});
@@ -12766,6 +12874,7 @@ function eiGenerarAlertas(log) {
 
 // ── 1. DASHBOARD PRINCIPAL ───────────────────────────────
 function renderEIDashboard() {
+  markDirty('equipoInterno');
   var ei = eiData();
   var mes = S._eiMes || eiMesActual();
   var logsDelMes = ei.logs.filter(function(l) { return l.mes === mes; });
@@ -12886,6 +12995,7 @@ function eiModalLog(centroId, mes) {
 }
 
 function eiGuardarLog(editCentroId) {
+  markDirty('equipoInterno');
   var ei = eiData();
   var centroId = document.getElementById('eilCentro').value;
   var mes = (document.getElementById('eilMes').value || '').trim();
@@ -12925,6 +13035,7 @@ function eiGuardarLog(editCentroId) {
 }
 
 function eiEliminarLog(centroId, mes) {
+  markDirty('equipoInterno');
   if (!confirm('¿Eliminar este registro?')) return;
   var ei = eiData();
   ei.logs = ei.logs.filter(function(l) { return !(l.centroId===centroId && l.mes===mes); });
@@ -13033,17 +13144,20 @@ function renderEIAlertas() {
 }
 
 function eiMarcarVisto(id) {
+  markDirty('equipoInterno');
   var a = eiData().alertas.find(function(x) { return x.id===id; });
   if (a) { a.estado='visto'; saveData(); renderEIAlertas(); }
 }
 
 function eiEliminarAlerta(id) {
+  markDirty('equipoInterno');
   var ei = eiData();
   ei.alertas = ei.alertas.filter(function(a) { return a.id!==id; });
   saveData(); renderEIAlertas();
 }
 
 function eiMarcarTodasVistas() {
+  markDirty('equipoInterno');
   eiData().alertas.forEach(function(a) { a.estado='visto'; });
   saveData(); renderEIAlertas(); toast('✓ Todas marcadas como vistas');
 }
@@ -13308,6 +13422,7 @@ function eiToggleChkItem(centroId, fecha, idx, val) {
 }
 
 function eiGuardarChecklist(centroId, fecha) {
+  markDirty('equipoInterno');
   var ei = eiData();
   var chk = ei.checklists.find(function(c) { return c.centroId===centroId && c.fecha===fecha; });
   if (!chk) {
@@ -13321,6 +13436,7 @@ function eiGuardarChecklist(centroId, fecha) {
 }
 
 function eiSubirEvidencia(input, tipo) {
+  markDirty('equipoInterno');
   var file = input.files[0];
   if (!file) return;
   var centroId = S._eiChkCentro;
@@ -13442,6 +13558,7 @@ function gzModalGerente(id){
 }
 
 function gzGuardarGerente(id){
+  markDirty('gerentes');
   var nombre = (document.getElementById('gzNom').value||'').trim();
   if(!nombre){ toast('Nombre requerido', true); return; }
   var datos = {
@@ -13467,6 +13584,7 @@ function gzGuardarGerente(id){
 }
 
 function gzEliminarGerente(id){
+  markDirty('gerentes');
   if(!confirm('¿Eliminar este gerente? Los centros de costo que tenía asignados quedarán sin gerente.')) return;
   S.gerentesZona = (S.gerentesZona||[]).filter(function(g){return g.id!==id;});
   // Desasociar centros (dejar campo limpio — no borra datos de gasto)
@@ -14148,6 +14266,7 @@ var IMP_MODULES = [
 
 // ── Apply imported data ───────────────────────────────────
 function impApply(result) {
+  markDirty('config');
   var target = result.target;
   var items = result.items;
   if (!items.length) return;
@@ -14846,6 +14965,7 @@ function audVerFoto(hid){
 }
 
 function audGuardar(){
+  markDirty('auditoria');
   // Capturar obsGen del textarea actual antes de guardar
   var obsEl=document.getElementById('audObsGen');
   if(obsEl)S._audObsGen=obsEl.value;
@@ -14973,6 +15093,7 @@ function audVerDetalle(id){
 }
 
 function audEliminar(id){
+  markDirty('auditoria');
   if(!confirm('¿Eliminar esta auditoría? No se puede deshacer.'))return;
   audData().registros=audData().registros.filter(function(r){return r.id!==id;});
   saveData();
@@ -15830,6 +15951,7 @@ function modalFalla(vehId,fallaId){
   document.body.insertAdjacentHTML('beforeend',html);
 }
 function guardarFalla(vehId,fallaId){
+  markDirty('fallas');
   var t=tallerData();
   var v=t.vehiculos.find(function(x){return x.id===vehId;});
   if(!v)return;
@@ -15857,6 +15979,7 @@ function guardarFalla(vehId,fallaId){
   verFichaVehiculo(vehId);
 }
 function delFalla(vehId,fallaId){
+  markDirty('fallas');
   var t=tallerData();
   var v=t.vehiculos.find(function(x){return x.id===vehId;});
   if(!v)return;
@@ -16352,6 +16475,7 @@ function modalCorregirKmVehiculo(){
 
 // Cuando cambia el vehículo seleccionado, mostrar info actual
 function ckVehiculoChange(){
+  markDirty('taller');
   var sel=document.getElementById('ckVehiculo');
   var info=document.getElementById('ckInfo');
   var kmActualInput=document.getElementById('ckKmActual');
@@ -16463,6 +16587,7 @@ async function aplicarCorreccionKm(){
 }
 
 function guardarVehiculo(id){
+  markDirty('taller');
   var placa=((document.getElementById('vhPlaca')||{}).value||'').trim().toUpperCase();
   if(!placa){toast('La placa es requerida',true);return;}
   var t=tallerData();
@@ -16531,6 +16656,7 @@ function guardarVehiculo(id){
 }
 
 function delVehiculo(id){
+  markDirty('taller');
   var t=tallerData();
   var v=t.vehiculos.find(function(x){return x.id===id;});
   if(!v)return;
@@ -16643,6 +16769,7 @@ function renderTallerOTs(){
 
 // ── Cambio rápido de estado de OT (con permisos diferenciados) ──
 function cambiarEstadoOT(otId,nuevoEstado){
+  markDirty('taller');
   var t=tallerData();
   var o=t.ots.find(function(x){return x.id===otId;});
   if(!o){toast('OT no encontrada',true);return;}
@@ -16969,6 +17096,7 @@ var SRV_CATEGORIAS=[
 function srvCatLabel(id){var c=SRV_CATEGORIAS.find(function(x){return x.id===id;});return c?(c.ic+' '+c.label):id;}
 
 function srvSeedCatalogo(){
+  markDirty('taller');
   var t=tallerData();
   var basicos=[
     // Motor (7)
@@ -17160,6 +17288,7 @@ function modalServicio(id){
 }
 
 function guardarServicio(id){
+  markDirty('taller');
   var nombre=document.getElementById('srvNom').value.trim();
   if(!nombre){toast('Nombre requerido',true);return;}
   var t=tallerData();
@@ -17189,6 +17318,7 @@ function guardarServicio(id){
 }
 
 function delServicio(id){
+  markDirty('taller');
   if(!confirm('¿Eliminar este servicio? Los Mantenimientos Programados y OT que lo usen mantendrán su nombre pero perderán el vínculo.'))return;
   var t=tallerData();
   var sv=(t.servicios||[]).find(function(x){return x.id===id;});
@@ -17259,6 +17389,7 @@ function modalRepuesto(id){
 }
 
 function guardarRepuesto(id){
+  markDirty('taller');
   var nombre=document.getElementById('repNom').value.trim();
   if(!nombre){toast('Nombre requerido',true);return;}
   var t=tallerData();
@@ -17284,6 +17415,7 @@ function guardarRepuesto(id){
 }
 
 function delRepuesto(id){
+  markDirty('taller');
   if(!confirm('¿Eliminar este repuesto?'))return;
   var t=tallerData();
   var rp=(t.repuestos||[]).find(function(x){return x.id===id;});
@@ -17453,6 +17585,7 @@ function prgRenderServicios(){
 }
 
 function guardarProgramado(id){
+  markDirty('taller');
   var vehId=document.getElementById('prgVeh').value;
   if(!vehId){toast('Selecciona un vehículo',true);return;}
   var servicios=(S._prgServiciosBuffer||[]).slice();
@@ -17485,6 +17618,7 @@ function guardarProgramado(id){
 }
 
 function delProgramado(id){
+  markDirty('taller');
   if(!confirm('¿Eliminar este programa de mantenimiento?'))return;
   var t=tallerData();
   var pg=(t.programado||[]).find(function(x){return x.id===id;});
@@ -18419,6 +18553,7 @@ function solDetalle(solId){
 }
 
 function solGuardarRespuesta(solId){
+  markDirty('taller');
   var t=tallerData();
   var s=(t.solicitudes||[]).find(function(x){return x.id===solId;});
   if(!s)return;
@@ -18428,6 +18563,7 @@ function solGuardarRespuesta(solId){
 }
 
 function solRechazar(solId){
+  markDirty('taller');
   if(!confirm('¿Rechazar esta solicitud?'))return;
   var t=tallerData();
   var s=(t.solicitudes||[]).find(function(x){return x.id===solId;});
@@ -18443,6 +18579,7 @@ function solRechazar(solId){
 }
 
 function solAprobarYCrearOT(solId){
+  markDirty('taller');
   var t=tallerData();
   var s=(t.solicitudes||[]).find(function(x){return x.id===solId;});
   if(!s)return;
@@ -18506,6 +18643,7 @@ function solAprobarYCrearOT(solId){
 }
 
 function solMarcarResuelta(solId){
+  markDirty('taller');
   if(!confirm('¿Marcar esta solicitud como resuelta?'))return;
   var t=tallerData();
   var s=(t.solicitudes||[]).find(function(x){return x.id===solId;});
@@ -18522,6 +18660,7 @@ function solMarcarResuelta(solId){
 
 // ── Eliminar solicitud individual (admin) ──
 function solEliminar(solId){
+  markDirty('taller');
   if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
     toast('Solo administradores',true);return;
   }
@@ -18536,6 +18675,7 @@ function solEliminar(solId){
 
 // ── Borrar TODAS las solicitudes (admin) — para limpiar duplicadas ──
 function solBorrarTodas(){
+  markDirty('taller');
   if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
     toast('Solo administradores',true);return;
   }
@@ -19117,6 +19257,7 @@ function revQuitarFoto(idx,btn){
 }
 
 function guardarRevision(vehId){
+  markDirty('taller');
   // Anti-doble-click
   if(S._revGuardando){return;}
   S._revGuardando=true;
@@ -19822,6 +19963,7 @@ function editarReporteChofer(repId){
 }
 
 function guardarCorreccionReporte(repId){
+  markDirty('taller');
   var t=tallerData();
   var rep=(t.reportesDiarios||[]).find(function(r){return r.id===repId;});
   if(!rep)return;
@@ -19883,6 +20025,7 @@ function guardarCorreccionReporte(repId){
 }
 
 function eliminarReporteChofer(repId){
+  markDirty('taller');
   if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
     toast('Solo administradores pueden eliminar reportes',true);return;
   }
@@ -19941,6 +20084,7 @@ function modalResetearKmVehiculo(vehId){
 }
 
 function guardarResetKm(vehId){
+  markDirty('taller');
   var t=tallerData();
   var veh=t.vehiculos.find(function(v){return v.id===vehId;});
   if(!veh)return;
@@ -20138,6 +20282,7 @@ function modalLimpiezaEquipos(){
 }
 
 function aplicarLimpiezaEquipos(){
+  markDirty('taller');
   var props=S._cleanPropuestas||[];
   var aplicados=0;
   var m=mantData();
@@ -20589,6 +20734,7 @@ function previsualizarImportFlota(input){
   }
 }
 function confirmarImportFlota(){
+  markDirty('taller');
   if(!_importFlotaParsed||_importFlotaParsed.length===0){toast('Nada que importar',true);return;}
   var t=tallerData();
   var creados=0,actualizados=0;
@@ -20684,6 +20830,7 @@ function modalPrecioGasolina(){
 }
 
 function guardarPrecioGasolina(){
+  markDirty('taller');
   var v=parseFloat((document.getElementById('cfgPrecioGas')||{}).value)||0;
   if(v<=0){toast('Ingresa un precio válido',true);return;}
   if(!S.config)S.config={};
@@ -20735,6 +20882,7 @@ function abrirModalRuta(){
 }
 function cerrarModalRuta(){(function(_e){if(_e)_e.remove();})(document.getElementById('modalRutaTaller'));S._rutaEdit=null;}
 function guardarRutaTaller(){
+  markDirty('taller');
   var nombre=((document.getElementById('rtNombre')||{}).value||'').trim();
   var descripcion=((document.getElementById('rtDescripcion')||{}).value||'').trim();
   var km=parseFloat(((document.getElementById('rtKm')||{}).value||''))||0;
@@ -20761,6 +20909,7 @@ function guardarRutaTaller(){
   saveData();cerrarModalRuta();renderTallerRutas();
 }
 function delRutaTaller(id){
+  markDirty('taller');
   var r=(S.taller.rutas||[]).find(function(x){return x.id===id;});
   if(!r)return;
   var uso=(S.taller.combustible||[]).filter(function(c){return c.rutaId===id;}).length;
@@ -20908,6 +21057,7 @@ function _calcKmRec(){
 }
 function cerrarModalCombustible(){(function(_e){if(_e)_e.remove();})(document.getElementById('modalCombustible'));S._combEdit=null;}
 function guardarCombustible(){
+  markDirty('taller');
   var fecha=((document.getElementById('cbFecha')||{}).value||'').trim();
   var conductor=((document.getElementById('cbConductor')||{}).value||'').trim();
   var vehiculoId=((document.getElementById('cbVehiculo')||{}).value||'').trim();
@@ -20939,6 +21089,7 @@ function guardarCombustible(){
   saveData();cerrarModalCombustible();renderTallerCombustible();
 }
 function delCombustible(id){
+  markDirty('taller');
   var r=(S.taller.combustible||[]).find(function(x){return x.id===id;});
   if(!r)return;
   if(!confirm('¿Eliminar registro del '+r.fecha+'?'))return;
