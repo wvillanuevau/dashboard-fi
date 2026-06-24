@@ -6021,7 +6021,6 @@ function paAdminReporte(content) {
   var dia  = new Date().getDate();
   var defDesde, defHast
   html += '</div>';
-a;
   if (dia <= 15) {
     defDesde = hoy.slice(0,8) + '01';
     defHasta = hoy.slice(0,8) + '15';
@@ -7008,7 +7007,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-24-C';
+var PA_VERSION = 'v2026-06-24-D';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
