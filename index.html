@@ -1363,11 +1363,10 @@ input[type=date]{color-scheme:dark}
 
 <script>
 'use strict';
+var APP_VERSION = 'v2026-06-24-B'; // Actualizar en cada deploy
 // ═══════════════════════════════════════════════════════
 //  DETECCIÓN TEMPRANA DE MODO PORTAL (antes de cualquier init)
 // ═══════════════════════════════════════════════════════
-var APP_VERSION = 'v2026-06-24-A'; // Actualizar en cada deploy
-
 var _portalModeActive = (function(){
   var params = new URLSearchParams(window.location.search);
   var empresa = params.get('portal');
@@ -2438,9 +2437,14 @@ document.addEventListener('visibilitychange', function(){
   }
 });
 
-async 
-// ── Actualización atómica por proyecto (evita conflictos concurrentes) ──────
-// updaterFn recibe el proyecto actual y debe retornar el proyecto modificado
+
+function localDate(d){
+  if(!d)d=new Date();else if(!(d instanceof Date))d=new Date(d);
+  if(isNaN(d.getTime()))return '';
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+// ── Actualización atómica por proyecto ────────────────────────
 function _saveProyecto(proyId, updaterFn) {
   if (!window._db) { saveData('proyectos'); return; }
   var ref = window._db.collection('empresas').doc(S.empresa);
@@ -2456,28 +2460,14 @@ function _saveProyecto(proyId, updaterFn) {
       tx.update(ref, { proyectos: proyectos, _ts: Date.now() });
     });
   }).then(function() {
-    // Sincronizar S local con el cambio
     var localIdx = S.proyectos.findIndex(function(p){ return p.id === proyId; });
-    if (localIdx >= 0) {
-      var fresh = updaterFn(S.proyectos[localIdx]);
-      if (fresh) S.proyectos[localIdx] = fresh;
-    }
-    console.log('[_saveProyecto] OK:', proyId);
+    if (localIdx >= 0) { var fresh = updaterFn(S.proyectos[localIdx]); if (fresh) S.proyectos[localIdx] = fresh; }
   }).catch(function(e) {
     console.warn('[_saveProyecto] error, fallback saveData:', e.message);
-    markDirty('proyectos');
-    saveData();
+    markDirty('proyectos'); saveData();
   });
 }
-
-
-function localDate(d){
-  if(!d) d=new Date();
-  else if(!(d instanceof Date)) d=new Date(d);
-  if(isNaN(d.getTime())) return '';
-  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-}
-function saveData(seccion){
+async function saveData(seccion){
   // Si se pasa sección, marcarla dirty automáticamente
   if(seccion){markDirty(seccion);}
   // Si no se pasa sección pero hay un módulo activo, inferirlo
@@ -2908,7 +2898,7 @@ function recuperarDesdeLocalStorage(){
 
 function _syncPortalPublico(){
   if(!S.empresa||!window.FB||!window.FB.currentUser())return;
-  var db=firebase.firestore();window._db=db;
+  var db=firebase.firestore();
   var equiposPublicos=((S.mantenimiento&&S.mantenimiento.equipos)||[])
     .filter(function(e){return !e.estado||e.estado==='activo';})
     .map(function(e){return{id:e.id,nombre:e.nombre,ubicacionId:e.ubicacionId||e.centroId||'',ubicacionTipo:e.ubicacionTipo||'centro',categoria:e.categoria||''};});
@@ -4044,7 +4034,6 @@ function crearProyecto(){
   render();toast('✓ Proyecto creado');
 }
 function elimProyecto(id){
-  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===id);if(!p)return;
   if(!confirm(`¿Eliminar "${p.nombre}"?`))return;
   S.proyectos=S.proyectos.filter(x=>x.id!==id);
@@ -4053,9 +4042,7 @@ function elimProyecto(id){
   saveData();closeModal('modalDP');render();toast('✓ Eliminado');
 }
 function updP(id,campo,val){
-  const p=S.proyectos.find(x=>x.id===id);if(!p)return;
-  p[campo]=val;
-  _saveProyecto(id,function(proj){proj[campo]=val;return proj;});}
+  markDirty('proyectos');const p=S.proyectos.find(x=>x.id===id);if(p){p[campo]=val;saveData()}}
 function updOC(pid,val){updP(pid,'montoObraCivil',Math.max(0,parseFloat(val)||0));reloadTab('pagos',pid)}
 function updImpMonto(pid,val){
   markDirty('proyectos');const p=S.proyectos.find(x=>x.id===pid);if(!p)return;p.pagos.imp={monto:Math.max(0,parseFloat(val)||0),paid:((p.pagos&&p.pagos.imp)||{}).paid||false};saveData();reloadTab('pagos',pid)}
@@ -4520,25 +4507,20 @@ function reabrirOferta(pid){
 }
 
 function marcarSubhecha(pid,mi,si,val){
+  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   p.cronograma.partidas[mi].sub[si].done=val;
+  // Recalcular avance real
   const total=p.cronograma.partidas.reduce((s,m)=>s+m.sub.length,0);
   const done=p.cronograma.partidas.reduce((s,m)=>s+m.sub.filter(x=>x.done).length,0);
   p.avanceFisico=total>0?Math.round((done/total)*100):0;
-  var avanceFisico=p.avanceFisico;
-  _saveProyecto(pid,function(proj){
-    if(proj.cronograma&&proj.cronograma.partidas&&proj.cronograma.partidas[mi]&&proj.cronograma.partidas[mi].sub)
-      proj.cronograma.partidas[mi].sub[si].done=val;
-    proj.avanceFisico=avanceFisico;
-    return proj;
-  });
-  reloadTab('cron',pid);
+  saveData();reloadTab('cron',pid);
+  // Si el dashboard está visible, refrescarlo
   if(S.activeTab==='dashboard')render();
 }
 
 // Sincronizar fecha de partida con la menor fecha de sus subpartidas
 function syncPartidaFecha(pid,mi){
-  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   const m=p.cronograma.partidas[mi];if(!m)return;
   const fechas=m.sub.map(s=>s.fechaInicio).filter(Boolean).sort();
@@ -4612,14 +4594,11 @@ function inputFecha(value,onchangeCode,disabled=false,extraStyle=''){
 }
 
 function updCron(pid,c,v){
-  const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
-  p.cronograma[c]=v;
-  _saveProyecto(pid,function(proj){proj.cronograma[c]=v;return proj;}).then&&reloadTab('cron',pid);}
+  markDirty('proyectos');const p=S.proyectos.find(x=>x.id===pid);if(p){p.cronograma[c]=v;saveData();reloadTab('cron',pid)}}
 
 // Guardar condiciones con debounce para no saturar Firestore al escribir
 let _condTimer=null;
 function updCronCondiciones(pid,val){
-  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);if(!p)return;
   p.cronograma.condiciones=val; // actualizar en memoria inmediatamente
   clearTimeout(_condTimer);
@@ -4628,25 +4607,14 @@ function updCronCondiciones(pid,val){
 function toggleCronAcept(pid,v){
   markDirty('proyectos');const p=S.proyectos.find(x=>x.id===pid);if(p){p.cronograma.aceptado=v;saveData();reloadTab('cron',pid)}}
 function updPartida(pid,mi,c,v){
-  const p=S.proyectos.find(x=>x.id===pid);if(!p||!p.cronograma||!p.cronograma.partidas[mi])return;
-  p.cronograma.partidas[mi][c]=v;
-  _saveProyecto(pid,function(proj){if(proj.cronograma&&proj.cronograma.partidas[mi])proj.cronograma.partidas[mi][c]=v;return proj;});}
+  markDirty('proyectos');const p=S.proyectos.find(x=>x.id===pid);if((p&&p.cronograma).partidas[mi]){p.cronograma.partidas[mi][c]=v;saveData()}}
 function updSub(pid,mi,si,c,v){
-  const p=S.proyectos.find(x=>x.id===pid);
-  if(!p||!p.cronograma||!p.cronograma.partidas||!p.cronograma.partidas[mi]||!p.cronograma.partidas[mi].sub||!p.cronograma.partidas[mi].sub[si])return;
-  p.cronograma.partidas[mi].sub[si][c]=v;
-  _saveProyecto(pid,function(proj){
-    if(proj.cronograma&&proj.cronograma.partidas&&proj.cronograma.partidas[mi]&&proj.cronograma.partidas[mi].sub&&proj.cronograma.partidas[mi].sub[si])
-      proj.cronograma.partidas[mi].sub[si][c]=v;
-    return proj;
-  });
-  if(c==='dias')reloadTab('cron',pid);}
+  markDirty('proyectos');const p=S.proyectos.find(x=>x.id===pid);if(p&&p.cronograma&&p.cronograma.partidas&&p.cronograma.partidas[mi]&&p.cronograma.partidas[mi].sub&&p.cronograma.partidas[mi].sub[si]){p.cronograma.partidas[mi].sub[si][c]=v;saveData();if(c==='dias')reloadTab('cron',pid)}}
 function addPartida(pid){
   markDirty('proyectos');const p=S.proyectos.find(x=>x.id===pid);if(!p)return;p.cronograma.partidas.push({id:genId(),_ca:Date.now(),nombre:'Nueva Partida',sub:[]});saveData();reloadTab('cron',pid)}
 function addSub(pid,mi){
   markDirty('proyectos');const p=S.proyectos.find(x=>x.id===pid);if(!(p&&p.cronograma).partidas[mi])return;p.cronograma.partidas[mi].sub.push({id:genId(),_ca:Date.now(),desc:'',cantidad:0,precio:0,dias:1,done:false});saveData();reloadTab('cron',pid)}
 function updSubCalc(pid,mi,si,campo,val){
-  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);
   if(!p||!p.cronograma||!p.cronograma.partidas||!p.cronograma.partidas[mi]||!p.cronograma.partidas[mi].sub||!p.cronograma.partidas[mi].sub[si])return;
   p.cronograma.partidas[mi].sub[si][campo]=val;
@@ -4656,7 +4624,6 @@ function updSubCalc(pid,mi,si,campo,val){
 
 // Versión admin: al modificar precio con oferta cerrada, recalcula montoObraCivil
 function updSubCalcAdmin(pid,mi,si,campo,val){
-  markDirty('proyectos');
   const p=S.proyectos.find(x=>x.id===pid);
   if(!p||!p.cronograma||!p.cronograma.partidas||!p.cronograma.partidas[mi]||!p.cronograma.partidas[mi].sub||!p.cronograma.partidas[mi].sub[si])return;
   p.cronograma.partidas[mi].sub[si][campo]=val;
@@ -7481,7 +7448,6 @@ function scrollToCatalog(id){
 }
 
 function cfgCatEditarCampo(key,idx,campo,valor,tipo){
-  markDirty('config');
   if(!S.config[key])S.config[key]=_CFG_DEFAULTS[key]||[];
   if(tipo==='csv'){
     S.config[key][idx][campo]=valor.split(',').map(function(v){return v.trim();}).filter(Boolean);
@@ -7526,8 +7492,7 @@ function cfgCatAgregar(key,tipo){
 }
 
 
-function handleLogoUpload(input){
-  markDirty('config');const file=input.files[0];if(!file)return;if(file.size>500000){toast('Logo muy grande — máx 500KB',true);return}const reader=new FileReader();reader.onload=e=>{S.config.logoUrl=e.target.result;saveData();applyBranding();render();toast('✓ Logo actualizado')};reader.readAsDataURL(file)}
+function handleLogoUpload(input){const file=input.files[0];if(!file)return;if(file.size>500000){toast('Logo muy grande — máx 500KB',true);return}const reader=new FileReader();reader.onload=e=>{S.config.logoUrl=e.target.result;saveData();applyBranding();render();toast('✓ Logo actualizado')};reader.readAsDataURL(file)}
 function addMarca(){
   markDirty('inventario');const n=(document.getElementById('nmarca')||{}).value.trim();if(!n||S.marcas.includes(n))return;S.marcas.push(n);saveData();render();toast('✓ Marca agregada')}
 
@@ -10126,7 +10091,6 @@ function eliminarRegistroMant(id){
   toast('Registro eliminado');
 }
 function mantGenerarOTs(){
-  markDirty('equipos');
   var m=mantData();
   var hoy=mantHoy();
   var mesActual=hoy.slice(0,7);
@@ -10239,7 +10203,6 @@ function mantGenerarOTs(){
 
 // Generación forzada con auto-asignación
 function mantGenerarOTsForzado(){
-  markDirty('equipos');
   var m=mantData();
   var hoy=mantHoy();
   var mesActual=hoy.slice(0,7);
@@ -10305,7 +10268,6 @@ function mantGenerarOTsForzado(){
 
 // ── Botón "Reasignar todas las OT pendientes" (útil tras cambiar técnicos) ──
 function mantReasignarOTsPendientes(){
-  markDirty('equipos');
   if(!confirm('¿Reasignar todas las OT pendientes según las especialidades actuales de los técnicos?'))return;
   var m=mantData();
   var hoy=mantHoy();
@@ -10400,7 +10362,6 @@ function mantReasignarOTsPendientes(){
 // del Dashboard del Taller que llevan a páginas vacías. NO toca OT, ni reportes,
 // ni combustible, ni equipos, ni ningún otro dato.
 function resetearContadoresAlertas(){
-  markDirty('equipos');
   if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
     toast('Solo administradores',true);return;
   }
@@ -10840,7 +10801,6 @@ function _actualizarMover(){
 }
 
 function ejecutarMoverEquipo(id){
-  markDirty('equipos');
   var m=mantData();
   var eq=m.equipos.find(function(e){return e.id===id;});
   if(!eq){toast('Equipo no encontrado',true);return;}
@@ -11491,7 +11451,7 @@ function solMantConfirmarOT(solId) {
   var prioridad=(document.getElementById('smPrioridad')||{}).value||'normal';
   var fecha=(document.getElementById('smFecha')||{}).value||localDate(new Date());
   var tecId=(document.getElementById('smTecnico')||{}).value||'';
-  var db=firebase.firestore();window._db=db;
+  var db=firebase.firestore();
   db.collection('solicitudesMant').doc(solId).get().then(function(doc){
     if(!doc.exists){toast('Solicitud no encontrada',true);return;}
     var sol=doc.data(); var m=mantData();
@@ -11577,7 +11537,7 @@ function aplicarActualizacionesTec() {
 
 function adminAprobarCierreOT(docId, otId, origenSolicitud) {
   if(!confirm('¿Aprobar el cierre de esta OT?'))return;
-  var db=firebase.firestore();window._db=db;
+  var db=firebase.firestore();
   var m=mantData();
   var ot=(m.ots||[]).find(function(o){return o.id===otId;});
   if(ot){
@@ -11641,7 +11601,6 @@ if(_portalModeActive){
 
 // ── mant_checklists ──────────────────────────────────────
 function renderMantChecklists(){
-  markDirty('equipos');
   var m=mantData();
   var html='<div style="display:flex;justify-content:flex-end;margin-bottom:14px">'
     +'<button class="btn btn-primary" onclick="mantNuevoChecklist()">+ Nuevo checklist</button></div>';
@@ -11679,7 +11638,6 @@ function mantNuevoChecklist(){
   renderMantChecklists();
 }
 function mantEliminarCL(ci){
-  markDirty('equipos');
   if(!confirm('¿Eliminar checklist?'))return;
   mantData().checklists.splice(ci,1);
   saveData();renderMantChecklists();
@@ -11932,7 +11890,7 @@ function portalTecEnviarSolicitudCierre(otId) {
       canvas.getContext('2d').drawImage(img,0,0,w,h);
       var b64=canvas.toDataURL('image/jpeg',0.7);
 
-      var db=firebase.firestore();window._db=db;
+      var db=firebase.firestore();
       var docData={
         otId:       otId,
         tecnicoId:  _tecSelId||'',
@@ -12428,7 +12386,6 @@ function guardarTecnico(id){
 
 
 function agregarEspecialidadRapida(){
-  markDirty('taller');
   var nombre=prompt('Nombre de la nueva especialidad:\n(Ej: Pintura, Carpintería, Soldadura...)','');
   if(!nombre||!nombre.trim())return;
   nombre=nombre.trim();
@@ -12554,7 +12511,6 @@ function delTecnico(id){
 
 // ── modalVerOT ───────────────────────────────────────────
 function modalVerOT(otId){
-  markDirty('taller');
   var m=mantData();
   var ot=m.ots.find(function(o){return o.id===otId;});
   if(!ot){toast('OT no encontrada',true);return;}
@@ -12679,7 +12635,6 @@ function mantVincularGasto(otId,gastoId){
 }
 
 function mantCerrarOT(otId){
-  markDirty('taller');
   var m=mantData();
   var ot=m.ots.find(function(o){return o.id===otId;});
   if(!ot)return;
@@ -12707,7 +12662,6 @@ function mantCerrarOT(otId){
 }
 
 function mantEliminarOT(otId){
-  markDirty('taller');
   if(!confirm('¿Eliminar esta OT?'))return;
   var m=mantData();
   m.ots=m.ots.filter(function(o){return o.id!==otId;});
@@ -12877,7 +12831,6 @@ function eiGenerarAlertas(log) {
 
 // ── 1. DASHBOARD PRINCIPAL ───────────────────────────────
 function renderEIDashboard() {
-  markDirty('equipoInterno');
   var ei = eiData();
   var mes = S._eiMes || eiMesActual();
   var logsDelMes = ei.logs.filter(function(l) { return l.mes === mes; });
@@ -13147,20 +13100,17 @@ function renderEIAlertas() {
 }
 
 function eiMarcarVisto(id) {
-  markDirty('equipoInterno');
   var a = eiData().alertas.find(function(x) { return x.id===id; });
   if (a) { a.estado='visto'; saveData(); renderEIAlertas(); }
 }
 
 function eiEliminarAlerta(id) {
-  markDirty('equipoInterno');
   var ei = eiData();
   ei.alertas = ei.alertas.filter(function(a) { return a.id!==id; });
   saveData(); renderEIAlertas();
 }
 
 function eiMarcarTodasVistas() {
-  markDirty('equipoInterno');
   eiData().alertas.forEach(function(a) { a.estado='visto'; });
   saveData(); renderEIAlertas(); toast('✓ Todas marcadas como vistas');
 }
@@ -13425,7 +13375,6 @@ function eiToggleChkItem(centroId, fecha, idx, val) {
 }
 
 function eiGuardarChecklist(centroId, fecha) {
-  markDirty('equipoInterno');
   var ei = eiData();
   var chk = ei.checklists.find(function(c) { return c.centroId===centroId && c.fecha===fecha; });
   if (!chk) {
@@ -13439,7 +13388,6 @@ function eiGuardarChecklist(centroId, fecha) {
 }
 
 function eiSubirEvidencia(input, tipo) {
-  markDirty('equipoInterno');
   var file = input.files[0];
   if (!file) return;
   var centroId = S._eiChkCentro;
@@ -16478,7 +16426,6 @@ function modalCorregirKmVehiculo(){
 
 // Cuando cambia el vehículo seleccionado, mostrar info actual
 function ckVehiculoChange(){
-  markDirty('taller');
   var sel=document.getElementById('ckVehiculo');
   var info=document.getElementById('ckInfo');
   var kmActualInput=document.getElementById('ckKmActual');
@@ -16772,7 +16719,6 @@ function renderTallerOTs(){
 
 // ── Cambio rápido de estado de OT (con permisos diferenciados) ──
 function cambiarEstadoOT(otId,nuevoEstado){
-  markDirty('taller');
   var t=tallerData();
   var o=t.ots.find(function(x){return x.id===otId;});
   if(!o){toast('OT no encontrada',true);return;}
@@ -17099,7 +17045,6 @@ var SRV_CATEGORIAS=[
 function srvCatLabel(id){var c=SRV_CATEGORIAS.find(function(x){return x.id===id;});return c?(c.ic+' '+c.label):id;}
 
 function srvSeedCatalogo(){
-  markDirty('taller');
   var t=tallerData();
   var basicos=[
     // Motor (7)
@@ -17392,7 +17337,6 @@ function modalRepuesto(id){
 }
 
 function guardarRepuesto(id){
-  markDirty('taller');
   var nombre=document.getElementById('repNom').value.trim();
   if(!nombre){toast('Nombre requerido',true);return;}
   var t=tallerData();
@@ -17418,7 +17362,6 @@ function guardarRepuesto(id){
 }
 
 function delRepuesto(id){
-  markDirty('taller');
   if(!confirm('¿Eliminar este repuesto?'))return;
   var t=tallerData();
   var rp=(t.repuestos||[]).find(function(x){return x.id===id;});
@@ -18556,7 +18499,6 @@ function solDetalle(solId){
 }
 
 function solGuardarRespuesta(solId){
-  markDirty('taller');
   var t=tallerData();
   var s=(t.solicitudes||[]).find(function(x){return x.id===solId;});
   if(!s)return;
@@ -18566,7 +18508,6 @@ function solGuardarRespuesta(solId){
 }
 
 function solRechazar(solId){
-  markDirty('taller');
   if(!confirm('¿Rechazar esta solicitud?'))return;
   var t=tallerData();
   var s=(t.solicitudes||[]).find(function(x){return x.id===solId;});
@@ -18582,7 +18523,6 @@ function solRechazar(solId){
 }
 
 function solAprobarYCrearOT(solId){
-  markDirty('taller');
   var t=tallerData();
   var s=(t.solicitudes||[]).find(function(x){return x.id===solId;});
   if(!s)return;
@@ -18646,7 +18586,6 @@ function solAprobarYCrearOT(solId){
 }
 
 function solMarcarResuelta(solId){
-  markDirty('taller');
   if(!confirm('¿Marcar esta solicitud como resuelta?'))return;
   var t=tallerData();
   var s=(t.solicitudes||[]).find(function(x){return x.id===solId;});
@@ -18663,7 +18602,6 @@ function solMarcarResuelta(solId){
 
 // ── Eliminar solicitud individual (admin) ──
 function solEliminar(solId){
-  markDirty('taller');
   if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
     toast('Solo administradores',true);return;
   }
@@ -18678,7 +18616,6 @@ function solEliminar(solId){
 
 // ── Borrar TODAS las solicitudes (admin) — para limpiar duplicadas ──
 function solBorrarTodas(){
-  markDirty('taller');
   if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
     toast('Solo administradores',true);return;
   }
@@ -19189,7 +19126,7 @@ function modalNuevaRevision(vehId){
     +'<div style="background:var(--surface2);padding:10px;border-radius:8px;margin-bottom:12px;font-size:12px">'
       +'<div><strong>Vehículo:</strong> '+esc(v.placa)+' · '+esc(v.marca||'')+' '+esc(v.modelo||'')+'</div>'
       +'<div><strong>Mecánico:</strong> '+esc(S.currentUser?S.currentUser.nombre||S.currentUser.email:'—')+'</div>'
-      +'<div><strong>Fecha:</strong> '+fmtDate(localDate(new Date()))+'</div>'
+      +'<div><strong>Fecha:</strong> '+localDate(fmtDate(new Date()))+'</div>'
     +'</div>'
     +'<div class="fg"><label>📸 Subir fotos (libre — frontal, motor, llantas, lo que quieras documentar)</label>'
       +'<input type="file" id="revFotoInput" accept="image/*" capture="environment" multiple onchange="revAgregarFotos(this)">'
@@ -19260,7 +19197,6 @@ function revQuitarFoto(idx,btn){
 }
 
 function guardarRevision(vehId){
-  markDirty('taller');
   // Anti-doble-click
   if(S._revGuardando){return;}
   S._revGuardando=true;
@@ -19874,8 +19810,8 @@ function _renderReportesChoferes(reportes){
     +'<div class="sec-hdr">🔍 Filtros del análisis</div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">'
     +'<div class="fg" style="margin:0"><label>Vehículo</label><select onchange="S._rdcFiltroVeh=this.value;renderTallerReportesChoferes()">'+vehOpts+'</select></div>'
-    +'<div class="fg" style="margin:0"><label>Desde</label>'+miniCalHTML(localDate(S._rdcFiltroDesde),'rdcCalDesde',[],new Date())+'</div>'
-    +'<div class="fg" style="margin:0"><label>Hasta</label>'+miniCalHTML(localDate(S._rdcFiltroHasta),'rdcCalHasta',[],new Date())+'</div>'
+    +'<div class="fg" style="margin:0"><label>Desde</label>'+localDate(miniCalHTML(S._rdcFiltroDesde,'rdcCalDesde',[],new Date()))+'</div>'
+    +'<div class="fg" style="margin:0"><label>Hasta</label>'+localDate(miniCalHTML(S._rdcFiltroHasta,'rdcCalHasta',[],new Date()))+'</div>'
     +'</div></div>'
     // Análisis comparativo
     +'<div class="sec-hdr" style="margin:18px 0 10px 0">🚨 ANÁLISIS COMPARATIVO POR VEHÍCULO</div>'
@@ -19966,7 +19902,6 @@ function editarReporteChofer(repId){
 }
 
 function guardarCorreccionReporte(repId){
-  markDirty('taller');
   var t=tallerData();
   var rep=(t.reportesDiarios||[]).find(function(r){return r.id===repId;});
   if(!rep)return;
@@ -20028,7 +19963,6 @@ function guardarCorreccionReporte(repId){
 }
 
 function eliminarReporteChofer(repId){
-  markDirty('taller');
   if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
     toast('Solo administradores pueden eliminar reportes',true);return;
   }
@@ -20087,7 +20021,6 @@ function modalResetearKmVehiculo(vehId){
 }
 
 function guardarResetKm(vehId){
-  markDirty('taller');
   var t=tallerData();
   var veh=t.vehiculos.find(function(v){return v.id===vehId;});
   if(!veh)return;
@@ -20285,7 +20218,6 @@ function modalLimpiezaEquipos(){
 }
 
 function aplicarLimpiezaEquipos(){
-  markDirty('taller');
   var props=S._cleanPropuestas||[];
   var aplicados=0;
   var m=mantData();
@@ -20737,7 +20669,6 @@ function previsualizarImportFlota(input){
   }
 }
 function confirmarImportFlota(){
-  markDirty('taller');
   if(!_importFlotaParsed||_importFlotaParsed.length===0){toast('Nada que importar',true);return;}
   var t=tallerData();
   var creados=0,actualizados=0;
@@ -20833,7 +20764,6 @@ function modalPrecioGasolina(){
 }
 
 function guardarPrecioGasolina(){
-  markDirty('taller');
   var v=parseFloat((document.getElementById('cfgPrecioGas')||{}).value)||0;
   if(v<=0){toast('Ingresa un precio válido',true);return;}
   if(!S.config)S.config={};
@@ -20885,7 +20815,6 @@ function abrirModalRuta(){
 }
 function cerrarModalRuta(){(function(_e){if(_e)_e.remove();})(document.getElementById('modalRutaTaller'));S._rutaEdit=null;}
 function guardarRutaTaller(){
-  markDirty('taller');
   var nombre=((document.getElementById('rtNombre')||{}).value||'').trim();
   var descripcion=((document.getElementById('rtDescripcion')||{}).value||'').trim();
   var km=parseFloat(((document.getElementById('rtKm')||{}).value||''))||0;
@@ -20912,7 +20841,6 @@ function guardarRutaTaller(){
   saveData();cerrarModalRuta();renderTallerRutas();
 }
 function delRutaTaller(id){
-  markDirty('taller');
   var r=(S.taller.rutas||[]).find(function(x){return x.id===id;});
   if(!r)return;
   var uso=(S.taller.combustible||[]).filter(function(c){return c.rutaId===id;}).length;
@@ -21060,7 +20988,6 @@ function _calcKmRec(){
 }
 function cerrarModalCombustible(){(function(_e){if(_e)_e.remove();})(document.getElementById('modalCombustible'));S._combEdit=null;}
 function guardarCombustible(){
-  markDirty('taller');
   var fecha=((document.getElementById('cbFecha')||{}).value||'').trim();
   var conductor=((document.getElementById('cbConductor')||{}).value||'').trim();
   var vehiculoId=((document.getElementById('cbVehiculo')||{}).value||'').trim();
@@ -21092,7 +21019,6 @@ function guardarCombustible(){
   saveData();cerrarModalCombustible();renderTallerCombustible();
 }
 function delCombustible(id){
-  markDirty('taller');
   var r=(S.taller.combustible||[]).find(function(x){return x.id===id;});
   if(!r)return;
   if(!confirm('¿Eliminar registro del '+r.fecha+'?'))return;
@@ -21105,86 +21031,41 @@ function delCombustible(id){
 
 <div id="appVersionBadge" style="position:fixed;bottom:6px;right:8px;z-index:9000;font-size:9px;color:rgba(255,255,255,.2);pointer-events:none;font-family:monospace"></div>
 <script>
-// ── Sistema de versiones — Dashboard-FI ─────────────────────────────────────
-;(function() {
-  var _appOverlayShown = false;
-  var _appBaseUrl = window.location.href.split('?')[0].split('#')[0];
-
-  // Badge de versión
-  var _badge = document.getElementById('appVersionBadge');
-  if (_badge && typeof APP_VERSION !== 'undefined') _badge.textContent = APP_VERSION;
-
-  function _appLimpiarYRecargar() {
-    var freshUrl = window.location.pathname + window.location.search.replace(/[?&]nocache=[^&]*/,'') + (window.location.search?'&':'?') + 'nocache=' + Date.now();
-    function _ir() { window.location.replace(freshUrl); }
-    try {
-      if (window.caches) {
-        caches.keys().then(function(keys){
-          return Promise.all(keys.map(function(k){ return caches.delete(k); }));
-        }).then(_ir).catch(_ir);
-      } else { _ir(); }
-    } catch(e) { _ir(); }
+;(function(){
+  var _appOverlayShown=false;
+  var _appBaseUrl=window.location.href.split('?')[0].split('#')[0];
+  var _badge=document.getElementById('appVersionBadge');
+  if(_badge&&typeof APP_VERSION!=='undefined')_badge.textContent=APP_VERSION;
+  function _reload(){
+    var u=window.location.pathname+'?nocache='+Date.now();
+    try{if(window.caches)caches.keys().then(function(ks){return Promise.all(ks.map(function(k){return caches.delete(k)}))}).then(function(){window.location.replace(u)}).catch(function(){window.location.replace(u)});else window.location.replace(u);}catch(e){window.location.replace(u);}
   }
-
-  function _appMostrarOverlay() {
-    if (_appOverlayShown) return;
-    _appOverlayShown = true;
-    var ov = document.createElement('div');
-    ov.id = 'appUpdateOverlay';
-    ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(1,4,9,.92);display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(8px)';
-    ov.innerHTML = '<div style="background:#0d1117;border:2px solid #1a3a5c;border-radius:20px;padding:36px 28px;width:100%;max-width:360px;text-align:center;font-family:system-ui">'
-      + '<div style="font-size:52px;margin-bottom:16px">🔄</div>'
-      + '<div style="font-size:19px;font-weight:700;color:#e6edf3;margin-bottom:10px">Nueva versión disponible</div>'
-      + '<div style="font-size:13px;color:#7d8590;margin-bottom:28px;line-height:1.5">El sistema fue actualizado. Recarga para continuar con la versión más reciente.</div>'
-      + '<button id="appBtnUpdate" style="width:100%;padding:15px;background:#3b82f6;color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit">🔄 Actualizar ahora</button>'
-      + '<div style="font-size:11px;color:#484f58;margin-top:10px" id="appUpdateCountdown">Se actualizará automáticamente en 15s...</div>'
-      + '</div>';
+  function _showOverlay(){
+    if(_appOverlayShown)return;_appOverlayShown=true;
+    var ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(1,4,9,.93);display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(8px)';
+    ov.innerHTML='<div style="background:#0d1117;border:2px solid #1a3a5c;border-radius:20px;padding:36px 28px;width:100%;max-width:360px;text-align:center;font-family:system-ui">'
+      +'<div style="font-size:52px;margin-bottom:16px">🔄</div>'
+      +'<div style="font-size:19px;font-weight:700;color:#e6edf3;margin-bottom:10px">Nueva versión disponible</div>'
+      +'<div style="font-size:13px;color:#7d8590;margin-bottom:28px">Recarga para continuar.</div>'
+      +'<button id="appBtnUpdate" style="width:100%;padding:15px;background:#3b82f6;color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer">🔄 Actualizar ahora</button>'
+      +'<div style="font-size:11px;color:#484f58;margin-top:10px" id="appCountdown">Actualizando en 15s...</div>'
+      +'</div>';
     document.body.appendChild(ov);
-    document.getElementById('appBtnUpdate').addEventListener('click', _appLimpiarYRecargar);
-    var secs = 15;
-    var timer = setInterval(function(){
-      secs--;
-      var el = document.getElementById('appUpdateCountdown');
-      if (el) el.textContent = 'Se actualizará automáticamente en ' + secs + 's...';
-      if (secs <= 0) { clearInterval(timer); _appLimpiarYRecargar(); }
-    }, 1000);
+    document.getElementById('appBtnUpdate').addEventListener('click',_reload);
+    var s=15,t=setInterval(function(){s--;var e=document.getElementById('appCountdown');if(e)e.textContent='Actualizando en '+s+'s...';if(s<=0){clearInterval(t);_reload();}},1000);
   }
-
-  function _appVerificarVersion() {
-    if (_appOverlayShown) return;
-    var timeout = setTimeout(function(){ }, 3000);
-    fetch(_appBaseUrl + '?_appv=' + Date.now(), {
-      method: 'GET',
-      cache: 'no-store',
-      headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' }
-    })
-    .then(function(resp){ return resp.ok ? resp.text() : null; })
-    .then(function(html){
-      clearTimeout(timeout);
-      if (!html) return;
-      var m = html.match(/APP_VERSION\s*=\s*['"]([^'"]+)['"]/);
-      if (!m) return;
-      var serverVer = m[1];
-      console.log('[AppUpdate] local=' + APP_VERSION + ' servidor=' + serverVer);
-      if (serverVer !== APP_VERSION) _appMostrarOverlay();
-    })
-    .catch(function(e){ clearTimeout(timeout); console.warn('[AppUpdate]', e.message); });
+  function _check(){
+    if(_appOverlayShown)return;
+    fetch(_appBaseUrl+'?_v='+Date.now(),{method:'GET',cache:'no-store',headers:{'Cache-Control':'no-cache,no-store','Pragma':'no-cache'}})
+    .then(function(r){return r.ok?r.text():null;})
+    .then(function(html){if(!html)return;var m=html.match(/APP_VERSION\s*=\s*['"]([^'"]+)['"]/);if(!m)return;var sv=m[1];if(sv!==APP_VERSION)_showOverlay();})
+    .catch(function(){});
   }
-
-  // Exponer para llamada manual
-  window._appVerificarVersion = _appVerificarVersion;
-
-  // 1. Chequeo inicial 5s después de cargar
-  setTimeout(function(){ _appVerificarVersion(); }, 5000);
-
-  // 2. Chequeo periódico cada 5 minutos
-  setInterval(function(){ _appVerificarVersion(); }, 5 * 60 * 1000);
-
-  // 3. Chequeo al volver al tab
-  document.addEventListener('visibilitychange', function(){
-    if (document.visibilityState === 'visible' && !_appOverlayShown) _appVerificarVersion();
-  });
-
+  window._appVerificarVersion=_check;
+  setTimeout(function(){_check();},5000);
+  setInterval(function(){_check();},5*60*1000);
+  document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible'&&!_appOverlayShown)_check();});
 })();
 </script>
 </body>
