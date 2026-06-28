@@ -296,10 +296,13 @@ button:active{opacity:.8;transform:scale(.95)}
 }
 .tab-bar::-webkit-scrollbar{display:none;}
 .tab-btn{
-  flex:0 0 auto;padding:12px 10px;background:none;border:none;color:var(--muted);
-  font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;
+  flex:0 0 auto;padding:10px 8px;background:none;border:none;color:var(--muted);
+  font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;
   border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap;
+  display:flex;flex-direction:column;align-items:center;gap:2px;min-width:44px;
 }
+.tab-btn .ti{font-size:16px;line-height:1;}
+.tab-btn .tl{font-size:10px;font-weight:600;}
 .tab-btn.active{color:var(--accent2);border-bottom-color:var(--accent2)}
 
 /* ── ADMIN ─────────────────────────────────────────── */
@@ -320,13 +323,15 @@ button:active{opacity:.8;transform:scale(.95)}
 
 /* ── TOAST ─────────────────────────────────────────── */
 #paToast{
-  position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(100px);
+  position:fixed;bottom:24px;left:16px;right:16px;
+  transform:translateY(120px);
   background:var(--surface2);border:1px solid var(--border);border-radius:12px;
-  padding:12px 20px;font-size:13px;font-weight:500;z-index:999;
-  transition:transform .3s cubic-bezier(.34,1.56,.64,1);white-space:nowrap;
-  max-width:90vw;text-align:center;
+  padding:14px 18px;font-size:13px;font-weight:500;z-index:9999;
+  transition:transform .3s cubic-bezier(.34,1.56,.64,1);
+  white-space:normal;word-break:break-word;text-align:center;
+  max-width:calc(100vw - 32px);box-shadow:0 4px 20px rgba(0,0,0,.15);
 }
-#paToast.show{transform:translateX(-50%) translateY(0)}
+#paToast.show{transform:translateY(0);}
 #paToast.ok{border-color:var(--accent);color:var(--accent)}
 #paToast.err{border-color:var(--red);color:var(--red)}
 
@@ -867,13 +872,13 @@ button:active{opacity:.8;transform:scale(.95)}
     <div class="header-badge" id="adminEmpBadge">—</div>
   </div>
   <div class="tab-bar">
-    <button class="tab-btn active" id="atab_hoy" onclick="paAdminTab('hoy')">📅 Hoy</button>
-    <button class="tab-btn" id="atab_hist" onclick="paAdminTab('hist')">🔍 Historial</button>
-    <button class="tab-btn" id="atab_emps" onclick="paAdminTab('emps')">👥 Empleados</button>
-    <button class="tab-btn" id="atab_extra" onclick="paAdminTab('extra')">⏰ Horas extra</button>
-    <button class="tab-btn" id="atab_reporte" onclick="paAdminTab('reporte')">📊 Reporte pago</button>
-    <button class="tab-btn" id="atab_acciones" onclick="paAdminTab('acciones')">📋 APs</button>
-    <button class="tab-btn" id="atab_config" onclick="paAdminTab('config')">⚙️ Config</button>
+    <button class="tab-btn active" id="atab_hoy" onclick="paAdminTab('hoy')"><span class="ti">📅</span><span class="tl">Hoy</span></button>
+    <button class="tab-btn" id="atab_hist" onclick="paAdminTab('hist')"><span class="ti">🔍</span><span class="tl">Historial</span></button>
+    <button class="tab-btn" id="atab_emps" onclick="paAdminTab('emps')"><span class="ti">👥</span><span class="tl">Empleados</span></button>
+    <button class="tab-btn" id="atab_extra" onclick="paAdminTab('extra')"><span class="ti">⏰</span><span class="tl">HE</span></button>
+    <button class="tab-btn" id="atab_reporte" onclick="paAdminTab('reporte')"><span class="ti">📊</span><span class="tl">Reporte</span></button>
+    <button class="tab-btn" id="atab_acciones" onclick="paAdminTab('acciones')"><span class="ti">📋</span><span class="tl">APs</span></button>
+    <button class="tab-btn" id="atab_config" onclick="paAdminTab('config')"><span class="ti">⚙️</span><span class="tl">Config</span></button>
   </div>
   <div class="portal-body" style="overflow-y:auto;padding-top:16px" id="adminContent">
     <div class="spinner"></div>
@@ -1501,7 +1506,7 @@ function paToast(msg, isErr) {
   t.textContent = msg;
   t.className = 'show ' + (isErr ? 'err' : 'ok');
   clearTimeout(paToast._timer);
-  paToast._timer = setTimeout(function(){ t.className = ''; }, 3000);
+  paToast._timer = setTimeout(function(){ t.className = ''; }, 4500);
 }
 
 function paFmtHora(ts) {
@@ -5715,8 +5720,8 @@ function paAdminConfig(content) {
         var html = '<div style="margin-bottom:14px">';
         html += '<div style="font-size:11px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">📅 Horario por día de semana</div>';
         // Encabezados de columna
-        html += '<div style="display:grid;grid-template-columns:44px 40px 1fr 1fr 60px 60px 90px;gap:4px;margin-bottom:4px;font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase">';
-        html += '<span>Día</span><span style="text-align:center">Labora</span><span>Entrada</span><span>Salida</span><span>Tol</span><span>Alm</span><span>Tipo jornada</span></div>';
+        html += '<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;display:flex;gap:4px;margin-bottom:4px;padding:0 2px">';
+        html += '<span style="width:40px;flex-shrink:0">Día</span><span style="width:30px;text-align:center;flex-shrink:0">✓</span><span style="flex:1">Entrada / Salida</span><span style="width:80px;flex-shrink:0">Tipo</span></div>';
         DIAS.forEach(function(dObj){
           var d = dObj.d; var nm = dObj.n;
           var conf = diasDef[String(d)] || {};
@@ -5731,19 +5736,28 @@ function paAdminConfig(content) {
           var tol = conf.tolerancia !== undefined ? conf.tolerancia : defTol;
           var alm = conf.almuerzo   !== undefined ? conf.almuerzo   : defAlm;
           var tid = 'hd_'+emp.id+'_'+d;
-          html += '<div style="display:grid;grid-template-columns:44px 40px 1fr 1fr 60px 60px 90px;gap:4px;align-items:center;padding:4px 0;border-bottom:1px solid var(--border)">';
+          html += '<div style="display:flex;flex-wrap:nowrap;align-items:center;gap:4px;padding:6px 0;border-bottom:1px solid var(--border)">';
           html += '<span style="font-size:12px;font-weight:700;color:var(--text)">'+nm+'</span>';
-          html += '<div style="text-align:center"><input type="checkbox" id="'+tid+'_trab" '+(defTrab?'checked':'')+' onchange="_paTogHorDia(\''+emp.id+'\','+d+')" style="width:16px;height:16px;cursor:pointer"></div>';
-          var dis = defTrab ? '' : 'disabled style="opacity:.4" ';
-          html += '<input type="time" id="'+tid+'_ent" value="'+ent+'" '+dis+'style="width:100%;padding:4px 6px;background:var(--surface);border:1.5px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">';
-          html += '<input type="time" id="'+tid+'_sal" value="'+sal+'" '+dis+'style="width:100%;padding:4px 6px;background:var(--surface);border:1.5px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">';
-          html += '<input type="number" id="'+tid+'_tol" value="'+tol+'" min="0" max="120" '+dis+'style="width:100%;padding:4px 6px;background:var(--surface);border:1.5px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">';
-          html += '<input type="number" id="'+tid+'_alm" value="'+alm+'" min="0" max="240" '+dis+'style="width:100%;padding:4px 6px;background:var(--surface);border:1.5px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">';
+          html += '<div style="width:30px;flex-shrink:0;text-align:center"><input type="checkbox" id="'+tid+'_trab" '+(defTrab?'checked':'')+' onchange="_paTogHorDia(\''+emp.id+'\','+d+')" style="width:16px;height:16px;cursor:pointer"></div>';
+          var dis = defTrab ? '' : 'disabled ';
+          var opac = defTrab ? '1' : '0.4';
+          // Entrada/Salida en sub-div para ahorrar espacio
+          html += '<div style="flex:1;display:flex;gap:4px">'
+            +'<input type="time" id="'+tid+'_ent" value="'+ent+'" '+dis
+            +'style="flex:1;min-width:0;padding:4px 5px;background:var(--surface);border:1.5px solid var(--border);'
+            +'border-radius:6px;color:var(--text);font-size:11px;opacity:'+opac+'">'
+            +'<input type="time" id="'+tid+'_sal" value="'+sal+'" '+dis
+            +'style="flex:1;min-width:0;padding:4px 5px;background:var(--surface);border:1.5px solid var(--border);'
+            +'border-radius:6px;color:var(--text);font-size:11px;opacity:'+opac+'">'
+            +'</div>';
+          // Tolerancia y almuerzo ocultos en mobile (se muestran en tipo)
+          html += '<input type="hidden" id="'+tid+'_tol" value="'+tol+'">';
+          html += '<input type="hidden" id="'+tid+'_alm" value="'+alm+'">';
           var tipoConf = conf.tipo || 'normal';
           var tipoColor = tipoConf==='turno-viernes'?'#B45309':tipoConf==='turno-libre'?'#006B3F':'var(--muted)';
           html += '<select id="'+tid+'_tipo" '+(defTrab?'':'disabled ')+'onchange="" '
-            +'style="padding:3px 4px;border:1.5px solid '+tipoColor+'40;border-radius:6px;'
-            +'font-size:9px;color:'+tipoColor+';background:var(--surface);width:100%;font-family:inherit;font-weight:600">'
+            +'style="width:80px;flex-shrink:0;padding:4px 2px;border:1.5px solid '+tipoColor+'40;border-radius:6px;'
+            +'font-size:9px;color:'+tipoColor+';background:var(--surface);font-family:inherit;font-weight:600;opacity:'+(defTrab?1:0.4)+'">'
             +'<option value="normal"'+(tipoConf==='normal'?' selected':'')+'>Normal</option>'
             +'<option value="turno-viernes"'+(tipoConf==='turno-viernes'?' selected':'')+'>→ Viernes</option>'
             +'<option value="turno-libre"'+(tipoConf==='turno-libre'?' selected':'')+'>→ Día libre</option>'
@@ -6355,9 +6369,15 @@ function paAdminExtra(content) {
         html += '<div class="report-row">'
           +'<div><div class="report-emp">'+c.empleadoNombre+'</div>'
           +'<div class="report-detail">📅 '+(c.fechaLibre||'—')+(c.domingoRef?' · Dom ref: '+c.domingoRef:'')+'</div>'
-          ;
-  });
-}
+          +'<div class="report-detail" style="color:var(--muted)">'+origen+'</div>'
+          +'</div></div>';
+      });
+      html += '</div>';
+    }
+
+    // ── Renderizar todo el HTML construido ─────────────────────────
+    PA._saldoMap = saldoMap;  // guardar para helpers
+    content.innerHTML = html;
 
 // ── Actualizar info empleado seleccionado en el canje ────────────
 function paCanjeEmpUpdate() {
@@ -7544,7 +7564,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-26-N';
+var PA_VERSION = 'v2026-06-26-Q';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
