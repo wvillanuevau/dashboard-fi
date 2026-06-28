@@ -1668,19 +1668,14 @@ function paSelectEmp(empId) {
   var storedDevice = emp.deviceId || null;
 
   // ── Empleado con dispositivo ya vinculado en Firebase ───────────
-  if (storedDevice) {
-    if (storedDevice === thisDevice) {
-      // ✅ Este dispositivo ya es el del empleado — acceso directo sin PIN
-      _paGuardarVinculo(emp);
-      paAfterAuth();
-      return;
-    } else {
-      // ❌ Empleado vinculado a OTRO dispositivo
-      paToast('Este empleado ya esta vinculado a otro dispositivo. Contacta al administrador.', true);
-      PA.empleado = null;
-      return;
-    }
+  if (storedDevice && thisDevice && storedDevice === thisDevice) {
+    // ✅ Mismo dispositivo → acceso directo sin PIN
+    _paGuardarVinculo(emp);
+    paAfterAuth();
+    return;
   }
+  // Si storedDevice no coincide (otro navegador / localStorage limpio)
+  // → caer al flujo normal con PIN para re-vincular
 
   // ── Empleado nuevo (sin dispositivo vinculado) → pide PIN por primera vez
   function _continuar() {
@@ -5560,6 +5555,12 @@ function paCargarAPs(tipo) {
           +'</div>'
           +'<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'
           +'<span style="font-size:10px;padding:3px 8px;border-radius:20px;background:rgba(46,160,67,.15);color:#3fb950">'+esc(ap.estado||'emitida')+'</span>'
+          +(ap.concepto||ap.justificacion
+            ? '<div style="font-size:10px;border-left:3px solid rgba(0,107,63,.4);'
+              +'padding:3px 8px;margin:4px 0;color:var(--muted);border-radius:0 4px 4px 0">'
+              +(ap.concepto?'<strong style="color:var(--text)">'+esc(ap.concepto)+'</strong><br>':'')
+              +(ap.justificacion?esc(ap.justificacion.substring(0,100))+(ap.justificacion.length>100?'…':''):'')
+              +'</div>':'')
           +'<button data-apid="'+ap._id+'" onclick="paImprimirAP(this.dataset.apid)" style="background:rgba(56,139,253,.12);border:1px solid rgba(0,107,63,.3);color:#006B3F;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:11px">🖨️ Ver</button>'
           +'<button style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:11px" onclick="paEliminarAP(\''+ap._id+'\')" >🗑</button>'
           +'</div>'
@@ -6142,51 +6143,7 @@ function paDesvinculDispositivo(empId) {
     })
     .catch(function(e){ paToast('Error: '+e.message, true); });
 }
-// ══════════════════════════════════════════════════════════════
-    // SECCIÓN 0: COMPENSATORIOS DE TURNO (auto-generados)
-    // ══════════════════════════════════════════════════════════════
-    var compAutoList = canjes.filter(function(c){
-      return c.esAutoTurno && c.estado === 'pendiente_compensatorio';
-    });
 
-    if (compAutoList.length > 0) {
-      html += '<div style="background:rgba(0,107,63,.08);border:1.5px solid rgba(0,107,63,.25);'
-        +'border-radius:14px;padding:14px;margin-bottom:16px">';
-      html += '<div style="font-size:11px;font-weight:700;color:#006B3F;text-transform:uppercase;'
-        +'letter-spacing:.6px;margin-bottom:10px">🗓️ Compensatorios de turno pendientes ('+compAutoList.length+')</div>';
-      html += '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">'
-        +'Generados automáticamente al registrar salida en días de turno. Aprueba para acreditar el día libre al empleado.</div>';
-      compAutoList.forEach(function(c) {
-        var colorComp = c.compensaEn==='friday' ? '#B45309' : '#006B3F';
-        var labelComp = c.compensaEn==='friday' ? '→ compensa Viernes' : '→ día libre a elegir';
-        html += '<div style="background:var(--surface);border:1.5px solid rgba(0,107,63,.2);'
-          +'border-radius:10px;padding:12px;margin-bottom:8px">';
-        html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">';
-        html += '<div>';
-        html += '<div style="font-weight:700;font-size:13px;color:var(--text)">'+esc(c.empleadoNombre||'—')+'</div>';
-        html += '<div style="font-size:11px;color:var(--muted);margin-top:2px">📌 '+esc(c.fechaOrigen||'—')
-          +' · '+(c.tipoTurno==='turno-viernes'?'Turno sábado tarde':'Turno domingo')+'</div>';
-        html += '<div style="font-size:10px;color:var(--muted);margin-top:2px">'+c.folio+'</div>';
-        html += '</div>';
-        html += '<span style="background:'+colorComp+'18;color:'+colorComp+';border:1px solid '
-          +colorComp+'40;border-radius:20px;padding:2px 9px;font-size:10px;font-weight:700">'
-          +labelComp+'</span>';
-        html += '</div>';
-        html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
-        html += '<button onclick="paAprobarCompensatorioTurno(\''+c.id+'\',\''+esc(c.empleadoNombre||'')+'\')"'
-          +' style="padding:8px;background:#006B3F;color:#fff;border:none;border-radius:8px;'
-          +'font-weight:700;font-size:12px;cursor:pointer;font-family:inherit">✓ Aprobar</button>';
-        html += '<button onclick="paRechazarCompensatorioTurno(\''+c.id+'\')"'
-          +' style="padding:8px;background:transparent;color:var(--red);'
-          +'border:2px solid var(--red);border-radius:8px;font-weight:700;font-size:12px;'
-          +'cursor:pointer;font-family:inherit">✗ Rechazar</button>';
-        html += '</div>';
-        html += '</div>';
-      });
-      html += '</div>';
-    }
-
-    
 function paAdminExtra(content) {
   if (!paDb) { content.innerHTML = '<div style="color:var(--red)">Sin conexión Firebase</div>'; return; }
 
@@ -6237,6 +6194,42 @@ function paAdminExtra(content) {
       +'</div>';
 
     // ════════════════════════════════════════════════════════════
+    // SECCIÓN 0: COMPENSATORIOS DE TURNO (auto-generados)
+    // ════════════════════════════════════════════════════════════
+    var compAutoList = canjes.filter(function(c){
+      return c.esAutoTurno && c.estado === 'pendiente_compensatorio';
+    });
+    if (compAutoList.length > 0) {
+      html += '<div style="background:rgba(0,107,63,.08);border:1.5px solid rgba(0,107,63,.25);'
+        +'border-radius:14px;padding:14px;margin-bottom:16px">';
+      html += '<div style="font-size:11px;font-weight:700;color:#006B3F;text-transform:uppercase;'
+        +'letter-spacing:.6px;margin-bottom:10px">🗓️ Compensatorios de turno pendientes ('
+        +compAutoList.length+')</div>';
+      html += '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">'
+        +'Aprueba para acreditar el día libre al empleado.</div>';
+      compAutoList.forEach(function(cc) {
+        var cCol = cc.compensaEn==='friday'?'#B45309':'#006B3F';
+        var cLbl = cc.compensaEn==='friday'?'→ Viernes':'→ Día libre';
+        html += '<div style="background:var(--surface);border:1.5px solid rgba(0,107,63,.2);'
+          +'border-radius:10px;padding:12px;margin-bottom:8px">';
+        html += '<div style="font-weight:700;font-size:13px;color:var(--text)">'+esc(cc.empleadoNombre||'—')+'</div>';
+        html += '<div style="font-size:11px;color:var(--muted)">📌 '+esc(cc.fechaOrigen||'—')
+          +' · '+(cc.tipoTurno==='turno-viernes'?'Sáb tarde':'Dom')+'</div>';
+        html += '<span style="background:'+cCol+'18;color:'+cCol
+          +';border-radius:20px;padding:2px 8px;font-size:10px;font-weight:700">'+cLbl+'</span>';
+        html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">';
+        html += '<button onclick="paAprobarCompensatorioTurno(\''+cc.id+'\',\''+esc(cc.empleadoNombre||'')+'\')"'
+          +' style="padding:8px;background:#006B3F;color:#fff;border:none;border-radius:8px;'
+          +'font-weight:700;font-size:12px;cursor:pointer;font-family:inherit">✓ Aprobar</button>';
+        html += '<button onclick="paRechazarCompensatorioTurno(\''+cc.id+'\')"'
+          +' style="padding:8px;background:transparent;color:var(--red);border:2px solid var(--red);'
+          +'border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit">✗ Rechazar</button>';
+        html += '</div></div>';
+      });
+      html += '</div>';
+    }
+
+        // ════════════════════════════════════════════════════════════
     // SECCIÓN 1: HE PENDIENTES DE APROBAR
     // ════════════════════════════════════════════════════════════
     var pendHE = heList.filter(function(h){ return h.estado==='pendiente'; });
@@ -6361,25 +6354,7 @@ function paAdminExtra(content) {
         html += '<div class="report-row">'
           +'<div><div class="report-emp">'+c.empleadoNombre+'</div>'
           +'<div class="report-detail">📅 '+(c.fechaLibre||'—')+(c.domingoRef?' · Dom ref: '+c.domingoRef:'')+'</div>'
-          +(ap.concepto
-          ? '<div style="background:rgba(0,0,0,.03);border-left:3px solid '+conf.color+'40;'
-            +'border-radius:0 6px 6px 0;padding:5px 10px;margin:4px 0;font-size:11px">'
-            +(ap.concepto ? '<span style="font-weight:700;color:var(--text)">'
-              +esc(ap.concepto)+'</span>' : '')
-            +(ap.justificacion ? '<br><span style="color:var(--muted)">'
-              +esc(ap.justificacion.substring(0,120))+(ap.justificacion.length>120?'…':'')
-              +'</span>' : '')
-            +'</div>' : '')
-        +'<div class="report-detail" style="color:var(--muted)">'+origen+' · '+(c.motivo||'—')+'</div></div>'
-          +'<span style="color:var(--accent);font-size:16px">✅</span></div>';
-      });
-    }
-
-    // Guardar saldoMap para usarlo en las funciones
-    PA._saldoMap = saldoMap;
-    content.innerHTML = html;
-  }).catch(function(e){
-    content.innerHTML = '<div style="color:var(--red);padding:20px">Error: '+e.message+'</div>';
+          ;
   });
 }
 
@@ -6519,6 +6494,11 @@ function paAdminAsignarCompensatorio() {
     if(sel) sel.value=''; if(diaEl) diaEl.value=''; if(domEl) domEl.value='';
     paAdminTab('extra');
   }).catch(function(e){ paToast('Error: '+e.message,true); });
+}
+
+  }).catch(function(e) {
+    content.innerHTML = '<div style="color:var(--red);padding:20px">Error al cargar datos HE: ' + e.message + '</div>';
+  });
 }
 
 function paAdminReporte(content) {
@@ -7559,7 +7539,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-26-K';
+var PA_VERSION = 'v2026-06-26-M';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
