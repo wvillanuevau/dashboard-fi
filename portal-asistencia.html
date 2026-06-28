@@ -878,6 +878,7 @@ button:active{opacity:.8;transform:scale(.95)}
     <button class="tab-btn" id="atab_extra" onclick="paAdminTab('extra')"><span class="ti">⏰</span><span class="tl">HE</span></button>
     <button class="tab-btn" id="atab_reporte" onclick="paAdminTab('reporte')"><span class="ti">📊</span><span class="tl">Reporte</span></button>
     <button class="tab-btn" id="atab_acciones" onclick="paAdminTab('acciones')"><span class="ti">📋</span><span class="tl">APs</span></button>
+    <button class="tab-btn" id="atab_aprob" onclick="paAdminTab('aprob')"><span class="ti">✅</span><span class="tl">Aprob.</span></button>
     <button class="tab-btn" id="atab_config" onclick="paAdminTab('config')"><span class="ti">⚙️</span><span class="tl">Config</span></button>
   </div>
   <div class="portal-body" style="overflow-y:auto;padding-top:16px" id="adminContent">
@@ -4361,6 +4362,7 @@ function paAdminTab(tab) {
     if (tab === 'extra')   paAdminExtra(content);
     if (tab === 'reporte') paAdminReporte(content);
     if (tab === 'acciones') paAdminAcciones(content);
+    if (tab === 'aprob')    paAdminAprobaciones(content);
     if (tab === 'config')  paAdminConfig(content);
   } catch(e) {
     console.error('[Admin] error en tab', tab, ':', e.message, e.stack);
@@ -5627,6 +5629,139 @@ function paEliminarAP(apId) {
 }
 
 
+
+// ══════════════════════════════════════════════════════════════════
+// PESTAÑA APROBACIONES — vista consolidada de todo lo pendiente
+// ══════════════════════════════════════════════════════════════════
+function paAdminAprobaciones(content) {
+  if (!paDb) { content.innerHTML = '<div style="color:var(--red)">Sin conexión Firebase</div>'; return; }
+  content.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted)">Cargando aprobaciones...</div>';
+
+  var empresa = PA.empresa;
+  Promise.all([
+    paDb.collection('paHorasExtra').where('empresa','==',empresa).where('estado','==','pendiente').get(),
+    paDb.collection('paCanjes').where('empresa','==',empresa).where('estado','==','pendiente_aprobacion').get(),
+    paDb.collection('paIncapacidades').where('empresa','==',empresa).where('estado','==','pendiente').get(),
+    paDb.collection('paCanjes').where('empresa','==',empresa).where('estado','==','pendiente_compensatorio').get()
+  ]).then(function(results) {
+    var heSnap   = results[0];
+    var canjeSnap= results[1];
+    var incSnap  = results[2];
+    var compSnap = results[3];
+
+    var items = [];
+
+    heSnap.forEach(function(d) {
+      var r = Object.assign({id:d.id,_tipo:'HE'}, d.data());
+      if (r.ts && typeof r.ts==='object' && r.ts.toMillis) r.ts=r.ts.toMillis();
+      items.push(r);
+    });
+    canjeSnap.forEach(function(d) {
+      items.push(Object.assign({id:d.id,_tipo:'CANJE'}, d.data()));
+    });
+    incSnap.forEach(function(d) {
+      items.push(Object.assign({id:d.id,_tipo:'INCAPACIDAD'}, d.data()));
+    });
+    compSnap.forEach(function(d) {
+      items.push(Object.assign({id:d.id,_tipo:'COMPENSATORIO'}, d.data()));
+    });
+
+    // Ordenar por fecha/ts más reciente
+    items.sort(function(a,b){
+      var ta = a.ts||a.fechaInicio||a.fecha||''; 
+      var tb = b.ts||b.fechaInicio||b.fecha||'';
+      return String(tb).localeCompare(String(ta));
+    });
+
+    var tipoCfg = {
+      HE:           { label:'Hora Extra',           color:'#006B3F', icon:'⏰', bg:'rgba(0,107,63,.08)',  border:'rgba(0,107,63,.25)'  },
+      CANJE:        { label:'Canje de Horas',        color:'#8250DF', icon:'🔄', bg:'rgba(130,80,223,.08)', border:'rgba(130,80,223,.25)' },
+      INCAPACIDAD:  { label:'Incapacidad',           color:'#0969DA', icon:'🏥', bg:'rgba(9,105,218,.08)',  border:'rgba(9,105,218,.25)'  },
+      COMPENSATORIO:{ label:'Compensatorio Turno',   color:'#B45309', icon:'🗓️', bg:'rgba(180,83,9,.08)',   border:'rgba(180,83,9,.25)'   }
+    };
+
+    if (!items.length) {
+      content.innerHTML = '<div style="text-align:center;padding:40px">'        +'<div style="font-size:40px;margin-bottom:12px">✅</div>'        +'<div style="font-weight:700;font-size:16px;color:var(--text);margin-bottom:6px">Todo al día</div>'        +'<div style="color:var(--muted);font-size:13px">No hay solicitudes pendientes de aprobación</div></div>';
+      return;
+    }
+
+    var html = '<div style="padding:16px 16px 8px">'
+      +'<div style="font-weight:800;font-size:14px;color:var(--text);margin-bottom:4px">Aprobaciones pendientes</div>'
+      +'<div style="font-size:12px;color:var(--muted);margin-bottom:12px">'+items.length+' solicitud(es) esperando revisión</div>'
+      +'</div>';
+
+    items.forEach(function(item) {
+      var cfg  = tipoCfg[item._tipo] || tipoCfg.HE;
+      var fecha = item.fecha || item.fechaInicio || (item.ts ? new Date(item.ts).toLocaleDateString('es-SV') : '—');
+      
+      var detalle = '';
+      var btnA = '', btnR = '';
+
+      if (item._tipo === 'HE') {
+        var tipos = {diurna:'☀️ Diurna', nocturna:'🌙 Nocturna', feriado:'🎉 Feriado'};
+        detalle = fecha+' · '+(tipos[item.tipo]||item.tipo)+' · <strong>'+item.horas+'h</strong>';
+        if (item.descripcion) detalle += '<br><small style="color:var(--muted)">'+item.descripcion.slice(0,60)+'</small>';
+        btnA = '<button onclick="paAprobarHEBtn(this)" data-id="'+item.id+'" data-emp="'+item.empleadoId+'" data-h="'+item.horas+'"'
+          +' style="flex:1;padding:11px 8px;background:#006B3F;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✓ Aprobar</button>';
+        btnR = '<button onclick="paRechazarHEBtn(this)" data-id="'+item.id+'"'
+          +' style="flex:1;padding:11px 8px;background:transparent;color:var(--red);border:2px solid var(--red);border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✗ Rechazar</button>';
+
+      } else if (item._tipo === 'CANJE') {
+        detalle = 'Solicita día libre · '+fecha;
+        if (item.empleadoNombre) detalle = detalle;
+        btnA = '<button onclick="paAprobarFechaCanje(\''+item.id+'\',\''+fecha+'\',this)"'
+          +' style="flex:1;padding:11px 8px;background:#006B3F;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✓ Aprobar</button>';
+        btnR = '<button onclick="paRechazarCanje(\''+item.id+'\')"'
+          +' style="flex:1;padding:11px 8px;background:transparent;color:var(--red);border:2px solid var(--red);border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✗ Rechazar</button>';
+
+      } else if (item._tipo === 'INCAPACIDAD') {
+        detalle = (item.fechaInicio||'—')+' al '+(item.fechaFin||'—')+' · '+(item.dias||'?')+' días';
+        if (item.motivo) detalle += '<br><small style="color:var(--muted)">'+item.motivo.slice(0,60)+'</small>';
+        btnA = '<button onclick="paAprobarInc(\''+item.id+'\',this)"'
+          +' style="flex:1;padding:11px 8px;background:#006B3F;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✓ Aprobar</button>';
+        btnR = '<button onclick="paRechazarInc(\''+item.id+'\',this)"'
+          +' style="flex:1;padding:11px 8px;background:transparent;color:var(--red);border:2px solid var(--red);border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✗ Rechazar</button>';
+
+      } else if (item._tipo === 'COMPENSATORIO') {
+        var compLbl = item.compensaEn==='friday' ? '→ Viernes siguiente' : '→ Día libre a elegir';
+        detalle = (item.fechaOrigen||fecha)+' · '+(item.tipoTurno==='turno-viernes'?'Turno Sáb tarde':'Turno Dom');
+        detalle += '<br><small style="color:var(--muted)">'+compLbl+'</small>';
+        btnA = '<button onclick="paAprobarCompensatorioTurno(\''+item.id+'\',\''+esc(item.empleadoNombre||'')+'\',this)"'
+          +' style="flex:1;padding:11px 8px;background:#006B3F;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✓ Aprobar</button>';
+        btnR = '<button onclick="paRechazarCompensatorioTurno(\''+item.id+'\',this)"'
+          +' style="flex:1;padding:11px 8px;background:transparent;color:var(--red);border:2px solid var(--red);border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✗ Rechazar</button>';
+      }
+
+      html += '<div style="margin:0 12px 10px;background:'+cfg.bg+';border:1.5px solid '+cfg.border+';border-radius:14px;padding:14px">';
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
+      html +=   '<span style="font-size:16px">'+cfg.icon+'</span>';
+      html +=   '<span style="font-size:10px;font-weight:700;color:'+cfg.color+';text-transform:uppercase;letter-spacing:.5px;background:'+cfg.color+'18;border-radius:20px;padding:2px 8px">'+cfg.label+'</span>';
+      html += '</div>';
+      html += '<div style="font-weight:700;font-size:14px;color:var(--text);margin-bottom:4px">'+esc(item.empleadoNombre||'—')+'</div>';
+      html += '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">'+detalle+'</div>';
+      html += '<div style="display:flex;gap:8px">'+btnA+btnR+'</div>';
+      html += '</div>';
+    });
+
+    content.innerHTML = html;
+  }).catch(function(e) {
+    content.innerHTML = '<div style="color:var(--red);padding:20px">Error: '+e.message+'</div>';
+  });
+}
+
+// ── Aprobar fecha canje desde aprobaciones ───────────────────────
+
+
+// ── Rechazar canje ───────────────────────────────────────────────
+function paRechazarCanje(canjeId, btn) {
+  if (!confirm('¿Rechazar esta solicitud de canje?')) return;
+  if (btn) { btn.disabled=true; }
+  paDb.collection('paCanjes').doc(canjeId).update({ estado:'rechazado' })
+    .then(function(){ paToast('Solicitud de canje rechazada'); paAdminTab('aprob'); })
+    .catch(function(e){ paToast('Error: '+e.message,true); if(btn){btn.disabled=false;} });
+}
+
+
 function paAdminConfig(content) {
   var h = PA.horario;
   if (!PA.feriados.length) {
@@ -5643,7 +5778,7 @@ function paAdminConfig(content) {
       +'<div style="font-size:12px;font-weight:700;color:#388bfd;text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">'+titulo+'</div>'
       // Lunes-viernes
       +'<div style="font-size:11px;color:var(--text);margin-bottom:6px;font-weight:700">📅 LUNES – VIERNES</div>'
-      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px">'
+      +'<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px">'
       +'<div><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">ENTRADA</label>'
       +'<input type="time" id="'+prefix+'_entrada" value="'+(src.horaEntrada||'07:00')+'" style="width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px"></div>'
       +'<div><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">SALIDA</label>'
@@ -5655,7 +5790,7 @@ function paAdminConfig(content) {
       +'</div>'
       // Sábado
       +'<div style="font-size:11px;color:#e8a020;margin-bottom:6px;font-weight:600">📅 SÁBADO</div>'
-      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:8px">'
+      +'<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;align-items:end;margin-bottom:8px">'
       +'<div><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">ENTRADA</label>'
       +'<input type="time" id="'+prefix+'_sabEntrada" value="'+(src.sabadoEntrada||'08:00')+'" style="width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px"></div>'
       +'<div><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">SALIDA</label>'
@@ -5778,7 +5913,7 @@ function paAdminConfig(content) {
 
       // ── Sábado ────────────────────────────────────────────────
       +'<div style="font-size:11px;font-weight:700;color:#e8a020;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">📅 Sábado</div>'
-      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">'
+      +'<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px">'
       +'<div><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">ENTRADA</label>'+INPUT('sabEntrada', empHor.sabadoEntrada,'08:00')+'</div>'
       +'<div><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">SALIDA</label>'+INPUT('sabSalida', empHor.sabadoSalida,'12:00')+'</div>'
       +'<div><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">TOLERANCIA (min)</label>'+INPUT('sabTol', empHor.sabadoTolerancia,'10','number','0','60')+'</div>'
@@ -6255,9 +6390,9 @@ function paAdminExtra(content) {
           +'<div><div class="report-emp">'+h.empleadoNombre+'</div>'
           +'<div class="report-detail">'+h.fecha+' · '+(tipos[h.tipo]||h.tipo)+' · <strong>'+h.horas+'h</strong></div>'
           +'<div class="report-detail" style="color:var(--muted)">'+h.descripcion.slice(0,50)+'</div></div>'
-          +'<div style="display:flex;gap:6px">'
-          +'<button onclick="paAprobarHEBtn(this)" data-id="'+h.id+'" data-emp="'+h.empleadoId+'" data-h="'+h.horas+'" style="background:#006B3F;color:#fff;border:none;border-radius:8px;padding:6px 10px;font-weight:700;font-size:11px">✓ Aprobar</button>'
-          +'<button onclick="paRechazarHEBtn(this)" data-id="'+h.id+'" style="background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:11px">✗</button>'
+          +'<div style="display:flex;gap:6px;margin-top:8px">'
+          +'<button onclick="paAprobarHEBtn(this)" data-id="'+h.id+'" data-emp="'+h.empleadoId+'" data-h="'+h.horas+'" style="flex:1;padding:10px 8px;background:#006B3F;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✓ Aprobar</button>'
+          +'<button onclick="paRechazarHEBtn(this)" data-id="'+h.id+'" style="flex:1;padding:10px 8px;background:transparent;color:var(--red);border:2px solid var(--red);border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✗ Rechazar</button>'
           +'</div></div>';
       });
     }
@@ -7564,7 +7699,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-26-Q';
+var PA_VERSION = 'v2026-06-26-R';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
