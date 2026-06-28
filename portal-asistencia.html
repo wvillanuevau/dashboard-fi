@@ -5634,119 +5634,115 @@ function paEliminarAP(apId) {
 // PESTAÑA APROBACIONES — vista consolidada de todo lo pendiente
 // ══════════════════════════════════════════════════════════════════
 function paAdminAprobaciones(content) {
-  if (!paDb) { content.innerHTML = '<div style="color:var(--red)">Sin conexión Firebase</div>'; return; }
-  content.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted)">Cargando aprobaciones...</div>';
-
+  if (!paDb) { content.innerHTML = '<div style="color:var(--red)">Sin conexi\xf3n Firebase</div>'; return; }
+  content.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted)">Cargando...</div>';
   var empresa = PA.empresa;
   Promise.all([
-    paDb.collection('paHorasExtra').where('empresa','==',empresa).where('estado','==','pendiente').get(),
-    paDb.collection('paCanjes').where('empresa','==',empresa).where('estado','==','pendiente_aprobacion').get(),
-    paDb.collection('paIncapacidades').where('empresa','==',empresa).where('estado','==','pendiente').get(),
-    paDb.collection('paCanjes').where('empresa','==',empresa).where('estado','==','pendiente_compensatorio').get()
-  ]).then(function(results) {
-    var heSnap   = results[0];
-    var canjeSnap= results[1];
-    var incSnap  = results[2];
-    var compSnap = results[3];
-
+    paDb.collection('paHorasExtra').where('empresa','==',empresa).get(),
+    paDb.collection('paCanjes').where('empresa','==',empresa).get(),
+    paDb.collection('paIncapacidades').where('empresa','==',empresa).get()
+  ]).then(function(res) {
     var items = [];
-
-    heSnap.forEach(function(d) {
-      var r = Object.assign({id:d.id,_tipo:'HE'}, d.data());
-      if (r.ts && typeof r.ts==='object' && r.ts.toMillis) r.ts=r.ts.toMillis();
+    res[0].forEach(function(d){
+      var r=Object.assign({id:d.id,_tipo:'HE'},d.data());
+      if(r.estado!=='pendiente') return;
+      if(r.ts&&typeof r.ts==='object'&&r.ts.toMillis) r.ts=r.ts.toMillis();
       items.push(r);
     });
-    canjeSnap.forEach(function(d) {
-      items.push(Object.assign({id:d.id,_tipo:'CANJE'}, d.data()));
+    res[1].forEach(function(d){
+      var r=Object.assign({id:d.id},d.data());
+      if(r.estado==='pendiente_aprobacion') items.push(Object.assign({_tipo:'CANJE'},r));
+      else if(r.esAutoTurno&&r.estado==='pendiente_compensatorio') items.push(Object.assign({_tipo:'COMPENSATORIO'},r));
     });
-    incSnap.forEach(function(d) {
-      items.push(Object.assign({id:d.id,_tipo:'INCAPACIDAD'}, d.data()));
+    res[2].forEach(function(d){
+      var r=Object.assign({id:d.id,_tipo:'INCAPACIDAD'},d.data());
+      if(r.estado!=='pendiente') return;
+      items.push(r);
     });
-    compSnap.forEach(function(d) {
-      items.push(Object.assign({id:d.id,_tipo:'COMPENSATORIO'}, d.data()));
-    });
-
-    // Ordenar por fecha/ts más reciente
     items.sort(function(a,b){
-      var ta = a.ts||a.fechaInicio||a.fecha||''; 
-      var tb = b.ts||b.fechaInicio||b.fecha||'';
-      return String(tb).localeCompare(String(ta));
+      var ta=String(a.ts||a.fechaInicio||a.fecha||'');
+      var tb=String(b.ts||b.fechaInicio||b.fecha||'');
+      return tb.localeCompare(ta);
     });
-
-    var tipoCfg = {
-      HE:           { label:'Hora Extra',           color:'#006B3F', icon:'⏰', bg:'rgba(0,107,63,.08)',  border:'rgba(0,107,63,.25)'  },
-      CANJE:        { label:'Canje de Horas',        color:'#8250DF', icon:'🔄', bg:'rgba(130,80,223,.08)', border:'rgba(130,80,223,.25)' },
-      INCAPACIDAD:  { label:'Incapacidad',           color:'#0969DA', icon:'🏥', bg:'rgba(9,105,218,.08)',  border:'rgba(9,105,218,.25)'  },
-      COMPENSATORIO:{ label:'Compensatorio Turno',   color:'#B45309', icon:'🗓️', bg:'rgba(180,83,9,.08)',   border:'rgba(180,83,9,.25)'   }
+    var TC = {
+      HE:           {label:'Hora Extra',         color:'#006B3F',icon:'\u23f0',bg:'rgba(0,107,63,.08)',  bd:'rgba(0,107,63,.25)'  },
+      CANJE:        {label:'Canje de Horas',      color:'#8250DF',icon:'\ud83d\udd04',bg:'rgba(130,80,223,.08)',bd:'rgba(130,80,223,.25)'},
+      INCAPACIDAD:  {label:'Incapacidad',         color:'#0969DA',icon:'\ud83c\udfe5',bg:'rgba(9,105,218,.08)', bd:'rgba(9,105,218,.25)' },
+      COMPENSATORIO:{label:'Turno compensatorio', color:'#B45309',icon:'\ud83d\uddd3',bg:'rgba(180,83,9,.08)',  bd:'rgba(180,83,9,.25)'  }
     };
-
-    if (!items.length) {
-      content.innerHTML = '<div style="text-align:center;padding:40px">'        +'<div style="font-size:40px;margin-bottom:12px">✅</div>'        +'<div style="font-weight:700;font-size:16px;color:var(--text);margin-bottom:6px">Todo al día</div>'        +'<div style="color:var(--muted);font-size:13px">No hay solicitudes pendientes de aprobación</div></div>';
+    if(!items.length){
+      content.innerHTML='<div style="text-align:center;padding:48px 24px">'
+        +'<div style="font-size:48px;margin-bottom:12px">\u2705</div>'
+        +'<div style="font-weight:800;font-size:17px;color:var(--text);margin-bottom:6px">Todo al d\xeda</div>'
+        +'<div style="color:var(--muted);font-size:13px">No hay solicitudes pendientes</div></div>';
       return;
     }
-
-    var html = '<div style="padding:16px 16px 8px">'
-      +'<div style="font-weight:800;font-size:14px;color:var(--text);margin-bottom:4px">Aprobaciones pendientes</div>'
-      +'<div style="font-size:12px;color:var(--muted);margin-bottom:12px">'+items.length+' solicitud(es) esperando revisión</div>'
+    var BS='flex:1;padding:12px 8px;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;border:none;';
+    var html='<div style="padding:16px 16px 4px">'
+      +'<div style="font-weight:800;font-size:15px;color:var(--text)">Pendientes de aprobaci\xf3n</div>'
+      +'<div style="font-size:12px;color:var(--muted);margin-bottom:4px">'+items.length+' solicitud(es)</div>'
       +'</div>';
-
-    items.forEach(function(item) {
-      var cfg  = tipoCfg[item._tipo] || tipoCfg.HE;
-      var fecha = item.fecha || item.fechaInicio || (item.ts ? new Date(item.ts).toLocaleDateString('es-SV') : '—');
-      
-      var detalle = '';
-      var btnA = '', btnR = '';
-
-      if (item._tipo === 'HE') {
-        var tipos = {diurna:'☀️ Diurna', nocturna:'🌙 Nocturna', feriado:'🎉 Feriado'};
-        detalle = fecha+' · '+(tipos[item.tipo]||item.tipo)+' · <strong>'+item.horas+'h</strong>';
-        if (item.descripcion) detalle += '<br><small style="color:var(--muted)">'+item.descripcion.slice(0,60)+'</small>';
-        btnA = '<button onclick="paAprobarHEBtn(this)" data-id="'+item.id+'" data-emp="'+item.empleadoId+'" data-h="'+item.horas+'"'
-          +' style="flex:1;padding:11px 8px;background:#006B3F;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✓ Aprobar</button>';
-        btnR = '<button onclick="paRechazarHEBtn(this)" data-id="'+item.id+'"'
-          +' style="flex:1;padding:11px 8px;background:transparent;color:var(--red);border:2px solid var(--red);border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✗ Rechazar</button>';
-
-      } else if (item._tipo === 'CANJE') {
-        detalle = 'Solicita día libre · '+fecha;
-        if (item.empleadoNombre) detalle = detalle;
-        btnA = '<button onclick="paAprobarFechaCanje(\''+item.id+'\',\''+fecha+'\',this)"'
-          +' style="flex:1;padding:11px 8px;background:#006B3F;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✓ Aprobar</button>';
-        btnR = '<button onclick="paRechazarCanje(\''+item.id+'\')"'
-          +' style="flex:1;padding:11px 8px;background:transparent;color:var(--red);border:2px solid var(--red);border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✗ Rechazar</button>';
-
-      } else if (item._tipo === 'INCAPACIDAD') {
-        detalle = (item.fechaInicio||'—')+' al '+(item.fechaFin||'—')+' · '+(item.dias||'?')+' días';
-        if (item.motivo) detalle += '<br><small style="color:var(--muted)">'+item.motivo.slice(0,60)+'</small>';
-        btnA = '<button onclick="paAprobarInc(\''+item.id+'\',this)"'
-          +' style="flex:1;padding:11px 8px;background:#006B3F;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✓ Aprobar</button>';
-        btnR = '<button onclick="paRechazarInc(\''+item.id+'\',this)"'
-          +' style="flex:1;padding:11px 8px;background:transparent;color:var(--red);border:2px solid var(--red);border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✗ Rechazar</button>';
-
-      } else if (item._tipo === 'COMPENSATORIO') {
-        var compLbl = item.compensaEn==='friday' ? '→ Viernes siguiente' : '→ Día libre a elegir';
-        detalle = (item.fechaOrigen||fecha)+' · '+(item.tipoTurno==='turno-viernes'?'Turno Sáb tarde':'Turno Dom');
-        detalle += '<br><small style="color:var(--muted)">'+compLbl+'</small>';
-        btnA = '<button onclick="paAprobarCompensatorioTurno(\''+item.id+'\',\''+esc(item.empleadoNombre||'')+'\',this)"'
-          +' style="flex:1;padding:11px 8px;background:#006B3F;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✓ Aprobar</button>';
-        btnR = '<button onclick="paRechazarCompensatorioTurno(\''+item.id+'\',this)"'
-          +' style="flex:1;padding:11px 8px;background:transparent;color:var(--red);border:2px solid var(--red);border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✗ Rechazar</button>';
+    items.forEach(function(item){
+      var cfg=TC[item._tipo]||TC.HE;
+      var fecha=item.fecha||item.fechaInicio||(item.ts?new Date(item.ts).toLocaleDateString('es-SV'):'\u2014');
+      var det='', btnA='', btnR='';
+      // Use data-* attrs to avoid quote escaping in onclick
+      var dA = 'data-id="'+item.id+'" data-emp="'+(item.empleadoId||'')+'" data-h="'+(item.horas||'')+'" data-fecha="'+fecha+'" data-nom="'+esc(item.empleadoNombre||'')+'" data-tipo="'+item._tipo+'"';
+      if(item._tipo==='HE'){
+        var TH={diurna:'\u2600\ufe0f Diurna',nocturna:'\ud83c\udf19 Nocturna',feriado:'\ud83c\udf89 Feriado'};
+        det=fecha+' \xb7 '+(TH[item.tipo]||item.tipo||'\u2014')+' \xb7 <strong>'+item.horas+'h</strong>';
+        if(item.descripcion) det+='<br><small style="color:var(--muted)">'+item.descripcion.slice(0,60)+'</small>';
+      } else if(item._tipo==='CANJE'){
+        det='Solicita d\xeda libre \xb7 '+fecha;
+        if(item.motivo) det+='<br><small style="color:var(--muted)">'+item.motivo.slice(0,60)+'</small>';
+      } else if(item._tipo==='INCAPACIDAD'){
+        det=(item.fechaInicio||'\u2014')+' al '+(item.fechaFin||'\u2014')+' \xb7 '+(item.dias||'?')+' d\xedas';
+        if(item.motivo) det+='<br><small style="color:var(--muted)">'+item.motivo.slice(0,60)+'</small>';
+      } else if(item._tipo==='COMPENSATORIO'){
+        var cLbl=item.compensaEn==='friday'?'\u2192 Viernes siguiente':'\u2192 D\xeda libre a elegir';
+        det=(item.fechaOrigen||fecha)+' \xb7 '+(item.tipoTurno==='turno-viernes'?'S\xe1b tarde':'Dom');
+        det+='<br><small style="color:var(--muted)">'+cLbl+'</small>';
       }
-
-      html += '<div style="margin:0 12px 10px;background:'+cfg.bg+';border:1.5px solid '+cfg.border+';border-radius:14px;padding:14px">';
-      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
-      html +=   '<span style="font-size:16px">'+cfg.icon+'</span>';
-      html +=   '<span style="font-size:10px;font-weight:700;color:'+cfg.color+';text-transform:uppercase;letter-spacing:.5px;background:'+cfg.color+'18;border-radius:20px;padding:2px 8px">'+cfg.label+'</span>';
-      html += '</div>';
-      html += '<div style="font-weight:700;font-size:14px;color:var(--text);margin-bottom:4px">'+esc(item.empleadoNombre||'—')+'</div>';
-      html += '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">'+detalle+'</div>';
-      html += '<div style="display:flex;gap:8px">'+btnA+btnR+'</div>';
-      html += '</div>';
+      btnA='<button onclick="paAprobDespacho(this)" '+dA+' style="'+BS+'background:#006B3F;color:#fff">\u2713 Aprobar</button>';
+      btnR='<button onclick="paRechazDespacho(this)" '+dA+' style="'+BS+'background:transparent;color:var(--red);border:2px solid var(--red)">\u2717 Rechazar</button>';
+      html+='<div style="margin:10px 12px;background:'+cfg.bg+';border:1.5px solid '+cfg.bd+';border-radius:14px;padding:14px">';
+      html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
+      html+='<span style="font-size:18px">'+cfg.icon+'</span>';
+      html+='<span style="font-size:10px;font-weight:700;color:'+cfg.color+';background:'+cfg.color+'18;border-radius:20px;padding:2px 10px">'+cfg.label+'</span>';
+      html+='</div>';
+      html+='<div style="font-weight:800;font-size:14px;color:var(--text);margin-bottom:4px">'+esc(item.empleadoNombre||'\u2014')+'</div>';
+      html+='<div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px">'+det+'</div>';
+      html+='<div style="display:flex;gap:8px">'+btnA+btnR+'</div>';
+      html+='</div>';
     });
-
-    content.innerHTML = html;
-  }).catch(function(e) {
-    content.innerHTML = '<div style="color:var(--red);padding:20px">Error: '+e.message+'</div>';
+    content.innerHTML=html;
+  }).catch(function(e){
+    content.innerHTML='<div style="color:var(--red);padding:20px">Error: '+e.message+'</div>';
+    console.error('[Aprobaciones]',e);
   });
+}
+
+// Dispatcher: aprobar según tipo
+function paAprobDespacho(btn) {
+  var tipo = btn.getAttribute('data-tipo');
+  var id   = btn.getAttribute('data-id');
+  var emp  = btn.getAttribute('data-emp');
+  var h    = parseFloat(btn.getAttribute('data-h')||0);
+  var nom  = btn.getAttribute('data-nom');
+  if(tipo==='HE') paAprobarHorasExtra(id,emp,h,btn);
+  else if(tipo==='CANJE') { var fecha=btn.getAttribute('data-fecha'); paAprobarFechaCanje(id,fecha,btn); }
+  else if(tipo==='INCAPACIDAD') paAprobarInc(id,btn);
+  else if(tipo==='COMPENSATORIO') paAprobarCompensatorioTurno(id,nom,btn);
+}
+
+// Dispatcher: rechazar según tipo
+function paRechazDespacho(btn) {
+  var tipo = btn.getAttribute('data-tipo');
+  var id   = btn.getAttribute('data-id');
+  if(tipo==='HE') paRechazarHorasExtra(id,btn);
+  else if(tipo==='CANJE') paRechazarCanje(id,btn);
+  else if(tipo==='INCAPACIDAD') paRechazarInc(id,btn);
+  else if(tipo==='COMPENSATORIO') paRechazarCompensatorioTurno(id,btn);
 }
 
 // ── Aprobar fecha canje desde aprobaciones ───────────────────────
@@ -7699,7 +7695,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-26-R';
+var PA_VERSION = 'v2026-06-26-S';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
