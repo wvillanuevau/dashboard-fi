@@ -874,7 +874,6 @@ button:active{opacity:.8;transform:scale(.95)}
   <div class="tab-bar">
     <button class="tab-btn active" id="atab_hoy" onclick="paAdminTab('hoy')"><span class="ti">📅</span><span class="tl">Hoy</span></button>
     <button class="tab-btn" id="atab_emps" onclick="paAdminTab('emps')"><span class="ti">👥</span><span class="tl">Empleados</span></button>
-    <button class="tab-btn" id="atab_extra" onclick="paAdminTab('extra')"><span class="ti">⏰</span><span class="tl">HE</span></button>
     <button class="tab-btn" id="atab_reporte" onclick="paAdminTab('reporte')"><span class="ti">📊</span><span class="tl">Reporte</span></button>
     <button class="tab-btn" id="atab_acciones" onclick="paAdminTab('acciones')"><span class="ti">📋</span><span class="tl">APs</span></button>
     <button class="tab-btn" id="atab_config" onclick="paAdminTab('config')"><span class="ti">⚙️</span><span class="tl">Config</span></button>
@@ -1014,7 +1013,8 @@ function _paGetVinculo() {
     var v = localStorage.getItem(_PA_VINCULO_KEY);
     if (!v) return null;
     var obj = JSON.parse(v);
-    if (obj && obj.empresa === PA.empresa) return obj;
+    // Acepta si empresa coincide O si PA.empresa aún no está cargado (timing)
+    if (obj && (!PA.empresa || obj.empresa === PA.empresa)) return obj;
     return null;
   } catch(e) { return null; }
 }
@@ -1373,6 +1373,13 @@ function paCancelarNotificaciones() {
 }
 
 function paGoToSelectEmp() {
+  // Guardia: si los empleados aún no cargaron, esperar
+  if (!PA.empleados || !PA.empleados.length) {
+    if (!PA._loadingEmps) { PA._loadingEmps=true; paLoadEmpleados(); }
+    setTimeout(paGoToSelectEmp, 350);
+    return;
+  }
+  PA._loadingEmps = false;
   // Nivel 1: localStorage — vínculo guardado en este navegador
   var vinculo = _paGetVinculo();
   if (vinculo) {
@@ -1872,7 +1879,12 @@ function paBioAuth() {
   try {
     credIdBytes = Uint8Array.from(atob(credId), function(c){ return c.charCodeAt(0); });
   } catch(e) {
-    // credId inválido — registrar de nuevo
+    // credId inválido o corrupto — limpiar y re-registrar
+    emp.credId = null;
+    if (PA._pinsDocMap && PA._pinsDocMap[emp.id]) {
+      paDb.collection('paPins').doc(PA._pinsDocMap[emp.id]).update({ credId: null })
+        .catch(function(){});
+    }
     _paRegistrarBioYAutenticar();
     return;
   }
@@ -1896,6 +1908,22 @@ function paBioAuth() {
     if (e.name === 'NotAllowedError' || e.message.indexOf('No credentials') >= 0 || e.message.indexOf('llaves') >= 0) {
       // Ofrecer registrar biométrico en este dispositivo
       if (confirm('No hay biométrico registrado en este dispositivo.\n\n¿Registrar ahora con Face ID / huella?')) {
+        _paRegistrarBioYAutenticar();
+      } else {
+        _paFallbackPin();
+      }
+      return;
+    }
+    // Si la credencial ya no existe en el navegador (cerrar ventana la borra en algunos OS)
+    var bioMsg = (arguments[0]||{}).message||'';
+    if (bioMsg.indexOf('NotAllowedError')>=0 || bioMsg.indexOf('NotFound')>=0 ||
+        bioMsg.indexOf('No matching')>=0 || bioMsg.indexOf('credencial')>=0) {
+      // Limpiar credId obsoleto y ofrecer re-registrar
+      emp.credId = null;
+      if (PA._pinsDocMap && PA._pinsDocMap[emp.id]) {
+        paDb.collection('paPins').doc(PA._pinsDocMap[emp.id]).update({credId:null}).catch(function(){});
+      }
+      if (confirm('El registro biométrico no fue encontrado en este dispositivo.\n¿Volver a registrar?')) {
         _paRegistrarBioYAutenticar();
       } else {
         _paFallbackPin();
@@ -4384,7 +4412,6 @@ function paAdminTab(tab) {
   try {
     if (tab === 'hoy')     paAdminHoy(content);
     if (tab === 'emps')    paAdminEmps(content);
-    if (tab === 'extra')   paAdminExtra(content);
     if (tab === 'reporte') paAdminReporte(content);
     if (tab === 'acciones') paAdminAcciones(content);
     if (tab === 'config')  paAdminConfig(content);
@@ -5700,6 +5727,100 @@ function paRechazarCanje(canjeId, btn) {
 }
 
 
+
+
+// ── Render helper: fila de marcación con botones data-* ─────────
+function _paRenderMarcRow(r) {
+  var TL = {entrada:'🏢 Entrada',salida:'🏠 Salida',almuerzo_salida:'🍽️ Sal.alm.',
+            almuerzo_regreso:'↩️ Reg.alm.',cena_salida:'🌙 Sal.cena',cena_regreso:'↩️ Reg.cena',
+            entrada_adicional:'🔁 Ent.adic.',salida_adicional:'🔁 Sal.adic.'};
+  var TC = {entrada:'#2ea043',salida:'#f85149',almuerzo_salida:'#e8a020',
+            almuerzo_regreso:'#388bfd',cena_salida:'#f0a030',cena_regreso:'#30a0f0',
+            entrada_adicional:'#8250DF',salida_adicional:'#8250DF'};
+  var hora  = r.ts ? paFmtHora(r.ts) : '—';
+  var color = TC[r.tipo] || 'var(--muted)';
+  var retr  = r.minutosRetraso>0 ? ' <span style="color:#e8a020;font-size:10px">+'+r.minutosRetraso+'min</span>' : '';
+  var badges = (r.fotoRef||r.foto ? '📸 ' : '') + (r.ubicacion&&r.ubicacion.lat ? '📍 ' : '');
+  var centro = r.centroNombre ? r.centroNombre : '';
+  var mid = r._id || r.id || '';
+  var row = '<tr style="border-bottom:1px solid var(--border)">'
+    + '<td style="padding:6px 4px;color:'+color+';font-weight:600;font-size:12px">' + (TL[r.tipo]||r.tipo) + '</td>'
+    + '<td style="padding:6px 4px;font-family:monospace;font-weight:700;font-size:12px;color:var(--text)">' + hora + retr + '</td>'
+    + '<td style="padding:6px 4px;color:var(--muted);font-size:11px">' + badges + centro + '</td>'
+    + '<td style="padding:4px 2px;text-align:right;white-space:nowrap">'
+    + '<button class="_btn-ver-marc" data-mid="'+mid+'" style="background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer;color:var(--text);margin-right:2px">👁</button>'
+    + '<button class="_btn-edit-marc" data-mid="'+mid+'" style="background:rgba(56,139,253,.1);border:1px solid rgba(56,139,253,.3);border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer;color:#388bfd;margin-right:2px">✏</button>'
+    + '<button class="_btn-del-marc" data-mid="'+mid+'" style="background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer;color:#f85149">✕</button>'
+    + '</td></tr>';
+  return row;
+}
+
+// ── Render helper: tabla de marcaciones de un día ────────────────
+function _paRenderDiaTable(fecha, registros, empId, empNombre) {
+  var html = '<div style="margin-bottom:10px">';
+  html += '<div style="font-size:11px;font-weight:700;color:var(--muted);padding:4px 0;margin-bottom:4px;border-bottom:2px solid var(--border)">📅 ' + fecha + '</div>';
+  html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+  html += '<thead><tr style="font-size:10px;color:var(--muted)">'
+    + '<th style="text-align:left;padding:3px 4px">TIPO</th>'
+    + '<th style="text-align:left;padding:3px 4px">HORA</th>'
+    + '<th style="text-align:left;padding:3px 4px">INFO</th>'
+    + '<th style="text-align:right;padding:3px 4px">ACC.</th>'
+    + '</tr></thead><tbody>';
+  registros.forEach(function(r){ html += _paRenderMarcRow(r); });
+  html += '</tbody></table>';
+  // Botón agregar para esta fecha
+  html += '<button class="_btn-agreg-marc" data-eid="'+empId+'" data-nom="'+esc(empNombre)+'" data-fecha="'+fecha+'"'
+    + ' style="width:100%;margin-top:4px;padding:5px;background:rgba(46,160,67,.06);border:1px dashed rgba(46,160,67,.3);border-radius:5px;font-size:11px;cursor:pointer;color:#006B3F;font-family:inherit">+ Agregar marcación</button>';
+  html += '</div>';
+  return html;
+}
+
+function _paBuscarHistEmp(empId) {
+  var desde  = (document.getElementById("hpDesde_" + empId)||{}).value;
+  var hasta  = (document.getElementById("hpHasta_" + empId)||{}).value;
+  var panel  = document.getElementById("histPanel_" + empId);
+  var emp    = PA.empleados.find(function(e){ return e.id === empId; });
+  if (!desde || !hasta || !panel || !paDb) return;
+  panel.innerHTML = '<div class="spinner"></div>';
+  paDb.collection("paMarcaciones")
+    .where("empresa","==",PA.empresa)
+    .where("empleadoId","==",empId)
+    .get().then(function(snap) {
+      var all = [];
+      snap.forEach(function(d){
+        var r = Object.assign({id:d.id,_id:d.id},d.data());
+        if (r.ts && typeof r.ts==="object" && r.ts.toMillis) r.ts=r.ts.toMillis();
+        all.push(r);
+      });
+      var rango = all.filter(function(m){ return m.fecha >= desde && m.fecha <= hasta; });
+      rango.sort(function(a,b){
+        var fd = (b.fecha||"").localeCompare(a.fecha||"");
+        return fd || (b.ts||0)-(a.ts||0);
+      });
+      if (!rango.length) {
+        panel.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">Sin marcaciones en ese período</div>';
+        return;
+      }
+      // Agrupar por fecha
+      var byFecha = {};
+      var fechas = [];
+      rango.forEach(function(m){
+        if (!byFecha[m.fecha]) { byFecha[m.fecha]=[]; fechas.push(m.fecha); }
+        byFecha[m.fecha].push(m);
+      });
+      // Fechas ya ordenadas por sort anterior
+      var seen = {};
+      fechas = fechas.filter(function(f){ if(seen[f]) return false; seen[f]=true; return true; });
+      var html = '<div style="font-size:10px;color:var(--muted);margin-bottom:8px">' + rango.length + ' marcación(es) · ' + fechas.length + ' día(s)</div>';
+      fechas.forEach(function(f){
+        html += _paRenderDiaTable(f, byFecha[f], empId, (emp&&emp.nombre)||"");
+      });
+      panel.innerHTML = html;
+    }).catch(function(e){
+      if (panel) panel.innerHTML = '<div style="color:var(--red);font-size:12px">Error: '+e.message+'</div>';
+    });
+}
+
 function paAdminConfig(content) {
   var h = PA.horario;
   if (!PA.feriados.length) {
@@ -6290,18 +6411,53 @@ function _paCargarPanelEmp(empId) {
     html += "<button class=\"_btn-asign-comp\" data-eid=\"" + empId + "\" data-nom=\"" + esc(emp.nombre||"") + "\" style=\"flex:1;min-width:120px;padding:9px;background:rgba(180,83,9,.08);border:1.5px solid rgba(180,83,9,.25);border-radius:9px;color:#B45309;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit\">🔄 Asignar compensatorio</button>";
     html += "</div></div>";
 
-    // Historial marcaciones
+    // Historial con date range picker y tabla completa
+    var hoy7  = paHoy();
+    var hace7 = new Date(); hace7.setDate(hace7.getDate()-6);
+    var d7    = hace7.getFullYear()+"-"+String(hace7.getMonth()+1).padStart(2,"0")+"-"+String(hace7.getDate()).padStart(2,"0");
+
+    html += "<div style=\"margin-top:12px;border-top:1.5px solid var(--border);padding-top:12px\">";
+    html += "<div style=\"font-weight:700;font-size:12px;color:var(--text);margin-bottom:8px\">📋 Historial de Marcaciones</div>";
+    html += "<div style=\"display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap\">";
+    html += "<div style=\"flex:1;min-width:90px\">";
+    html += "<label style=\"font-size:10px;color:var(--muted);font-weight:600;display:block;margin-bottom:3px\">DESDE</label>";
+    html += "<input type=\"date\" id=\"hpDesde_"+empId+"\" value=\""+d7+"\" style=\"width:100%;padding:7px 6px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;font-family:inherit\">";
+    html += "</div>";
+    html += "<div style=\"flex:1;min-width:90px\">";
+    html += "<label style=\"font-size:10px;color:var(--muted);font-weight:600;display:block;margin-bottom:3px\">HASTA</label>";
+    html += "<input type=\"date\" id=\"hpHasta_"+empId+"\" value=\""+hoy7+"\" style=\"width:100%;padding:7px 6px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;font-family:inherit\">";
+    html += "</div>";
+    html += "<button class=\"_btn-buscar-hist\" data-eid=\""+empId+"\" style=\"align-self:flex-end;padding:8px 14px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit\">🔍 Buscar</button>";
+    html += "</div>";
+    html += "<div id=\"histPanel_"+empId+"\">";
+    // Inicial: últimas 10 con formato tabla completo
     if (marcsRecent.length) {
-      html += "<div style=\"margin-top:12px\">";
-      html += "<div style=\"font-weight:700;font-size:12px;color:var(--text);margin-bottom:8px\">📋 Marcaciones recientes (" + marcs.length + " total)</div>";
-      var tip = {entrada:"🏢 Entrada",salida:"🚪 Salida",almuerzo_salida:"🍽️ Alm.",almuerzo_regreso:"↩️ Regreso"};
+      var byFI={}, fechasI=[];
       marcsRecent.forEach(function(m){
-        var hora = m.ts ? new Date(m.ts).toLocaleTimeString("es-SV",{hour:"2-digit",minute:"2-digit"}) : "—";
-        html += "<div style=\"display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)\">";
-        html += "<span style=\"font-size:12px;color:var(--text)\">" + (tip[m.tipo]||m.tipo||"—") + "</span>";
-        html += "<span style=\"font-size:11px;color:var(--muted)\">" + m.fecha + " " + hora + "</span>";
+        if (!byFI[m.fecha]){ byFI[m.fecha]=[]; fechasI.push(m.fecha); }
+        byFI[m.fecha].push(m);
+      });
+      var seenI={};
+      fechasI=fechasI.filter(function(f){ if(seenI[f]) return false; seenI[f]=true; return true; });
+      fechasI.forEach(function(f){ html+=_paRenderDiaTable(f,byFI[f],empId,(emp&&emp.nombre)||""); });
+      html += "<div style=\"font-size:10px;color:var(--muted);text-align:center;padding:4px\">Últimas "+marcsRecent.length+" · Total histórico: "+marcs.length+" · Usa buscar para filtrar por fecha</div>";
+    } else {
+      html += "<div style=\"text-align:center;padding:20px;color:var(--muted);font-size:12px\">Sin marcaciones</div>";
+    }
+    html += "</div></div>";
+
+    // HE histórico aprobado (fusión del tab HE)
+    if (heApprob.length) {
+      html += "<div style=\"margin-top:10px;border-top:1.5px solid var(--border);padding-top:10px\">";
+      html += "<div style=\"font-weight:700;font-size:12px;color:var(--text);margin-bottom:8px\">⏰ Historial HE aprobadas (" + heApprob.length + ")</div>";
+      heApprob.slice(0,8).forEach(function(h){
+        var tp = {diurna:"☀️",nocturna:"🌙",feriado:"🎉"};
+        html += "<div style=\"display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)\">";
+        html += "<span style=\"font-size:12px\">" + (tp[h.tipo]||"⏰") + " " + h.fecha + "</span>";
+        html += "<span style=\"font-size:12px;font-weight:700;color:#006B3F\">+" + h.horas + "h</span>";
         html += "</div>";
       });
+      if (heApprob.length > 8) html += "<div style=\"font-size:10px;color:var(--muted);text-align:center;padding:4px\">+ " + (heApprob.length-8) + " más...</div>";
       html += "</div>";
     }
 
@@ -7789,7 +7945,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-26-X';
+var PA_VERSION = 'v2026-06-27-A';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
@@ -7978,6 +8134,11 @@ window.addEventListener('DOMContentLoaded', function() {
     else if ((b=ev.target.closest('._btn-asign-he')))    { paAdminAsignarCompensatorio(b.getAttribute('data-eid')||'', b.getAttribute('data-nom')||''); }
     else if ((b=ev.target.closest('._btn-asign-comp')))  { paAdminAsignarCompensatorio(b.getAttribute('data-eid')||'', b.getAttribute('data-nom')||''); }
     else if ((b=ev.target.closest('._btn-asign-he')))    { paAdminAsignarCompensatorio(b.getAttribute('data-eid')||'', b.getAttribute('data-nom')||''); }
+    else if ((b=ev.target.closest('._btn-buscar-hist')))  { _paBuscarHistEmp(b.getAttribute('data-eid')||''); }
+    else if ((b=ev.target.closest('._btn-ver-marc')))     { paVerMarcacion(b.getAttribute('data-mid')||''); }
+    else if ((b=ev.target.closest('._btn-edit-marc')))    { paEditarMarcacion(b.getAttribute('data-mid')||''); }
+    else if ((b=ev.target.closest('._btn-del-marc')))     { paEliminarMarcacion(b.getAttribute('data-mid')||''); }
+    else if ((b=ev.target.closest('._btn-agreg-marc')))   { paAgregarMarcacion(b.getAttribute('data-eid')||'',b.getAttribute('data-nom')||'',b.getAttribute('data-fecha')||''); }
   });
   // Chequeo de versión inmediato al cargar — para usuarios con versión vieja
   // Se ejecuta antes de cualquier interacción, a los 3 segundos de carga
