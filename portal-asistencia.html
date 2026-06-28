@@ -748,6 +748,28 @@ button:active{opacity:.8;transform:scale(.95)}
         <div class="stat-lbl">Días equivalentes (×2)</div>
       </div>
     </div>
+    <div id="compTurnoBanner" style="display:none;background:rgba(0,107,63,.1);
+         border:1.5px solid rgba(0,107,63,.25);border-radius:12px;
+         padding:12px 16px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <span style="font-size:20px">🗓️</span>
+        <div>
+          <div style="font-weight:800;font-size:14px;color:var(--accent2)">
+            Días compensatorios disponibles: <span id="diasCompDisp">0</span>
+          </div>
+          <div style="font-size:11px;color:var(--muted)">
+            Por turnos trabajados (sábado tarde / domingo)
+          </div>
+        </div>
+      </div>
+      <div id="compPendientesList" style="font-size:11px;color:var(--muted);margin-bottom:8px"></div>
+      <button onclick="paGoSolicitarComp()"
+        style="width:100%;padding:10px;background:var(--accent2);color:#fff;
+               border:none;border-radius:10px;font-weight:700;font-size:13px;
+               cursor:pointer;font-family:inherit">
+        📅 Solicitar mi día libre compensatorio
+      </button>
+    </div>
     <div id="canjePendBox" style="display:none;background:rgba(56,139,253,.08);border:1px solid rgba(56,139,253,.2);border-radius:10px;padding:12px;font-size:13px;color:var(--accent2);margin-bottom:8px"></div>
     <div class="info-box">Solicita canjear tus horas extra acumuladas por un día libre. Cada 8 horas = 1 día libre. El administrador también puede asignarte días compensatorios directamente.<br><br>⚠ La solicitud debe ser aprobada por el administrador antes de hacerse efectiva.</div>
     <div class="fg">
@@ -2384,6 +2406,29 @@ function paUpdateDash() {
       ? adicionales.length + ' registro(s) adicional(es) hoy'
       : 'Emergencia / llamado después de salida';
   }
+  // ── Compensatorios de turno disponibles ─────────────────────
+  if (paDb && PA.empleado && PA.empleado.id) {
+    paDb.collection('paCanjes')
+      .where('empresa','==',PA.empresa)
+      .where('empleadoId','==',PA.empleado.id)
+      .where('esAutoTurno','==',true)
+      .get().then(function(snap) {
+        var pend=[], disp=0;
+        snap.forEach(function(d){
+          var cc=d.data();
+          if (cc.estado==='asignado') disp++;
+          else if (cc.estado==='pendiente_compensatorio') pend.push(cc);
+        });
+        var banner=document.getElementById('compTurnoBanner');
+        var dispEl=document.getElementById('diasCompDisp');
+        var pendEl=document.getElementById('compPendientesList');
+        if (banner) banner.style.display=(disp>0||pend.length>0)?'':'none';
+        if (dispEl) dispEl.textContent=disp;
+        if (pendEl) pendEl.innerHTML=pend.length>0
+          ? '⏳ '+pend.length+' pendiente(s) de aprobación' : '';
+      }).catch(function(){});
+  }
+
 }
 
 // ══════════════════════════════════════════════════════
@@ -2691,8 +2736,29 @@ function paCalcularHorasExtra(entradaTs, salidaTs, fecha) {
   var minS = toMin(salidaTs);
   if (minS <= minE) minS += 24 * 60;
 
-  // Usar horario individual > rol > global
-  var _hor = _horarioDeEmp(PA.empleado);
+  // Usar horario individual por día > plano > rol > global
+  var _hor = _horarioDeEmp(PA.empleado, dia);
+
+  // ── Día no programado ─────────────────────────────────────────
+  // Si el empleado tiene horarioDias y ese día tiene trabaja:false,
+  // TODAS las horas son jornada extraordinaria no programada
+  if (_hor && _hor.trabaja === false) {
+    var minsTrabajados = minS - minE;
+    var hrsTrabajados  = Math.round(minsTrabajados / 60 * 100) / 100;
+    var esNoche = minE < 360 || minS > 1320; // antes 6am o después 10pm
+    return {
+      diurna:   esNoche ? 0 : hrsTrabajados,
+      nocturna: esNoche ? hrsTrabajados : 0,
+      total:    hrsTrabajados,
+      esSabado: esSabado,
+      esDomingo: false,
+      esTurno:  false,
+      esNoProgramado: true,   // ← bandera especial
+      minutosRetraso: 0,
+      descuentoDiaCompleto: false,
+      descuentoJornada: false
+    };
+  }
   var ini, fin;
   if (esSabado) {
     var hSabIni = _hor.sabadoEntrada || '08:00';
@@ -2813,6 +2879,21 @@ function paAutoCompletarAlmuerzo(marcacionesHoy, fecha, empData, callback) {
     var mAlmSal = marcs.find(function(m){ return m.tipo === 'almuerzo_salida'; });
     var mAlmReg = marcs.find(function(m){ return m.tipo === 'almuerzo_regreso'; });
     if (mAlmSal && mAlmReg) { callback(); return; }
+
+    // ── Sábado: almuerzo solo si la salida es a las 14:30 o después ──
+    var _diaSem = new Date(fecha + 'T12:00:00').getDay(); // 0=Dom, 6=Sáb
+    if (_diaSem === 6) {
+      var _mSal = marcs.find(function(m){ return m.tipo==='salida'||m.tipo==='salida_adicional'; });
+      var _tsSal = _mSal ? _paToMs(_mSal.ts) : Date.now();
+      var _dSal  = new Date(_tsSal);
+      var _minsSal = _dSal.getHours() * 60 + _dSal.getMinutes();
+      if (_minsSal < 14 * 60 + 30) {
+        // Antes de las 14:30 en sábado → sin almuerzo automático
+        _autoCrearCena(marcs, callback);
+        return;
+      }
+      // 14:30 o después → sí aplica almuerzo (turno extendido del sábado)
+    }
 
     var promises = [];
     if (!mAlmSal && !mAlmReg) {
@@ -2982,6 +3063,36 @@ function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
 
   var registrar = function(entradaTs) {
     var calc = paCalcularHorasExtra(entradaTs, salidaDocData.ts, hoy);
+
+    // ── Amonestación por tardanza individual ─────────────────────
+    // Se genera en la salida donde ya tenemos el cálculo exacto.
+    // Cada llegada tardía genera su propia amonestación con las horas.
+    if (calc.minutosRetraso > 0 && paDb && PA.empresa) {
+      var _hrsDesc  = parseFloat((calc.minutosRetraso / 60).toFixed(2));
+      var _concepto = 'Amonestación por llegada tardía';
+      var _justif   = 'El ' + hoy + ', ' + salidaDocData.empleadoNombre
+        + ' registró entrada con ' + calc.minutosRetraso
+        + ' minutos de retraso. Descuento de ' + _hrsDesc
+        + ' hora(s) de jornada conforme cálculo del sistema.';
+      paDb.collection('paAccionesPersonal').add({
+        empresa:        PA.empresa,
+        empleadoId:     empId,
+        empleadoNombre: salidaDocData.empleadoNombre,
+        cargo:          salidaDocData.cargo || '',
+        tipo:           'AMONESTACION_TARDANZA',
+        concepto:       _concepto,
+        justificacion:  _justif,
+        fecha:          hoy,
+        fechaEmision:   paHoy(),
+        minutosRetraso: calc.minutosRetraso,
+        horasDescuento: _hrsDesc,
+        opcionMarcada:  5,
+        estado:         'emitida',
+        origen:         'auto',
+        ts:             Date.now()
+      }).catch(function(e){ console.warn('[AP Amonestación]', e.message); });
+    }
+
     if (calc.total <= 0) { if (callback) callback(null); return; } // sin horas extra
 
     var registros = [];
@@ -3049,12 +3160,20 @@ var paStream = null;
 
 // Descuento en horas según minutos de retraso (no hay horas parciales)
 // Retorna el horario efectivo del empleado: individual > rol > global
-function _horarioDeEmp(emp) {
+function _horarioDeEmp(emp, dayOfWeek) {
   if (!emp) return PA.horario;
-  var empHor = PA.horariosEmp && PA.horariosEmp[emp.id];
-  if (empHor && empHor.horaEntrada) return empHor;
+  var empHorObj = PA.horariosEmp && PA.horariosEmp[emp.id];
+  // ── Prioridad 1: horario por día específico ───────────────────
+  if (empHorObj && empHorObj.horarioDias && dayOfWeek !== undefined && dayOfWeek !== null) {
+    var diaConf = empHorObj.horarioDias[String(dayOfWeek)];
+    if (diaConf !== undefined) return diaConf; // {trabaja:false} o {trabaja:true,entrada:…}
+  }
+  // ── Prioridad 2: horario plano individual ─────────────────────
+  if (empHorObj && empHorObj.horaEntrada) return empHorObj;
+  // ── Prioridad 3: horario del rol ──────────────────────────────
   var rolHor = PA.horariosRol && PA.horariosRol[emp.cargo];
   if (rolHor && rolHor.horaEntrada) return rolHor;
+  // ── Prioridad 4: horario general ─────────────────────────────
   return PA.horario;
 }
 
@@ -3168,19 +3287,19 @@ function _paCheckAvisosYMostrar(tard, bindDocId) {
 
   // Si cambia la quincena → resetear avisos
   if (!mismaQuincena) {
-    avisos = { quincena: q.desde, tardanza2: false, tardanza4: false, faltas: [] };
+    avisos = { quincena: q.desde, tardanza2: false, tardanza5: false, faltas: [] };
   }
 
   var totalTard = tard.totalTard;
   var mostrar = false;
   var nuevoFlag = {};
 
-  if (totalTard >= 4 && !avisos.tardanza4) {
-    // 4+ tardanzas → AP aplicada, mostrar UNA vez
+  if (totalTard >= 5 && !avisos.tardanza5) {
+    // 5ª tardanza → AP DESCUENTO DÍA Y SÉPTIMO, mostrar UNA vez
     mostrar = true;
-    nuevoFlag = { tardanza4: true, tardanza2: true }; // ambos marcados
-  } else if (totalTard >= 2 && totalTard < 4 && !avisos.tardanza2) {
-    // 2-3 tardanzas → aviso temprano, mostrar UNA vez
+    nuevoFlag = { tardanza5: true, tardanza2: true }; // ambos marcados
+  } else if (totalTard >= 2 && totalTard < 5 && !avisos.tardanza2) {
+    // 2-4 tardanzas → aviso temprano, mostrar UNA vez
     mostrar = true;
     nuevoFlag = { tardanza2: true };
   }
@@ -3205,7 +3324,7 @@ function _paMarcarFaltaNotificada(bindDocId, fechaFalta) {
   var avisos = (pd && pd.avisosPA) ? pd.avisosPA : {};
   var q = _quincenaActual();
   var mismaQuincena = avisos.quincena === q.desde;
-  if (!mismaQuincena) avisos = { quincena: q.desde, tardanza2: false, tardanza4: false, faltas: [] };
+  if (!mismaQuincena) avisos = { quincena: q.desde, tardanza2: false, tardanza5: false, faltas: [] };
   var faltas = avisos.faltas || [];
   if (faltas.indexOf(fechaFalta) >= 0) return; // ya notificado
   faltas = faltas.concat([fechaFalta]);
@@ -3222,13 +3341,13 @@ function paMostrarWarningTardanzas(tard) {
   ov.id = 'tardanzaWarningOv';
   ov.style.cssText = 'position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;padding:20px';
 
-  var es4plus = tard.totalTard >= 4;
+  var es4plus = tard.totalTard >= 5;
   var color   = es4plus ? '#f85149' : '#e8a020';
   var icono   = es4plus ? '🚨' : '⚠️';
-  var titulo  = es4plus ? 'Acción de Personal Aplicada' : 'Advertencia — Tardanzas Acumuladas';
+  var titulo  = es4plus ? 'Acción de Personal Aplicada — Descuento Día y Séptimo' : 'Advertencia — Tardanzas Acumuladas';
   var msg     = es4plus
-    ? 'Tienes <strong>'+tard.totalTard+' llegadas tarde</strong> en esta quincena. Se ha generado una Acción de Personal por <strong>Descuento de Día y Séptimo</strong> en tu contra. Consulta con tu supervisor.'
-    : 'Tienes <strong>'+tard.totalTard+' llegadas tarde</strong> en esta quincena.<br>Si acumulas 4, se generará una Acción de Personal con descuento de Día y Séptimo.';
+    ? 'Has acumulado <strong>'+tard.totalTard+' llegadas tardías</strong> en esta quincena. Se ha generado una Acción de Personal por <strong>Descuento de Día y Séptimo</strong>. Cada llegada tardía también genera una amonestación individual. Consulta con tu supervisor.'
+    : 'Tienes <strong>'+tard.totalTard+' llegada(s) tardía(s)</strong> en esta quincena. Cada una genera una amonestación. Al llegar tarde por <strong>5ª vez</strong> se aplicará Descuento de Día y Séptimo.';
 
   // Si 4+ tardanzas: guardar AP real en Firestore (solo si no existe ya para esta quincena)
   if (es4plus && PA.empleado && paDb) {
@@ -3248,12 +3367,19 @@ function paMostrarWarningTardanzas(tard) {
             empleadoId:     PA.empleado.id,
             empleadoNombre: PA.empleado.nombre,
             cargo:          PA.empleado.cargo,
-            tipo:           'TARDANZAS',
+            tipo:           'DESCUENTO_DIA_SEPTIMO',
+            concepto:       'Descuento de Día y Séptimo por tardanzas acumuladas',
+            justificacion:  'El empleado acumuló ' + tard.totalTard + ' llegadas tardías en la quincena del '
+              + q.desde + ' al ' + q.hasta + '. Conforme al reglamento interno, la 5ª tardanza genera '
+              + 'Descuento de Día y Séptimo. Total de horas descontadas por tardanzas: '
+              + (tard.totalDescHrs || 0).toFixed(2) + ' hrs.',
             quincenaDesde:  q.desde,
             quincenaHasta:  q.hasta,
             totalTardanzas: tard.totalTard,
             totalDescHrs:   tard.totalDescHrs,
             diasDetalle:    tard.dias,
+            origenTardanzas: true,
+            fechaEmision:   paHoy(),
             opcionMarcada:  7,
             estado:         'emitida',
             fechaEmision:   paHoy(),
@@ -3546,7 +3672,12 @@ function paConfirmarMarca() {
   var minutosRetraso = 0;
   var estadoPuntualidad = 'a_tiempo';
   if (PA.tipoMarca === 'entrada' && PA.horario) {
-    var _eHor = _horarioDeEmp(PA.empleado);
+    var _diaSemana = now.getDay();
+  var _eHor = _horarioDeEmp(PA.empleado, _diaSemana);
+  // Advertir si el día no está programado (sin bloquear)
+  if (_eHor && _eHor.trabaja === false) {
+    paToast('⚠️ Este día no esta en tu horario programado. El registro se guardará como jornada extraordinaria.');
+  }
   var partes = (_eHor.horaEntrada || '07:00').split(':');
     var esperadaMs = parseInt(partes[0])*60*60*1000 + parseInt(partes[1]||0)*60*1000;
     var midnight = new Date(now); midnight.setHours(0,0,0,0);
@@ -3688,6 +3819,27 @@ function _paMostrarExito(docData, calc) {
     if(calc.diurna>0)   extra+='<div>☀️ Diurnas: <strong>'+calc.diurna.toFixed(2)+'h</strong></div>';
     if(calc.nocturna>0) extra+='<div>🌙 Nocturnas: <strong>'+calc.nocturna.toFixed(2)+'h</strong></div>';
     extra+='<div style="font-size:11px;color:var(--muted);margin-top:4px">Pendiente de aprobación</div></div>';
+  }
+
+  // ── Auto-compensatorio si es día de turno ───────────────────
+  if (docData && (docData.tipo==='salida'||docData.tipo==='salida_adicional')) {
+    var _ds = new Date(docData.fecha+'T12:00:00').getDay();
+    var _dh = _horarioDeEmp(PA.empleado, _ds);
+    var _tj = _dh && _dh.tipo;
+    if (_tj && _tj !== 'normal') {
+      var _ce = _tj==='turno-viernes' ? 'friday' : 'any';
+      var _tl = _ds===6 ? 'sábado tarde' : 'domingo';
+      paDb.collection('paCanjes').add({
+        empresa:PA.empresa, empleadoId:PA.empleado.id,
+        empleadoNombre:PA.empleado.nombre,
+        esCompensatorio:true, esAutoTurno:true,
+        compensaEn:_ce, diasLibres:1, horasLibres:8,
+        fechaOrigen:docData.fecha, tipoTurno:_tj,
+        motivo:'Compensatorio automático por turno '+_tl+' '+docData.fecha,
+        ts:Date.now(), estado:'pendiente_compensatorio',
+        folio:'COMP-'+paGenId().toUpperCase()
+      }).catch(function(e){console.warn('[Compensatorio]',e.message);});
+    }
   }
 
   paShow('scDash');
@@ -4560,7 +4712,14 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
     paDb.collection('paAccionesPersonal').add({
       empresa:PA.empresa, empleadoId:empId, empleadoNombre:empNombre,
       cargo:empCargo, tipo:(SELECTED===7?'DESCUENTO_DIA_SEPTIMO':'FALTA_INJUSTIFICADA'), fecha:fecha,
-      fechaEmision:paHoy(), motivo:exp, solicita:sol, autoriza:aut,
+      fechaEmision:paHoy(), motivo:exp,
+      concepto: SELECTED===7
+        ? 'Descuento de Día y Séptimo por falta injustificada'
+        : 'Falta injustificada',
+      justificacion: SELECTED===7
+        ? 'Falta injustificada el ' + fecha + '. Se aplica Descuento de Día y Séptimo conforme al Art. 20 del Reglamento Interno. Motivo: ' + exp
+        : 'Falta injustificada el ' + fecha + '. Motivo: ' + exp,
+      solicita:sol, autoriza:aut,
       opcionMarcada:SELECTED, estado:'emitida', creadoPor:'admin', ts:Date.now()
     }).catch(function(e){ console.warn('[AP]',e.message); });
   }
@@ -4869,6 +5028,8 @@ function paCargarHistorialRango() {
           }).join(' ');
 
           var retrasos = registros.filter(function(r){ return r.minutosRetraso>0; });
+          var noProgramadoBadge = registros.some(function(r){ return r.esNoProgramado; })
+            ? ' <span style="background:rgba(204,0,0,.12);color:#CC0000;border-radius:10px;padding:1px 6px;font-size:9px;font-weight:700">⚡ NO PROGRAMADO</span>' : '';
           var tardeBadge = retrasos.length ? ' <span style="color:#e8a020;font-size:10px">⚠ +'+retrasos[0].minutosRetraso+'min</span>' : '';
 
           // Header del día — colapsable
@@ -5121,7 +5282,8 @@ function paAdminAcciones(content) {
     +'<div id="apFiltroTipo" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">'
     +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:var(--surface2)" onclick="paCargarAPsTodos()">Todos</button>'
     +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(248,81,73,.12);border-color:rgba(248,81,73,.3);color:#f85149" onclick="paCargarAPsFaltas()">🚫 Faltas / Descuentos</button>'
-    +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(232,160,32,.12);border-color:rgba(232,160,32,.3);color:#e8a020" onclick="paCargarAPsTardanzas()">⏰ Tardanzas</button>'
+    +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(232,160,32,.12);border-color:rgba(232,160,32,.3);color:#e8a020" onclick="paCargarAPsAmonestaciones()">⚠️ Amonestaciones</button>'
+    +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(232,160,32,.12);border-color:rgba(232,160,32,.3);color:#e8a020" onclick="paCargarAPsTardanzas()">⏰ Desc. Día/7° (tard.)</button>'
     +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(0,107,63,.12);border-color:rgba(0,107,63,.3);color:#006B3F" onclick="paCargarAPsIncapacidades()">🏥 Incapacidades</button>'
     +'</div>'
     +'<button onclick="paGenerarAPsHistoricas()" style="width:100%;padding:10px;margin-bottom:10px;background:rgba(125,133,144,.06);border:1px solid var(--border);border-radius:10px;color:var(--muted);cursor:pointer;font-size:12px;font-family:inherit">🔄 Generar APs históricas de tardanzas (últimos 30 días)</button>'
@@ -5140,10 +5302,15 @@ function paImprimirAP(apId) {
     nombre: ap.empleadoNombre,
     cargo:  ap.cargo||'',
     fecha:  ap.fecha || ap.fechaInicio || ap.fechaEmision || '',
-    motivo: ap.motivo || (ap.tipo==='TARDANZAS'
-      ? 'Tardanzas acumuladas: '+ap.totalTardanzas+' en quincena '+ap.quincenaDesde+' al '+ap.quincenaHasta+'. Total a descontar: '+ap.totalDescHrs+'h.'
-      : ap.tipo==='INCAPACIDAD'
-        ? 'Incapacidad del '+ap.fechaInicio+' al '+ap.fechaFin+' ('+ap.dias+' días). '+ap.motivo
+    motivo: ap.justificacion || ap.concepto || ap.motivo || (
+        ap.tipo==='AMONESTACION_TARDANZA'
+          ? 'Llegada tardía el '+(ap.fecha||'—')+' con '+(ap.minutosRetraso||0)+' minutos de retraso. Descuento de '+(ap.horasDescuento||'—')+' hora(s) de jornada según cálculo del sistema.'
+        : ap.tipo==='DESCUENTO_DIA_SEPTIMO' && ap.origenTardanzas
+          ? 'Quinta llegada tardía en la quincena '+(ap.quincenaDesde||'')+' al '+(ap.quincenaHasta||'')+'. Se aplica Descuento de Día y Séptimo. Total tardanzas: '+(ap.totalTardanzas||'—')+'.'
+        : ap.tipo==='TARDANZAS'
+          ? 'Tardanzas acumuladas: '+ap.totalTardanzas+' en quincena '+ap.quincenaDesde+' al '+ap.quincenaHasta+'. Total a descontar: '+ap.totalDescHrs+'h.'
+        : ap.tipo==='INCAPACIDAD'
+          ? 'Incapacidad del '+ap.fechaInicio+' al '+ap.fechaFin+' ('+ap.dias+' días). '+ap.motivo
         : '')
   };
   // Seleccionar opción correcta según tipo
@@ -5155,8 +5322,9 @@ function paImprimirAP(apId) {
 
   var TIPO_DESC = {
     FALTA_INJUSTIFICADA: { titulo:'FALTA INJUSTIFICADA', opcion:9 },
+    AMONESTACION_TARDANZA:  { titulo:'AMONESTACIÓN POR LLEGADA TARDÍA', opcion:5 },
     TARDANZAS:              { titulo:'DESCUENTO DE DÍA Y SÉPTIMO POR TARDANZAS', opcion:7 },
-    DESCUENTO_DIA_SEPTIMO: { titulo:'DESCUENTO DE DÍA Y SÉPTIMO POR FALTA',     opcion:7 },
+    DESCUENTO_DIA_SEPTIMO: { titulo:'DESCUENTO DE DÍA Y SÉPTIMO POR FALTA INJUSTIFICADA', opcion:7 },
     INCAPACIDAD:         { titulo:'INCAPACIDAD / AUSENCIA CON JUSTIFICACIÓN', opcion:15 },
   };
   var td = TIPO_DESC[ap.tipo] || { titulo: ap.tipo, opcion: 0 };
@@ -5284,7 +5452,9 @@ function paGenerarAPsHistoricas() {
         writes.push(paDb.collection('paAccionesPersonal').add({
           empresa: PA.empresa, empleadoId: empId,
           empleadoNombre: empObj.nombre||empData.nombre,
-          cargo: empObj.cargo||'', tipo: 'TARDANZAS',
+          cargo: empObj.cargo||'', tipo: 'DESCUENTO_DIA_SEPTIMO',
+          concepto: 'Descuento de Día y Séptimo por tardanzas acumuladas',
+          origenTardanzas: true,
           quincenaDesde: qDesde, quincenaHasta: hasta,
           totalTardanzas: qData.totalTard, totalDescHrs: qData.totalDescHrs,
           diasDetalle: qData.dias, opcionMarcada: 7,
@@ -5303,7 +5473,8 @@ function paGenerarAPsHistoricas() {
 
 function paCargarAPsTodos()     { paCargarAPs('todos'); }
 function paCargarAPsFaltas()    { paCargarAPs('FALTAS'); } // incluye FALTA+DESCUENTO
-function paCargarAPsTardanzas()      { paCargarAPs('TARDANZAS'); }
+function paCargarAPsAmonestaciones() { paCargarAPs('AMONESTACION_TARDANZA'); }
+function paCargarAPsTardanzas()      { paCargarAPs('DESCUENTO_DIA_SEPTIMO','origenTardanzas'); }
 function paCargarAPsIncapacidades()  { paCargarAPs('INCAPACIDAD'); }
 
 function paCargarAPs(tipo) {
@@ -5343,6 +5514,7 @@ function paCargarAPs(tipo) {
 
       var TIPO_LABEL = {
         FALTA_INJUSTIFICADA: { icon:'🚫', label:'Falta Injustificada',              color:'#f85149' },
+        AMONESTACION_TARDANZA:  { icon:'⚠️', label:'Amonestación por tardanza',         color:'#e8a020' },
         TARDANZAS:              { icon:'⏰', label:'Tardanzas (Desc. Día y Séptimo)',   color:'#e8a020' },
         DESCUENTO_DIA_SEPTIMO:  { icon:'📉', label:'Descuento Día y Séptimo (Falta)',  color:'#e8a020' },
         INCAPACIDAD:         { icon:'🏥', label:'Incapacidad',                      color:'#388bfd' },
@@ -5530,14 +5702,64 @@ function paAdminConfig(content) {
       +'<div id="hor_'+emp.id+'" style="display:none;padding:12px 14px;background:var(--surface2);border-top:1px solid var(--border)">'
       +'<div style="font-size:11px;color:#7d8590;margin-bottom:12px">Sobreescribe el horario del rol <strong>'+rolLabel+'</strong>. Deja vacío para usar el del rol.</div>'
 
-      // ── Días de semana ────────────────────────────────────────
-      +'<div style="font-size:11px;font-weight:700;color:#388bfd;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">📅 Lunes – Viernes</div>'
-      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px">'
-      +'<div><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">ENTRADA</label>'+INPUT('entrada', empHor.horaEntrada,'07:00')+'</div>'
-      +'<div><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">SALIDA</label>'+INPUT('salida', empHor.horaSalida,'17:00')+'</div>'
-      +'<div><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">TOLERANCIA (min)</label>'+INPUT('tol', empHor.minutosTolerancia,'10','number','0','60')+'</div>'
-      +'<div><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">ALMUERZO (min)</label>'+INPUT('alm', empHor.minutosAlmuerzo,'60','number','0','120')+'</div>'
-      +'</div>'
+      // ── Horario por día ──────────────────────────────────────────
+      +(function(){
+        var diasDef = (empHor.horarioDias) || {};
+        var DIAS = [{d:1,n:'Lun'},{d:2,n:'Mar'},{d:3,n:'Mié'},{d:4,n:'Jue'},{d:5,n:'Vie'},{d:6,n:'Sáb'},{d:0,n:'Dom'}];
+        // Valores por defecto para días sin configurar (del horario plano o general)
+        var defEnt = empHor.horaEntrada || PA.horario.horaEntrada || '07:00';
+        var defSal = empHor.horaSalida  || PA.horario.horaSalida  || '17:00';
+        var defTol = empHor.minutosTolerancia || PA.horario.minutosTolerancia || 10;
+        var defAlm = empHor.minutosAlmuerzo   || PA.horario.minutosAlmuerzo   || 60;
+        var html = '<div style="margin-bottom:14px">';
+        html += '<div style="font-size:11px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">📅 Horario por día de semana</div>';
+        // Encabezados de columna
+        html += '<div style="display:grid;grid-template-columns:44px 40px 1fr 1fr 60px 60px 90px;gap:4px;margin-bottom:4px;font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase">';
+        html += '<span>Día</span><span style="text-align:center">Labora</span><span>Entrada</span><span>Salida</span><span>Tol</span><span>Alm</span><span>Tipo jornada</span></div>';
+        DIAS.forEach(function(dObj){
+          var d = dObj.d; var nm = dObj.n;
+          var conf = diasDef[String(d)] || {};
+          // Si no hay conf por día, inferir si labora del horario plano
+          var defTrab = conf.trabaja !== undefined ? conf.trabaja
+            : (empHor.horarioDias ? false    // tiene dias config pero este no → no labora
+               : (d===0 ? false              // domingo por defecto no labora
+                  : (d===6 ? !!(empHor.trabajaSabado) // sábado según flag
+                     : true)));             // L-V laboran por defecto
+          var ent = conf.entrada  || defEnt;
+          var sal = conf.salida   || defSal;
+          var tol = conf.tolerancia !== undefined ? conf.tolerancia : defTol;
+          var alm = conf.almuerzo   !== undefined ? conf.almuerzo   : defAlm;
+          var tid = 'hd_'+emp.id+'_'+d;
+          html += '<div style="display:grid;grid-template-columns:44px 40px 1fr 1fr 60px 60px 90px;gap:4px;align-items:center;padding:4px 0;border-bottom:1px solid var(--border)">';
+          html += '<span style="font-size:12px;font-weight:700;color:var(--text)">'+nm+'</span>';
+          html += '<div style="text-align:center"><input type="checkbox" id="'+tid+'_trab" '+(defTrab?'checked':'')+' onchange="_paTogHorDia(\''+emp.id+'\','+d+')" style="width:16px;height:16px;cursor:pointer"></div>';
+          var dis = defTrab ? '' : 'disabled style="opacity:.4" ';
+          html += '<input type="time" id="'+tid+'_ent" value="'+ent+'" '+dis+'style="width:100%;padding:4px 6px;background:var(--surface);border:1.5px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">';
+          html += '<input type="time" id="'+tid+'_sal" value="'+sal+'" '+dis+'style="width:100%;padding:4px 6px;background:var(--surface);border:1.5px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">';
+          html += '<input type="number" id="'+tid+'_tol" value="'+tol+'" min="0" max="120" '+dis+'style="width:100%;padding:4px 6px;background:var(--surface);border:1.5px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">';
+          html += '<input type="number" id="'+tid+'_alm" value="'+alm+'" min="0" max="240" '+dis+'style="width:100%;padding:4px 6px;background:var(--surface);border:1.5px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">';
+          var tipoConf = conf.tipo || 'normal';
+          var tipoColor = tipoConf==='turno-viernes'?'#B45309':tipoConf==='turno-libre'?'#006B3F':'var(--muted)';
+          html += '<select id="'+tid+'_tipo" '+(defTrab?'':'disabled ')+'onchange="" '
+            +'style="padding:3px 4px;border:1.5px solid '+tipoColor+'40;border-radius:6px;'
+            +'font-size:9px;color:'+tipoColor+';background:var(--surface);width:100%;font-family:inherit;font-weight:600">'
+            +'<option value="normal"'+(tipoConf==='normal'?' selected':'')+'>Normal</option>'
+            +'<option value="turno-viernes"'+(tipoConf==='turno-viernes'?' selected':'')+'>→ Viernes</option>'
+            +'<option value="turno-libre"'+(tipoConf==='turno-libre'?' selected':'')+'>→ Día libre</option>'
+            +'</select>';
+          html += '</div>';
+        });
+        html += '</div>';
+        html += '<div style="display:flex;gap:8px;margin-bottom:12px">';
+        html += '<button onclick="paCopiarHorDias(\''+emp.id+'\',';
+        html +=   '(document.getElementById(\'hd_'+emp.id+'_1_ent\')||{}).value,';
+        html +=   '(document.getElementById(\'hd_'+emp.id+'_1_sal\')||{}).value,';
+        html +=   '(document.getElementById(\'hd_'+emp.id+'_1_tol\')||{}).value,';
+        html +=   '(document.getElementById(\'hd_'+emp.id+'_1_alm\')||{}).value)"';
+        html += ' style="flex:1;padding:7px;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;font-size:11px;cursor:pointer;color:var(--muted);font-family:inherit">📋 Copiar Lun → todos los días laborables</button>';
+        html += '</div>';
+        return html;
+      })()
 
       // ── Sábado ────────────────────────────────────────────────
       +'<div style="font-size:11px;font-weight:700;color:#e8a020;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">📅 Sábado</div>'
@@ -5558,7 +5780,7 @@ function paAdminConfig(content) {
       +'</label></div>'
 
       +'<div style="display:flex;gap:8px">'
-      +'<button onclick="paGuardarHorEmp(\''+emp.id+'\',\''+emp.nombre+'\')" style="flex:2;padding:8px;background:#388bfd;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">💾 Guardar</button>'
+      +'<button onclick="paGuardarHorDias(\''+emp.id+'\',\''+emp.nombre+'\')" style="flex:2;padding:8px;background:#388bfd;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">💾 Guardar</button>'
       +'<button onclick="paBorrarHorEmp(\''+emp.id+'\')" style="flex:1;padding:8px;background:rgba(248,81,73,.1);color:#f85149;border:1px solid rgba(248,81,73,.3);border-radius:8px;font-size:12px;cursor:pointer;font-family:inherit">✕ Quitar</button>'
       +'</div>'
       +'</div></div>';
@@ -5668,6 +5890,67 @@ function paGuardarHorariosRol() {
   }, { merge: true }).then(function(){
     paToast('✅ Horarios por rol guardados');
   }).catch(function(e){ paToast('Error: '+e.message, true); });
+}
+
+
+// ── Horario por día del empleado ──────────────────────────────
+
+function _paTogHorDia(empId, dia) {
+  var tid = 'hd_'+empId+'_'+dia;
+  var checked = (document.getElementById(tid+'_trab')||{}).checked;
+  ['_ent','_sal','_tol','_alm','_tipo'].forEach(function(suf){
+    var el = document.getElementById(tid+suf);
+    if (!el) return;
+    el.disabled = !checked;
+    el.style.opacity = checked ? '1' : '0.4';
+  });
+}
+
+function paGuardarHorDias(empId, empNombre) {
+  var dias = {};
+  var DIAS = [1,2,3,4,5,6,0]; // Lun→Dom
+  DIAS.forEach(function(d) {
+    var trabEl  = document.getElementById('hd_'+empId+'_'+d+'_trab');
+    var trabaja = trabEl ? trabEl.checked : false;
+    if (!trabaja) {
+      dias[String(d)] = { trabaja: false };
+    } else {
+      dias[String(d)] = {
+        trabaja: true,
+        entrada:    (document.getElementById('hd_'+empId+'_'+d+'_ent') ||{}).value || '07:00',
+        salida:     (document.getElementById('hd_'+empId+'_'+d+'_sal') ||{}).value || '17:00',
+        tolerancia: parseInt((document.getElementById('hd_'+empId+'_'+d+'_tol')||{}).value||10)||10,
+        almuerzo:   parseInt((document.getElementById('hd_'+empId+'_'+d+'_alm')||{}).value||60)||60,
+        tipo:       (document.getElementById('hd_'+empId+'_'+d+'_tipo')||{}).value || 'normal'
+      };
+    }
+  });
+  var horEmp = PA.horariosEmp || {};
+  if (!horEmp[empId]) horEmp[empId] = {};
+  horEmp[empId].horarioDias = dias;
+  PA.horariosEmp = horEmp;
+  paDb.collection('paConfig').doc(PA.empresa)
+    .set({ horariosEmp: horEmp }, { merge: true })
+    .then(function(){ paToast('Horario por dia guardado para '+empNombre+' ✅'); })
+    .catch(function(e){ paToast('Error: '+e.message, true); });
+}
+
+function paCopiarHorDias(empId, entrada, salida, tol, alm) {
+  // Copiar a todos los días marcados como laborables
+  [1,2,3,4,5].forEach(function(d) {  // Lun-Vie
+    var trabEl = document.getElementById('hd_'+empId+'_'+d+'_trab');
+    if (trabEl && trabEl.checked) {
+      var entEl = document.getElementById('hd_'+empId+'_'+d+'_ent');
+      var salEl = document.getElementById('hd_'+empId+'_'+d+'_sal');
+      var tolEl = document.getElementById('hd_'+empId+'_'+d+'_tol');
+      var almEl = document.getElementById('hd_'+empId+'_'+d+'_alm');
+      if (entEl) entEl.value = entrada;
+      if (salEl) salEl.value = salida;
+      if (tolEl) tolEl.value = tol;
+      if (almEl) almEl.value = alm;
+    }
+  });
+  paToast('Copiado a todos los dias laborables');
 }
 
 function paGuardarHorEmp(empId, empNombre) {
@@ -5859,7 +6142,51 @@ function paDesvinculDispositivo(empId) {
     })
     .catch(function(e){ paToast('Error: '+e.message, true); });
 }
+// ══════════════════════════════════════════════════════════════
+    // SECCIÓN 0: COMPENSATORIOS DE TURNO (auto-generados)
+    // ══════════════════════════════════════════════════════════════
+    var compAutoList = canjes.filter(function(c){
+      return c.esAutoTurno && c.estado === 'pendiente_compensatorio';
+    });
 
+    if (compAutoList.length > 0) {
+      html += '<div style="background:rgba(0,107,63,.08);border:1.5px solid rgba(0,107,63,.25);'
+        +'border-radius:14px;padding:14px;margin-bottom:16px">';
+      html += '<div style="font-size:11px;font-weight:700;color:#006B3F;text-transform:uppercase;'
+        +'letter-spacing:.6px;margin-bottom:10px">🗓️ Compensatorios de turno pendientes ('+compAutoList.length+')</div>';
+      html += '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">'
+        +'Generados automáticamente al registrar salida en días de turno. Aprueba para acreditar el día libre al empleado.</div>';
+      compAutoList.forEach(function(c) {
+        var colorComp = c.compensaEn==='friday' ? '#B45309' : '#006B3F';
+        var labelComp = c.compensaEn==='friday' ? '→ compensa Viernes' : '→ día libre a elegir';
+        html += '<div style="background:var(--surface);border:1.5px solid rgba(0,107,63,.2);'
+          +'border-radius:10px;padding:12px;margin-bottom:8px">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">';
+        html += '<div>';
+        html += '<div style="font-weight:700;font-size:13px;color:var(--text)">'+esc(c.empleadoNombre||'—')+'</div>';
+        html += '<div style="font-size:11px;color:var(--muted);margin-top:2px">📌 '+esc(c.fechaOrigen||'—')
+          +' · '+(c.tipoTurno==='turno-viernes'?'Turno sábado tarde':'Turno domingo')+'</div>';
+        html += '<div style="font-size:10px;color:var(--muted);margin-top:2px">'+c.folio+'</div>';
+        html += '</div>';
+        html += '<span style="background:'+colorComp+'18;color:'+colorComp+';border:1px solid '
+          +colorComp+'40;border-radius:20px;padding:2px 9px;font-size:10px;font-weight:700">'
+          +labelComp+'</span>';
+        html += '</div>';
+        html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
+        html += '<button onclick="paAprobarCompensatorioTurno(\''+c.id+'\',\''+esc(c.empleadoNombre||'')+'\')"'
+          +' style="padding:8px;background:#006B3F;color:#fff;border:none;border-radius:8px;'
+          +'font-weight:700;font-size:12px;cursor:pointer;font-family:inherit">✓ Aprobar</button>';
+        html += '<button onclick="paRechazarCompensatorioTurno(\''+c.id+'\')"'
+          +' style="padding:8px;background:transparent;color:var(--red);'
+          +'border:2px solid var(--red);border-radius:8px;font-weight:700;font-size:12px;'
+          +'cursor:pointer;font-family:inherit">✗ Rechazar</button>';
+        html += '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    
 function paAdminExtra(content) {
   if (!paDb) { content.innerHTML = '<div style="color:var(--red)">Sin conexión Firebase</div>'; return; }
 
@@ -6034,7 +6361,16 @@ function paAdminExtra(content) {
         html += '<div class="report-row">'
           +'<div><div class="report-emp">'+c.empleadoNombre+'</div>'
           +'<div class="report-detail">📅 '+(c.fechaLibre||'—')+(c.domingoRef?' · Dom ref: '+c.domingoRef:'')+'</div>'
-          +'<div class="report-detail" style="color:var(--muted)">'+origen+' · '+(c.motivo||'—')+'</div></div>'
+          +(ap.concepto
+          ? '<div style="background:rgba(0,0,0,.03);border-left:3px solid '+conf.color+'40;'
+            +'border-radius:0 6px 6px 0;padding:5px 10px;margin:4px 0;font-size:11px">'
+            +(ap.concepto ? '<span style="font-weight:700;color:var(--text)">'
+              +esc(ap.concepto)+'</span>' : '')
+            +(ap.justificacion ? '<br><span style="color:var(--muted)">'
+              +esc(ap.justificacion.substring(0,120))+(ap.justificacion.length>120?'…':'')
+              +'</span>' : '')
+            +'</div>' : '')
+        +'<div class="report-detail" style="color:var(--muted)">'+origen+' · '+(c.motivo||'—')+'</div></div>'
           +'<span style="color:var(--accent);font-size:16px">✅</span></div>';
       });
     }
@@ -7090,6 +7426,38 @@ function paExportarExcel() {
 // ══════════════════════════════════════════════════════
 // ADMIN ACTIONS
 // ══════════════════════════════════════════════════════
+
+// ── Gestión compensatorios de turno ────────────────────────────
+function paAprobarCompensatorioTurno(docId, empNombre) {
+  if (!confirm('¿Aprobar compensatorio de turno para ' + empNombre + '?\n'
+    + 'Se acreditará 1 día libre compensatorio.')) return;
+  paDb.collection('paCanjes').doc(docId).update({
+    estado: 'asignado',
+    aprobadoTs: Date.now()
+  }).then(function() {
+    paToast('✅ Compensatorio aprobado — ' + empNombre + ' tiene 1 día libre disponible');
+    paAdminTab('extra');
+  }).catch(function(e){ paToast('Error: ' + e.message, true); });
+}
+
+function paRechazarCompensatorioTurno(docId) {
+  if (!confirm('¿Rechazar este compensatorio?')) return;
+  paDb.collection('paCanjes').doc(docId).update({
+    estado: 'rechazado',
+    rechazadoTs: Date.now()
+  }).then(function() {
+    paToast('Compensatorio rechazado');
+    paAdminTab('extra');
+  }).catch(function(e){ paToast('Error: ' + e.message, true); });
+}
+
+function paGoSolicitarComp() {
+  paShow('scCanje');
+  // Marcar que está en modo compensatorio
+  PA._modoCompensatorio = true;
+  setTimeout(paInitCanje, 100);
+}
+
 function paAprobarHEBtn(btn) {
   paAprobarHorasExtra(btn.getAttribute('data-id'), btn.getAttribute('data-emp'), parseFloat(btn.getAttribute('data-h')));
 }
@@ -7191,7 +7559,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-26-F';
+var PA_VERSION = 'v2026-06-26-K';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
