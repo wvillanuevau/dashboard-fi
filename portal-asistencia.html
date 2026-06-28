@@ -3667,8 +3667,8 @@ function paConfirmarMarca() {
   var minutosRetraso = 0;
   var estadoPuntualidad = 'a_tiempo';
   if (PA.tipoMarca === 'entrada' && PA.horario) {
-    var _diaSemana = now.getDay();
-  var _eHor = _horarioDeEmp(PA.empleado, _diaSemana);
+    var _diaSemana = new Date(now).getDay();
+    var _eHor = _horarioDeEmp(PA.empleado, _diaSemana);
   // Advertir si el día no está programado (sin bloquear)
   if (_eHor && _eHor.trabaja === false) {
     paToast('⚠️ Este día no esta en tu horario programado. El registro se guardará como jornada extraordinaria.');
@@ -6152,6 +6152,7 @@ function paAdminExtra(content) {
     paDb.collection('paCanjes').where('empresa','==',PA.empresa).get(),
     paDb.collection('paPins').where('empresa','==',PA.empresa).get()
   ]).then(function(results) {
+    try {
     var snapHE = results[0], snapCanjes = results[1], snapPins = results[2];
 
     // ── Datos HE ─────────────────────────────────────────────────
@@ -6496,6 +6497,10 @@ function paAdminAsignarCompensatorio() {
   }).catch(function(e){ paToast('Error: '+e.message,true); });
 }
 
+  } catch(syncErr) {
+    content.innerHTML = '<div style="color:var(--red);padding:20px">Error: ' + syncErr.message + '</div>';
+    console.error('[HE] Error interno:', syncErr);
+  }
   }).catch(function(e) {
     content.innerHTML = '<div style="color:var(--red);padding:20px">Error al cargar datos HE: ' + e.message + '</div>';
   });
@@ -7539,7 +7544,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-26-M';
+var PA_VERSION = 'v2026-06-26-N';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
