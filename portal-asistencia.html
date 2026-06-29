@@ -82,7 +82,7 @@ button:active{opacity:.8;transform:scale(.95)}
   box-shadow:0 0 0 3px rgba(204,0,0,.08),0 4px 12px rgba(204,0,0,.14);
 }
 .landing-logo img{
-  width:280px;height:280px;
+  width:300px;height:300px;
   object-fit:contain;
   mix-blend-mode:multiply;
   display:block;
@@ -6415,6 +6415,8 @@ function paAdminConfig(content) {
     +'<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">📋 Datos del sistema</div>'
     +'<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)"><span style="color:#7d8590;font-size:13px">Centros de costo</span><span style="color:#2ea043;font-size:13px">'+PA.centros.length+' cargados ✓</span></div>'
     +'<div style="display:flex;justify-content:space-between;padding:8px 0"><span style="color:#7d8590;font-size:13px">Empleados</span><span style="color:#2ea043;font-size:13px">'+PA.empleados.length+' cargados ✓</span></div>';
+  content.innerHTML = html;
+
 
   
 
@@ -6796,7 +6798,7 @@ function _paCargarPanelEmp(empId) {
     // HE Pendientes
     if (hePend.length) {
       html += "<div style=\"margin-bottom:8px;border:1.5px solid rgba(232,160,32,.35);border-radius:10px;overflow:hidden\">";
-      html += "<button onclick=\"paTogSection('psHEP'+empId)\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(232,160,32,.08);border:none;cursor:pointer;font-family:inherit\">";
+      html += "<button onclick=\"paTogSection('psHEP"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(232,160,32,.08);border:none;cursor:pointer;font-family:inherit\">";
       html += "<span style=\"font-size:12px;font-weight:700;color:#B45309\">⏳ HE pendientes (" + hePend.length + ")</span>";
       html += "<span id=\"psHEP"+empId+"_ico\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
       html += "<div id=\"psHEP"+empId+"\" style=\"display:none;padding:10px 12px\">";
@@ -6815,7 +6817,7 @@ function _paCargarPanelEmp(empId) {
     // Canjes Pendientes
     if (canjePend.length) {
       html += "<div style=\"margin-bottom:8px;border:1.5px solid rgba(130,80,223,.35);border-radius:10px;overflow:hidden\">";
-      html += "<button onclick=\"paTogSection('psCP'+empId)\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(130,80,223,.07);border:none;cursor:pointer;font-family:inherit\">";
+      html += "<button onclick=\"paTogSection('psCP"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(130,80,223,.07);border:none;cursor:pointer;font-family:inherit\">";
       html += "<span style=\"font-size:12px;font-weight:700;color:#8250DF\">🔄 Canjes pendientes (" + canjePend.length + ")</span>";
       html += "<span id=\"psCP"+empId+"_ico\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
       html += "<div id=\"psCP"+empId+"\" style=\"display:none;padding:10px 12px\">";
@@ -6839,7 +6841,7 @@ function _paCargarPanelEmp(empId) {
     // Incapacidades
     if (incPend.length) {
       html += "<div style=\"margin-bottom:8px;border:1.5px solid rgba(9,105,218,.35);border-radius:10px;overflow:hidden\">";
-      html += "<button onclick=\"paTogSection('psINC'+empId)\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(9,105,218,.07);border:none;cursor:pointer;font-family:inherit\">";
+      html += "<button onclick=\"paTogSection('psINC"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(9,105,218,.07);border:none;cursor:pointer;font-family:inherit\">";
       html += "<span style=\"font-size:12px;font-weight:700;color:#0969DA\">🏥 Incapacidades pendientes (" + incPend.length + ")</span>";
       html += "<span id=\"psINC"+empId+"_ico\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
       html += "<div id=\"psINC"+empId+"\" style=\"display:none;padding:10px 12px\">";
@@ -6932,7 +6934,7 @@ function _paCargarPanelEmp(empId) {
     var d7    = hace7.getFullYear()+"-"+String(hace7.getMonth()+1).padStart(2,"0")+"-"+String(hace7.getDate()).padStart(2,"0");
 
     html += "<div style=\"margin-top:8px;border:1.5px solid #C4956A;border-radius:10px;overflow:hidden\">";
-    html += "<button onclick=\"paTogSection('psHIST'+empId)\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(180,83,9,.06);border:none;cursor:pointer;font-family:inherit\">";
+    html += "<button onclick=\"paTogSection('psHIST"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(180,83,9,.06);border:none;cursor:pointer;font-family:inherit\">";
     html += "<span style=\"font-size:12px;font-weight:700;color:#B45309\">📋 Historial de Marcaciones (" + marcs.length + ")</span>";
     html += "<span id=\"psHIST"+empId+"_ico\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
     html += "<div id=\"psHIST"+empId+"\" style=\"display:none;padding:10px 12px\">";
@@ -8137,7 +8139,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-27-U';
+var PA_VERSION = 'v2026-06-28-B';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
@@ -8447,7 +8449,7 @@ window.addEventListener('DOMContentLoaded', function() {
   paShow('scLanding');
 });
 </script>
-<div id="versionBadge" style="position:fixed;bottom:6px;right:8px;z-index:9000;font-size:9px;color:rgba(204,0,0,.5);pointer-events:none;font-family:monospace;letter-spacing:.5px"></div>
+<div id="versionBadge" style="position:fixed;bottom:8px;left:50%;transform:translateX(-50%);z-index:9000;font-size:9px;color:rgba(204,0,0,.5);pointer-events:none;font-family:monospace;letter-spacing:.5px"></div>
 <script>
   // Populate version badge once DOM is ready
   (function(){
