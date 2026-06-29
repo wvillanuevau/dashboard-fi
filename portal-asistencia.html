@@ -1595,6 +1595,7 @@ function paLoadEmpleados(callback) {
         if (cfg.adminPin)     PA.adminPin     = cfg.adminPin;
         // Horarios individuales y por rol — necesarios para cálculo de tardanzas
         if (cfg.horariosEmp)  PA.horariosEmp  = cfg.horariosEmp;
+        if (cfg.periodoHE)    PA.periodoHE    = cfg.periodoHE;
         if (cfg.horariosRol)  PA.horariosRol  = cfg.horariosRol;
       }
       if (!PA.feriados.length) {
@@ -4596,6 +4597,28 @@ function paCloseCanjeModal() {
   if (m) m.remove();
 }
 
+
+function paRevertirCanje(canjeId, empId, horasHE, tipoHE) {
+  var tipoLabel = tipoHE === 'nocturna' ? 'nocturnas' : 'diurnas';
+  if (!confirm('\u00bfRevertir este canje?\nSe restaurar\xe1n ' + horasHE + 'h HE ' + tipoLabel + ' al saldo del empleado.')) return;
+  paDb.collection('paCanjes').doc(canjeId).update({ estado: 'revertido', fechaReversion: paHoy(), revertidoPor: 'admin' })
+    .then(function() {
+      // Restaurar horasExtraAcum en paPins
+      var existDocId = PA._pinsDocMap && PA._pinsDocMap[empId];
+      if (existDocId) {
+        return paDb.collection('paPins').doc(existDocId).get().then(function(doc) {
+          if (!doc.exists) return;
+          var acum = parseFloat(doc.data().horasExtraAcum || 0);
+          return paDb.collection('paPins').doc(existDocId).update({ horasExtraAcum: acum + parseFloat(horasHE) });
+        });
+      }
+    }).then(function() {
+      paToast('\u2705 Canje revertido — ' + horasHE + 'h ' + tipoLabel + ' restauradas al saldo');
+      var panelContent = document.getElementById('empPanelContent_' + empId);
+      if (panelContent) { panelContent.innerHTML = '<div class="spinner"></div>'; setTimeout(function(){ _paCargarPanelEmp(empId); }, 400); }
+    }).catch(function(e){ paToast('Error: ' + e.message, true); });
+}
+
 function paCanjearHorasExtra(empId, empNombre, saldoDiurna, saldoNocturna) {
   var old = document.getElementById('modalCanjeHE');
   if (old) old.remove();
@@ -6264,7 +6287,47 @@ function paAdminConfig(content) {
     +'<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)"><span style="color:#7d8590;font-size:13px">Centros de costo</span><span style="color:#2ea043;font-size:13px">'+PA.centros.length+' cargados ✓</span></div>'
     +'<div style="display:flex;justify-content:space-between;padding:8px 0"><span style="color:#7d8590;font-size:13px">Empleados</span><span style="color:#2ea043;font-size:13px">'+PA.empleados.length+' cargados ✓</span></div>';
 
-  content.innerHTML = html;
+  
+  // ── Sección Período de HE ─────────────────────────────────────
+  var pHE    = PA.periodoHE || {};
+  var phDesde = pHE.desde || '';
+  var phHasta = pHE.hasta || '';
+  // Calcular quincena actual como sugerencia
+  var ahora = new Date();
+  var dia   = ahora.getDate();
+  var mes   = ahora.getMonth()+1;
+  var anio  = ahora.getFullYear();
+  var defDesde, defHasta;
+  if (dia <= 15) {
+    defDesde = anio+'-'+String(mes).padStart(2,'0')+'-01';
+    defHasta = anio+'-'+String(mes).padStart(2,'0')+'-15';
+  } else {
+    var lastDay = new Date(anio, mes, 0).getDate();
+    defDesde = anio+'-'+String(mes).padStart(2,'0')+'-16';
+    defHasta = anio+'-'+String(mes).padStart(2,'0')+'-'+lastDay;
+  }
+
+  html += '<div style="background:var(--surface);border:2px solid rgba(180,83,9,.3);border-radius:14px;padding:16px;margin-top:16px">'
+    +'<div style="font-size:11px;font-weight:700;color:#B45309;text-transform:uppercase;letter-spacing:.6px;margin-bottom:12px">📅 Período de Horas Extra</div>'
+    +'<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Las HE de cada empleado se contabilizan solo dentro del período activo. Cámbialo cada quincena.</div>'
+    +(phDesde ? '<div style="background:rgba(180,83,9,.08);border:1.5px solid rgba(180,83,9,.25);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12px">'
+      +'📌 Período actual: <strong>'+phDesde+'</strong> al <strong>'+phHasta+'</strong></div>' : '')
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">'
+      +'<div style="flex:1;min-width:110px">'
+        +'<label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:4px">DESDE</label>'
+        +'<input type="date" id="periodoHEDesde" value="'+(phDesde||defDesde)+'" style="width:100%;padding:8px;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit">'
+      +'</div>'
+      +'<div style="flex:1;min-width:110px">'
+        +'<label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:4px">HASTA</label>'
+        +'<input type="date" id="periodoHEHasta" value="'+(phHasta||defHasta)+'" style="width:100%;padding:8px;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit">'
+      +'</div>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px">'
+      +'<button onclick="paGuardarPeriodoHE()" style="flex:2;padding:11px;background:#B45309;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">💾 Guardar período</button>'
+      +'<button onclick="paQuincenaSig()" style="flex:1;padding:11px;background:rgba(180,83,9,.1);border:1.5px solid rgba(180,83,9,.3);color:#B45309;border-radius:10px;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit">⏭ Sig. quincena</button>'
+    +'</div>'
+    +'</div>';
+content.innerHTML = html;
 }
 
 function paToglHorRol(id) {
@@ -6557,7 +6620,14 @@ function _paCargarPanelEmp(empId) {
     var marcs  = []; res[3].forEach(function(d){ marcs.push(Object.assign({id:d.id},d.data())); });
 
     var hePend   = heAll.filter(function(h){ return h.estado==="pendiente"; });
-    var heApprob = heAll.filter(function(h){ return h.estado==="aprobado"; });
+    // Filtrar HE aprobadas por el período activo definido en config
+    var pHE = PA.periodoHE || {};
+    var heApprob = heAll.filter(function(h) {
+      if (h.estado !== "aprobado") return false;
+      if (pHE.desde && h.fecha && h.fecha < pHE.desde) return false;
+      if (pHE.hasta && h.fecha && h.fecha > pHE.hasta) return false;
+      return true;
+    });
     var heDiur   = heApprob.reduce(function(s,h){ return s+(h.tipo==="diurna"?h.horas:0); },0);
     var heNoct   = heApprob.reduce(function(s,h){ return s+(h.tipo==="nocturna"?h.horas:0); },0);
     var canjePend   = canjes.filter(function(c){ return c.estado==="pendiente_aprobacion"||c.estado==="pendiente_compensatorio"; });
@@ -6577,7 +6647,10 @@ function _paCargarPanelEmp(empId) {
 
     // HE Saldo
     html += "<div style=\"background:rgba(0,107,63,.10);border:2px solid rgba(0,107,63,.40);border-radius:10px;padding:10px 12px;margin-bottom:10px\">";
-    html += "<div style=\"font-size:10px;font-weight:700;color:#006B3F;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px\">⏰ Saldo Horas Extra disponibles</div>";
+    var pHE2 = PA.periodoHE || {};
+    var periodoLabel = pHE2.desde ? pHE2.desde + ' al ' + pHE2.hasta : 'Todas las fechas';
+    html += "<div style=\"font-size:10px;font-weight:700;color:#006B3F;text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px\">⏰ Saldo HE</div>";
+    html += "<div style=\"font-size:10px;color:var(--muted);margin-bottom:6px\">📅 Período: " + periodoLabel + "</div>";
     html += "<div style=\"display:flex;gap:14px;font-size:13px;margin-bottom:4px\">";
     html += "<span>☀️ Diurna: <strong>" + heDiurNeto.toFixed(2) + "h</strong><span style=\"font-size:10px;color:var(--muted)\"> × 2 = " + (heDiurNeto*2).toFixed(1) + "h libres</span></span>";
     html += "</div>";
@@ -6638,6 +6711,40 @@ function _paCargarPanelEmp(empId) {
     html += "<button class=\"_btn-asign-he\" data-eid=\"" + empId + "\" data-nom=\"" + esc(emp.nombre||"") + "\" data-diurna=\"" + heDiurNeto.toFixed(2) + "\" data-nocturna=\"" + heNoctNeto.toFixed(2) + "\" style=\"flex:1;min-width:120px;padding:9px;background:rgba(0,107,63,.1);border:1.5px solid rgba(0,107,63,.25);border-radius:9px;color:#006B3F;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit\">🔄 Canjear HE</button>";
     html += "<button class=\"_btn-asign-comp\" data-eid=\"" + empId + "\" data-nom=\"" + esc(emp.nombre||"") + "\" style=\"flex:1;min-width:120px;padding:9px;background:rgba(180,83,9,.08);border:1.5px solid rgba(180,83,9,.25);border-radius:9px;color:#B45309;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit\">🔄 Asignar compensatorio</button>";
     html += "</div></div>";
+
+    // ── Gestión de canjes ejecutados ─────────────────────────────
+    var canjesEjec = canjes.filter(function(c){ return c.tipo==='canje_he' && c.estado==='ejecutado'; });
+    if (canjesEjec.length || canjePend.length) {
+      html += "<div style=\"margin-top:12px;border-top:2px solid #C4956A;padding-top:12px\">";
+      html += "<div style=\"font-weight:700;font-size:12px;color:var(--text);margin-bottom:8px\">🔄 Gestión de Canjes (" + (canjesEjec.length+canjePend.length) + ")</div>";
+
+      // Canjes ejecutados — con botón Revertir
+      canjesEjec.forEach(function(c) {
+        var mult = c.multiplicador || (c.tipo_he==='nocturna' ? 2.25 : 2);
+        var tipoIcon = c.tipo_he==='nocturna' ? '🌙' : '☀️';
+        html += "<div style=\"background:var(--surface2);border:1.5px solid #C4956A;border-radius:10px;padding:10px;margin-bottom:7px\">";
+        html += "<div style=\"display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px\">";
+        html += "<div>";
+        html += "<div style=\"font-weight:700;font-size:12px;color:var(--text)\">" + tipoIcon + " Canje HE " + (c.tipo_he==='nocturna'?'Nocturna':'Diurna') + " × " + mult + "</div>";
+        html += "<div style=\"font-size:11px;color:var(--muted)\">" + (c.fechaEjecucion||c.fecha||'—') + " · " + (c.horasHE||0).toFixed(2) + "h HE → " + (c.horasLibres||0).toFixed(2) + "h libres</div>";
+        html += "</div>";
+        html += "<span style=\"background:rgba(0,107,63,.12);color:#006B3F;border-radius:20px;padding:2px 8px;font-size:10px;font-weight:700\">Ejecutado</span>";
+        html += "</div>";
+        html += "<button class=\"_btn-revert-canje\" data-cid=\"" + c.id + "\" data-eid=\"" + empId + "\" data-horas=\"" + (c.horasHE||0) + "\" data-tipo=\"" + (c.tipo_he||'diurna') + "\"";
+        html += " style=\"width:100%;padding:8px;background:transparent;color:#B45309;border:1.5px solid rgba(180,83,9,.4);border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit\">↩ Revertir canje</button>";
+        html += "</div>";
+      });
+
+      // Canjes pendientes informativos
+      if (canjePend.length) {
+        canjePend.filter(function(c){ return c.tipo==='canje_he'; }).forEach(function(c) {
+          html += "<div style=\"background:rgba(180,83,9,.06);border:1.5px solid rgba(180,83,9,.2);border-radius:10px;padding:10px;margin-bottom:7px\">";
+          html += "<div style=\"font-size:12px;color:var(--muted)\">⏳ Canje pendiente · " + (c.fecha||'—') + "</div>";
+          html += "</div>";
+        });
+      }
+      html += "</div>";
+    }
 
     // Historial con date range picker y tabla completa
     var hoy7  = paHoy();
@@ -6837,6 +6944,43 @@ function paAddFeriado() {
 function paDelFeriado(btn, fecha) {
   PA.feriados = PA.feriados.filter(function(f){ return f !== fecha; });
   paAdminConfig(document.getElementById('paAdminContent')||document.getElementById('adminContent'));
+}
+
+
+function paGuardarPeriodoHE() {
+  var desde = (document.getElementById('periodoHEDesde')||{}).value;
+  var hasta = (document.getElementById('periodoHEHasta')||{}).value;
+  if (!desde || !hasta) { paToast('Selecciona ambas fechas', true); return; }
+  if (desde > hasta) { paToast('La fecha inicio debe ser antes que la final', true); return; }
+  var periodo = { desde: desde, hasta: hasta };
+  paDb.collection('paConfig').doc(PA.empresa).set({ periodoHE: periodo }, { merge: true })
+    .then(function() {
+      PA.periodoHE = periodo;
+      paToast('\u2705 Per\xedodo guardado: ' + desde + ' al ' + hasta);
+      paAdminTab('config');
+    }).catch(function(e){ paToast('Error: ' + e.message, true); });
+}
+
+function paQuincenaSig() {
+  var hastaEl = document.getElementById('periodoHEHasta');
+  var desdeEl = document.getElementById('periodoHEDesde');
+  if (!hastaEl || !desdeEl) return;
+  var hasta = new Date(hastaEl.value + 'T12:00:00');
+  hasta.setDate(hasta.getDate() + 1); // día siguiente al hasta = nuevo desde
+  var nuevoDesde = hasta;
+  var mes = hasta.getMonth();
+  var anio = hasta.getFullYear();
+  var dia = hasta.getDate();
+  var nuevoHasta;
+  if (dia <= 15) {
+    nuevoHasta = new Date(anio, mes, 15);
+  } else {
+    nuevoHasta = new Date(anio, mes+1, 0); // último día del mes
+  }
+  var fmt = function(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
+  desdeEl.value = fmt(nuevoDesde);
+  hastaEl.value = fmt(nuevoHasta);
+  paToast('\u2195 Siguiente quincena: ' + fmt(nuevoDesde) + ' al ' + fmt(nuevoHasta));
 }
 
 function paGuardarFeriados() {
@@ -7796,7 +7940,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-27-J';
+var PA_VERSION = 'v2026-06-27-L';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
@@ -7986,6 +8130,7 @@ window.addEventListener('DOMContentLoaded', function() {
     else if ((b=ev.target.closest('._btn-asign-comp')))  { paAdminAsignarCompensatorio(b.getAttribute('data-eid')||'', b.getAttribute('data-nom')||''); }
     else if ((b=ev.target.closest('._btn-asign-he')))    { paAdminAsignarCompensatorio(b.getAttribute('data-eid')||'', b.getAttribute('data-nom')||''); }
     else if ((b=ev.target.closest('._btn-buscar-hist')))  { _paBuscarHistEmp(b.getAttribute('data-eid')||''); }
+    else if ((b=ev.target.closest('._btn-revert-canje'))) { paRevertirCanje(b.getAttribute('data-cid')||'',b.getAttribute('data-eid')||'',parseFloat(b.getAttribute('data-horas')||0),b.getAttribute('data-tipo')||'diurna'); }
     else if ((b=ev.target.closest('._btn-ver-marc')))     { paVerMarcacion(b.getAttribute('data-mid')||''); }
     else if ((b=ev.target.closest('._btn-edit-marc')))    { paEditarMarcacion(b.getAttribute('data-mid')||''); }
     else if ((b=ev.target.closest('._btn-del-marc')))     { paEliminarMarcacion(b.getAttribute('data-mid')||''); }
