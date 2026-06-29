@@ -4570,6 +4570,181 @@ function paVerFotoInc(incId) {
 // Si 'btn' viene de dentro de un panel, refresca ese panel.
 // Si no, navega a la pestaña por defecto.
 
+
+// ══════════════════════════════════════════════════════════════════
+// CANJE DE HORAS EXTRA — modal admin para ejecutar canje
+//   Diurna: 1 HE = 2 horas libres
+//   Nocturna: 1 HE = 2.25 horas libres
+// ══════════════════════════════════════════════════════════════════
+
+function paCloseCanjeModal() {
+  var m = document.getElementById('modalCanjeHE');
+  if (m) m.remove();
+}
+
+function paCanjearHorasExtra(empId, empNombre, saldoDiurna, saldoNocturna) {
+  var old = document.getElementById('modalCanjeHE');
+  if (old) old.remove();
+  var tieneDiurna = saldoDiurna > 0;
+  var tieneNoct   = saldoNocturna > 0;
+  var tipoInicial = tieneDiurna ? 'diurna' : 'nocturna';
+
+  var modal = document.createElement('div');
+  modal.id = 'modalCanjeHE';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:700;display:flex;align-items:flex-end;justify-content:center';
+  modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:var(--surface);border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:24px 20px 32px';
+
+  box.innerHTML =
+    '<div onclick="paCloseCanjeModal()" style="width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 18px;cursor:pointer"></div>'
+    +'<div style="font-size:17px;font-weight:800;color:var(--text);margin-bottom:4px">🔄 Canjear Horas Extra</div>'
+    +'<div style="font-size:13px;color:var(--muted);margin-bottom:18px">'+esc(empNombre)+'</div>'
+    +'<div style="background:rgba(0,107,63,.08);border:1.5px solid rgba(0,107,63,.3);border-radius:10px;padding:12px;margin-bottom:16px">'
+      +'<div style="font-size:11px;font-weight:700;color:#006B3F;margin-bottom:8px">SALDO DISPONIBLE</div>'
+      +'<div style="display:flex;gap:20px">'
+        +'<div><div style="font-size:20px;font-weight:800;color:var(--text)">'+saldoDiurna.toFixed(2)+'h</div>'
+        +'<div style="font-size:10px;color:var(--muted)">☀️ Diurna × 2</div></div>'
+        +'<div><div style="font-size:20px;font-weight:800;color:var(--text)">'+saldoNocturna.toFixed(2)+'h</div>'
+        +'<div style="font-size:10px;color:var(--muted)">🌙 Nocturna × 2.25</div></div>'
+      +'</div></div>'
+    +'<div style="margin-bottom:14px">'
+      +'<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:8px">TIPO DE HE A CANJEAR</div>'
+      +'<div style="display:flex;gap:8px">'
+        +'<label id="lblDiurna" style="flex:1;display:flex;align-items:center;gap:8px;padding:10px;background:var(--surface2);border:2px solid '+(tipoInicial==='diurna'?'#006B3F':'var(--border)')+';border-radius:10px;cursor:pointer">'
+          +'<input type="radio" name="canjeHETipo" value="diurna" '+(tipoInicial==='diurna'?'checked ':'')+(tieneDiurna?'':' disabled ')+'onchange="paCanjeHEUpdate()" style="accent-color:#006B3F">'
+          +'<div><div style="font-weight:700;font-size:13px">☀️ Diurna</div><div style="font-size:10px;color:var(--muted)">'+saldoDiurna.toFixed(2)+'h disponibles × 2</div></div>'
+        +'</label>'
+        +'<label id="lblNocturna" style="flex:1;display:flex;align-items:center;gap:8px;padding:10px;background:var(--surface2);border:2px solid '+(tipoInicial==='nocturna'?'#006B3F':'var(--border)')+';border-radius:10px;cursor:pointer">'
+          +'<input type="radio" name="canjeHETipo" value="nocturna" '+(tipoInicial==='nocturna'?'checked ':'')+(tieneNoct?'':' disabled ')+'onchange="paCanjeHEUpdate()" style="accent-color:#006B3F">'
+          +'<div><div style="font-weight:700;font-size:13px">🌙 Nocturna</div><div style="font-size:10px;color:var(--muted)">'+saldoNocturna.toFixed(2)+'h disponibles × 2.25</div></div>'
+        +'</label>'
+      +'</div></div>'
+    +'<div style="margin-bottom:14px">'
+      +'<label style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:6px">HORAS HE A CANJEAR</label>'
+      +'<input type="number" id="canjeHEHoras" min="0.5" step="0.5" placeholder="Ej. 4" oninput="paCanjeHEUpdate()"'
+      +' style="width:100%;padding:12px;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-size:16px;font-family:inherit;box-sizing:border-box">'
+    +'</div>'
+    +'<div id="canjeHECalc" style="background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;padding:12px;margin-bottom:18px;text-align:center">'
+      +'<div style="font-size:12px;color:var(--muted)">Ingresa las horas para ver el cálculo</div>'
+    +'</div>'
+    +'<div style="display:flex;gap:10px">'
+      +'<button onclick="paCloseCanjeModal()" style="flex:1;padding:13px;background:var(--surface2);border:1.5px solid var(--border);border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;color:var(--muted)">Cancelar</button>'
+      +'<button id="btnConfirmarCanje" disabled'
+      +' style="flex:2;padding:13px;background:#006B3F;color:#fff;border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;opacity:.5">Confirmar canje</button>'
+    +'</div>';
+
+  // Bind confirm button (avoids passing empId/saldos as inline strings)
+  box.querySelector('#btnConfirmarCanje').addEventListener('click', function() {
+    paConfirmarCanjeHE(empId, empNombre, saldoDiurna, saldoNocturna);
+  });
+
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+}
+
+// ── Actualiza cálculo en tiempo real ────────────────────────────
+function paCanjeHEUpdate() {
+  var tipoEl = document.querySelector('input[name="canjeHETipo"]:checked');
+  var horasEl = document.getElementById('canjeHEHoras');
+  var calcEl  = document.getElementById('canjeHECalc');
+  var btnEl   = document.getElementById('btnConfirmarCanje');
+  var lblD    = document.getElementById('lblDiurna');
+  var lblN    = document.getElementById('lblNocturna');
+
+  if (!tipoEl || !horasEl || !calcEl) return;
+
+  // Resaltar seleccionado
+  if (lblD) lblD.style.borderColor = tipoEl.value==='diurna' ? '#006B3F' : 'var(--border)';
+  if (lblN) lblN.style.borderColor = tipoEl.value==='nocturna' ? '#006B3F' : 'var(--border)';
+
+  var tipo   = tipoEl.value;
+  var horas  = parseFloat(horasEl.value) || 0;
+  var mult   = tipo === 'diurna' ? 2 : 2.25;
+  var libres = horas * mult;
+
+  if (horas <= 0) {
+    calcEl.innerHTML = '<div style="font-size:12px;color:var(--muted)">Ingresa las horas para ver el cálculo</div>';
+    if (btnEl) { btnEl.disabled=true; btnEl.style.opacity='0.5'; }
+    return;
+  }
+
+  var tipoLabel = tipo === 'diurna' ? '☀️ diurna' : '🌙 nocturna';
+  calcEl.innerHTML =
+    '<div style="font-size:13px;color:var(--muted);margin-bottom:6px">' + horas.toFixed(2) + ' HE '+tipoLabel+' × '+mult+' =</div>'
+    + '<div style="font-size:22px;font-weight:800;color:#006B3F">' + libres.toFixed(2) + ' horas libres</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-top:4px">El empleado tiene ' + libres.toFixed(1) + 'h de descanso disponibles</div>';
+
+  if (btnEl) { btnEl.disabled=false; btnEl.style.opacity='1'; }
+}
+
+// ── Confirma y guarda el canje ───────────────────────────────────
+function paConfirmarCanjeHE(empId, empNombre, saldoDiurna, saldoNocturna) {
+  var tipoEl = document.querySelector('input[name="canjeHETipo"]:checked');
+  var horasEl = document.getElementById('canjeHEHoras');
+  if (!tipoEl || !horasEl) return;
+
+  var tipo   = tipoEl.value;
+  var horas  = parseFloat(horasEl.value) || 0;
+  var mult   = tipo === 'diurna' ? 2 : 2.25;
+  var libres = parseFloat((horas * mult).toFixed(2));
+  var saldo  = tipo === 'diurna' ? saldoDiurna : saldoNocturna;
+
+  if (horas <= 0) { paToast('Ingresa las horas a canjear', true); return; }
+  if (horas > saldo) {
+    paToast('Saldo insuficiente. Disponible: ' + saldo.toFixed(2) + 'h ' + (tipo==='diurna'?'diurnas':'nocturnas'), true);
+    return;
+  }
+
+  var confBtn = document.getElementById('btnConfirmarCanje');
+  if (confBtn) { confBtn.disabled=true; confBtn.textContent='Procesando...'; }
+
+  var tipoLabel = tipo === 'diurna' ? 'Diurna ×2' : 'Nocturna ×2.25';
+
+  // 1. Crear registro en paCanjes
+  paDb.collection('paCanjes').add({
+    empresa:        PA.empresa,
+    empleadoId:     empId,
+    empleadoNombre: empNombre,
+    tipo:           'canje_he',
+    tipo_he:        tipo,
+    multiplicador:  mult,
+    horasHE:        horas,
+    horasLibres:    libres,
+    motivo:         'Canje de HE ' + tipoLabel + ' — ' + horas.toFixed(2) + 'h HE = ' + libres.toFixed(2) + 'h libres',
+    estado:         'ejecutado',
+    fechaEjecucion: paHoy(),
+    ts:             Date.now()
+  }).then(function() {
+    // 2. Descontar de paPins
+    var existDocId = PA._pinsDocMap && PA._pinsDocMap[empId];
+    if (existDocId) {
+      return paDb.collection('paPins').doc(existDocId).get().then(function(doc) {
+        if (!doc.exists) return;
+        var d = doc.data();
+        var updPins = {};
+        var acum = parseFloat(d.horasExtraAcum || 0);
+        updPins.horasExtraAcum = Math.max(0, acum - horas);
+        return paDb.collection('paPins').doc(existDocId).update(updPins);
+      });
+    }
+  }).then(function() {
+    paToast('\u2705 Canje realizado: ' + horas.toFixed(2) + 'h HE ' + (tipo==='diurna'?'diurnas':'nocturnas') + ' → ' + libres.toFixed(2) + 'h libres');
+    var modal = document.getElementById('modalCanjeHE');
+    if (modal) modal.remove();
+    // Refrescar panel del empleado
+    var panelContent = document.getElementById('empPanelContent_' + empId);
+    if (panelContent) {
+      panelContent.innerHTML = '<div class="spinner"></div>';
+      setTimeout(function(){ _paCargarPanelEmp(empId); }, 400);
+    }
+  }).catch(function(e) {
+    paToast('Error: ' + e.message, true);
+    if (confBtn) { confBtn.disabled=false; confBtn.textContent='Confirmar canje'; }
+  });
+}
+
 function paAdminAsignarCompensatorio(empId, empNombre) {
   var h = prompt('Horas extra a asignar a ' + (empNombre||empId) + ':', '0');
   if (!h || isNaN(parseFloat(h))) return;
@@ -6371,7 +6546,14 @@ function _paCargarPanelEmp(empId) {
     var heApprob = heAll.filter(function(h){ return h.estado==="aprobado"; });
     var heDiur   = heApprob.reduce(function(s,h){ return s+(h.tipo==="diurna"?h.horas:0); },0);
     var heNoct   = heApprob.reduce(function(s,h){ return s+(h.tipo==="nocturna"?h.horas:0); },0);
-    var canjePend= canjes.filter(function(c){ return c.estado==="pendiente_aprobacion"||c.estado==="pendiente_compensatorio"; });
+    var canjePend   = canjes.filter(function(c){ return c.estado==="pendiente_aprobacion"||c.estado==="pendiente_compensatorio"; });
+    // Canjes HE ya ejecutados — restar del saldo
+    var canjesDiurUsados = canjes.filter(function(c){ return c.tipo_he==="diurna" && c.estado==="ejecutado"; })
+                                 .reduce(function(s,c){ return s+(c.horasHE||0); },0);
+    var canjesNocUsados  = canjes.filter(function(c){ return c.tipo_he==="nocturna" && c.estado==="ejecutado"; })
+                                 .reduce(function(s,c){ return s+(c.horasHE||0); },0);
+    var heDiurNeto = Math.max(0, heDiur - canjesDiurUsados);
+    var heNoctNeto = Math.max(0, heNoct - canjesNocUsados);
     var incPend  = incaps.filter(function(i){ return i.estado==="pendiente"; });
     marcs.sort(function(a,b){ return (b.fecha||"").localeCompare(a.fecha||""); });
     var marcsRecent = marcs.slice(0,10);
@@ -6381,10 +6563,12 @@ function _paCargarPanelEmp(empId) {
 
     // HE Saldo
     html += "<div style=\"background:rgba(0,107,63,.10);border:2px solid rgba(0,107,63,.40);border-radius:10px;padding:10px 12px;margin-bottom:10px\">";
-    html += "<div style=\"font-size:10px;font-weight:700;color:#006B3F;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px\">⏰ Saldo Horas Extra</div>";
+    html += "<div style=\"font-size:10px;font-weight:700;color:#006B3F;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px\">⏰ Saldo Horas Extra disponibles</div>";
+    html += "<div style=\"display:flex;gap:14px;font-size:13px;margin-bottom:4px\">";
+    html += "<span>☀️ Diurna: <strong>" + heDiurNeto.toFixed(2) + "h</strong><span style=\"font-size:10px;color:var(--muted)\"> × 2 = " + (heDiurNeto*2).toFixed(1) + "h libres</span></span>";
+    html += "</div>";
     html += "<div style=\"display:flex;gap:14px;font-size:13px\">";
-    html += "<span>☀️ Diurna: <strong>" + heDiur.toFixed(2) + "h</strong></span>";
-    html += "<span>🌙 Nocturna: <strong>" + heNoct.toFixed(2) + "h</strong></span>";
+    html += "<span>🌙 Nocturna: <strong>" + heNoctNeto.toFixed(2) + "h</strong><span style=\"font-size:10px;color:var(--muted)\"> × 2.25 = " + (heNoctNeto*2.25).toFixed(1) + "h libres</span></span>";
     html += "</div></div>";
 
     // HE Pendientes
@@ -6437,7 +6621,7 @@ function _paCargarPanelEmp(empId) {
     html += "<div style=\"margin-top:10px;padding:10px 12px;background:var(--doughDk);border:1.5px solid var(--border);border-radius:10px\">";
     html += "<div style=\"font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:8px\">✋ Asignación manual</div>";
     html += "<div style=\"display:flex;gap:8px;flex-wrap:wrap\">";
-    html += "<button class=\"_btn-asign-he\" data-eid=\"" + empId + "\" data-nom=\"" + esc(emp.nombre||"") + "\" style=\"flex:1;min-width:120px;padding:9px;background:rgba(0,107,63,.1);border:1.5px solid rgba(0,107,63,.25);border-radius:9px;color:#006B3F;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit\">⏰ Asignar HE</button>";
+    html += "<button class=\"_btn-asign-he\" data-eid=\"" + empId + "\" data-nom=\"" + esc(emp.nombre||"") + "\" data-diurna=\"" + heDiurNeto.toFixed(2) + "\" data-nocturna=\"" + heNoctNeto.toFixed(2) + "\" style=\"flex:1;min-width:120px;padding:9px;background:rgba(0,107,63,.1);border:1.5px solid rgba(0,107,63,.25);border-radius:9px;color:#006B3F;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit\">🔄 Canjear HE</button>";
     html += "<button class=\"_btn-asign-comp\" data-eid=\"" + empId + "\" data-nom=\"" + esc(emp.nombre||"") + "\" style=\"flex:1;min-width:120px;padding:9px;background:rgba(180,83,9,.08);border:1.5px solid rgba(180,83,9,.25);border-radius:9px;color:#B45309;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit\">🔄 Asignar compensatorio</button>";
     html += "</div></div>";
 
@@ -7598,7 +7782,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-27-F';
+var PA_VERSION = 'v2026-06-27-I';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
@@ -7784,7 +7968,7 @@ window.addEventListener('DOMContentLoaded', function() {
     else if ((b=ev.target.closest('._btn-rechaz-canje')))  { paRechazarCanje(b.getAttribute('data-cid')||'', b); }
     else if ((b=ev.target.closest('._btn-aprob-inc')))   { paAprobarInc(b.getAttribute('data-iid')||'', b); }
     else if ((b=ev.target.closest('._btn-rechaz-inc')))  { paRechazarInc(b.getAttribute('data-iid')||'', b); }
-    else if ((b=ev.target.closest('._btn-asign-he')))    { paAdminAsignarCompensatorio(b.getAttribute('data-eid')||'', b.getAttribute('data-nom')||''); }
+    else if ((b=ev.target.closest('._btn-asign-he')))    { paCanjearHorasExtra(b.getAttribute('data-eid')||'', b.getAttribute('data-nom')||'', parseFloat(b.getAttribute('data-diurna')||0), parseFloat(b.getAttribute('data-nocturna')||0), b); }
     else if ((b=ev.target.closest('._btn-asign-comp')))  { paAdminAsignarCompensatorio(b.getAttribute('data-eid')||'', b.getAttribute('data-nom')||''); }
     else if ((b=ev.target.closest('._btn-asign-he')))    { paAdminAsignarCompensatorio(b.getAttribute('data-eid')||'', b.getAttribute('data-nom')||''); }
     else if ((b=ev.target.closest('._btn-buscar-hist')))  { _paBuscarHistEmp(b.getAttribute('data-eid')||''); }
