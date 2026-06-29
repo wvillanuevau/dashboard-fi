@@ -24,8 +24,8 @@
 :root{
   --bg:#FFF8F0;
   --surface:#FFFFFF;
-  --surface2:#F5EDDF;
-  --border:#E8D5C4;
+  --surface2:#EDE0C8;
+  --border:#C4956A;
   --text:#1A0800;
   --muted:#7A6355;
   --accent:#CC0000;
@@ -317,8 +317,8 @@ button:active{opacity:.8;transform:scale(.95)}
   background:var(--surface);border:1.5px solid var(--border);border-radius:12px;
   padding:12px 14px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;
 }
-.report-emp{font-size:13px;font-weight:600}
-.report-detail{font-size:11px;color:var(--muted);margin-top:2px}
+.report-emp{font-size:14px;font-weight:700;color:var(--text)}
+.report-detail{font-size:12px;color:#5A4535;margin-top:3px;line-height:1.4}
 .report-val{font-size:14px;font-weight:700;color:var(--accent);font-family:'JetBrains Mono',monospace}
 
 /* ── TOAST ─────────────────────────────────────────── */
@@ -851,10 +851,10 @@ button:active{opacity:.8;transform:scale(.95)}
     <div class="header-title">Mi Historial</div>
   </div>
   <div class="tab-bar">
-    <button class="tab-btn active" id="htab_marc" onclick="paHistTab('marc')">📍 Marcaciones</button>
-    <button class="tab-btn" id="htab_extra" onclick="paHistTab('extra')">⏰ Horas extra</button>
-    <button class="tab-btn" id="htab_canje" onclick="paHistTab('canje')">🔄 Canjes</button>
-    <button class="tab-btn" id="htab_vac" onclick="paHistTab('vac')">🏖️ Vacaciones</button>
+    <button class="tab-btn active" id="htab_marc" onclick="paHistTab('marc')"><span class="ti">📍</span><span class="tl">Registros</span></button>
+    <button class="tab-btn" id="htab_extra" onclick="paHistTab('extra')"><span class="ti">⏰</span><span class="tl">Mis HE</span></button>
+    <button class="tab-btn" id="htab_canje" onclick="paHistTab('canje')"><span class="ti">🔄</span><span class="tl">Canjes</span></button>
+    <button class="tab-btn" id="htab_vac" onclick="paHistTab('vac')"><span class="ti">🏖️</span><span class="tl">Vac.</span></button>
   </div>
   <div class="portal-body" style="overflow-y:auto;padding-top:16px">
     <div id="histContent"><div class="spinner"></div></div>
@@ -4346,9 +4346,7 @@ function _paShowAdminPanel() {
 
   var tabs = [
     {id:'hoy',      label:'📅 Hoy'},
-    {id:'hist',     label:'🔍 Historial'},
     {id:'emps',     label:'👥 Empleados'},
-    {id:'extra',    label:'⏰ HE'},
     {id:'reporte',  label:'📊 Reporte'},
     {id:'acciones', label:'📋 APs'},
     {id:'config',   label:'⚙️ Config'}
@@ -4389,7 +4387,7 @@ function paAdminTab(tab) {
   PA.adminTab = tab || 'hoy';
 
   // Resaltar tab activo — usar style directo ya que los botones tienen estilos inline
-  ['hoy','hist','emps','extra','reporte','config'].forEach(function(t) {
+  ['hoy','emps','reporte','acciones','config'].forEach(function(t) {
     var el = document.getElementById('atab_' + t);
     if (!el) return;
     if (t === tab) {
@@ -4571,6 +4569,41 @@ function paVerFotoInc(incId) {
 // ── Después de aprobar/rechazar en panel de empleado ────────────
 // Si 'btn' viene de dentro de un panel, refresca ese panel.
 // Si no, navega a la pestaña por defecto.
+
+function paAdminAsignarCompensatorio(empId, empNombre) {
+  var h = prompt('Horas extra a asignar a ' + (empNombre||empId) + ':', '0');
+  if (!h || isNaN(parseFloat(h))) return;
+  var hrs = parseFloat(h);
+  var existDocId = PA._pinsDocMap && PA._pinsDocMap[empId];
+  var update = function(docId) {
+    paDb.collection('paCanjes').add({
+      empresa: PA.empresa,
+      empleadoId: empId,
+      empleadoNombre: empNombre || empId,
+      tipo: 'asignacion_admin',
+      diasLibres: 0,
+      horasLibres: hrs,
+      horasCanjeadas: 0,
+      estado: 'asignado',
+      motivo: 'Asignaci\xf3n manual por admin',
+      fechaAsignada: paHoy(),
+      ts: Date.now()
+    }).then(function() {
+      // Actualizar paPins si existe
+      if (existDocId) {
+        return paDb.collection('paPins').doc(existDocId).get().then(function(doc) {
+          var current = doc.exists ? (doc.data().horasExtraAcum || 0) : 0;
+          return paDb.collection('paPins').doc(existDocId).update({ horasExtraAcum: current + hrs });
+        });
+      }
+    }).then(function() {
+      paToast('\u2705 ' + hrs + 'h asignadas a ' + (empNombre||empId));
+      _paPostApproval(null, 'emps');
+    }).catch(function(e) { paToast('Error: ' + e.message, true); });
+  };
+  update(existDocId);
+}
+
 function _paPostApproval(btn, defaultTab) {
   if (btn) {
     var panelContent = typeof btn.closest==='function'
@@ -4987,22 +5020,7 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
 }
 
 
-function paAdminHistorial(content) {
-  var hoy = paHoy();
-  var hace7 = new Date(); hace7.setDate(hace7.getDate()-6);
-  var desde = (function(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');})(hace7);
 
-  var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">'
-    +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">DESDE</label>'
-    +'<input type="date" id="histDesde" value="'+desde+'" max="'+hoy+'" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px"></div>'
-    +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">HASTA</label>'
-    +'<input type="date" id="histHasta" value="'+hoy+'" max="'+hoy+'" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px"></div>'
-    +'</div>'
-    +'<button onclick="paCargarHistorialRango()" style="width:100%;padding:12px;background:var(--accent2);color:#fff;border:none;border-radius:10px;font-weight:700;font-size:14px;font-family:inherit;margin-bottom:14px">🔍 Buscar registros</button>'
-    +'<div id="histFechaContent"><div style="text-align:center;padding:20px;color:var(--muted);font-size:13px">Selecciona un rango y presiona Buscar</div></div>';
-  content.innerHTML = html;
-  paCargarHistorialRango();
-}
 
 function paCargarHistorialRango() {
   var rc = document.getElementById('histFechaContent');
@@ -5123,10 +5141,10 @@ function paCargarHistorialRango() {
           html += '<div id="'+diaUid+'" style="display:none;padding:0 14px 10px;background:'+bgDia+'">';
           html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:4px">'
             +'<thead><tr style="border-bottom:2px solid var(--border)">'
-            +'<th style="text-align:left;padding:4px 6px;font-size:10px;color:#7d8590;font-weight:600">TIPO</th>'
-            +'<th style="text-align:left;padding:4px 6px;font-size:10px;color:#7d8590;font-weight:600">HORA</th>'
-            +'<th style="text-align:left;padding:4px 6px;font-size:10px;color:#7d8590;font-weight:600">INFO</th>'
-            +'<th style="text-align:right;padding:4px 6px;font-size:10px;color:#7d8590;font-weight:600">ACCIONES</th>'
+            +'<th style="text-align:left;padding:4px 6px;font-size:10px;color:#5A4535;font-weight:700">TIPO</th>'
+            +'<th style="text-align:left;padding:4px 6px;font-size:10px;color:#5A4535;font-weight:700">HORA</th>'
+            +'<th style="text-align:left;padding:4px 6px;font-size:10px;color:#5A4535;font-weight:700">INFO</th>'
+            +'<th style="text-align:right;padding:4px 6px;font-size:10px;color:#5A4535;font-weight:700">ACCIONES</th>'
             +'</tr></thead><tbody>';
 
           registros.forEach(function(r) {
@@ -5718,11 +5736,23 @@ function paEliminarAP(apId) {
 
 
 // ── Rechazar canje ───────────────────────────────────────────────
+
+function paAprobarFechaCanje(canjeId, fecha, btn) {
+  var upd = { estado:'asignado' };
+  if (fecha) upd.fechaLibre = fecha;
+  if (btn) btn.disabled = true;
+  paDb.collection('paCanjes').doc(canjeId).update(upd)
+    .then(function(){
+      paToast('\u2705 Canje aprobado \u2014 d\xeda libre ' + (fecha||'asignado'));
+      _paPostApproval(btn, 'emps');
+    }).catch(function(e){ paToast('Error: '+e.message,true); if(btn)btn.disabled=false; });
+}
+
 function paRechazarCanje(canjeId, btn) {
   if (!confirm('¿Rechazar esta solicitud de canje?')) return;
   if (btn) btn.disabled = true;
   paDb.collection('paCanjes').doc(canjeId).update({ estado:'rechazado' })
-    .then(function(){ paToast('Solicitud de canje rechazada'); _paPostApproval(btn, 'extra'); })
+    .then(function(){ paToast('Solicitud de canje rechazada'); _paPostApproval(btn, 'emps'); })
     .catch(function(e){ paToast('Error: '+e.message,true); if(btn)btn.disabled=false; });
 }
 
@@ -6271,7 +6301,7 @@ function _paAdminEmpsRender(content) {
     var eid       = emp.id;
     var enom      = esc(emp.nombre||'');
 
-    html += '<div style="border:1.5px solid var(--border);border-radius:14px;margin-bottom:10px;overflow:hidden">';
+    html += '<div style="border:2px solid #B8936A;border-radius:14px;margin-bottom:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08)">';
     // Header — toggle on click via class + data-*
     html += '<div class="_emp-toggle" data-eid="' + eid + '" style="padding:12px 14px;cursor:pointer">';
     html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
@@ -6285,7 +6315,7 @@ function _paAdminEmpsRender(content) {
     html += '</div></div>';
 
     // Botones de acción
-    html += '<div style="display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px;border-top:1px solid var(--border)">';
+    html += '<div style="display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px;border-top:1.5px solid #C4956A;background:var(--surface2)">';
     html += '<button class="_btn-edit-emp" data-eid="' + eid + '" style="padding:7px 10px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;font-size:11px;cursor:pointer;font-family:inherit;color:var(--text)">✏ Editar</button>';
     if (devStatus === '📱 Vinculado') {
       html += '<button class="_btn-desvincul" data-empid="' + eid + '" data-nom="' + enom + '" style="padding:7px 10px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:8px;cursor:pointer;font-size:11px;font-family:inherit">🔌 Desvincular</button>';
@@ -6293,7 +6323,7 @@ function _paAdminEmpsRender(content) {
     html += '</div>';
 
     // Panel expandible (oculto por defecto)
-    html += '<div id="empPanel_' + eid + '" style="display:none;border-top:1.5px solid var(--border)">';
+    html += '<div id="empPanel_' + eid + '" style="display:none;border-top:2px solid #B8936A">';
     html += '<div id="empPanelContent_' + eid + '" style="padding:12px 14px"><div class="spinner"></div></div>';
     html += '</div>';
 
@@ -6350,7 +6380,7 @@ function _paCargarPanelEmp(empId) {
     var html = "";
 
     // HE Saldo
-    html += "<div style=\"background:rgba(0,107,63,.08);border:1.5px solid rgba(0,107,63,.25);border-radius:10px;padding:10px 12px;margin-bottom:10px\">";
+    html += "<div style=\"background:rgba(0,107,63,.10);border:2px solid rgba(0,107,63,.40);border-radius:10px;padding:10px 12px;margin-bottom:10px\">";
     html += "<div style=\"font-size:10px;font-weight:700;color:#006B3F;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px\">⏰ Saldo Horas Extra</div>";
     html += "<div style=\"display:flex;gap:14px;font-size:13px\">";
     html += "<span>☀️ Diurna: <strong>" + heDiur.toFixed(2) + "h</strong></span>";
@@ -6416,7 +6446,7 @@ function _paCargarPanelEmp(empId) {
     var hace7 = new Date(); hace7.setDate(hace7.getDate()-6);
     var d7    = hace7.getFullYear()+"-"+String(hace7.getMonth()+1).padStart(2,"0")+"-"+String(hace7.getDate()).padStart(2,"0");
 
-    html += "<div style=\"margin-top:12px;border-top:1.5px solid var(--border);padding-top:12px\">";
+    html += "<div style=\"margin-top:12px;border-top:2px solid #C4956A;padding-top:12px\">";
     html += "<div style=\"font-weight:700;font-size:12px;color:var(--text);margin-bottom:8px\">📋 Historial de Marcaciones</div>";
     html += "<div style=\"display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap\">";
     html += "<div style=\"flex:1;min-width:90px\">";
@@ -6468,20 +6498,11 @@ function _paCargarPanelEmp(empId) {
   });
 }
 
-function paVerHistEmp(empId) {
-  var emp = PA.empleados.find(function(e){ return e.id === empId; });
-  if (!emp) return;
-  // Usar paAdminHistorial prefiltrando por empleado
-  paAdminTab('extra'); // ir a HE con enfoque en este empleado
-}
 
-function paAdminAsignarHE(empId, empNom) {
-  paAdminAsignarCompensatorio(empId, empNom); // reusar función existente
-}
 
-function paAdminAsignarComp(empId, empNom) {
-  paAdminAsignarCompensatorio(empId, empNom);
-}
+
+
+
 
 function paForzarUpdateTodos() {
   var desact = PA.empleados.filter(function(e){
@@ -6538,375 +6559,7 @@ function paDesvinculDispositivo(empId) {
     .catch(function(e){ paToast('Error: '+e.message, true); });
 }
 
-function paAdminExtra(content) {
-  if (!paDb) { content.innerHTML = '<div style="color:var(--red)">Sin conexión Firebase</div>'; return; }
 
-  Promise.all([
-    paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).get(),
-    paDb.collection('paCanjes').where('empresa','==',PA.empresa).get(),
-    paDb.collection('paPins').where('empresa','==',PA.empresa).get()
-  ]).then(function(results) {
-    try {
-    var snapHE = results[0], snapCanjes = results[1], snapPins = results[2];
-
-    // ── Datos HE ─────────────────────────────────────────────────
-    var heList = [];
-    snapHE.forEach(function(d){
-      var r=Object.assign({id:d.id}, d.data());
-      if(r.ts&&typeof r.ts==='object'&&r.ts.toMillis) r.ts=r.ts.toMillis();
-      else if(r.ts&&r.ts.seconds) r.ts=r.ts.seconds*1000+Math.round((r.ts.nanoseconds||0)/1e6);
-      heList.push(r);
-    });
-    heList.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
-
-    // ── Datos canjes ─────────────────────────────────────────────
-    var canjes = [];
-    snapCanjes.forEach(function(d){ canjes.push(Object.assign({id:d.id}, d.data())); });
-    canjes.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
-
-    // ── Mapa de saldos por empleado (desde paPins) ───────────────
-    var saldoMap = {};  // empId → { acum, canjeadas }
-    snapPins.forEach(function(d){
-      var p = d.data();
-      saldoMap[p.empleadoId] = {
-        pinDocId: d.id,
-        acum:     parseFloat(p.horasExtraAcum     || 0),
-        canjeadas:parseFloat(p.horasCanjeadasPend  || 0)  // HE canjeadas sin fecha
-      };
-    });
-
-    var tipos = { diurna:'☀️ Diurna', nocturna:'🌙 Nocturna', feriado:'🎉 Feriado', finde:'📅 Fin semana' };
-
-    // ── Contadores para el header ─────────────────────────────────
-    var pendHECount     = heList.filter(function(h){ return h.estado==='pendiente'; }).length;
-    var pendCanjeCount  = canjes.filter(function(c){ return c.estado==='pendiente_aprobacion'; }).length;
-    var sinFechaCount   = canjes.filter(function(c){ return c.estado==='canjeado_sin_fecha'; }).length;
-
-    var html = '<div class="stat-grid">'
-      +'<div class="stat-card"><div class="stat-val" style="color:var(--warn)">'+pendHECount+'</div><div class="stat-lbl">HE por aprobar</div></div>'
-      +'<div class="stat-card"><div class="stat-val" style="color:var(--purple)">'+pendCanjeCount+'</div><div class="stat-lbl">Canjes pendientes</div></div>'
-      +'<div class="stat-card"><div class="stat-val" style="color:var(--accent2)">'+sinFechaCount+'</div><div class="stat-lbl">Canjeadas sin fecha</div></div>'
-      +'</div>';
-
-    // ════════════════════════════════════════════════════════════
-    // SECCIÓN 0: COMPENSATORIOS DE TURNO (auto-generados)
-    // ════════════════════════════════════════════════════════════
-    var compAutoList = canjes.filter(function(c){
-      return c.esAutoTurno && c.estado === 'pendiente_compensatorio';
-    });
-    if (compAutoList.length > 0) {
-      html += '<div style="background:rgba(0,107,63,.08);border:1.5px solid rgba(0,107,63,.25);'
-        +'border-radius:14px;padding:14px;margin-bottom:16px">';
-      html += '<div style="font-size:11px;font-weight:700;color:#006B3F;text-transform:uppercase;'
-        +'letter-spacing:.6px;margin-bottom:10px">🗓️ Compensatorios de turno pendientes ('
-        +compAutoList.length+')</div>';
-      html += '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">'
-        +'Aprueba para acreditar el día libre al empleado.</div>';
-      compAutoList.forEach(function(cc) {
-        var cCol = cc.compensaEn==='friday'?'#B45309':'#006B3F';
-        var cLbl = cc.compensaEn==='friday'?'→ Viernes':'→ Día libre';
-        html += '<div style="background:var(--surface);border:1.5px solid rgba(0,107,63,.2);'
-          +'border-radius:10px;padding:12px;margin-bottom:8px">';
-        html += '<div style="font-weight:700;font-size:13px;color:var(--text)">'+esc(cc.empleadoNombre||'—')+'</div>';
-        html += '<div style="font-size:11px;color:var(--muted)">📌 '+esc(cc.fechaOrigen||'—')
-          +' · '+(cc.tipoTurno==='turno-viernes'?'Sáb tarde':'Dom')+'</div>';
-        html += '<span style="background:'+cCol+'18;color:'+cCol
-          +';border-radius:20px;padding:2px 8px;font-size:10px;font-weight:700">'+cLbl+'</span>';
-        html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">';
-        html += '<button onclick="paAprobarCompensatorioTurno(\''+cc.id+'\',\''+esc(cc.empleadoNombre||'')+'\')"'
-          +' style="padding:8px;background:#006B3F;color:#fff;border:none;border-radius:8px;'
-          +'font-weight:700;font-size:12px;cursor:pointer;font-family:inherit">✓ Aprobar</button>';
-        html += '<button onclick="paRechazarCompensatorioTurno(\''+cc.id+'\')"'
-          +' style="padding:8px;background:transparent;color:var(--red);border:2px solid var(--red);'
-          +'border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit">✗ Rechazar</button>';
-        html += '</div></div>';
-      });
-      html += '</div>';
-    }
-
-        // ════════════════════════════════════════════════════════════
-    // SECCIÓN 1: HE PENDIENTES DE APROBAR
-    // ════════════════════════════════════════════════════════════
-    var pendHE = heList.filter(function(h){ return h.estado==='pendiente'; });
-    if (pendHE.length) {
-      html += '<div class="section-title" style="margin-top:16px">⏰ Horas extra pendientes de aprobar ('+pendHE.length+')</div>';
-      pendHE.forEach(function(h) {
-        html += '<div class="report-row">'
-          +'<div><div class="report-emp">'+h.empleadoNombre+'</div>'
-          +'<div class="report-detail">'+h.fecha+' · '+(tipos[h.tipo]||h.tipo)+' · <strong>'+h.horas+'h</strong></div>'
-          +'<div class="report-detail" style="color:var(--muted)">'+h.descripcion.slice(0,50)+'</div></div>'
-          +'<div style="display:flex;gap:6px;margin-top:8px">'
-          +'<button onclick="paAprobarHEBtn(this)" data-id="'+h.id+'" data-emp="'+h.empleadoId+'" data-h="'+h.horas+'" style="flex:1;padding:10px 8px;background:#006B3F;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✓ Aprobar</button>'
-          +'<button onclick="paRechazarHEBtn(this)" data-id="'+h.id+'" style="flex:1;padding:10px 8px;background:transparent;color:var(--red);border:2px solid var(--red);border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">✗ Rechazar</button>'
-          +'</div></div>';
-      });
-    }
-
-    // ════════════════════════════════════════════════════════════
-    // SECCIÓN 2: SALDOS POR EMPLEADO + CANJE PARCIAL
-    // ════════════════════════════════════════════════════════════
-    // Construir lista de empleados con saldo > 0
-    var empsConSaldo = PA.empleados.filter(function(e){
-      var s = saldoMap[e.id];
-      return s && s.acum > 0;
-    });
-
-    html += '<div style="background:rgba(46,160,67,.06);border:1.5px solid rgba(46,160,67,.2);border-radius:14px;padding:14px;margin-top:16px;margin-bottom:8px">'
-      +'<div style="font-size:12px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px">💰 Ejecutar canje de horas (sin asignar fecha aún)</div>';
-
-    if (!empsConSaldo.length) {
-      html += '<div style="color:var(--muted);font-size:13px">Ningún empleado tiene HE diurnas acumuladas disponibles.</div>';
-    } else {
-      html += '<select id="canjeEmpSel" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px;margin-bottom:8px" onchange="paCanjeEmpUpdate()">'
-        +'<option value="">— Seleccionar empleado —</option>'
-        + PA.empleados.map(function(e){
-            var s = saldoMap[e.id];
-            var acum = s ? s.acum.toFixed(1) : '0.0';
-            var pend = s ? s.canjeadas.toFixed(1) : '0.0';
-            return '<option value="'+e.id+'">'+esc(e.nombre)+' — '+acum+'h acum / '+pend+'h canjeadas</option>';
-          }).join('')
-        +'</select>'
-        +'<div id="canjeEmpInfo" style="display:none;background:var(--surface2);border-radius:10px;padding:10px;margin-bottom:8px;font-size:12px">'
-        +'<div style="display:flex;gap:16px;flex-wrap:wrap">'
-        +'<span>📊 <strong id="canjeAcumVal">0</strong>h acumuladas disponibles</span>'
-        +'<span>🔄 <strong id="canjeCanjeadasVal">0</strong>h ya canjeadas (sin fecha)</span>'
-        +'</div></div>'
-        +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'
-        +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">HE diurnas a canjear</label>'
-        +'<input type="number" id="canjeHorasAdmin" value="" min="0.5" step="0.5" placeholder="Ej: 4" oninput="paCanjeCalcUpdate()" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px"></div>'
-        +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">Equivale a horas libres</label>'
-        +'<div id="canjeEquivBox" style="padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--accent2);font-size:14px;font-weight:700">—</div></div>'
-        +'</div>'
-        +'<input type="text" id="canjeMotivoAdmin" placeholder="Motivo (ej: cierre quincena 1-15 mayo)" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px;margin-bottom:8px">'
-        +'<button onclick="paAdminEjecutarCanje()" style="width:100%;padding:12px;background:rgba(46,160,67,.15);color:var(--accent);border:1.5px solid rgba(46,160,67,.3);border-radius:10px;font-weight:700;font-size:14px;font-family:inherit">💰 Ejecutar canje (queda pendiente de fecha)</button>';
-    }
-    html += '</div>';
-
-    // ════════════════════════════════════════════════════════════
-    // SECCIÓN 3: CANJEADAS SIN FECHA → ASIGNAR FECHA
-    // ════════════════════════════════════════════════════════════
-    var sinFecha = canjes.filter(function(c){ return c.estado==='canjeado_sin_fecha'; });
-    if (sinFecha.length) {
-      html += '<div class="section-title" style="margin-top:16px">📅 Canjeadas — pendientes de asignar fecha ('+sinFecha.length+')</div>';
-      sinFecha.forEach(function(c) {
-        html += '<div class="report-row" style="flex-wrap:wrap;gap:8px">'
-          +'<div style="flex:1;min-width:180px">'
-          +'<div class="report-emp">'+c.empleadoNombre+'</div>'
-          +'<div class="report-detail">'+c.horasCanje+'h HE → '+(c.horasLibres||c.horasCanje*2)+'h libres</div>'
-          +'<div class="report-detail" style="color:var(--muted)">'+(c.motivo||'—')+'</div>'
-          +'</div>'
-          +'<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
-          +'<input type="date" id="fecha_'+c.id+'" style="padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit">'
-          +'<button onclick="paAsignarFechaCanje(\''+c.id+'\')" style="background:var(--accent2);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;font-family:inherit">📅 Asignar</button>'
-          +'</div></div>';
-      });
-    }
-
-    // ════════════════════════════════════════════════════════════
-    // SECCIÓN 4: SOLICITUDES DE FECHA DEL EMPLEADO
-    // ════════════════════════════════════════════════════════════
-    var pedidosFecha = canjes.filter(function(c){ return c.estado==='pendiente_aprobacion'; });
-    if (pedidosFecha.length) {
-      html += '<div class="section-title" style="margin-top:16px">🙋 Empleados solicitan fecha de descanso ('+pedidosFecha.length+')</div>';
-      pedidosFecha.forEach(function(c) {
-        html += '<div class="report-row">'
-          +'<div><div class="report-emp">'+c.empleadoNombre+'</div>'
-          +'<div class="report-detail">Solicita: <strong>'+(c.fechaLibre||'—')+'</strong> · '+(c.horasLibres||c.horasCanje*2)+'h libres</div>'
-          +'<div class="report-detail" style="color:var(--muted)">'+(c.motivo||'—')+'</div></div>'
-          +'<div style="display:flex;gap:6px">'
-          +'<button onclick="paAprobarFechaCanje(\''+c.id+'\')" style="background:#006B3F;color:#fff;border:none;border-radius:8px;padding:6px 10px;font-weight:700;font-size:11px">✓ Aprobar</button>'
-          +'<button onclick="paRechazarFechaCanje(\''+c.id+'\')" style="background:var(--red);color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:11px">✗ Rechazar</button>'
-          +'</div></div>';
-      });
-    }
-
-    // ════════════════════════════════════════════════════════════
-    // SECCIÓN 5: ASIGNAR DÍA LIBRE DIRECTO (DOM/Compensatorio)
-    // ════════════════════════════════════════════════════════════
-    html += '<div style="background:rgba(188,140,255,.06);border:1.5px solid rgba(188,140,255,.2);border-radius:14px;padding:14px;margin-top:16px">'
-      +'<div style="font-size:12px;font-weight:700;color:var(--purple);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px">🗓️ Asignar día compensatorio directo (turno domingo)</div>'
-      +'<select id="compEmpSel" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px;margin-bottom:8px">'
-      +'<option value="">— Seleccionar empleado —</option>'
-      + PA.empleados.map(function(e){ return '<option value="'+e.id+'">'+esc(e.nombre)+(e.cargo?' ('+e.cargo+')':'')+'</option>'; }).join('')
-      +'</select>'
-      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'
-      +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">Día libre a asignar</label>'
-      +'<input type="date" id="compDiaLibre" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px"></div>'
-      +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">Domingo trabajado</label>'
-      +'<input type="date" id="compDomingoRef" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px"></div>'
-      +'</div>'
-      +'<button onclick="paAdminAsignarCompensatorio()" style="width:100%;padding:12px;background:rgba(188,140,255,.15);color:var(--purple);border:1.5px solid rgba(188,140,255,.3);border-radius:10px;font-weight:700;font-size:14px;font-family:inherit">🗓️ Asignar día compensatorio</button>'
-      +'</div>';
-
-    // ════════════════════════════════════════════════════════════
-    // SECCIÓN 6: HISTÓRICO CANJES ASIGNADOS RECIENTES
-    // ════════════════════════════════════════════════════════════
-    var asignados = canjes.filter(function(c){ return c.estado==='asignado'; }).slice(0,10);
-    if (asignados.length) {
-      html += '<div class="section-title" style="margin-top:16px">✅ Días libres asignados recientes</div>';
-      asignados.forEach(function(c) {
-        var origen = c.esCompensatorio ? '🗓️ Compensatorio' : c.origen==='admin' ? '👤 Admin' : '📱 Empleado';
-        html += '<div class="report-row">'
-          +'<div><div class="report-emp">'+c.empleadoNombre+'</div>'
-          +'<div class="report-detail">📅 '+(c.fechaLibre||'—')+(c.domingoRef?' · Dom ref: '+c.domingoRef:'')+'</div>'
-          +'<div class="report-detail" style="color:var(--muted)">'+origen+'</div>'
-          +'</div></div>';
-      });
-      html += '</div>';
-    }
-
-    // ── Renderizar todo el HTML construido ─────────────────────────
-    PA._saldoMap = saldoMap;  // guardar para helpers
-    content.innerHTML = html;
-
-// ── Actualizar info empleado seleccionado en el canje ────────────
-function paCanjeEmpUpdate() {
-  var sel = document.getElementById('canjeEmpSel');
-  var info = document.getElementById('canjeEmpInfo');
-  var acumEl = document.getElementById('canjeAcumVal');
-  var canjEl = document.getElementById('canjeCanjeadasVal');
-  if (!sel || !sel.value) { if(info) info.style.display='none'; return; }
-  var empId = sel.value.split('|')[0];
-  var s = PA._saldoMap && PA._saldoMap[empId];
-  if (s && info) {
-    info.style.display = 'block';
-    if(acumEl) acumEl.textContent = s.acum.toFixed(1);
-    if(canjEl) canjEl.textContent = s.canjeadas.toFixed(1);
-    var horasEl = document.getElementById('canjeHorasAdmin');
-    if(horasEl) horasEl.max = s.acum;
-  }
-  paCanjeCalcUpdate();
-}
-
-function paCanjeCalcUpdate() {
-  var h = parseFloat((document.getElementById('canjeHorasAdmin')||{}).value||0)||0;
-  var box = document.getElementById('canjeEquivBox');
-  if (!box) return;
-  if (h > 0) {
-    var libres = h * 2;
-    var dias = Math.floor(libres / 8);
-    var resto = libres % 8;
-    box.textContent = libres+'h'+(dias>0?' = '+dias+' día(s)'+(resto>0?' + '+resto+'h':''):'');
-  } else {
-    box.textContent = '—';
-  }
-}
-
-// ── Ejecutar canje: descuenta HE acumuladas → pasan a canjeadas_sin_fecha ──
-function paAdminEjecutarCanje() {
-  var sel    = document.getElementById('canjeEmpSel');
-  var horasEl= document.getElementById('canjeHorasAdmin');
-  var motEl  = document.getElementById('canjeMotivoAdmin');
-  if (!sel||!sel.value){ paToast('Selecciona un empleado',true); return; }
-  var parts  = sel.value.split('|');
-  var empId  = parts[0]; var empNom = parts.slice(1).join('|');
-  var horas  = parseFloat(horasEl?horasEl.value:0)||0;
-  var motivo = (motEl?motEl.value:'').trim();
-  if (horas<=0){ paToast('Ingresa las horas a canjear',true); return; }
-  if (!motivo){ paToast('Ingresa el motivo',true); return; }
-  var s = PA._saldoMap && PA._saldoMap[empId];
-  if (s && horas > s.acum){
-    paToast('El empleado solo tiene '+s.acum.toFixed(1)+'h disponibles',true); return;
-  }
-  var horasLibres = horas * 2;
-  var docData = {
-    empresa:PA.empresa, empleadoId:empId, empleadoNombre:empNom,
-    horasCanje:horas, horasLibres:horasLibres, diasLibres:Math.floor(horasLibres/8),
-    motivo:motivo, ts:Date.now(),
-    estado:'canjeado_sin_fecha',  // ← nuevo estado
-    origen:'admin', tipo:'diurna',
-    folio:'CNJ-'+paGenId().toUpperCase()
-  };
-  paDb.collection('paCanjes').add(docData).then(function(){
-    // Descontar de HE acumuladas y sumar a canjeadas pendientes
-    if (s && s.pinDocId) {
-      paDb.collection('paPins').doc(s.pinDocId).update({
-        horasExtraAcum:    Math.max(0, s.acum - horas),
-        horasCanjeadasPend: (s.canjeadas||0) + horas
-      });
-    }
-    paToast('✅ Canje ejecutado — '+empNom+' tiene '+horasLibres+'h libres pendientes de fecha');
-    paAdminTab('extra');
-  }).catch(function(e){ paToast('Error: '+e.message,true); });
-}
-
-// ── Asignar fecha a un canje sin fecha (admin) ───────────────────
-function paAsignarFechaCanje(canjeId) {
-  var fechaEl = document.getElementById('fecha_'+canjeId);
-  var fecha = fechaEl ? fechaEl.value : '';
-  if (!fecha){ paToast('Selecciona la fecha',true); return; }
-  paDb.collection('paCanjes').doc(canjeId).update({
-    estado:'asignado', fechaLibre:fecha, fechaAsignada:fecha
-  }).then(function(){
-    // Descontar de canjeadas pendientes en paPins
-    paDb.collection('paCanjes').doc(canjeId).get().then(function(doc){
-      if (!doc.exists) return;
-      var c = doc.data();
-      var s = PA._saldoMap && PA._saldoMap[c.empleadoId];
-      if (s && s.pinDocId) {
-        paDb.collection('paPins').doc(s.pinDocId).update({
-          horasCanjeadasPend: Math.max(0, (s.canjeadas||0) - c.horasCanje)
-        });
-      }
-    });
-    paToast('✅ Fecha asignada — día libre confirmado');
-    paAdminTab('extra');
-  }).catch(function(e){ paToast('Error: '+e.message,true); });
-}
-
-// ── Aprobar fecha solicitada por empleado ────────────────────────
-function paAprobarFechaCanje(canjeId, fecha, btn) {
-  var upd = { estado:'asignado' };
-  if (fecha) upd.fechaLibre = fecha;
-  paDb.collection('paCanjes').doc(canjeId).update(upd)
-    .then(function(){
-      paToast('✅ Canje aprobado — día libre '+(fecha||'asignado'));
-      _paPostApproval(btn, 'extra');
-    }).catch(function(e){ paToast('Error: '+e.message,true); if(btn){btn.disabled=false;} });
-}
-
-function paRechazarFechaCanje(canjeId) {
-  if (!confirm('¿Rechazar esta solicitud de fecha?')) return;
-  paDb.collection('paCanjes').doc(canjeId).update({ estado:'canjeado_sin_fecha' })
-    .then(function(){ paToast('Solicitud rechazada — queda pendiente de nueva fecha'); paAdminTab('extra'); })
-    .catch(function(e){ paToast('Error: '+e.message,true); });
-}
-
-// ── Asignar compensatorio por turno domingo (no toca HE) ─────────
-function paAdminAsignarCompensatorio() {
-  var sel    = document.getElementById('compEmpSel');
-  var diaEl  = document.getElementById('compDiaLibre');
-  var domEl  = document.getElementById('compDomingoRef');
-  if (!sel||!sel.value){ paToast('Selecciona un empleado',true); return; }
-  var parts  = sel.value.split('|');
-  var empId  = parts[0]; var empNom = parts.slice(1).join('|');
-  var dia    = diaEl ? diaEl.value : '';
-  var domRef = domEl ? domEl.value : '';
-  if (!dia){ paToast('Selecciona el día libre',true); return; }
-  if (!domRef){ paToast('Selecciona el domingo trabajado de referencia',true); return; }
-  paDb.collection('paCanjes').add({
-    empresa:PA.empresa, empleadoId:empId, empleadoNombre:empNom,
-    horasCanje:8, horasLibres:8, diasLibres:1,
-    fechaLibre:dia, fechaAsignada:dia, domingoRef:domRef,
-    motivo:'Compensatorio por turno domingo '+domRef,
-    ts:Date.now(), estado:'asignado',
-    origen:'admin', esCompensatorio:true,
-    folio:'COMP-'+paGenId().toUpperCase()
-  }).then(function(){
-    paToast('✅ Día compensatorio asignado a '+empNom);
-    if(sel) sel.value=''; if(diaEl) diaEl.value=''; if(domEl) domEl.value='';
-    paAdminTab('extra');
-  }).catch(function(e){ paToast('Error: '+e.message,true); });
-}
-
-  } catch(syncErr) {
-    content.innerHTML = '<div style="color:var(--red);padding:20px">Error: ' + syncErr.message + '</div>';
-    console.error('[HE] Error interno:', syncErr);
-  }
-  }).catch(function(e) {
-    content.innerHTML = '<div style="color:var(--red);padding:20px">Error al cargar datos HE: ' + e.message + '</div>';
-  });
-}
 
 function paAdminReporte(content) {
   var hoy  = paHoy();
@@ -7822,7 +7475,7 @@ function paAprobarCompensatorioTurno(docId, empNombre, btn) {
     estado: 'asignado', aprobadoTs: Date.now()
   }).then(function() {
     paToast('✅ Compensatorio aprobado — 1 día libre acreditado');
-    _paPostApproval(btn, 'extra');
+    _paPostApproval(btn, 'emps');
   }).catch(function(e){ paToast('Error: '+e.message,true); if(btn)btn.disabled=false; });
 }
 
@@ -7833,7 +7486,7 @@ function paRechazarCompensatorioTurno(docId, btn) {
     estado: 'rechazado', rechazadoTs: Date.now()
   }).then(function() {
     paToast('Compensatorio rechazado');
-    _paPostApproval(btn, 'extra');
+    _paPostApproval(btn, 'emps');
   }).catch(function(e){ paToast('Error: '+e.message,true); if(btn)btn.disabled=false; });
 }
 
@@ -7876,7 +7529,7 @@ function paAprobarHorasExtra(docId, empId, horas) {
 function paRechazarHorasExtra(docId) {
   if (!confirm('¿Rechazar esta solicitud?')) return;
   paDb.collection('paHorasExtra').doc(docId).update({ estado: 'rechazado' })
-    .then(function() { paToast('Horas extra rechazadas'); _paPostApproval(null, PA.adminTab||'extra'); })
+    .then(function() { paToast('Horas extra rechazadas'); _paPostApproval(null, PA.adminTab||'emps'); })
     .catch(function(e){ paToast('Error: '+e.message, true); });
 }
 
@@ -7945,7 +7598,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-27-A';
+var PA_VERSION = 'v2026-06-27-F';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
