@@ -66,14 +66,28 @@ button:active{opacity:.8;transform:scale(.95)}
   padding:60px 24px 40px;
 }
 .landing-logo{
-  width:110px;height:auto;background:transparent;
-  border-radius:22px;display:flex;align-items:center;justify-content:center;
-  margin-bottom:24px;overflow:hidden;
-  box-shadow:0 6px 28px rgba(204,0,0,.22),0 2px 8px rgba(0,0,0,.10);
-  border:2.5px solid rgba(204,0,0,.15);
+  width:180px;height:180px;
+  background:radial-gradient(circle at 50% 45%, rgba(204,0,0,.12) 0%, rgba(204,0,0,.04) 50%, transparent 72%);
+  border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  margin-bottom:20px;
+  border:none;
   padding:0;flex-shrink:0;
+  position:relative;
 }
-.landing-logo img{width:80px;height:80px;object-fit:contain;}
+.landing-logo::after{
+  content:'';position:absolute;inset:0;border-radius:50%;
+  box-shadow:0 0 0 1.5px rgba(204,0,0,.12) inset,
+             0 8px 32px rgba(204,0,0,.15),
+             0 2px 8px rgba(0,0,0,.06);
+  pointer-events:none;
+}
+.landing-logo img{
+  width:150px;height:150px;
+  object-fit:contain;
+  mix-blend-mode:multiply;
+  filter:drop-shadow(0 3px 10px rgba(204,0,0,.25));
+}
 .landing-title{font-size:28px;font-weight:700;text-align:center;margin-bottom:8px;letter-spacing:-.5px}
 .landing-sub{font-size:14px;color:var(--muted);text-align:center;margin-bottom:40px;line-height:1.5}
 .landing-btn{
@@ -7782,7 +7796,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-27-I';
+var PA_VERSION = 'v2026-06-27-J';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
@@ -7939,9 +7953,9 @@ function _paInyectarLogos() {
     img.src = _PJ_LOGO;
     img.className = 'pj-logo-img';
     img.alt = 'Papa Johns';
-    img.style.cssText = 'width:30px;height:30px;object-fit:contain;'
-      + 'background:#fff;border-radius:7px;padding:2px;flex-shrink:0;'
-      + 'margin:0 2px;';
+    img.style.cssText = 'width:34px;height:34px;object-fit:contain;flex-shrink:0;'
+      + 'margin:0 2px;mix-blend-mode:multiply;'
+      + 'filter:drop-shadow(0 1px 3px rgba(204,0,0,.2));';
     var backBtn = h.querySelector('.header-back');
     if (backBtn) {
       backBtn.insertAdjacentElement('afterend', img);
