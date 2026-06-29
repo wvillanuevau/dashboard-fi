@@ -66,23 +66,23 @@ button:active{opacity:.8;transform:scale(.95)}
   padding:60px 24px 40px;
 }
 .landing-logo{
-  width:220px;height:220px;
-  background:none;
+  width:300px;height:300px;
+  background:radial-gradient(circle at 50% 48%,#fff 0%,#fff 60%,rgba(204,0,0,.06) 75%,rgba(204,0,0,.18) 100%);
   border-radius:50%;
   display:flex;align-items:center;justify-content:center;
   margin-bottom:20px;
-  border:none;
+  border:3px solid rgba(204,0,0,.22);
   padding:0;flex-shrink:0;
   position:relative;
-  filter:drop-shadow(0 6px 18px rgba(204,0,0,.28)) drop-shadow(0 2px 6px rgba(0,0,0,.10));
-  transition:transform .2s cubic-bezier(.34,1.56,.64,1),filter .2s;
+  box-shadow:0 0 0 6px rgba(204,0,0,.06),0 8px 32px rgba(204,0,0,.2),0 2px 8px rgba(0,0,0,.08);
+  transition:transform .2s cubic-bezier(.34,1.56,.64,1),box-shadow .2s;
 }
 .landing-logo:active{
-  transform:scale(.93);
-  filter:drop-shadow(0 2px 6px rgba(204,0,0,.18));
+  transform:scale(.94);
+  box-shadow:0 0 0 3px rgba(204,0,0,.08),0 4px 12px rgba(204,0,0,.14);
 }
 .landing-logo img{
-  width:220px;height:220px;
+  width:280px;height:280px;
   object-fit:contain;
   mix-blend-mode:multiply;
   display:block;
@@ -476,7 +476,7 @@ button:active{opacity:.8;transform:scale(.95)}
       <div class="feat-label">Vacaciones</div>
     </div>
   </div>
-  <button class="landing-btn" onclick="paGoToSelectEmp()">📋 Registrar Asistencia</button>
+  <button class="landing-btn" id="btnRegistrar" onclick="paGoToSelectEmp()" ontouchstart="this.style.transform='scale(.94)'" ontouchend="this.style.transform=''">📋 Registrar Asistencia</button>
   <div id="adminTapHint" style="font-size:11px;color:transparent;margin-top:20px;min-height:18px">.</div>
 </div>
 
@@ -1396,12 +1396,16 @@ function paGoToSelectEmp() {
   if (!PA.empleados || !PA.empleados.length) {
     if (!PA._loadingEmps) {
       PA._loadingEmps=true;
-      paLoadEmpleados();
-      // Feedback visual inmediato
-      var btn = document.querySelector('.landing-btn');
+      var btn = document.getElementById('btnRegistrar') || document.querySelector('.landing-btn');
       if (btn) { btn.textContent = '⏳ Cargando...'; btn.style.opacity='.7'; }
+      paLoadEmpleados(function(){
+        PA._loadingEmps = false;
+        var btn = document.getElementById('btnRegistrar') || document.querySelector('.landing-btn');
+        if (btn) { btn.textContent = '\uD83D\uDCCB Registrar Asistencia'; btn.style.opacity=''; }
+        paGoToSelectEmp();
+      });
     }
-    setTimeout(paGoToSelectEmp, 300);
+    setTimeout(paGoToSelectEmp, 250);
     return;
   }
   PA._loadingEmps = false;
@@ -4863,8 +4867,24 @@ function paRechazarInc(incId, btn) {
 }
 
 function paVerMarcacion(marcId) {
-  var m = PA._marcacionesDetalle && PA._marcacionesDetalle[marcId];
-  if (!m) { paToast('Registro no encontrado', true); return; }
+  if (!marcId) { paToast('ID de registro vacío', true); return; }
+  // Buscar en caché local primero
+  var m = (PA._marcacionesDetalle && PA._marcacionesDetalle[marcId]) || null;
+  if (!m) {
+    // Fallback: consulta directa a Firestore
+    if (paDb) {
+      paDb.collection('paMarcaciones').doc(marcId).get().then(function(doc) {
+        if (!doc.exists) { paToast('Registro no encontrado', true); return; }
+        var r = Object.assign({id:doc.id, _id:doc.id}, doc.data());
+        if (r.ts && typeof r.ts==='object' && r.ts.toMillis) r.ts = r.ts.toMillis();
+        _paShowMarcModal(r);
+      }).catch(function(e){ paToast('Error: '+e.message, true); });
+    } else { paToast('Sin conexión a base de datos', true); }
+    return;
+  }
+  _paShowMarcModal(m);
+}
+function _paShowMarcModal(m) {
 
   var old = document.getElementById('modalVerMarca'); if (old) old.remove();
   var div = document.createElement('div');
@@ -5964,14 +5984,49 @@ function paEliminarAP(apId) {
 // ── Rechazar canje ───────────────────────────────────────────────
 
 function paAprobarFechaCanje(canjeId, fecha, btn) {
-  var upd = { estado:'asignado' };
-  if (fecha) upd.fechaLibre = fecha;
   if (btn) btn.disabled = true;
-  paDb.collection('paCanjes').doc(canjeId).update(upd)
-    .then(function(){
-      paToast('\u2705 Canje aprobado \u2014 d\xeda libre ' + (fecha||'asignado'));
-      _paPostApproval(btn, 'emps');
-    }).catch(function(e){ paToast('Error: '+e.message,true); if(btn)btn.disabled=false; });
+  // Leer el canje para validar y descontar horas
+  paDb.collection('paCanjes').doc(canjeId).get().then(function(doc) {
+    if (!doc.exists) { paToast('Canje no encontrado', true); if(btn)btn.disabled=false; return; }
+    var canje = doc.data();
+    var horasHE = parseFloat(canje.horasHE || 0);
+    var tipoHE  = canje.tipo_he || 'diurna';
+    var empId   = canje.empleadoId;
+    // Validar saldo disponible si hay horasHE
+    var doApproval = function() {
+      var upd = { estado:'asignado', aprobadoPor:'admin', fechaAprobacion: paHoy() };
+      if (fecha) upd.fechaLibre = fecha;
+      return paDb.collection('paCanjes').doc(canjeId).update(upd).then(function() {
+        // Descontar horas de paPins si el canje tiene horasHE
+        if (horasHE > 0 && empId && PA._pinsDocMap && PA._pinsDocMap[empId]) {
+          return paDb.collection('paPins').doc(PA._pinsDocMap[empId]).get().then(function(pd) {
+            if (!pd.exists) return;
+            var acum = parseFloat(pd.data().horasExtraAcum || 0);
+            return paDb.collection('paPins').doc(PA._pinsDocMap[empId]).update({
+              horasExtraAcum: Math.max(0, acum - horasHE)
+            });
+          });
+        }
+      }).then(function() {
+        paToast('\u2705 Canje aprobado' + (fecha ? ' \u2014 d\xeda libre ' + fecha : ''));
+        _paPostApproval(btn, 'emps');
+      });
+    };
+    if (horasHE > 0 && empId && PA._pinsDocMap && PA._pinsDocMap[empId]) {
+      // Validar saldo antes de aprobar
+      paDb.collection('paPins').doc(PA._pinsDocMap[empId]).get().then(function(pd) {
+        var acum = pd.exists ? parseFloat(pd.data().horasExtraAcum || 0) : 0;
+        if (horasHE > acum) {
+          paToast('Saldo insuficiente: el empleado tiene ' + acum.toFixed(2) + 'h disponibles y solicita ' + horasHE.toFixed(2) + 'h', true);
+          if(btn)btn.disabled=false;
+          return;
+        }
+        doApproval();
+      }).catch(function(e){ paToast('Error: '+e.message,true); if(btn)btn.disabled=false; });
+    } else {
+      doApproval().catch(function(e){ paToast('Error: '+e.message,true); if(btn)btn.disabled=false; });
+    }
+  }).catch(function(e){ paToast('Error: '+e.message,true); if(btn)btn.disabled=false; });
 }
 
 function paRechazarCanje(canjeId, btn) {
@@ -6342,6 +6397,53 @@ function paAdminConfig(content) {
     +'</div>'
     +'</div>';
 content.innerHTML = html;
+
+
+  // ── Sección: Asignar horario por empleado ────────────────────
+  html += '<div style="background:var(--surface);border:2px solid rgba(56,139,253,.3);border-radius:14px;margin-top:16px;overflow:hidden">'
+    + '<button onclick="paTogSection(\'cfgAsgHor\')" style="width:100%;display:flex;justify-content:space-between;align-items:center;padding:14px 16px;background:rgba(56,139,253,.06);border:none;cursor:pointer;font-family:inherit">'
+    + '<div style="display:flex;align-items:center;gap:10px">'
+    + '<span style="font-size:17px">📋</span>'
+    + '<div style="text-align:left"><div style="font-size:13px;font-weight:700;color:var(--text)">Asignar horario a empleados</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-top:1px">Aplica el horario de un rol a un empleado específico</div></div>'
+    + '</div><span id="cfgAsgHor_ico" style="font-size:14px;color:var(--muted)">▶</span></button>'
+    + '<div id="cfgAsgHor" style="display:none;padding:14px 16px">';
+
+  // Lista de empleados con selector de rol
+  PA.empleados.slice().sort(function(a,b){ return (a.nombre||'').localeCompare(b.nombre||''); }).forEach(function(emp) {
+    var horEmpInd = (PA.horariosEmp || {})[emp.id];
+    var horRolEmp = (PA.horariosRol || {})[emp.cargo] || PA.horario;
+    var status = horEmpInd
+      ? '<span style="color:#006B3F;font-size:10px;font-weight:700">✏ Individual</span>'
+      : '<span style="color:#B45309;font-size:10px;font-weight:700">📌 Cargo: ' + (emp.cargo||'—') + '</span>';
+    var horAct = horEmpInd || horRolEmp;
+    var entStr = horAct ? (horAct.horaEntrada||'—') : '—';
+    var salStr = horAct ? (horAct.horaSalida||'—') : '—';
+    var rolesOpts = '<option value="">── Sin cambio ──</option>';
+    Object.keys(PA.horariosRol || {}).forEach(function(rol) {
+      var rh = PA.horariosRol[rol];
+      rolesOpts += '<option value="' + rol + '">' + rol.charAt(0).toUpperCase()+rol.slice(1) + ' (' + (rh.horaEntrada||'?') + '-' + (rh.horaSalida||'?') + ')</option>';
+    });
+    rolesOpts += '<option value="__general__">General (' + (PA.horario.horaEntrada||'?') + '-' + (PA.horario.horaSalida||'?') + ')</option>';
+    var delBtn = horEmpInd
+      ? '<button class="_btn-cfg-delhor" data-eid="' + emp.id + '" data-nom="' + esc(emp.nombre||emp.id) + '" style="padding:7px 10px;background:transparent;border:1.5px solid rgba(248,81,73,.4);border-radius:8px;font-size:11px;cursor:pointer;color:#f85149;font-family:inherit">✕</button>'
+      : '';
+    html += '<div style="border-bottom:1.5px solid var(--border);padding:10px 0;display:flex;flex-wrap:wrap;align-items:center;gap:8px">'
+      + '<div style="flex:1;min-width:120px">'
+      + '<div style="font-weight:700;font-size:13px;color:var(--text)">' + esc(emp.nombre||'—') + '</div>'
+      + '<div style="font-size:11px;color:var(--muted);margin-top:1px">' + status + ' &nbsp;' + entStr + ' – ' + salStr + '</div>'
+      + '</div>'
+      + '<select id="horSel_' + emp.id + '" style="flex:0 1 160px;padding:7px 8px;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;font-family:inherit">'
+      + rolesOpts + '</select>'
+      + '<button class="_btn-cfg-asghor" data-eid="' + emp.id + '" data-sel="horSel_' + emp.id + '" data-nom="' + esc(emp.nombre||emp.id) + '" style="padding:7px 12px;background:#388bfd;color:#fff;border:none;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap">✓ Aplicar</button>'
+      + delBtn
+      + '</div>';
+  });
+  if (!PA.empleados.length) {
+    html += '<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">Sin empleados cargados</div>';
+  }
+  html += '</div></div>';
+
 }
 
 function paToglHorRol(id) {
@@ -6484,40 +6586,33 @@ function paGuardarHorEmp(empId, empNombre) {
 
 
 // ── Asignar horario de rol a empleado específico ────────────────
-function paAplicarHorarioRol(empId, cargo) {
-  var horRol = (PA.horariosRol || {})[cargo];
-  if (!horRol) { paToast('No hay horario configurado para el cargo ' + cargo, true); return; }
-  var emp = PA.empleados.find(function(e){ return e.id === empId; });
-  var nom = emp ? emp.nombre : empId;
-  if (!confirm('¿Copiar el horario del rol "' + cargo + '" a ' + nom + '?\n' +
-               'Entrada: ' + (horRol.horaEntrada||'—') + ' · Salida: ' + (horRol.horaSalida||'—'))) return;
-
+function paAplicarHorarioRol(empId, rolVal, empNombre) {
+  if (!rolVal) { paToast('Selecciona un rol o "General"', true); return; }
+  var horRol = rolVal === '__general__' ? PA.horario : (PA.horariosRol || {})[rolVal];
+  if (!horRol) { paToast('Sin horario para: ' + rolVal, true); return; }
+  var nom = empNombre || empId;
+  if (!confirm('¿Aplicar horario "' + (rolVal==='__general__'?'General':rolVal) + '" a ' + nom + '?\n'
+    + 'Entrada: ' + (horRol.horaEntrada||'—') + ' · Salida: ' + (horRol.horaSalida||'—'))) return;
   var horEmp = PA.horariosEmp || {};
   horEmp[empId] = Object.assign({}, horRol);
   PA.horariosEmp = horEmp;
-
   paDb.collection('paConfig').doc(PA.empresa).set({ horariosEmp: horEmp }, { merge: true })
     .then(function() {
-      paToast('\u2705 Horario de ' + cargo + ' aplicado a ' + nom);
-      var pc = document.getElementById('empPanelContent_' + empId);
-      if (pc) { pc.innerHTML = '<div class="spinner"></div>'; setTimeout(function(){ _paCargarPanelEmp(empId); }, 350); }
+      paToast('\u2705 Horario aplicado a ' + nom);
+      paAdminTab('config');
     }).catch(function(e){ paToast('Error: ' + e.message, true); });
 }
 
-function paBorrarHorarioEmp(empId) {
-  var emp = PA.empleados.find(function(e){ return e.id === empId; });
-  var nom = emp ? emp.nombre : empId;
+function paBorrarHorarioEmp(empId, empNombre) {
+  var nom = empNombre || empId;
   if (!confirm('¿Quitar el horario individual de ' + nom + '?\nVolverá a usar el horario de su cargo.')) return;
-
   var horEmp = PA.horariosEmp || {};
   delete horEmp[empId];
   PA.horariosEmp = horEmp;
-
   paDb.collection('paConfig').doc(PA.empresa).set({ horariosEmp: horEmp }, { merge: true })
     .then(function() {
       paToast('\u2705 Horario individual eliminado — ' + nom + ' usa horario de cargo');
-      var pc = document.getElementById('empPanelContent_' + empId);
-      if (pc) { pc.innerHTML = '<div class="spinner"></div>'; setTimeout(function(){ _paCargarPanelEmp(empId); }, 350); }
+      paAdminTab('config');
     }).catch(function(e){ paToast('Error: ' + e.message, true); });
 }
 
@@ -6711,40 +6806,14 @@ function _paCargarPanelEmp(empId) {
     html += "<span>🌙 Nocturna: <strong>" + heNoctNeto.toFixed(2) + "h</strong><span style=\"font-size:10px;color:var(--muted)\"> × 2.25 = " + (heNoctNeto*2.25).toFixed(1) + "h libres</span></span>";
     html += "</div></div>";
 
-    // ── Horario del empleado ─────────────────────────────────────
-    var horRol  = (PA.horariosRol || {})[emp.cargo] || PA.horario;
-    var horEmp  = (PA.horariosEmp || {})[emp.id];
-    var horAct  = horEmp || horRol;
-    var tieneHorInd = !!horEmp;
-    var rolLabel = emp.cargo ? emp.cargo.charAt(0).toUpperCase()+emp.cargo.slice(1) : 'General';
-    html += "<div style=\"background:rgba(56,139,253,.07);border:2px solid rgba(56,139,253,.25);border-radius:10px;padding:10px 12px;margin-bottom:10px\">";
-    html += "<div style=\"font-size:10px;font-weight:700;color:#388bfd;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px\">📋 Horario</div>";
-    if (horAct) {
-      html += "<div style=\"font-size:12px;color:var(--text);margin-bottom:4px\">";
-      html += "<strong>Entrada:</strong> " + (horAct.horaEntrada||'—') + " &nbsp;&nbsp; <strong>Salida:</strong> " + (horAct.horaSalida||'—');
-      html += "<span style=\"font-size:10px;color:var(--muted);margin-left:8px\">(Tolerancia: " + (horAct.tolerancia||0) + "min)</span>";
-      html += "</div>";
-    }
-    html += "<div style=\"font-size:10px;color:var(--muted);margin-bottom:8px\">";
-    html += tieneHorInd
-      ? "✏️ Horario individual asignado"
-      : "📌 Usando horario del rol <strong>" + rolLabel + "</strong>";
-    html += "</div>";
-    html += "<div style=\"display:flex;gap:6px;flex-wrap:wrap\">";
-    if (horRol) {
-      html += "<button class=\"_btn-aplicar-rol-hor\" data-eid=\"" + empId + "\" data-cargo=\"" + (emp.cargo||'') + "\"";
-      html += " style=\"flex:1;min-width:100px;padding:7px;background:rgba(56,139,253,.1);border:1.5px solid rgba(56,139,253,.3);border-radius:8px;color:#388bfd;font-weight:700;font-size:11px;cursor:pointer;font-family:inherit\">";
-      html += "📋 Aplicar horario de " + rolLabel + "</button>";
-    }
-    if (tieneHorInd) {
-      html += "<button class=\"_btn-borrar-hor-emp\" data-eid=\"" + empId + "\"";
-      html += " style=\"padding:7px 10px;background:transparent;border:1.5px solid rgba(248,81,73,.3);border-radius:8px;color:#f85149;font-weight:700;font-size:11px;cursor:pointer;font-family:inherit\">✕ Quitar individual</button>";
-    }
-    html += "</div></div>";
 
     // HE Pendientes
     if (hePend.length) {
-      html += "<div style=\"font-weight:700;font-size:12px;color:var(--text);margin-bottom:6px\">⏳ HE pendientes (" + hePend.length + ")</div>";
+      html += "<div style=\"margin-bottom:8px;border:1.5px solid rgba(232,160,32,.35);border-radius:10px;overflow:hidden\">";
+      html += "<button onclick=\"paTogSection('psHEP'+empId)\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(232,160,32,.08);border:none;cursor:pointer;font-family:inherit\">";
+      html += "<span style=\"font-size:12px;font-weight:700;color:#B45309\">⏳ HE pendientes (" + hePend.length + ")</span>";
+      html += "<span id=\"psHEP_ico"+empId+"\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
+      html += "<div id=\"psHEP"+empId+"\" style=\"display:none;padding:10px 12px\">";
       hePend.forEach(function(h){
         var tp = {diurna:"☀️",nocturna:"🌙",feriado:"🎉"};
         html += "<div style=\"background:var(--surface);border:1.5px solid var(--border);border-radius:10px;padding:10px;margin-bottom:7px\">";
@@ -6754,11 +6823,16 @@ function _paCargarPanelEmp(empId) {
         html += "<button class=\"_btn-rechaz-he\" data-hid=\"" + h.id + "\" style=\"" + BS + "background:transparent;color:var(--red);border:2px solid var(--red)\">✗ Rechazar</button>";
         html += "</div></div>";
       });
+      html += "</div></div>";
     }
 
     // Canjes Pendientes
     if (canjePend.length) {
-      html += "<div style=\"font-weight:700;font-size:12px;color:var(--text);margin:8px 0 6px\">🔄 Canjes / compensatorios pendientes (" + canjePend.length + ")</div>";
+      html += "<div style=\"margin-bottom:8px;border:1.5px solid rgba(130,80,223,.35);border-radius:10px;overflow:hidden\">";
+      html += "<button onclick=\"paTogSection('psCP'+empId)\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(130,80,223,.07);border:none;cursor:pointer;font-family:inherit\">";
+      html += "<span style=\"font-size:12px;font-weight:700;color:#8250DF\">🔄 Canjes pendientes (" + canjePend.length + ")</span>";
+      html += "<span id=\"psCP_ico"+empId+"\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
+      html += "<div id=\"psCP"+empId+"\" style=\"display:none;padding:10px 12px\">";
       canjePend.forEach(function(c){
         var cfecha = c.fechaLibre||c.fechaOrigen||c.fecha||paHoy();
         html += "<div style=\"background:var(--surface);border:1.5px solid var(--border);border-radius:10px;padding:10px;margin-bottom:7px\">";
@@ -6773,11 +6847,16 @@ function _paCargarPanelEmp(empId) {
         }
         html += "</div></div>";
       });
+      html += "</div></div>";
     }
 
     // Incapacidades
     if (incPend.length) {
-      html += "<div style=\"font-weight:700;font-size:12px;color:var(--text);margin:8px 0 6px\">🏥 Incapacidades pendientes (" + incPend.length + ")</div>";
+      html += "<div style=\"margin-bottom:8px;border:1.5px solid rgba(9,105,218,.35);border-radius:10px;overflow:hidden\">";
+      html += "<button onclick=\"paTogSection('psINC'+empId)\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(9,105,218,.07);border:none;cursor:pointer;font-family:inherit\">";
+      html += "<span style=\"font-size:12px;font-weight:700;color:#0969DA\">🏥 Incapacidades pendientes (" + incPend.length + ")</span>";
+      html += "<span id=\"psINC_ico"+empId+"\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
+      html += "<div id=\"psINC"+empId+"\" style=\"display:none;padding:10px 12px\">";
       incPend.forEach(function(inc){
         html += "<div style=\"background:var(--surface);border:1.5px solid var(--border);border-radius:10px;padding:10px;margin-bottom:7px\">";
         html += "<div style=\"font-size:12px;color:var(--muted);margin-bottom:7px\">" + (inc.fechaInicio||"—") + " al " + (inc.fechaFin||"—") + " · " + (inc.dias||"?") + " días</div>";
@@ -6786,6 +6865,7 @@ function _paCargarPanelEmp(empId) {
         html += "<button class=\"_btn-rechaz-inc\" data-iid=\"" + inc.id + "\" style=\"" + BS + "background:transparent;color:var(--red);border:2px solid var(--red)\">✗ Rechazar</button>";
         html += "</div></div>";
       });
+      html += "</div></div>";
     }
 
     // Asignación manual
@@ -6830,13 +6910,17 @@ function _paCargarPanelEmp(empId) {
       html += "</div>";
     }
 
+    // ── Gestión canjes y Historial
     // Historial con date range picker y tabla completa
     var hoy7  = paHoy();
     var hace7 = new Date(); hace7.setDate(hace7.getDate()-6);
     var d7    = hace7.getFullYear()+"-"+String(hace7.getMonth()+1).padStart(2,"0")+"-"+String(hace7.getDate()).padStart(2,"0");
 
-    html += "<div style=\"margin-top:12px;border-top:2px solid #C4956A;padding-top:12px\">";
-    html += "<div style=\"font-weight:700;font-size:12px;color:var(--text);margin-bottom:8px\">📋 Historial de Marcaciones</div>";
+    html += "<div style=\"margin-top:8px;border:1.5px solid #C4956A;border-radius:10px;overflow:hidden\">";
+    html += "<button onclick=\"paTogSection('psHIST'+empId)\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(180,83,9,.06);border:none;cursor:pointer;font-family:inherit\">";
+    html += "<span style=\"font-size:12px;font-weight:700;color:#B45309\">📋 Historial de Marcaciones (" + marcs.length + ")</span>";
+    html += "<span id=\"psHIST_ico"+empId+"\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
+    html += "<div id=\"psHIST"+empId+"\" style=\"display:none;padding:10px 12px\">";
     html += "<div style=\"display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap\">";
     html += "<div style=\"flex:1;min-width:90px\">";
     html += "<label style=\"font-size:10px;color:var(--muted);font-weight:600;display:block;margin-bottom:3px\">DESDE</label>";
@@ -6880,6 +6964,7 @@ function _paCargarPanelEmp(empId) {
       html += "</div>";
     }
 
+    html += '</div></div>';
     contentEl.innerHTML = html;
   }).catch(function(e) {
     if (contentEl) contentEl.innerHTML = "<div style=\"color:var(--red);padding:12px\">Error: " + e.message + "</div>";
@@ -6980,6 +7065,16 @@ function paAdminReporte(content) {
     +'<div id="reporteContent" style="padding-top:12px"></div>';
   content.innerHTML = html;
   paGenerarReporte();
+}
+
+
+function paTogSection(id) {
+  var body = document.getElementById(id);
+  var icon = document.getElementById(id + '_ico');
+  if (!body) return;
+  var open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : '';
+  if (icon) icon.textContent = open ? '▶' : '▼';
 }
 
 function paGuardarHorario() {
@@ -8024,7 +8119,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-27-M';
+var PA_VERSION = 'v2026-06-27-Q';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
@@ -8215,8 +8310,11 @@ window.addEventListener('DOMContentLoaded', function() {
     else if ((b=ev.target.closest('._btn-asign-he')))    { paAdminAsignarCompensatorio(b.getAttribute('data-eid')||'', b.getAttribute('data-nom')||''); }
     else if ((b=ev.target.closest('._btn-buscar-hist')))  { _paBuscarHistEmp(b.getAttribute('data-eid')||''); }
     else if ((b=ev.target.closest('._btn-revert-canje'))) { paRevertirCanje(b.getAttribute('data-cid')||'',b.getAttribute('data-eid')||'',parseFloat(b.getAttribute('data-horas')||0),b.getAttribute('data-tipo')||'diurna'); }
-    else if ((b=ev.target.closest('._btn-aplicar-rol-hor'))) { paAplicarHorarioRol(b.getAttribute('data-eid')||'',b.getAttribute('data-cargo')||''); }
-    else if ((b=ev.target.closest('._btn-borrar-hor-emp')))  { paBorrarHorarioEmp(b.getAttribute('data-eid')||''); }
+    else if ((b=ev.target.closest('._btn-cfg-asghor'))) {
+      var sel = document.getElementById(b.getAttribute('data-sel'));
+      paAplicarHorarioRol(b.getAttribute('data-eid')||'', sel?sel.value:'', b.getAttribute('data-nom')||'');
+    }
+    else if ((b=ev.target.closest('._btn-cfg-delhor'))) { paBorrarHorarioEmp(b.getAttribute('data-eid')||'',b.getAttribute('data-nom')||''); }
     else if ((b=ev.target.closest('._btn-ver-marc')))     { paVerMarcacion(b.getAttribute('data-mid')||''); }
     else if ((b=ev.target.closest('._btn-edit-marc')))    { paEditarMarcacion(b.getAttribute('data-mid')||''); }
     else if ((b=ev.target.closest('._btn-del-marc')))     { paEliminarMarcacion(b.getAttribute('data-mid')||''); }
