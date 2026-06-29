@@ -1967,22 +1967,11 @@ function applyData(d,fromRemote=false,skipSections=[]){
   if(skip.indexOf('cajachica')<0)
     S.cajachica=d.cajachica||{reintegros:[]};
   if(skip.indexOf('mantenimiento')<0){
-    var _newMant=d.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[],movimientosEquipos:[],registros:[],solicitudesMant:[]};
-    var _newTecCount=(_newMant.tecnicos||[]).filter(function(t){return t.activo!==false;}).length;
-    var _localTecCount=((S.mantenimiento&&S.mantenimiento.tecnicos)||[]).filter(function(t){return t.activo!==false;}).length;
-    // Guard: si remoto tiene menos empleados activos que local (>20% drop) y viene de Firebase → preservar local
-    if(fromRemote && _localTecCount>0 && _newTecCount < Math.round(_localTecCount*0.75)){
-      console.warn('[PP] applyData: remoto tiene',_newTecCount,'técnicos vs local',_localTecCount,'— preservando mantenimiento local');
-      // Solo actualizar secciones no críticas del mantenimiento
-      if(_newMant.checklists&&_newMant.checklists.length>0) S.mantenimiento.checklists=_newMant.checklists;
-      if(_newMant.equipos&&_newMant.equipos.length>0) S.mantenimiento.equipos=_newMant.equipos;
-      if(_newMant.ots&&_newMant.ots.length>0) S.mantenimiento.ots=_newMant.ots;
-      if(_newMant.registros) S.mantenimiento.registros=_newMant.registros;
-      if(_newMant.solicitudesMant) S.mantenimiento.solicitudesMant=_newMant.solicitudesMant;
-    } else {
-      S.mantenimiento=_newMant;
-      if(_newTecCount>0) S._lastKnownTecCount=Math.max(_newTecCount, S._lastKnownTecCount||0);
-    }
+    S.mantenimiento=d.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[],movimientosEquipos:[],registros:[],solicitudesMant:[]};
+    var _newTecCount=(S.mantenimiento.tecnicos||[]).filter(function(t){return t.activo!==false;}).length;
+    if(_newTecCount>0) S._lastKnownTecCount=Math.max(_newTecCount, S._lastKnownTecCount||0);
+    // Si viene de Firebase, los tecnicos ya están sincronizados → limpiar dirty flag
+    if(fromRemote) S._tecnicosDirty=false;
     if(!S.mantenimiento.movimientosEquipos)S.mantenimiento.movimientosEquipos=[];
     if(!S.mantenimiento.registros)S.mantenimiento.registros=[];
     if(!S.mantenimiento.solicitudesMant)S.mantenimiento.solicitudesMant=[];
@@ -2337,6 +2326,9 @@ async function loadData(){
       applyData(remote,false);
       var _ltc=((S.mantenimiento&&S.mantenimiento.tecnicos)||[]).filter(function(t){return t.activo!==false;}).length;
       if(_ltc>0){S._lastKnownTecCount=_ltc;console.log('[PP] Técnicos verificados:',_ltc);}
+      S._tecnicosDirty=false; // Firebase es la fuente de verdad al cargar
+      // Actualizar localStorage con datos frescos de Firebase (elimina datos obsoletos)
+      try{localStorage.setItem('pp3_'+S.empresa,JSON.stringify(serializeState()));}catch(e){}
       setSyncUI('ok','Sincronizado');
     } else {
       // Firebase vacío o sin documento — intentar localStorage SIN tocar Firebase
@@ -2381,7 +2373,9 @@ function startListening(){
     if(!remoteData||Object.keys(remoteData).length<=3)return;
 
     // Secciones a proteger: dirty + módulo activo si el usuario está escribiendo
-    var skip=Object.keys(S._dirtySections||{});
+    // Solo proteger secciones donde el usuario está escribiendo activamente
+    // NUNCA proteger mantenimiento.tecnicos — debe siempre reflejar Firebase
+    var skip=Object.keys(S._dirtySections||{}).filter(function(s){return s!=='mantenimiento';});
     var activeEl=document.activeElement;
     var isTyping=activeEl&&(activeEl.tagName==='INPUT'||activeEl.tagName==='TEXTAREA'||activeEl.tagName==='SELECT');
     if(isTyping){
@@ -2389,7 +2383,8 @@ function startListening(){
       var secMap={inventario:'inventario',gastos:'gastos',asistencia:'asistencia',
                   taller:'taller',centros:'centros',proveedores:'proveedores',proyectos:'proyectos'};
       var modSec=secMap[mod];
-      if(modSec&&skip.indexOf(modSec)<0) skip.push(modSec);
+      // No proteger mantenimiento aunque el usuario esté escribiendo en esa sección
+      if(modSec&&modSec!=='mantenimiento'&&skip.indexOf(modSec)<0) skip.push(modSec);
     }
 
     if(remoteData._gastosChunked){
@@ -2438,11 +2433,17 @@ async function forceReloadFromFirebase(){
 function _emergencySave(){
   if(!S._dirty||!S.empresa)return;
   try{
-    // Guardar en localStorage de forma síncrona (siempre funciona)
     localStorage.setItem('pp3_'+S.empresa,JSON.stringify(serializeState()));
-    // Intentar Firebase (puede no completarse en móvil al cerrar)
-    clearTimeout(S._syncTimer);
-    _doSaveFirebase();
+    // Solo ir a Firebase si hay secciones explícitamente dirty
+    // Evitar full save vacío que podría sobreescribir datos de otros usuarios
+    var hasDirtySections=Object.keys(S._dirtySections||{}).length>0;
+    if(hasDirtySections){
+      clearTimeout(S._syncTimer);
+      _doSaveFirebase();
+    } else {
+      // No hay secciones dirty: no tocar Firebase (el save normal ya lo hizo)
+      console.log('[PP] _emergencySave: sin secciones dirty, solo localStorage actualizado');
+    }
   }catch(e){}
 }
 window.addEventListener('pagehide', _emergencySave);
@@ -2558,12 +2559,33 @@ async function _doSaveFirebase(){
 
     var result;
     if(otherDirtySections.length>0&&otherDirtySections.length<=4&&window.FB.saveSection){
-      // Guardar secciones no-gastos por separado (evita sobreescribir cambios de otros usuarios)
       console.log('[PP] Saving sections:',otherDirtySections.join(','),'sz:'+(sz/1024).toFixed(0)+'KB');
-      result=await window.FB.saveSection(S.empresa,otherDirtySections,dataToSave);
+
+      // Si mantenimiento está dirty pero el user NO editó empleados directamente:
+      // Guardar con dot-notation para NO sobreescribir tecnicos de otros admins
+      var mantIdx=otherDirtySections.indexOf('mantenimiento');
+      if(mantIdx>=0 && !S._tecnicosDirty){
+        // Guardar todos los campos de mantenimiento EXCEPTO tecnicos
+        var mantFields=['checklists','equipos','ots','movimientosEquipos','registros','solicitudesMant'];
+        var dotUpdates={_ts:dataToSave._ts||Date.now()};
+        var mant=dataToSave.mantenimiento||S.mantenimiento||{};
+        mantFields.forEach(function(k){ dotUpdates['mantenimiento.'+k]=mant[k]||[]; });
+        // Guardar las otras secciones sucias normalmente
+        var otherSecs=otherDirtySections.filter(function(s){return s!=='mantenimiento';});
+        otherSecs.forEach(function(s){ if(dataToSave[s]!==undefined) dotUpdates[s]=dataToSave[s]; });
+        try{
+          await firebase.firestore().collection('empresas').doc(S.empresa).update(dotUpdates);
+          result={ok:true};
+          console.log('[PP] mantenimiento guardado SIN sobreescribir tecnicos (dot-notation)');
+        }catch(e){ result={ok:false,err:e.message}; }
+      } else {
+        // tecnicos fue editado explícitamente → guardar todo incluyendo tecnicos
+        result=await window.FB.saveSection(S.empresa,otherDirtySections,dataToSave);
+        if((result===true)||(result&&result.ok===true)) S._tecnicosDirty=false;
+      }
+
       var savedOk=(result===true)||(result&&result.ok===true);
       if(savedOk){
-        // Solo limpiar las secciones que se guardaron, no gastos
         otherDirtySections.forEach(function(s){delete S._dirtySections[s];});
       }
     }
@@ -2579,7 +2601,35 @@ async function _doSaveFirebase(){
 
     // Si no había nada dirty pero se llegó aquí por otra razón, save completo
     if(dirtySections.length===0){
-      result=await window.FB.save(S.empresa,dataToSave);
+      if(!S._tecnicosDirty){
+        // PROTECCIÓN: si no editamos empleados explícitamente, NO sobreescribir
+        // mantenimiento.tecnicos en Firebase (puede tener empleados que no tenemos localmente)
+        // Usamos dot-notation para actualizar todo EXCEPTO tecnicos
+        try{
+          var _db=firebase.firestore();
+          var _mantLocal=S.mantenimiento||{};
+          var _dotUpdates={_ts:dataToSave._ts||Date.now()};
+          // Copiar todos los campos del full dataToSave EXCEPTO mantenimiento (lo hacemos granular)
+          Object.keys(dataToSave).forEach(function(k){
+            if(k!=='mantenimiento'&&k!=='_ts') _dotUpdates[k]=dataToSave[k];
+          });
+          // Mantenimiento: campo por campo SIN tecnicos
+          ['checklists','equipos','ots','movimientosEquipos','registros','solicitudesMant'].forEach(function(k){
+            _dotUpdates['mantenimiento.'+k]=_mantLocal[k]||[];
+          });
+          await _db.collection('empresas').doc(S.empresa).update(_dotUpdates);
+          result={ok:true};
+          console.log('[PP] Full save protegido: mantenimiento.tecnicos NO sobreescrito');
+        }catch(_e){
+          // Si falla, intentar save normal (mejor que perder datos)
+          console.warn('[PP] dot-notation fallback a save completo:',_e.message);
+          result=await window.FB.save(S.empresa,dataToSave);
+        }
+      } else {
+        // Tecnicos fue editado explícitamente → save completo normal
+        result=await window.FB.save(S.empresa,dataToSave);
+        if((result===true)||(result&&result.ok===true)) S._tecnicosDirty=false;
+      }
     }
 
     S._saving=false;
@@ -2941,14 +2991,11 @@ function _syncPortalPublico(){
         origenSolicitud:o.origenSolicitud||''
       };
     });
-  // Guard anti-race: si el count bajó >20% vs lo que conocíamos, no sobreescribir
+  // Guard básico: no sincronizar si el estado está vacío (app cargando)
+  if(!S.mantenimiento || !S.mantenimiento.tecnicos) return;
   var newCount=tecnicosPublicos.length;
-  var knownCount=S._lastKnownTecCount||0;
-  if(knownCount>0 && newCount<Math.round(knownCount*0.75)){
-    console.warn('[Portal] Sync cancelado — conteo bajó de',knownCount,'a',newCount,'(posible carga parcial)');
-    return;
-  }
-  if(newCount>knownCount) S._lastKnownTecCount=newCount;
+  S._lastKnownTecCount=newCount;
+  console.log('[Portal] Sincronizando portal público —',newCount,'técnicos');
   db.collection('portalesPublicos').doc(S.empresa).set({
     empresa:S.empresa,
     centros:centrosPublicos,
@@ -12371,7 +12418,7 @@ function modalTecnico(id){
 }
 
 function guardarTecnico(id){
-  markDirty('taller');
+  markDirty('mantenimiento'); S._tecnicosDirty=true; // flag: tecnicos fue editado explícitamente
   var nombre=((document.getElementById('tecNom')||{}).value||'').trim();
   if(!nombre){toast('Nombre requerido',true);return;}
   var roles=[];
@@ -12524,7 +12571,7 @@ function verOTsTecnico(tecId){
 }
 
 function delTecnico(id){
-  markDirty('taller');
+  markDirty('mantenimiento'); S._tecnicosDirty=true; // flag: tecnicos fue editado explícitamente
   if(!confirm('¿Eliminar este registro de personal?'))return;
   var m=mantData();
   m.tecnicos=m.tecnicos.filter(function(t){return t.id!==id;});
