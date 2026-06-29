@@ -4069,41 +4069,52 @@ function paInitCanje() {
     paDb.collection('paHorasExtra').where('empleadoId','==',empId).get(),
     paDb.collection('paCanjes').where('empleadoId','==',empId).get()
   ]).then(function(results){
-    var totalDiurna = 0;
+    var totalDiurna = 0; var totalNocturna = 0;
+    var pHE = PA.periodoHE || {};
+    // Solo HE aprobadas dentro del periodo activo
     results[0].forEach(function(d){
-      var r=d.data();
-      if(r.empresa===PA.empresa && r.tipo==='diurna' && r.estado==='aprobado') totalDiurna += (r.horas||0);
+      var r = d.data();
+      if (r.empresa !== PA.empresa || r.estado !== 'aprobado') return;
+      if (pHE.desde && r.fecha && r.fecha < pHE.desde) return;
+      if (pHE.hasta && r.fecha && r.fecha > pHE.hasta) return;
+      if (r.tipo === 'diurna')   totalDiurna   += parseFloat(r.horas||0);
+      if (r.tipo === 'nocturna') totalNocturna += parseFloat(r.horas||0);
     });
-
-    var canjeadasPend = 0;  // ya descontadas del saldo pero sin fecha
-    var canjeadasAsig = 0;  // con fecha asignada
+    // Canjes ejecutados dentro del periodo activo
     results[1].forEach(function(d){
       var c = d.data();
-      if (c.estado==='canjeado_sin_fecha') canjeadasPend += (c.horasCanje||0);
-      if (c.estado==='asignado')           canjeadasAsig += (c.horasCanje||0);
+      if (c.empresa !== PA.empresa) return;
+      if (c.tipo === 'canje_he' && c.estado === 'ejecutado') {
+        if (pHE.desde && c.fechaEjecucion && c.fechaEjecucion < pHE.desde) return;
+        if (pHE.hasta && c.fechaEjecucion && c.fechaEjecucion > pHE.hasta) return;
+        if (c.tipo_he === 'diurna')   totalDiurna   = Math.max(0, totalDiurna   - parseFloat(c.horasHE||0));
+        if (c.tipo_he === 'nocturna') totalNocturna = Math.max(0, totalNocturna - parseFloat(c.horasHE||0));
+        return;
+      }
+      if (c.estado === 'canjeado_sin_fecha' || c.estado === 'asignado')
+        totalDiurna = Math.max(0, totalDiurna - parseFloat(c.horasCanje||0));
     });
-
-    var disponible = Math.max(0, totalDiurna - canjeadasPend - canjeadasAsig);
-    PA._canjeDisponible = disponible;
-    PA._canjeCanjeadasPend = canjeadasPend;
-
-    if (dispEl)  dispEl.textContent = disponible.toFixed(1);
-    if (diaseEl) diaseEl.textContent = Math.floor(disponible*2/8);
+    var disponible = Math.max(0, totalDiurna + totalNocturna);
+    PA._canjeDisponible    = disponible;
+    PA._canjeSaldoDiurna   = totalDiurna;
+    PA._canjeSaldoNocturna = totalNocturna;
+    if (dispEl) {
+      dispEl.textContent = (totalNocturna > 0)
+        ? totalDiurna.toFixed(1)+'d+'+totalNocturna.toFixed(1)+'n'
+        : disponible.toFixed(1);
+    }
+    if (diaseEl) diaseEl.textContent = ((totalDiurna*2 + totalNocturna*2.25)/8).toFixed(1);
     if (horasEl) horasEl.max = disponible;
-
-    // Mostrar horas canjeadas pendientes de fecha si las hay
     var pendBox = document.getElementById('canjePendBox');
     if (pendBox) {
-      if (canjeadasPend > 0) {
-        pendBox.style.display='block';
-        pendBox.innerHTML = '🔄 Tienes <strong>'+canjeadasPend.toFixed(1)+'h</strong> canjeadas pendientes de que el admin te asigne una fecha. '
-          +'Puedes solicitarla abajo.';
-      } else {
-        pendBox.style.display='none';
-      }
+      var ps = pHE.desde ? pHE.desde+' al '+pHE.hasta : 'sin periodo configurado';
+      pendBox.style.display = 'block';
+      pendBox.innerHTML = 'Periodo activo: <strong>' + ps + '</strong>'
+        + (disponible <= 0 ? '. Sin horas disponibles en este periodo.' : '.');
     }
-  }).catch(function(){
-    if (dispEl) dispEl.textContent = (PA.horasExtraAcum||0).toFixed(1);
+  }).catch(function(e){
+    console.warn('[paInitCanje]', e && e.message);
+    if (dispEl) dispEl.textContent = '—';
   });
 }
 
@@ -4112,18 +4123,27 @@ function paUpdateCanjeCalc() {
   var calcBox = document.getElementById('canjeCalcBox');
   var calcEl  = document.getElementById('canjeCalcResult');
   var horas = parseFloat(horasEl ? horasEl.value : 0) || 0;
-  if (horas > 0) {
-    // 1 HE diurna = 2 horas normales
-    var horasLibres = horas * 2;
-    var dias = Math.floor(horasLibres / 8);
-    var horasRestantes = horasLibres % 8;
-    if (calcBox) calcBox.style.display = 'block';
-    var resumen = horas + ' HE diurna(s) × 2 = ' + horasLibres + ' horas libres';
-    if (dias > 0) resumen += ' = ' + dias + ' día(s)' + (horasRestantes > 0 ? ' + ' + horasRestantes + 'h' : '');
-    if (calcEl) calcEl.textContent = resumen;
-  } else {
-    if (calcBox) calcBox.style.display = 'none';
+  if (horas <= 0) { if (calcBox) calcBox.style.display='none'; return; }
+  var saldo = PA._canjeDisponible || 0;
+  if (horas > saldo) {
+    if (calcBox) calcBox.style.display='block';
+    if (calcEl)  calcEl.textContent = 'Excede el saldo disponible (' + saldo.toFixed(1) + 'h en el periodo)';
+    return;
   }
+  var nocDisp  = PA._canjeSaldoNocturna || 0;
+  var diurDisp = PA._canjeSaldoDiurna   || 0;
+  var horasNoc  = Math.min(horas, nocDisp);
+  var horasDiur = Math.min(horas - horasNoc, diurDisp);
+  var libres = horasDiur * 2 + horasNoc * 2.25;
+  var dias   = Math.floor(libres / 8);
+  var resto  = (libres % 8).toFixed(1);
+  if (calcBox) calcBox.style.display='block';
+  var resumen = '';
+  if (horasDiur > 0) resumen += horasDiur.toFixed(1) + ' HE diurna x2 = ' + (horasDiur*2).toFixed(1) + 'h';
+  if (horasNoc  > 0) resumen += (resumen ? ' + ' : '') + horasNoc.toFixed(1) + ' HE nocturna x2.25 = ' + (horasNoc*2.25).toFixed(1) + 'h';
+  resumen += ' = ' + libres.toFixed(1) + 'h libres';
+  if (dias > 0) resumen += ' (' + dias + ' dia(s)' + (parseFloat(resto)>0 ? ' + '+resto+'h':'')+')';
+  if (calcEl) calcEl.textContent = resumen;
 }
 
 function paGoCanje() { paShow('scCanje'); }
@@ -8191,7 +8211,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-28-J';
+var PA_VERSION = 'v2026-06-28-K';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
