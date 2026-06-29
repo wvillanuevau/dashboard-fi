@@ -4648,15 +4648,7 @@ function paRevertirCanje(canjeId, empId, horasHE, tipoHE) {
   if (!confirm('\u00bfRevertir este canje?\nSe restaurar\xe1n ' + horasHE + 'h HE ' + tipoLabel + ' al saldo del empleado.')) return;
   paDb.collection('paCanjes').doc(canjeId).update({ estado: 'revertido', fechaReversion: paHoy(), revertidoPor: 'admin' })
     .then(function() {
-      // Restaurar horasExtraAcum en paPins
-      var existDocId = PA._pinsDocMap && PA._pinsDocMap[empId];
-      if (existDocId) {
-        return paDb.collection('paPins').doc(existDocId).get().then(function(doc) {
-          if (!doc.exists) return;
-          var acum = parseFloat(doc.data().horasExtraAcum || 0);
-          return paDb.collection('paPins').doc(existDocId).update({ horasExtraAcum: acum + parseFloat(horasHE) });
-        });
-      }
+      // El saldo se recalcula automáticamente al revertir (el canje ya queda 'revertido')
     }).then(function() {
       paToast('\u2705 Canje revertido — ' + horasHE + 'h ' + tipoLabel + ' restauradas al saldo');
       var panelContent = document.getElementById('empPanelContent_' + empId);
@@ -4684,7 +4676,11 @@ function paCanjearHorasExtra(empId, empNombre, saldoDiurna, saldoNocturna) {
     +'<div style="font-size:17px;font-weight:800;color:var(--text);margin-bottom:4px">🔄 Canjear Horas Extra</div>'
     +'<div style="font-size:13px;color:var(--muted);margin-bottom:18px">'+esc(empNombre)+'</div>'
     +'<div style="background:rgba(0,107,63,.08);border:1.5px solid rgba(0,107,63,.3);border-radius:10px;padding:12px;margin-bottom:16px">'
-      +'<div style="font-size:11px;font-weight:700;color:#006B3F;margin-bottom:8px">SALDO DISPONIBLE</div>'
+      +(function(){
+      var pHE2=PA.periodoHE||{};
+      return '<div style="font-size:10px;color:#B45309;margin-bottom:4px">📅 Período: '+(pHE2.desde?pHE2.desde+' al '+pHE2.hasta:'No configurado')+'</div>'
+        +'<div style="font-size:11px;font-weight:700;color:#006B3F;margin-bottom:8px">SALDO DISPONIBLE EN PERÍODO</div>';
+    })()
       +'<div style="display:flex;gap:20px">'
         +'<div><div style="font-size:20px;font-weight:800;color:var(--text)">'+saldoDiurna.toFixed(2)+'h</div>'
         +'<div style="font-size:10px;color:var(--muted)">☀️ Diurna × 2</div></div>'
@@ -4799,18 +4795,8 @@ function paConfirmarCanjeHE(empId, empNombre, saldoDiurna, saldoNocturna) {
     fechaEjecucion: paHoy(),
     ts:             Date.now()
   }).then(function() {
-    // 2. Descontar de paPins
-    var existDocId = PA._pinsDocMap && PA._pinsDocMap[empId];
-    if (existDocId) {
-      return paDb.collection('paPins').doc(existDocId).get().then(function(doc) {
-        if (!doc.exists) return;
-        var d = doc.data();
-        var updPins = {};
-        var acum = parseFloat(d.horasExtraAcum || 0);
-        updPins.horasExtraAcum = Math.max(0, acum - horas);
-        return paDb.collection('paPins').doc(existDocId).update(updPins);
-      });
-    }
+    // El saldo disponible se recalcula desde paHorasExtra+paCanjes por período activo
+    // No se modifica paPins.horasExtraAcum (es el total acumulado lifetime, no período)
   }).then(function() {
     paToast('\u2705 Canje realizado: ' + horas.toFixed(2) + 'h HE ' + (tipo==='diurna'?'diurnas':'nocturnas') + ' → ' + libres.toFixed(2) + 'h libres');
     var modal = document.getElementById('modalCanjeHE');
@@ -6010,6 +5996,44 @@ function paEliminarAP(apId) {
 
 // ── Rechazar canje ───────────────────────────────────────────────
 
+
+// ══════════════════════════════════════════════════════════════════
+// Helper: calcular saldo HE filtrado por período activo
+// Retorna Promise → {diurna: X, nocturna: Y} (horas netas disponibles)
+// ══════════════════════════════════════════════════════════════════
+function _paGetSaldoPeriodo(empId) {
+  var pHE = PA.periodoHE || {};
+  var empresa = PA.empresa;
+  return Promise.all([
+    paDb.collection('paHorasExtra').where('empresa','==',empresa).where('empleadoId','==',empId).get(),
+    paDb.collection('paCanjes').where('empresa','==',empresa).where('empleadoId','==',empId).get()
+  ]).then(function(results) {
+    var heSnap = results[0];
+    var cjSnap = results[1];
+    // HE aprobadas en el período
+    var diurna = 0; var nocturna = 0;
+    heSnap.forEach(function(d) {
+      var h = d.data();
+      if (h.estado !== 'aprobado') return;
+      if (pHE.desde && h.fecha && h.fecha < pHE.desde) return;
+      if (pHE.hasta && h.fecha && h.fecha > pHE.hasta) return;
+      if (h.tipo === 'diurna') diurna += parseFloat(h.horas||0);
+      else nocturna += parseFloat(h.horas||0);
+    });
+    // Restar canjes ejecutados en el período (usando tipo_he)
+    cjSnap.forEach(function(d) {
+      var c = d.data();
+      if (c.estado !== 'ejecutado') return;
+      if (c.tipo !== 'canje_he') return;
+      if (pHE.desde && c.fechaEjecucion && c.fechaEjecucion < pHE.desde) return;
+      if (pHE.hasta && c.fechaEjecucion && c.fechaEjecucion > pHE.hasta) return;
+      if (c.tipo_he === 'diurna') diurna  = Math.max(0, diurna  - parseFloat(c.horasHE||0));
+      else                        nocturna = Math.max(0, nocturna - parseFloat(c.horasHE||0));
+    });
+    return { diurna: Math.max(0,diurna), nocturna: Math.max(0,nocturna) };
+  });
+}
+
 function paAprobarFechaCanje(canjeId, fecha, btn) {
   if (btn) btn.disabled = true;
   // Leer el canje para validar y descontar horas
@@ -6024,27 +6048,21 @@ function paAprobarFechaCanje(canjeId, fecha, btn) {
       var upd = { estado:'asignado', aprobadoPor:'admin', fechaAprobacion: paHoy() };
       if (fecha) upd.fechaLibre = fecha;
       return paDb.collection('paCanjes').doc(canjeId).update(upd).then(function() {
-        // Descontar horas de paPins si el canje tiene horasHE
-        if (horasHE > 0 && empId && PA._pinsDocMap && PA._pinsDocMap[empId]) {
-          return paDb.collection('paPins').doc(PA._pinsDocMap[empId]).get().then(function(pd) {
-            if (!pd.exists) return;
-            var acum = parseFloat(pd.data().horasExtraAcum || 0);
-            return paDb.collection('paPins').doc(PA._pinsDocMap[empId]).update({
-              horasExtraAcum: Math.max(0, acum - horasHE)
-            });
-          });
-        }
+        // El saldo se recalcula automáticamente desde paHorasExtra+paCanjes por período
+        // No se toca paPins.horasExtraAcum (que es el acumulado total, no filtrado)
       }).then(function() {
         paToast('\u2705 Canje aprobado' + (fecha ? ' \u2014 d\xeda libre ' + fecha : ''));
         _paPostApproval(btn, 'emps');
       });
     };
-    if (horasHE > 0 && empId && PA._pinsDocMap && PA._pinsDocMap[empId]) {
-      // Validar saldo antes de aprobar
-      paDb.collection('paPins').doc(PA._pinsDocMap[empId]).get().then(function(pd) {
-        var acum = pd.exists ? parseFloat(pd.data().horasExtraAcum || 0) : 0;
-        if (horasHE > acum) {
-          paToast('Saldo insuficiente: el empleado tiene ' + acum.toFixed(2) + 'h disponibles y solicita ' + horasHE.toFixed(2) + 'h', true);
+    if (horasHE > 0 && empId) {
+      // Validar saldo filtrado por PERÍODO ACTIVO (no horasExtraAcum total)
+      _paGetSaldoPeriodo(empId).then(function(saldo) {
+        var dispTipo = tipoHE === 'diurna' ? saldo.diurna : saldo.nocturna;
+        var pHE = PA.periodoHE || {};
+        var periodoStr = pHE.desde ? (pHE.desde+' al '+pHE.hasta) : 'sin período configurado';
+        if (horasHE > dispTipo) {
+          paToast('Saldo insuficiente en el período (' + periodoStr + '): '+dispTipo.toFixed(2)+'h disponibles, solicita '+horasHE.toFixed(2)+'h', true);
           if(btn)btn.disabled=false;
           return;
         }
@@ -8173,7 +8191,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-28-I';
+var PA_VERSION = 'v2026-06-28-J';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado

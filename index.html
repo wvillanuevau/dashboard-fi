@@ -1967,7 +1967,22 @@ function applyData(d,fromRemote=false,skipSections=[]){
   if(skip.indexOf('cajachica')<0)
     S.cajachica=d.cajachica||{reintegros:[]};
   if(skip.indexOf('mantenimiento')<0){
-    S.mantenimiento=d.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[],movimientosEquipos:[],registros:[],solicitudesMant:[]};
+    var _newMant=d.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[],movimientosEquipos:[],registros:[],solicitudesMant:[]};
+    var _newTecCount=(_newMant.tecnicos||[]).filter(function(t){return t.activo!==false;}).length;
+    var _localTecCount=((S.mantenimiento&&S.mantenimiento.tecnicos)||[]).filter(function(t){return t.activo!==false;}).length;
+    // Guard: si remoto tiene menos empleados activos que local (>20% drop) y viene de Firebase → preservar local
+    if(fromRemote && _localTecCount>0 && _newTecCount < Math.round(_localTecCount*0.75)){
+      console.warn('[PP] applyData: remoto tiene',_newTecCount,'técnicos vs local',_localTecCount,'— preservando mantenimiento local');
+      // Solo actualizar secciones no críticas del mantenimiento
+      if(_newMant.checklists&&_newMant.checklists.length>0) S.mantenimiento.checklists=_newMant.checklists;
+      if(_newMant.equipos&&_newMant.equipos.length>0) S.mantenimiento.equipos=_newMant.equipos;
+      if(_newMant.ots&&_newMant.ots.length>0) S.mantenimiento.ots=_newMant.ots;
+      if(_newMant.registros) S.mantenimiento.registros=_newMant.registros;
+      if(_newMant.solicitudesMant) S.mantenimiento.solicitudesMant=_newMant.solicitudesMant;
+    } else {
+      S.mantenimiento=_newMant;
+      if(_newTecCount>0) S._lastKnownTecCount=Math.max(_newTecCount, S._lastKnownTecCount||0);
+    }
     if(!S.mantenimiento.movimientosEquipos)S.mantenimiento.movimientosEquipos=[];
     if(!S.mantenimiento.registros)S.mantenimiento.registros=[];
     if(!S.mantenimiento.solicitudesMant)S.mantenimiento.solicitudesMant=[];
@@ -2320,6 +2335,8 @@ async function loadData(){
     if(remote&&Object.keys(remote).length>3){
       // Firebase tiene datos reales — aplicar SIEMPRE
       applyData(remote,false);
+      var _ltc=((S.mantenimiento&&S.mantenimiento.tecnicos)||[]).filter(function(t){return t.activo!==false;}).length;
+      if(_ltc>0){S._lastKnownTecCount=_ltc;console.log('[PP] Técnicos verificados:',_ltc);}
       setSyncUI('ok','Sincronizado');
     } else {
       // Firebase vacío o sin documento — intentar localStorage SIN tocar Firebase
@@ -2924,6 +2941,14 @@ function _syncPortalPublico(){
         origenSolicitud:o.origenSolicitud||''
       };
     });
+  // Guard anti-race: si el count bajó >20% vs lo que conocíamos, no sobreescribir
+  var newCount=tecnicosPublicos.length;
+  var knownCount=S._lastKnownTecCount||0;
+  if(knownCount>0 && newCount<Math.round(knownCount*0.75)){
+    console.warn('[Portal] Sync cancelado — conteo bajó de',knownCount,'a',newCount,'(posible carga parcial)');
+    return;
+  }
+  if(newCount>knownCount) S._lastKnownTecCount=newCount;
   db.collection('portalesPublicos').doc(S.empresa).set({
     empresa:S.empresa,
     centros:centrosPublicos,
