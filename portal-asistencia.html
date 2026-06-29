@@ -67,14 +67,15 @@ button:active{opacity:.8;transform:scale(.95)}
 }
 .landing-logo{
   width:300px;height:300px;
-  background:radial-gradient(circle at 50% 48%,#fff 0%,#fff 60%,rgba(204,0,0,.06) 75%,rgba(204,0,0,.18) 100%);
+  background:#fff;
   border-radius:50%;
   display:flex;align-items:center;justify-content:center;
   margin-bottom:20px;
-  border:3px solid rgba(204,0,0,.22);
+  border:3px solid rgba(204,0,0,.25);
   padding:0;flex-shrink:0;
   position:relative;
-  box-shadow:0 0 0 6px rgba(204,0,0,.06),0 8px 32px rgba(204,0,0,.2),0 2px 8px rgba(0,0,0,.08);
+  overflow:hidden;
+  box-shadow:0 0 0 6px rgba(204,0,0,.07),0 8px 32px rgba(204,0,0,.18),0 2px 8px rgba(0,0,0,.08);
   transition:transform .2s cubic-bezier(.34,1.56,.64,1),box-shadow .2s;
 }
 .landing-logo:active{
@@ -82,10 +83,12 @@ button:active{opacity:.8;transform:scale(.95)}
   box-shadow:0 0 0 3px rgba(204,0,0,.08),0 4px 12px rgba(204,0,0,.14);
 }
 .landing-logo img{
-  width:300px;height:300px;
-  object-fit:contain;
-  mix-blend-mode:multiply;
+  width:110%;height:110%;
+  object-fit:cover;
+  object-position:center center;
   display:block;
+  transform:scale(1.15);
+  transform-origin:center center;
 }
 .landing-title{font-size:28px;font-weight:700;text-align:center;margin-bottom:8px;letter-spacing:-.5px}
 .landing-sub{font-size:14px;color:var(--muted);text-align:center;margin-bottom:40px;line-height:1.5}
@@ -5038,7 +5041,7 @@ function _paAccionPersonalFaltaRender(empId, empNombre, empCargo, fecha, faltasM
     )    +'</div>'
     // Form fields
     +'<div style="margin-bottom:12px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">EXPLICACIÓN / DETALLE</label>'    +'<textarea id="acpExplicacion" rows="3" placeholder="El empleado no se presentó a laborar el día '+fechaFmt+' sin justificación alguna..." '    +'style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box">'    +'El empleado '+esc(empNombre)+' no se presentó a laborar el día '+fechaFmt+' sin justificación alguna.</textarea></div>'
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'    +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">SOLICITA</label>'    +'<input id="acpSolicita" type="text" value="WILFREDO VILLANUEVA" '    +'style="width:100%;padding:9px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box"></div>'    +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">AUTORIZA</label>'    +'<input id="acpAutoriza" type="text" value="Julio de Paul" '    +'style="width:100%;padding:9px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box"></div>'    +'</div>'
+    +'<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">'    +'<div style="flex:1;min-width:120px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">SOLICITA</label>'    +'<input id="acpSolicita" type="text" value="WILFREDO VILLANUEVA" '    +'style="width:100%;padding:9px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box"></div>'    +'<div style="flex:1;min-width:120px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">AUTORIZA</label>'    +'<input id="acpAutoriza" type="text" value="Julio de Paul" '    +'style="width:100%;padding:9px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box"></div>'    +'</div>'
     +'<button onclick="paGenerarAccionPersonal()" '    +'style="width:100%;padding:13px;background:#f85149;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:4px">'    +'📄 Generar e Imprimir Acción de Personal</button>'    +'</div>';
 
   document.body.appendChild(ov);
@@ -5464,10 +5467,10 @@ function paEditarMarcacion(marcId) {
     +'<div style="font-size:16px;font-weight:700;margin-bottom:16px">✏ Editar marcación — '+m.empleadoNombre+'</div>'
     +'<div class="fg"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">TIPO</label>'
     +'<select id="editTipo" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px">'+tiposOpts+'</select></div>'
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">'
-    +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">FECHA</label>'
+    +'<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px">'
+    +'<div style="flex:1;min-width:120px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">FECHA</label>'
     +'<input type="date" id="editFecha" value="'+fechaActual+'" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px"></div>'
-    +'<div><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">HORA</label>'
+    +'<div style="flex:1;min-width:120px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">HORA</label>'
     +'<input type="time" id="editHora" value="'+horaActual+'" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px"></div>'
     +'</div>'
     +'<div style="margin-top:10px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">OBSERVACIÓN</label>'
@@ -5613,9 +5616,9 @@ function paAdminAcciones(content) {
   content.innerHTML =
     '<div class="section-title">Acciones de Personal</div>'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'
-    +'<div class="fg" style="margin:0"><label>Desde</label>'
+    +'<div class="fg" style="margin:0;flex:1;min-width:120px"><label>Desde</label>'
     +'<input type="date" id="apDesde" value="'+defDesde+'" max="'+hoy+'" style="font-size:15px" onchange="paCargarAPs()"></div>'
-    +'<div class="fg" style="margin:0"><label>Hasta</label>'
+    +'<div class="fg" style="margin:0;flex:1;min-width:120px"><label>Hasta</label>'
     +'<input type="date" id="apHasta" value="'+defHasta+'" max="'+hoy+'" style="font-size:15px" onchange="paCargarAPs()"></div>'
     +'</div>'
     +'<div id="apFiltroTipo" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">'
@@ -6160,7 +6163,7 @@ function paAdminConfig(content) {
       +'</div>'
       // Sábado
       +'<div style="font-size:11px;color:#e8a020;margin-bottom:6px;font-weight:600">📅 SÁBADO</div>'
-      +'<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;align-items:end;margin-bottom:8px">'
+      +'<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:8px">'
       +'<div style="flex:1;min-width:100px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">ENTRADA</label>'
       +'<input type="time" id="'+prefix+'_sabEntrada" value="'+(src.sabadoEntrada||'08:00')+'" style="width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px"></div>'
       +'<div style="flex:1;min-width:100px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">SALIDA</label>'
@@ -6352,7 +6355,7 @@ function paAdminConfig(content) {
     +'</div></div></div>';
 
     // ── 1. HORARIO POR ROL ──────────────────────────────────────
-    '<div style="background:var(--surface);border:2px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:12px">'
+  html += '<div style="background:var(--surface);border:2px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:12px">'
     +'<button onclick="paTogSection(\'cfgHorRol\')" style="width:100%;display:flex;justify-content:space-between;align-items:center;padding:14px 16px;background:var(--surface2);border:none;cursor:pointer;font-family:inherit">'
     +'<div style="font-size:13px;font-weight:700;color:var(--text)">🕐 Horarios por Rol</div>'
     +'<span id="cfgHorRol_ico" style="font-size:14px;color:var(--muted)">▶</span></button>'
@@ -6360,7 +6363,7 @@ function paAdminConfig(content) {
     +'<div style="font-size:11px;color:var(--muted);margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border)">⏰ Horarios por Rol</div>'
     +'<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Cada rol puede tener su propio horario de entrada y tolerancia.</div>'
     +_horCard('🏢 Horario General (predeterminado)', 'hor_general', h)
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px">'
+    +'<div style="margin-bottom:4px">'
     + roles.map(function(rol){
         var src = horRoles[rol] || {};
         return '<button onclick="paToglHorRol(\'hor_rol_'+rol+'\')" style="padding:8px;background:var(--surface);border:1.5px solid '+(Object.keys(src).length?'#006B3F':'var(--border)')+';border-radius:8px;cursor:pointer;font-size:12px;color:'+(Object.keys(src).length?'#006B3F':'var(--muted)')+';text-align:left">'+rol+'</button>';
@@ -7071,9 +7074,9 @@ function paAdminReporte(content) {
   }
   var html = '<div class="info-box">Reporte de horas extra aprobadas por período. Puedes definir cualquier rango de fechas — quincenal, semanal, mensual, etc.</div>';
     html += '<div style="position:sticky;top:0;z-index:10;background:var(--bg);padding-bottom:10px;border-bottom:1px solid var(--border)">'
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
-    +'<div class="fg" style="margin:0"><label>Desde</label><input type="date" id="rptDesde" value="'+defDesde+'" max="'+hoy+'" style="font-size:16px"></div>'
-    +'<div class="fg" style="margin:0"><label>Hasta</label><input type="date" id="rptHasta" value="'+defHasta+'" max="'+hoy+'" style="font-size:16px"></div>'
+    +'<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px">'
+    +'<div class="fg" style="margin:0;flex:1;min-width:120px"><label>Desde</label><input type="date" id="rptDesde" value="'+defDesde+'" max="'+hoy+'" style="font-size:16px"></div>'
+    +'<div class="fg" style="margin:0;flex:1;min-width:120px"><label>Hasta</label><input type="date" id="rptHasta" value="'+defHasta+'" max="'+hoy+'" style="font-size:16px"></div>'
     +'</div>'
     +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px">'
     +'<button class="big-btn outline" style="padding:8px;font-size:11px" onclick="paSetPeriodo(\'q1\')">1-15</button>'
@@ -8139,7 +8142,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-28-B';
+var PA_VERSION = 'v2026-06-28-F';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
