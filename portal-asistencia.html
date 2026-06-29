@@ -799,10 +799,7 @@ button:active{opacity:.8;transform:scale(.95)}
       <label>Horas a canjear</label>
       <input type="number" id="canjeHoras" min="0.5" max="100" step="0.5" placeholder="Ej: 4 (da 8h libres = 1 día)" oninput="paUpdateCanjeCalc()" style="font-size:20px;font-family:'JetBrains Mono',monospace;text-align:center">
     </div>
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px;display:none" id="canjeCalcBox">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Resultado del canje:</div>
-      <div style="font-size:18px;font-weight:700;color:var(--accent2)" id="canjeCalcResult">—</div>
-    </div>
+    <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:16px;margin-bottom:16px;display:none" id="canjeCalcBox"></div>
     <div class="fg">
       <label>Día libre solicitado</label>
       <input type="date" id="canjeFecha" style="font-size:16px">
@@ -4121,29 +4118,49 @@ function paInitCanje() {
 function paUpdateCanjeCalc() {
   var horasEl = document.getElementById('canjeHoras');
   var calcBox = document.getElementById('canjeCalcBox');
-  var calcEl  = document.getElementById('canjeCalcResult');
   var horas = parseFloat(horasEl ? horasEl.value : 0) || 0;
-  if (horas <= 0) { if (calcBox) calcBox.style.display='none'; return; }
+  if (!calcBox) return;
+  if (horas <= 0) { calcBox.style.display='none'; return; }
+
   var saldo = PA._canjeDisponible || 0;
+  calcBox.style.display = 'block';
+
+  // Error: excede saldo
   if (horas > saldo) {
-    if (calcBox) calcBox.style.display='block';
-    if (calcEl)  calcEl.textContent = 'Excede el saldo disponible (' + saldo.toFixed(1) + 'h en el periodo)';
+    calcBox.innerHTML =
+      '<div style="color:#f85149;font-size:14px;font-weight:700">⚠ No tenes suficientes horas</div>'
+      +'<div style="font-size:12px;color:var(--muted);margin-top:4px">Disponibles: '+ saldo.toFixed(1) +'h &nbsp;·&nbsp; Solicitadas: '+ horas.toFixed(1) +'h</div>';
     return;
   }
+
+  // Calcular horas libres (diurna x2, nocturna x2.25 — internamente)
   var nocDisp  = PA._canjeSaldoNocturna || 0;
   var diurDisp = PA._canjeSaldoDiurna   || 0;
   var horasNoc  = Math.min(horas, nocDisp);
   var horasDiur = Math.min(horas - horasNoc, diurDisp);
-  var libres = horasDiur * 2 + horasNoc * 2.25;
+  var libres = Math.round((horasDiur * 2 + horasNoc * 2.25) * 10) / 10;
   var dias   = Math.floor(libres / 8);
-  var resto  = (libres % 8).toFixed(1);
-  if (calcBox) calcBox.style.display='block';
-  var resumen = '';
-  if (horasDiur > 0) resumen += horasDiur.toFixed(1) + ' HE diurna x2 = ' + (horasDiur*2).toFixed(1) + 'h';
-  if (horasNoc  > 0) resumen += (resumen ? ' + ' : '') + horasNoc.toFixed(1) + ' HE nocturna x2.25 = ' + (horasNoc*2.25).toFixed(1) + 'h';
-  resumen += ' = ' + libres.toFixed(1) + 'h libres';
-  if (dias > 0) resumen += ' (' + dias + ' dia(s)' + (parseFloat(resto)>0 ? ' + '+resto+'h':'')+')';
-  if (calcEl) calcEl.textContent = resumen;
+  var restoH = Math.round((libres % 8) * 10) / 10;
+
+  // Mostrar de forma simple
+  var diasStr = dias > 0
+    ? (dias === 1 ? '1 día' : dias + ' días') + (restoH > 0 ? ' y ' + restoH + 'h' : '')
+    : restoH + ' horas';
+
+  calcBox.innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
+      +'<div style="text-align:center;flex:1">'
+        +'<div style="font-size:13px;color:var(--muted)">Canjeas</div>'
+        +'<div style="font-size:28px;font-weight:800;color:var(--text)">'+ horas.toFixed(1) +'h</div>'
+        +'<div style="font-size:11px;color:var(--muted)">de horas extra</div>'
+      +'</div>'
+      +'<div style="font-size:28px;color:var(--muted);padding:0 8px">→</div>'
+      +'<div style="text-align:center;flex:1">'
+        +'<div style="font-size:13px;color:var(--muted)">Recibís</div>'
+        +'<div style="font-size:28px;font-weight:800;color:var(--accent2)">'+ libres.toFixed(1) +'h</div>'
+        +'<div style="font-size:11px;color:var(--muted)">libres = '+ diasStr +'</div>'
+      +'</div>'
+    +'</div>';
 }
 
 function paGoCanje() { paShow('scCanje'); }
@@ -8211,7 +8228,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-28-K';
+var PA_VERSION = 'v2026-06-28-L';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
