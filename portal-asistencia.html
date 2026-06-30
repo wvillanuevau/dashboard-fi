@@ -5148,31 +5148,136 @@ var PA_AP_TIPOS = {
   18: { tipo:'OTROS',                  concepto:'Otros' }
 };
 
-function paAccionPersonalFalta(empId, empNombre, empCargo, fecha) {
-  var old = document.getElementById('accionPersonalOverlay'); if(old) old.remove();
 
-  // Verificar faltas previas del mes para determinar si aplica descuento
+function paAccionPersonalTardanza(empId, empNombre, empCargo) {
+  if (!paDb || !empId) { paToast('Sin datos del empleado', true); return; }
+  paToast('Calculando tardanzas del mes...');
+
   var mesActual = paHoy().slice(0, 7); // 'YYYY-MM'
-  paDb.collection('paAccionesPersonal')
+  paDb.collection('paMarcaciones')
     .where('empresa', '==', PA.empresa)
+    .where('empleadoId', '==', empId)
     .get()
     .then(function(snap) {
-      var faltasMes = 0;
+      var tardanzas = [];
       snap.forEach(function(d) {
         var r = d.data();
-        if (r.empleadoId === empId && r.tipo === 'FALTA_INJUSTIFICADA'
-            && (r.fechaEmision||'').slice(0,7) === mesActual) {
-          faltasMes++;
+        if (r.tipo === 'entrada' && (r.minutosRetraso||0) > 0 && (r.fecha||'').slice(0,7) === mesActual) {
+          tardanzas.push({ fecha: r.fecha, mins: r.minutosRetraso });
         }
       });
-      // 1ª falta → opción 9, 2ª+ → opción 7 (DESCUENTO DIA Y SEPTIMO)
-      window._paAPOpcion = (faltasMes >= 1) ? 7 : 9;
-      _paAccionPersonalFaltaRender(empId, empNombre, empCargo, fecha, faltasMes);
+      tardanzas.sort(function(a,b){ return a.fecha < b.fecha ? -1 : 1; });
+      var n = tardanzas.length;
+
+      if (n === 0) {
+        paToast('Este empleado no tiene tardanzas registradas este mes', true);
+        return;
+      }
+
+      // Determinar acción según la posición de la tardanza más reciente
+      // dentro del ciclo de 5 (4ª, 8ª, 12ª... = descuento horas;
+      //                        5ª, 10ª, 15ª... = día y séptimo)
+      var esDiaSeptimo = (n % 5 === 0);
+      var esDescHoras   = (!esDiaSeptimo && n % 4 === 0);
+
+      if (!esDiaSeptimo && !esDescHoras) {
+        var faltan4 = 4 - (n % 4);
+        var faltan5 = 5 - (n % 5);
+        paToast('Este empleado lleva ' + n + ' tardanza(s) este mes. '
+          + 'Faltan ' + Math.min(faltan4,faltan5) + ' más para la próxima acción automática.', true);
+        return;
+      }
+
+      // Tomar el bloque de tardanzas relevante para el detalle (últimas 4 o 5)
+      var bloqueSize = esDiaSeptimo ? 5 : 4;
+      var bloque = tardanzas.slice(n - bloqueSize);
+
+      // Horas a descontar: SUMA de horas completas (redondeo hacia arriba,
+      // sin fracciones) por cada tardanza del bloque — "no parciales"
+      var totalHoras = bloque.reduce(function(s,t){ return s + Math.ceil(t.mins/60); }, 0);
+
+      var detalleTxt = bloque.map(function(t){
+        return '  • ' + t.fecha + ' — ' + t.mins + ' min tarde (descuento: ' + Math.ceil(t.mins/60) + 'h)';
+      }).join('\n');
+
+      var tipoAccion = esDiaSeptimo
+        ? 'Descuento de Día y Séptimo (5ª tardanza del mes)'
+        : 'Descuento de horas totales (4ª tardanza del mes)';
+
+      var msg = empNombre + ' acumula ' + n + ' tardanza(s) este mes.\n\n'
+        + 'Acción a generar: ' + tipoAccion + '\n\n'
+        + 'Detalle:\n' + detalleTxt + '\n\n'
+        + (esDiaSeptimo ? '' : ('Total horas a descontar: ' + totalHoras + 'h\n\n'))
+        + '¿Generar la Acción de Personal?';
+
+      if (!confirm(msg)) return;
+
+      // Preparar override de tipo/concepto + explicación detallada
+      if (esDiaSeptimo) {
+        window._paAPOpcion = 7;
+        window._paAPTipoOverride = { tipo:'TARDANZAS', concepto:'Descuento de Día y Séptimo por acumulación de tardanzas' };
+      } else {
+        window._paAPOpcion = 5;
+        window._paAPTipoOverride = { tipo:'AMONESTACION_TARDANZA', concepto:'Descuento de horas totales por acumulación de tardanzas' };
+      }
+
+      var explicacion = 'El empleado ' + empNombre + ' acumula ' + n + ' tardanza(s) en el mes de '
+        + mesActual + '.\n' + tipoAccion + '.\n\nDetalle de tardanzas consideradas:\n' + detalleTxt
+        + (esDiaSeptimo ? '' : ('\n\nTotal de horas a descontar (redondeado, sin fracciones): ' + totalHoras + 'h'));
+
+      window._paAccionData = { id: empId, nombre: empNombre, cargo: empCargo||'tecnico', fecha: paHoy() };
+
+      // Inyectar la explicación directamente vía un campo temporal,
+      // ya que paGenerarAccionPersonal lee el textarea #acpExplicacion —
+      // creamos un overlay mínimo solo para capturar solicita/autoriza
+      // y disparar la generación con la explicación ya calculada.
+      _paTardanzaConfirmModal(explicacion, esDiaSeptimo);
     })
-    .catch(function() {
-      window._paAPOpcion = 9;
-      _paAccionPersonalFaltaRender(empId, empNombre, empCargo, fecha, 0);
-    });
+    .catch(function(e){ paToast('Error: ' + e.message, true); });
+}
+
+// Modal mínimo de confirmación final (solicita/autoriza) antes de imprimir
+function _paTardanzaConfirmModal(explicacion, esDiaSeptimo) {
+  var old = document.getElementById('accionPersonalOverlay'); if (old) old.remove();
+  var ov = document.createElement('div');
+  ov.id = 'accionPersonalOverlay';
+  ov.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:var(--bg);z-index:400;display:flex;flex-direction:column;overflow-y:auto;font-family:\'Space Grotesk\',system-ui';
+
+  var color = esDiaSeptimo ? '#f85149' : '#e8a020';
+  var titulo = esDiaSeptimo ? '⏰ Descuento de Día y Séptimo' : '⏰ Descuento de Horas por Tardanzas';
+
+  ov.innerHTML =
+    '<div style="background:var(--surface);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0">'
+    +'<button id="_tardBack" style="background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer">←</button>'
+    +'<div style="font-weight:700;font-size:16px;color:'+color+'">'+titulo+'</div>'
+    +'</div>'
+    +'<div style="padding:18px;max-width:600px;width:100%;margin:0 auto">'
+    +'<div style="margin-bottom:12px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">EXPLICACIÓN / DETALLE</label>'
+    +'<textarea id="acpExplicacion" rows="7" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;font-family:monospace;resize:vertical;box-sizing:border-box"></textarea></div>'
+    +'<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">'
+    +'<div style="flex:1;min-width:120px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">SOLICITA</label>'
+    +'<input id="acpSolicita" type="text" value="WILFREDO VILLANUEVA" style="width:100%;padding:9px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box"></div>'
+    +'<div style="flex:1;min-width:120px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">AUTORIZA</label>'
+    +'<input id="acpAutoriza" type="text" value="Julio de Paul" style="width:100%;padding:9px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box"></div>'
+    +'</div>'
+    +'<button id="_tardSubmit" style="width:100%;padding:13px;background:'+color+';color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:4px">📄 Generar e Imprimir Acción de Personal</button>'
+    +'</div>';
+
+  document.body.appendChild(ov);
+  document.getElementById('acpExplicacion').value = explicacion;
+  document.getElementById('_tardBack').addEventListener('click', function(){ ov.remove(); });
+  document.getElementById('_tardSubmit').addEventListener('click', function(){ paGenerarAccionPersonal(); });
+}
+
+function paAccionPersonalFalta(empId, empNombre, empCargo, fecha) {
+  var old = document.getElementById('accionPersonalOverlay'); if(old) old.remove();
+  // REGLA: la falta injustificada SIEMPRE descuenta únicamente ese día,
+  // sin importar cuántas faltas previas tenga el empleado en el mes.
+  // (El descuento de Día y Séptimo es exclusivo de la acumulación de
+  //  tardanzas — ver paAccionPersonalTardanza — NO de faltas.)
+  window._paAPOpcion = 9; // FALTA_INJUSTIFICADA
+  window._paAPTipoOverride = null;
+  _paAccionPersonalFaltaRender(empId, empNombre, empCargo, fecha, 0);
 }
 
 function _paAccionPersonalFaltaRender(empId, empNombre, empCargo, fecha, faltasMes) {
@@ -5193,7 +5298,7 @@ function _paAccionPersonalFaltaRender(empId, empNombre, empCargo, fecha, faltasM
         +' <span style="font-size:11px;color:var(--muted)">('+faltasMes+' falta(s) prev. este mes — aplica descuento)</span>'
         +' — '+esc(empNombre)+'<br><span style="color:var(--muted)">Fecha: '+fechaFmt+'</span>'
       : '<strong style="color:#f85149">Falta Injustificada</strong>'
-        +' <span style="font-size:11px;color:var(--muted)">(1ª del mes)</span>'
+        +' <span style="font-size:11px;color:var(--muted)">(descuento de ese día únicamente)</span>'
         +' — '+esc(empNombre)+'<br><span style="color:var(--muted)">Fecha: '+fechaFmt+'</span>'
     )    +'</div>'
     // Form fields
@@ -5288,11 +5393,17 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
   // Guardar en Firestore — usa mapeo canónico para CUALQUIER tipo seleccionado
   if (PA.empresa && paDb) {
     var _apInfo = (typeof PA_AP_TIPOS !== 'undefined' && PA_AP_TIPOS[SELECTED]) || { tipo:'OTROS', concepto:'Otros' };
+    // Override opcional de tipo/concepto (usado por tardanzas: opción 5 y 7
+    // necesitan un concepto específico distinto del genérico de su número)
+    if (window._paAPTipoOverride) {
+      _apInfo = window._paAPTipoOverride;
+      window._paAPTipoOverride = null;
+    }
     var _justif;
-    if (SELECTED === 7) {
-      _justif = 'Falta injustificada el ' + fecha + '. Se aplica Descuento de Día y Séptimo conforme al Art. 20 del Reglamento Interno. Motivo: ' + exp;
-    } else if (SELECTED === 9) {
-      _justif = 'Falta injustificada el ' + fecha + '. Motivo: ' + exp;
+    if (SELECTED === 9) {
+      _justif = 'Falta injustificada el ' + fecha + '. Se descuenta únicamente el día. Motivo: ' + exp;
+    } else if (_apInfo.tipo === 'TARDANZAS' || _apInfo.tipo === 'AMONESTACION_TARDANZA') {
+      _justif = exp; // el detalle de tardanzas ya viene armado en 'exp'
     } else {
       _justif = _apInfo.concepto + ' — ' + fecha + '. ' + (exp || '');
     }
@@ -6807,9 +6918,12 @@ function _paAdminEmpsRender(content) {
 
     var pendCount = (PA._pendPorEmp && PA._pendPorEmp[eid]) || 0;
     var cardBorder = pendCount > 0 ? '#f85149' : '#B8936A';
+    // Nota: el badge va DENTRO de los límites de la tarjeta (sin offset negativo)
+    // porque el contenedor usa overflow:hidden para las esquinas redondeadas,
+    // y cualquier elemento que sobresalga del borde quedaría recortado.
     html += '<div style="border:2px solid ' + cardBorder + ';border-radius:14px;margin-bottom:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);position:relative">';
     if (pendCount > 0) {
-      html += '<div style="position:absolute;top:-7px;right:10px;background:#f85149;color:#fff;font-size:11px;font-weight:800;min-width:22px;height:22px;border-radius:11px;display:flex;align-items:center;justify-content:center;padding:0 6px;box-shadow:0 2px 6px rgba(248,81,73,.5),0 0 0 2px var(--surface);z-index:2;animation:_pulseBadge 1.6s ease-in-out infinite">' + pendCount + '</div>';
+      html += '<div style="position:absolute;top:9px;right:9px;background:#f85149;color:#fff;font-size:11px;font-weight:800;min-width:22px;height:22px;border-radius:11px;display:flex;align-items:center;justify-content:center;padding:0 6px;box-shadow:0 2px 8px rgba(248,81,73,.6);z-index:2;animation:_pulseBadge 1.6s ease-in-out infinite">' + pendCount + '</div>';
     }
     // Header — toggle on click via class + data-*
     html += '<div class="_emp-toggle" data-eid="' + eid + '" style="padding:12px 14px;cursor:pointer">';
@@ -6942,10 +7056,14 @@ function _paCargarPanelEmp(empId) {
     html += "<label style=\"font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:4px\">FECHA DEL HECHO</label>";
     html += "<input type=\"date\" id=\"apFecha_"+empId+"\" value=\""+paHoy()+"\" max=\""+paHoy()+"\" style=\"width:100%;padding:9px;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box;margin-bottom:10px\">";
     html += "<div style=\"display:flex;flex-wrap:wrap;gap:8px\">";
-    html += "<button class=\"_btn-ap-falta\" data-eid=\""+empId+"\" data-nom=\""+esc(emp.nombre||"")+"\" data-cargo=\""+esc(emp.cargo||"")+"\" style=\"flex:1;min-width:140px;padding:10px;background:rgba(248,81,73,.1);border:1.5px solid rgba(248,81,73,.3);border-radius:9px;color:#f85149;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit\">🚫 Falta Injustificada</button>";
-    html += "<button class=\"_btn-ap-otra\" data-eid=\""+empId+"\" data-nom=\""+esc(emp.nombre||"")+"\" data-cargo=\""+esc(emp.cargo||"")+"\" style=\"flex:1;min-width:140px;padding:10px;background:rgba(56,139,253,.1);border:1.5px solid rgba(56,139,253,.3);border-radius:9px;color:#388bfd;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit\">📝 Otra Acción</button>";
+    html += "<button class=\"_btn-ap-falta\" data-eid=\""+empId+"\" data-nom=\""+esc(emp.nombre||"")+"\" data-cargo=\""+esc(emp.cargo||"")+"\" style=\"flex:1;min-width:130px;padding:10px;background:rgba(248,81,73,.1);border:1.5px solid rgba(248,81,73,.3);border-radius:9px;color:#f85149;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit\">🚫 Falta Injustificada</button>";
+    html += "<button class=\"_btn-ap-tardanza\" data-eid=\""+empId+"\" data-nom=\""+esc(emp.nombre||"")+"\" data-cargo=\""+esc(emp.cargo||"")+"\" style=\"flex:1;min-width:130px;padding:10px;background:rgba(232,160,32,.1);border:1.5px solid rgba(232,160,32,.3);border-radius:9px;color:#B45309;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit\">⏰ Tardanza</button>";
+    html += "<button class=\"_btn-ap-otra\" data-eid=\""+empId+"\" data-nom=\""+esc(emp.nombre||"")+"\" data-cargo=\""+esc(emp.cargo||"")+"\" style=\"flex:1;min-width:130px;padding:10px;background:rgba(56,139,253,.1);border:1.5px solid rgba(56,139,253,.3);border-radius:9px;color:#388bfd;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit\">📝 Otra Acción</button>";
     html += "</div>";
-    html += "<div style=\"font-size:10px;color:var(--muted);margin-top:8px\">La 1ª falta del mes genera <strong>Falta Injustificada</strong>; la 2ª+ genera automáticamente <strong>Descuento de Día y Séptimo</strong>.</div>";
+    html += "<div style=\"font-size:10px;color:var(--muted);margin-top:8px;line-height:1.5\">";
+    html += "🚫 <strong>Falta Injustificada</strong>: descuenta únicamente ese día.<br>";
+    html += "⏰ <strong>Tardanza</strong>: cuenta automáticamente las llegadas tarde del mes — la 4ª genera descuento de horas totales, la 5ª genera Descuento de Día y Séptimo.";
+    html += "</div>";
     html += "</div></div>";
 
     // HE Pendientes
@@ -8273,7 +8391,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-28-O';
+var PA_VERSION = 'v2026-06-28-Q';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
@@ -8468,6 +8586,9 @@ window.addEventListener('DOMContentLoaded', function() {
       var apFechaEl = document.getElementById('apFecha_'+b.getAttribute('data-eid'));
       var apFecha = apFechaEl ? apFechaEl.value : paHoy();
       paAccionPersonalFalta(b.getAttribute('data-eid')||'', b.getAttribute('data-nom')||'', b.getAttribute('data-cargo')||'', apFecha);
+    }
+    else if ((b=ev.target.closest('._btn-ap-tardanza'))) {
+      paAccionPersonalTardanza(b.getAttribute('data-eid')||'', b.getAttribute('data-nom')||'', b.getAttribute('data-cargo')||'');
     }
     else if ((b=ev.target.closest('._btn-ap-otra'))) {
       var apFechaEl2 = document.getElementById('apFecha_'+b.getAttribute('data-eid'));
