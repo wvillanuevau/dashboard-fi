@@ -4438,6 +4438,92 @@ function paLoadHistorial() {
 // ══════════════════════════════════════════════════════════════════
 // SISTEMA DE ALERTAS — pendientes de aprobar/denegar
 // ══════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════
+// Verificación automática — Falta Injustificada al corte de 7:00 PM
+// ══════════════════════════════════════════════════════════════════
+function _paVerificarFaltasAutomaticas() {
+  if (!paDb || !PA.empresa) return;
+
+  var ahora = new Date();
+  var horaActual = ahora.getHours();
+  if (horaActual < 19) return; // aún no es el corte de las 7:00 PM
+
+  var hoy = paHoy();
+
+  // Evitar correr más de una vez el mismo día (cualquier dispositivo)
+  paDb.collection('paConfig').doc(PA.empresa).get().then(function(cfgDoc) {
+    var cfg = cfgDoc.exists ? cfgDoc.data() : {};
+    if (cfg.ultimaVerifFaltas === hoy) return; // ya se corrió hoy
+
+    var diaSemana = ahora.getDay(); // 0=domingo ... 6=sábado
+
+    Promise.all([
+      paDb.collection('paMarcaciones').where('empresa','==',PA.empresa).where('fecha','==',hoy).where('tipo','==','entrada').get(),
+      paDb.collection('paIncapacidades').where('empresa','==',PA.empresa).get(),
+      paDb.collection('paAccionesPersonal').where('empresa','==',PA.empresa).where('tipo','==','FALTA_INJUSTIFICADA').where('fecha','==',hoy).get()
+    ]).then(function(res) {
+      var marcaronHoy = {};
+      res[0].forEach(function(d){ marcaronHoy[d.data().empleadoId] = true; });
+
+      var incapacitadosHoy = {};
+      res[1].forEach(function(d){
+        var r = d.data();
+        if (r.estado === 'rechazada') return;
+        if (r.fechaInicio && r.fechaFin && hoy >= r.fechaInicio && hoy <= r.fechaFin) {
+          incapacitadosHoy[r.empleadoId] = true;
+        }
+      });
+
+      var yaGeneradaHoy = {};
+      res[2].forEach(function(d){ yaGeneradaHoy[d.data().empleadoId] = true; });
+
+      var generadas = 0;
+      var pendientesEscritura = [];
+
+      (PA.empleados || []).forEach(function(emp) {
+        if (marcaronHoy[emp.id]) return;          // sí marcó
+        if (incapacitadosHoy[emp.id]) return;      // tiene incapacidad
+        if (yaGeneradaHoy[emp.id]) return;         // ya se generó
+
+        // Verificar si hoy es día laboral para este empleado
+        var horEmp = (PA.horariosEmp || {})[emp.id]
+                   || (PA.horariosRol || {})[emp.cargo]
+                   || PA.horario || {};
+        var dias = horEmp.diasLaborales || (PA.horario && PA.horario.diasLaborales) || [1,2,3,4,5,6];
+        if (dias.indexOf(diaSemana) === -1) return; // no le tocaba laborar hoy
+
+        var motivo = 'Generado automáticamente: el empleado no registró marcación de entrada '
+          + 'y no cuenta con incapacidad registrada al corte de las 7:00 PM del ' + hoy + '.';
+
+        pendientesEscritura.push(
+          paDb.collection('paAccionesPersonal').add({
+            empresa: PA.empresa, empleadoId: emp.id, empleadoNombre: emp.nombre,
+            cargo: emp.cargo || '', tipo: 'FALTA_INJUSTIFICADA', fecha: hoy,
+            fechaEmision: hoy, motivo: motivo,
+            concepto: 'Falta injustificada',
+            justificacion: motivo + ' Se descuenta únicamente el día.',
+            solicita: 'Sistema automático', autoriza: '',
+            opcionMarcada: 9, estado: 'emitida',
+            creadoPor: 'sistema-automatico', ts: Date.now()
+          })
+        );
+        generadas++;
+      });
+
+      Promise.all(pendientesEscritura).then(function() {
+        // Marcar que ya se corrió hoy, para no repetir
+        paDb.collection('paConfig').doc(PA.empresa).set({ ultimaVerifFaltas: hoy }, { merge:true });
+        if (generadas > 0) {
+          console.log('[FaltasAuto] ' + generadas + ' falta(s) injustificada(s) generada(s) automáticamente para ' + hoy);
+          if (typeof _paCargarPendientesGlobal === 'function') _paCargarPendientesGlobal();
+          paToast('⚠️ Se generaron ' + generadas + ' Falta(s) Injustificada(s) automáticamente (sin marcar hoy)');
+        }
+      }).catch(function(e){ console.warn('[FaltasAuto]', e.message); });
+    }).catch(function(e){ console.warn('[FaltasAuto]', e.message); });
+  }).catch(function(e){ console.warn('[FaltasAuto]', e.message); });
+}
+
 function _paCargarPendientesGlobal(callback) {
   if (!paDb || !PA.empresa) { if (callback) callback(); return; }
   Promise.all([
@@ -4544,6 +4630,7 @@ function _paShowAdminPanel() {
   console.log('[Admin] Panel creado — offsetHeight:', panel.offsetHeight, 'paAdminContent height:', (document.getElementById('paAdminContent')||{}).offsetHeight);
   paAdminTab(PA.adminTab || 'hoy');
   _paCargarPendientesGlobal();
+  if (typeof _paVerificarFaltasAutomaticas === 'function') _paVerificarFaltasAutomaticas();
 }
 
 function _paCerrarAdmin() {
@@ -8391,7 +8478,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-06-28-Q';
+var PA_VERSION = 'v2026-06-28-R';
 
 (function paAutoUpdate() {
   // Sin polling por timer — el chequeo se dispara al presionar el nombre del empleado
@@ -8497,6 +8584,11 @@ var PA_VERSION = 'v2026-06-28-Q';
   // 2. Chequeo periódico cada 5 minutos (para usuarios que no cambian de tab)
   setInterval(function() {
     if (!_overlayShown) _verificarVersion();
+  }, 5 * 60 * 1000);
+
+  // 2b. Verificación de faltas automáticas (corte 7:00 PM) — cada 5 min
+  setInterval(function() {
+    if (typeof _paVerificarFaltasAutomaticas === 'function') _paVerificarFaltasAutomaticas();
   }, 5 * 60 * 1000);
 
   // 3. Chequeo inicial 4 segundos después de cargar la página
