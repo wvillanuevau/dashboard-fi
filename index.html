@@ -6662,13 +6662,32 @@ function ccRptImprimir(histId){
     if(!data.gastoCC.length){toast('Sin gastos de caja chica en el período',true);return;}
   }
   const printHtml=_ccBuildPrintHtml(data);
-  const win=window.open('','_blank');
-  if(win){win.document.write(printHtml);win.document.close();}
-  else{toast('Habilita ventanas emergentes para imprimir',true);}
+  // Intentar ventana nueva; si está bloqueada (móvil), usar Blob URL
+  var win=null;
+  try{ win=window.open('','_blank'); }catch(e){ win=null; }
+  if(win&&!win.closed){
+    win.document.write(printHtml);
+    win.document.close();
+    // En algunos móviles document.write funciona pero no imprime solo
+    // — la ventana se abre y el usuario puede usar Ctrl+P / menú del browser
+  } else {
+    // Fallback: Blob URL — funciona en Chrome Android sin popups
+    try{
+      var blob=new Blob([printHtml],{type:'text/html;charset=utf-8'});
+      var url=URL.createObjectURL(blob);
+      var a=document.createElement('a');
+      a.href=url; a.target='_blank'; a.rel='noopener';
+      document.body.appendChild(a); a.click();
+      setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(url);},500);
+    }catch(e2){
+      toast('No se pudo abrir el reporte ('+e2.message+'). Habilita ventanas emergentes.',true);
+    }
+  }
 }
 
 function ccGuardarReintegro(){
-  markDirty('cuentasCorrientes');
+  markDirty('cajachica'); // S.cajachica.reintegros cambió
+  markDirty('gastos');    // S.gastos[i].reintegradoEn cambió → full save que incluye cajachica
   const data=_ccGetFormData();
   if(!data.resp){toast('Ingresa el nombre del responsable antes de guardar',true);return;}
   if(!data.gastoCC.length){toast('Sin gastos de caja chica pendientes en el período',true);return;}
@@ -6704,7 +6723,8 @@ function ccGuardarReintegro(){
 }
 
 function ccEliminarHistorial(id){
-  markDirty('cuentasCorrientes');
+  markDirty('cajachica');
+  markDirty('gastos'); // desmarca reintegradoEn → full save
   if(!confirm('¿Eliminar este reintegro? Los gastos volverán a estar disponibles para el próximo reintegro.'))return;
   // Desmarcar gastos que pertenecían a este reintegro
   S.gastos.forEach(g=>{if(g.reintegradoEn===id)delete g.reintegradoEn;});
@@ -6715,7 +6735,8 @@ function ccEliminarHistorial(id){
 }
 
 function ccEditarHistorial(id){
-  markDirty('cuentasCorrientes');
+  markDirty('cajachica');
+  markDirty('gastos');
   const r=((S.cajachica&&S.cajachica.reintegros)||[]).find(x=>x.id===id);
   if(!r)return;
   // Cargar datos en los campos del formulario
@@ -9754,7 +9775,7 @@ function ccEliminarItem(idx){
 }
 
 function ccGuardar(){
-  markDirty('cuentasCorrientes');
+  markDirty('cajachica');
   const fecha=((document.getElementById('ccFecha')||{}).value||'').trim();
   const resp=((document.getElementById('ccResp')||{}).value||'').trim();
   if(!fecha){toast('Fecha de corte requerida',true);return}
@@ -9784,7 +9805,7 @@ function ccGuardar(){
 }
 
 function ccEliminar(id){
-  markDirty('cuentasCorrientes');
+  markDirty('cajachica');
   if(!confirm('¿Eliminar este reintegro?'))return;
   S.cajachica.reintegros=S.cajachica.reintegros.filter(r=>r.id!==id);
   saveData();renderCajaChica();toast('Reintegro eliminado');
