@@ -6611,6 +6611,220 @@ function _paBuscarHistEmp(empId) {
     });
 }
 
+
+// ════════════════════════════════════════════════════════════════════
+// HERRAMIENTA: Migración retroactiva de minutosRetraso
+// Recalcula el minutosRetraso de todas las marcaciones de entrada
+// usando el timestamp UTC real + timezone El Salvador correcto.
+// Corrige los errores causados por teléfonos con timezone incorrecto.
+// ════════════════════════════════════════════════════════════════════
+function paMigrarTimezonesRetroactivo() {
+  if (!paDb || !PA.empresa) { paToast('Sin conexión', true); return; }
+  if (!confirm('Esta herramienta recalculará el minutosRetraso de TODAS las marcaciones de entrada '
+    + 'usando la hora real de El Salvador (UTC-6).\n\nEsto corregirá errores causados por teléfonos '
+    + 'con timezone incorrecto (ej: UTC-5 en lugar de UTC-6).\n\n'
+    + '¿Continuar con la migración?')) return;
+
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:var(--bg);z-index:999;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:inherit;padding:20px';
+  overlay.innerHTML = '<div style="max-width:500px;width:100%;text-align:center">'
+    + '<div style="font-size:24px;margin-bottom:12px">🔄</div>'
+    + '<div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:8px">Migrando marcaciones...</div>'
+    + '<div id="_migProgress" style="font-size:13px;color:var(--muted);margin-bottom:16px">Cargando...</div>'
+    + '<div style="background:var(--surface2);border-radius:8px;height:8px;width:100%;overflow:hidden">'
+    + '<div id="_migBar" style="background:var(--accent);height:100%;width:0%;transition:width .3s"></div></div>'
+    + '<div id="_migLog" style="margin-top:16px;text-align:left;font-size:12px;font-family:monospace;background:var(--surface);border-radius:8px;padding:12px;max-height:300px;overflow-y:auto;color:var(--text)"></div>'
+    + '</div>';
+  document.body.appendChild(overlay);
+
+  var progEl = document.getElementById('_migProgress');
+  var barEl  = document.getElementById('_migBar');
+  var logEl  = document.getElementById('_migLog');
+
+  function log(msg) {
+    logEl.innerHTML += msg + '<br>';
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  // Cargar TODAS las marcaciones de entrada de la empresa
+  Promise.all([
+    paDb.collection('paMarcaciones')
+      .where('empresa', '==', PA.empresa)
+      .where('tipo',    '==', 'entrada')
+      .limit(5000)
+      .get(),
+    paDb.collection('paAccionesPersonal')
+      .where('empresa', '==', PA.empresa)
+      .where('tipo',    '==', 'AMONESTACION_TARDANZA')
+      .limit(200)
+      .get(),
+    paDb.collection('paAccionesPersonal')
+      .where('empresa', '==', PA.empresa)
+      .where('tipo',    '==', 'TARDANZAS')
+      .limit(200)
+      .get()
+  ]).then(function(results) {
+    var snap    = results[0];
+    var snapAP1 = results[1];
+    var snapAP2 = results[2];
+
+    var docs = [];
+    snap.forEach(function(d){ docs.push({ id: d.id, data: d.data() }); });
+
+    log('📋 Marcaciones encontradas: <strong>' + docs.length + '</strong>');
+    log('📋 APs de tardanza: <strong>' + (snapAP1.size + snapAP2.size) + '</strong>');
+
+    var total       = docs.length;
+    var actualizadas = 0;
+    var correctas    = 0;
+    var errores      = 0;
+    var reporte      = [];
+
+    var tolerance = PA.horario && PA.horario.minutosTolerancia || 10;
+
+    function procesarLote(startIdx) {
+      var LOTE = 10;
+      var batch = paDb.batch();
+      var enLote = 0;
+
+      for (var i = startIdx; i < Math.min(startIdx + LOTE, total); i++) {
+        var doc = docs[i];
+        var r   = doc.data;
+        var ts  = r.ts;
+
+        // Normalizar ts desde Firestore
+        if (ts && typeof ts === 'object' && ts.toMillis) ts = ts.toMillis();
+        else if (ts && ts.seconds) ts = ts.seconds * 1000 + Math.round((ts.nanoseconds||0)/1e6);
+        if (!ts) { errores++; continue; }
+
+        // Encontrar empleado y su horario en ese día
+        var emp = PA.empleados.find(function(e){ return e.id === r.empleadoId; });
+        if (!emp) { errores++; continue; }
+
+        var diaES  = _diaSemanaES(ts);
+        var horario = _horarioDeEmp(emp, diaES);
+        if (!horario || !horario.horaEntrada || horario.trabaja === false) {
+          correctas++; continue;
+        }
+
+        // Recalcular con timezone correcto
+        var partes    = horario.horaEntrada.split(':');
+        var esperadaMs = parseInt(partes[0])*3600000 + parseInt(partes[1]||0)*60000;
+        var hmsES      = _hmsDesdeMedianocheES(ts);
+        var actualMs   = hmsES.totalMs;
+        var tolMs      = tolerance * 60000;
+
+        var nuevoMinutosRetraso = 0;
+        var nuevoEstado         = 'a_tiempo';
+        if (actualMs > esperadaMs + tolMs) {
+          nuevoMinutosRetraso = Math.round((actualMs - esperadaMs) / 60000);
+          nuevoEstado = 'tarde';
+        }
+
+        var anteriorRetraso  = r.minutosRetraso  || 0;
+        var anteriorEstado   = r.estadoPuntualidad || 'a_tiempo';
+
+        if (nuevoMinutosRetraso !== anteriorRetraso || nuevoEstado !== anteriorEstado) {
+          // Calcular hora ES para mostrar en log
+          var horaStr = String(hmsES.horas).padStart(2,'0') + ':' + String(hmsES.minutos).padStart(2,'0');
+
+          batch.update(paDb.collection('paMarcaciones').doc(doc.id), {
+            minutosRetraso:   nuevoMinutosRetraso,
+            estadoPuntualidad: nuevoEstado,
+            hora:              horaStr, // guardar hora ES si no existía
+            _tzMigrado:        true     // marcar como migrado
+          });
+          enLote++;
+          actualizadas++;
+
+          var cambio = anteriorRetraso > 0 && nuevoMinutosRetraso === 0
+            ? '<span style="color:#2db87a">✅ CORREGIDO (antes ' + anteriorRetraso + 'min tarde)</span>'
+            : anteriorRetraso === 0 && nuevoMinutosRetraso > 0
+            ? '<span style="color:#f85149">⚠ NUEVO retraso ' + nuevoMinutosRetraso + 'min</span>'
+            : '<span style="color:#e8a020">~ ' + anteriorRetraso + '→' + nuevoMinutosRetraso + 'min</span>';
+
+          reporte.push({ empId: r.empleadoId, nombre: r.empleadoNombre, fecha: r.fecha,
+            hora: horaStr, antes: anteriorRetraso, despues: nuevoMinutosRetraso });
+          log(r.fecha + ' ' + (r.empleadoNombre||r.empleadoId).split(' ')[0]
+            + ' ' + horaStr + ' — ' + cambio);
+        } else {
+          correctas++;
+        }
+      }
+
+      var progress = Math.round((startIdx + LOTE) / total * 100);
+      if (progEl) progEl.textContent = 'Procesando ' + Math.min(startIdx+LOTE, total) + ' / ' + total + '...';
+      if (barEl)  barEl.style.width  = Math.min(progress, 100) + '%';
+
+      var writePromise = enLote > 0 ? batch.commit() : Promise.resolve();
+      return writePromise.then(function() {
+        var nextIdx = startIdx + LOTE;
+        if (nextIdx < total) {
+          return new Promise(function(res){ setTimeout(function(){ procesarLote(nextIdx).then(res); }, 200); });
+        } else {
+          // ── FINALIZADO ──────────────────────────────────────────
+          if (barEl) barEl.style.width = '100%';
+          log('<br><strong style="color:var(--accent)">✅ MIGRACIÓN COMPLETADA</strong>');
+          log('  Actualizadas: <strong>' + actualizadas + '</strong>');
+          log('  Ya correctas: <strong>' + correctas + '</strong>');
+          if (errores) log('  Errores (sin ts o sin empleado): ' + errores);
+
+          // APs que probablemente se generaron por el bug TZ
+          var apsAfectadas = 0;
+          snapAP1.forEach(function(d){
+            var ap = d.data();
+            var emp = reporte.find(function(r){ return r.empId===ap.empleadoId && r.fecha===ap.fecha; });
+            if (emp && emp.antes > 0 && emp.despues === 0) {
+              apsAfectadas++;
+              log('  ⚠ AP posiblemente INCORRECTA: ' + (ap.empleadoNombre||ap.empleadoId) + ' ' + ap.fecha);
+            }
+          });
+          snapAP2.forEach(function(d){
+            var ap = d.data();
+            var emp = reporte.find(function(r){ return r.empId===ap.empleadoId && r.fecha===ap.fecha; });
+            if (emp && emp.antes > 0 && emp.despues === 0) {
+              apsAfectadas++;
+              log('  ⚠ AP posiblemente INCORRECTA: ' + (ap.empleadoNombre||ap.empleadoId) + ' ' + ap.fecha);
+            }
+          });
+          if (apsAfectadas > 0) {
+            log('<br><span style="color:#f85149">⚠ ' + apsAfectadas + ' AP(s) de tardanza generadas el mismo día en que la marcación fue corregida. Revisalas en la pestaña APs.</span>');
+          } else {
+            log('<span style="color:#2db87a">✅ No se detectaron APs afectadas por el bug.</span>');
+          }
+
+          if (progEl) progEl.textContent = 'Completado.';
+          // Botón para cerrar
+          var closeBtn = document.createElement('button');
+          closeBtn.type = 'button';
+          closeBtn.textContent = 'Cerrar';
+          closeBtn.style.cssText = 'margin-top:16px;padding:10px 28px;background:var(--accent);color:#000;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit';
+          closeBtn.onclick = function(){ overlay.remove(); _paCargarPendientesGlobal(); };
+          overlay.querySelector('div').appendChild(closeBtn);
+        }
+      }).catch(function(e){
+        log('<span style="color:#f85149">Error en lote: ' + e.message + '</span>');
+      });
+    }
+
+    if (docs.length === 0) {
+      log('No hay marcaciones de entrada para migrar.');
+      if (progEl) progEl.textContent = 'Sin datos.';
+      var closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.textContent = 'Cerrar';
+      closeBtn.style.cssText = 'margin-top:16px;padding:10px 28px;background:var(--accent);color:#000;border:none;border-radius:8px;cursor:pointer;font-family:inherit';
+      closeBtn.onclick = function(){ overlay.remove(); };
+      overlay.querySelector('div').appendChild(closeBtn);
+      return;
+    }
+    procesarLote(0);
+  }).catch(function(e){
+    if (overlay) overlay.remove();
+    paToast('Error al cargar marcaciones: ' + e.message, true);
+  });
+}
+
 function paAdminConfig(content) {
   var h = PA.horario;
   if (!PA.feriados.length) {
@@ -6898,7 +7112,22 @@ function paAdminConfig(content) {
     // ── 5. DATOS SISTEMA ──────────────────────────────────────────
     +'<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">📋 Datos del sistema</div>'
     +'<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)"><span style="color:#7d8590;font-size:13px">Centros de costo</span><span style="color:#2ea043;font-size:13px">'+PA.centros.length+' cargados ✓</span></div>'
-    +'<div style="display:flex;justify-content:space-between;padding:8px 0"><span style="color:#7d8590;font-size:13px">Empleados</span><span style="color:#2ea043;font-size:13px">'+PA.empleados.length+' cargados ✓</span></div>';
+    +'<div style="display:flex;justify-content:space-between;padding:8px 0"><span style="color:#7d8590;font-size:13px">Empleados</span><span style="color:#2ea043;font-size:13px">'+PA.empleados.length+' cargados ✓</span></div>'
+
+    // ── HERRAMIENTA DE MIGRACIÓN RETROACTIVA ──────────────────────
+    +'<div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">'
+    +'<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px">🔧 Herramientas de corrección</div>'
+    +'<div style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.3);border-radius:10px;padding:14px;margin-bottom:10px">'
+    +'<div style="font-size:12px;font-weight:700;color:#f85149;margin-bottom:6px">⚠ Corrección retroactiva de timezone</div>'
+    +'<div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.5">'
+    +'Si algún empleado marcó su entrada con un teléfono cuyo timezone estaba en UTC-5 (en lugar de UTC-6), '
+    +'el sistema calculó incorrectamente su tardanza. Esta herramienta recalcula <em>todas</em> las marcaciones '
+    +'con la hora real de El Salvador y actualiza los registros en Firebase. '
+    +'<strong>Ejecutar una sola vez.</strong></div>'
+    +'<button type="button" onclick="paMigrarTimezonesRetroactivo()" style="width:100%;padding:10px;background:#f85149;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">'
+    +'🔄 Recalcular minutosRetraso retroactivamente</button>'
+    +'</div>'
+    +'</div>';
   content.innerHTML = html;
 
 
@@ -8663,7 +8892,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-01-E';
+var PA_VERSION = 'v2026-07-01-F';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);

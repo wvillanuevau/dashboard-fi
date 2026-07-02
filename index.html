@@ -1385,11 +1385,30 @@ input,select,textarea{font-size:16px}
       <div class="page-ttl" id="pageTitle" style="flex:1">Inicio</div>
       <div class="topbar-right">
         <button onclick="abrirBusquedaGlobal()" title="Búsqueda global (Ctrl+K)" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);cursor:pointer;font-size:14px;color:var(--muted);display:flex;align-items:center;gap:5px;transition:all .15s" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">🔍 <span class="hide-sm" style="font-size:12px;font-family:'Karla',sans-serif;font-weight:600">Buscar</span></button>
-        <div id="appVersionBadge" onclick="window._appVerificarVersion&&window._appVerificarVersion()" title="Versión del sistema — clic para buscar actualizaciones"
-        style="font-size:10px;font-weight:700;color:var(--muted);background:var(--surface2);border:1px solid var(--border);
-               border-radius:12px;padding:2px 8px;cursor:pointer;letter-spacing:.3px;flex-shrink:0;margin-right:4px">
-        v…
-      </div>
+        <!-- Versión + botón de actualización forzada -->
+        <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+          <div id="appVersionBadge"
+            onclick="window._appVerificarVersion&&window._appVerificarVersion(true)"
+            title="Versión actual — clic para verificar si hay actualización"
+            style="font-size:10px;font-weight:700;color:var(--muted);background:var(--surface2);
+                   border:1px solid var(--border);border-radius:12px;padding:2px 8px;
+                   cursor:pointer;letter-spacing:.3px;transition:all .2s;white-space:nowrap"
+            onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+            onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
+            v…
+          </div>
+          <button type="button" id="btnForceUpdate"
+            onclick="window._appForceUpdate&&window._appForceUpdate()"
+            title="Forzar actualización — recarga la app y limpia el caché"
+            style="display:none;padding:2px 7px;font-size:11px;font-weight:700;
+                   background:rgba(232,160,32,.15);color:var(--accent);
+                   border:1px solid rgba(232,160,32,.4);border-radius:10px;
+                   cursor:pointer;font-family:inherit;white-space:nowrap;transition:all .2s"
+            onmouseover="this.style.background='var(--accent)';this.style.color='#000'"
+            onmouseout="this.style.background='rgba(232,160,32,.15)';this.style.color='var(--accent)'">
+            🔄 Actualizar
+          </button>
+        </div>
       <div class="sync-badge" id="syncBadge" onclick="forceReloadFromFirebase()" title="Clic para recargar datos desde Firebase" style="cursor:pointer"><div class="sync-dot" id="syncDot"></div><span id="syncTxt" class="hide-sm">—</span></div>
         <button onclick="openThemePanel()" title="Personalizar apariencia" class="hide-sm" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);cursor:pointer;font-size:14px;color:var(--muted);display:flex;align-items:center;gap:5px;transition:all .15s" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">🎨 <span style="font-size:12px;font-family:'Karla',sans-serif;font-weight:600">Tema</span></button>
         <div id="headerActions"></div>
@@ -1430,7 +1449,7 @@ input,select,textarea{font-size:16px}
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-07-01-B'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-07-01-C'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -3249,6 +3268,12 @@ function enterApp(email,rol,nombre,permisos,proyectosPermitidos){
   localStorage.setItem('pp_empresa',S.empresa);
   document.getElementById('loginPage').style.display='none';
   document.getElementById('appShell').style.display='flex';
+  // Mostrar versión actual en el badge del topbar
+  var _vBadge = document.getElementById('appVersionBadge');
+  if (_vBadge && typeof APP_VERSION !== 'undefined') _vBadge.textContent = APP_VERSION;
+  // Mostrar el botón de forzar actualización (solo visible después de login)
+  var _fBtn = document.getElementById('btnForceUpdate');
+  if (_fBtn) _fBtn.style.display = 'block';
   document.getElementById('sbAv').textContent=nombre.charAt(0).toUpperCase();
   document.getElementById('sbUserName').textContent=nombre;
   document.getElementById('sbUserRol').textContent=((ROLES[rol]&&ROLES[rol].label)||rol)+' · '+S.empresa;
@@ -21265,36 +21290,98 @@ function delCombustible(id){
   var _appBaseUrl=window.location.href.split('?')[0].split('#')[0];
   var _badge=document.getElementById('appVersionBadge');
   if(_badge&&typeof APP_VERSION!=='undefined')_badge.textContent=APP_VERSION;
+
+  // ── Forzar recarga limpiando caché de Service Worker y browser ──
   function _reload(){
     var u=window.location.pathname+'?nocache='+Date.now();
-    try{if(window.caches)caches.keys().then(function(ks){return Promise.all(ks.map(function(k){return caches.delete(k)}))}).then(function(){window.location.replace(u)}).catch(function(){window.location.replace(u)});else window.location.replace(u);}catch(e){window.location.replace(u);}
+    try{
+      if(window.caches){
+        caches.keys().then(function(ks){
+          return Promise.all(ks.map(function(k){return caches.delete(k);}));
+        }).then(function(){window.location.replace(u);}).catch(function(){window.location.replace(u);});
+      } else { window.location.replace(u); }
+    }catch(e){window.location.replace(u);}
   }
+
+  // ── Overlay de nueva versión con countdown ─────────────────────
   function _showOverlay(){
     if(_appOverlayShown)return;_appOverlayShown=true;
+    // Cambiar badge a naranja para indicar actualización disponible
+    if(_badge){
+      _badge.style.background='#e8a020';
+      _badge.style.color='#000';
+      _badge.style.border='1px solid #e8a020';
+      _badge.textContent='🔄 actualizar';
+    }
+    // También animar el botón de forzar actualización
+    var _fb=document.getElementById('btnForceUpdate');
+    if(_fb){
+      _fb.style.background='#e8a020';
+      _fb.style.color='#000';
+      _fb.style.border='1px solid #e8a020';
+      _fb.style.animation='_pulse 1.4s ease-in-out infinite';
+    }
     var ov=document.createElement('div');
     ov.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(1,4,9,.93);display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(8px)';
     ov.innerHTML='<div style="background:#0d1117;border:2px solid #1a3a5c;border-radius:20px;padding:36px 28px;width:100%;max-width:360px;text-align:center;font-family:system-ui">'
       +'<div style="font-size:52px;margin-bottom:16px">🔄</div>'
-      +'<div style="font-size:19px;font-weight:700;color:#e6edf3;margin-bottom:10px">Nueva versión disponible</div>'
-      +'<div style="font-size:13px;color:#7d8590;margin-bottom:28px">Recarga para continuar.</div>'
-      +'<button id="appBtnUpdate" style="width:100%;padding:15px;background:#3b82f6;color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer">🔄 Actualizar ahora</button>'
+      +'<div style="font-size:19px;font-weight:700;color:#e6edf3;margin-bottom:8px">Nueva versión disponible</div>'
+      +'<div style="font-size:13px;color:#7d8590;margin-bottom:24px">Se actualizará automáticamente.</div>'
+      +'<button type="button" id="appBtnUpdate" style="width:100%;padding:15px;background:#3b82f6;color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit">🔄 Actualizar ahora</button>'
       +'<div style="font-size:11px;color:#484f58;margin-top:10px" id="appCountdown">Actualizando en 5s...</div>'
       +'</div>';
     document.body.appendChild(ov);
     document.getElementById('appBtnUpdate').addEventListener('click',_reload);
-    var s=5,t=setInterval(function(){s--;var e=document.getElementById('appCountdown');if(e)e.textContent='Actualizando en '+s+'s...';if(s<=0){clearInterval(t);_reload();}},1000);
+    var s=5,t=setInterval(function(){
+      s--;
+      var e=document.getElementById('appCountdown');
+      if(e) e.textContent='Actualizando en '+s+'s...';
+      if(s<=0){clearInterval(t);_reload();}
+    },1000);
   }
-  function _check(){
+
+  // ── Verificar versión contra el servidor ───────────────────────
+  function _check(manual){
     if(_appOverlayShown)return;
-    fetch(_appBaseUrl+'?_v='+Date.now(),{method:'GET',cache:'no-store',headers:{'Cache-Control':'no-cache,no-store','Pragma':'no-cache'}})
+    fetch(_appBaseUrl+'?_v='+Date.now(),{
+      method:'GET',cache:'no-store',
+      headers:{'Cache-Control':'no-cache,no-store','Pragma':'no-cache'}
+    })
     .then(function(r){return r.ok?r.text():null;})
-    .then(function(html){if(!html)return;var m=html.match(/APP_VERSION\s*=\s*['"]([^'"]+)['"]/);if(!m)return;var sv=m[1];if(sv!==APP_VERSION)_showOverlay();})
-    .catch(function(){});
+    .then(function(html){
+      if(!html)return;
+      var m=html.match(/APP_VERSION\s*=\s*['"]([^'"]+)['"]/);
+      if(!m)return;
+      var sv=m[1];
+      if(sv!==APP_VERSION){
+        _showOverlay();
+      } else if(manual){
+        // Feedback cuando el usuario verifica manualmente y ya está actualizado
+        if(typeof toast==='function'){
+          toast('✅ Ya tienes la versión más reciente ('+APP_VERSION+')');
+        }
+      }
+    })
+    .catch(function(){
+      if(manual && typeof toast==='function') toast('Sin conexión para verificar versión','err');
+    });
   }
-  window._appVerificarVersion=_check;
-  setTimeout(function(){_check();},5000);
-  setInterval(function(){_check();},5*60*1000);
-  document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible'&&!_appOverlayShown)_check();});
+
+  // ── Forzar actualización inmediata (expuesto globalmente) ──────
+  function _forceUpdate(){
+    if(typeof toast==='function') toast('🔄 Actualizando...');
+    setTimeout(_reload, 500);
+  }
+
+  window._appVerificarVersion = _check;
+  window._appForceUpdate      = _forceUpdate;
+
+  // Verificar 5s después del login (gestionado en doLogin)
+  setTimeout(function(){_check(false);},5000);
+  setInterval(function(){_check(false);},5*60*1000);
+  document.addEventListener('visibilitychange',function(){
+    if(document.visibilityState==='visible'&&!_appOverlayShown)_check(false);
+  });
 })();
 </script>
 </body>
