@@ -1649,7 +1649,13 @@ function paFmtHora(ts) {
   var ms = _paToMs(ts); // normaliza Firestore Timestamp, number, string
   if (!ms) return '—';
   var d = new Date(ms);
-  return d.toLocaleTimeString('es-SV', {hour:'2-digit', minute:'2-digit', hour12:true});
+  // Siempre mostrar en hora El Salvador (UTC-6) sin importar el timezone del dispositivo
+  return d.toLocaleTimeString('es-SV', {
+    timeZone: 'America/El_Salvador',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
 }
 
 function paFmtFecha(ts) {
@@ -1666,6 +1672,57 @@ function paEmpId() {
 }
 function paEmpNombre() {
   return PA.empleado ? (PA.empleado.nombre || '—') : '—';
+}
+
+
+// ── Helper: tiempo desde medianoche El Salvador ──────────────────
+// Siempre usa UTC-6 (America/El_Salvador, sin DST), ignorando
+// el timezone del dispositivo del empleado.
+function _hmsDesdeMedianocheES(ts) {
+  var d = new Date(ts || Date.now());
+  try {
+    // Intl API — forma más robusta
+    var timeStr = d.toLocaleTimeString('sv-SE', {
+      timeZone: 'America/El_Salvador',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    }); // "HH:MM:SS"
+    var parts = timeStr.split(':');
+    return {
+      horas:   parseInt(parts[0], 10),
+      minutos: parseInt(parts[1], 10),
+      segundos: parseInt(parts[2] || '0', 10),
+      totalMs:  parseInt(parts[0], 10) * 3600000
+              + parseInt(parts[1], 10) * 60000
+              + parseInt(parts[2] || 0, 10) * 1000
+    };
+  } catch(e) {
+    // Fallback manual UTC-6
+    var utcMs  = d.getTime() + d.getTimezoneOffset() * 60000; // quitar TZ local → UTC
+    var esMs   = utcMs - 6 * 3600000;                          // aplicar UTC-6
+    var esDate = new Date(esMs);
+    var hh = esDate.getUTCHours();
+    var mm = esDate.getUTCMinutes();
+    var ss = esDate.getUTCSeconds();
+    return { horas: hh, minutos: mm, segundos: ss, totalMs: hh*3600000 + mm*60000 + ss*1000 };
+  }
+}
+
+// ── Helper: día de semana en El Salvador ─────────────────────────
+// getDay() depende del timezone del dispositivo; este helper no.
+function _diaSemanaES(ts) {
+  var d = new Date(ts || Date.now());
+  try {
+    var dateStr = d.toLocaleDateString('sv-SE', { timeZone: 'America/El_Salvador' }); // 'YYYY-MM-DD'
+    // Usar mediodía para evitar que cambios de fecha en zona fronteriza afecten el día
+    return new Date(dateStr + 'T12:00:00').getDay();
+  } catch(e) {
+    var utcMs = d.getTime() + d.getTimezoneOffset() * 60000;
+    var esDate = new Date(utcMs - 6 * 3600000);
+    return esDate.getUTCDay();
+  }
 }
 
 function paHoy() {
@@ -3889,24 +3946,26 @@ function paConfirmarMarca() {
   var minutosRetraso = 0;
   var estadoPuntualidad = 'a_tiempo';
   if (PA.tipoMarca === 'entrada' && PA.horario) {
-    var _diaSemana = new Date(now).getDay();
+    // Siempre usar el día de semana en hora El Salvador (no del dispositivo)
+    var _diaSemana = _diaSemanaES(now);
     var _eHor = _horarioDeEmp(PA.empleado, _diaSemana);
-  // Advertir si el día no está programado (sin bloquear)
-  if (_eHor && _eHor.trabaja === false) {
-    paToast('⚠️ Este día no esta en tu horario programado. El registro se guardará como jornada extraordinaria.');
-  }
-  var partes = (_eHor.horaEntrada || '07:00').split(':');
-    var esperadaMs = parseInt(partes[0])*60*60*1000 + parseInt(partes[1]||0)*60*1000;
-    var midnight = new Date(now); midnight.setHours(0,0,0,0);
-    var horaActualMs = now - midnight.getTime();
-    var toleranciaMs = (PA.horario.minutosTolerancia || 10) * 60 * 1000;
+    // Advertir si el día no está programado (sin bloquear)
+    if (_eHor && _eHor.trabaja === false) {
+      paToast('⚠️ Este día no esta en tu horario programado. El registro se guardará como jornada extraordinaria.');
+    }
+    var partes = (_eHor.horaEntrada || '07:00').split(':');
+    var esperadaMs = parseInt(partes[0])*3600000 + parseInt(partes[1]||0)*60000;
+    // Usar _hmsDesdeMedianocheES para que no dependa del timezone del teléfono
+    var horaActualMs = _hmsDesdeMedianocheES(now).totalMs;
+    var toleranciaMs = (PA.horario.minutosTolerancia || 10) * 60000;
     if (horaActualMs > esperadaMs + toleranciaMs) {
       minutosRetraso = Math.round((horaActualMs - esperadaMs) / 60000);
       estadoPuntualidad = 'tarde';
     }
   }
-  var diaSemana = new Date(now).getDay();
-  var esFeriado = PA.feriados.indexOf(hoy) >= 0;
+  // Día de semana y feriado también en hora El Salvador
+  var diaSemana    = _diaSemanaES(now);
+  var esFeriado    = PA.feriados.indexOf(hoy) >= 0;
   var esFinDeSemana = diaSemana === 0 || diaSemana === 6;
   var folioId = 'MRC-' + paGenId().toUpperCase();
 
@@ -3918,6 +3977,8 @@ function paConfirmarMarca() {
       cargo: PA.empleado.cargo || '',
       tipo: PA.tipoMarca,
       fecha: hoy, ts: now,
+      // hora en El Salvador explícita — no depende del timezone de quien consulte
+      hora: (function(){ var h=_hmsDesdeMedianocheES(now); return String(h.horas).padStart(2,'0')+':'+String(h.minutos).padStart(2,'0'); })(),
       fotoRef: fotoRef || null,  // path en Storage — NUNCA base64 en Firestore
       ubicacion: PA.location || null,
       centroId: centroId,
@@ -4553,8 +4614,9 @@ function _paVerificarFaltasAutomaticas() {
   if (!paDb || !PA.empresa) return;
 
   var ahora = new Date();
-  var horaActual = ahora.getHours();
-  if (horaActual < 19) return; // aún no es el corte de las 7:00 PM
+  var _horaES = _hmsDesdeMedianocheES(ahora.getTime());
+  // Corte a las 19:00 hora El Salvador (no del dispositivo)
+  if (_horaES.horas < 19) return; // aún no es el corte de las 7:00 PM
 
   var hoy = paHoy();
 
@@ -4563,7 +4625,7 @@ function _paVerificarFaltasAutomaticas() {
     var cfg = cfgDoc.exists ? cfgDoc.data() : {};
     if (cfg.ultimaVerifFaltas === hoy) return; // ya se corrió hoy
 
-    var diaSemana = ahora.getDay(); // 0=domingo ... 6=sábado
+    var diaSemana = _diaSemanaES(ahora.getTime()); // día en El Salvador, no del dispositivo // 0=domingo ... 6=sábado
 
     Promise.all([
       paDb.collection('paMarcaciones').where('empresa','==',PA.empresa).where('fecha','==',hoy).where('tipo','==','entrada').get(),
@@ -5887,8 +5949,8 @@ function paEditarMarcacion(marcId) {
       var _cHor = _horarioDeEmp(PA.empleado);
       var partes = (_cHor.horaEntrada||'07:00').split(':');
       var espMs = parseInt(partes[0])*3600000 + parseInt(partes[1]||0)*60000;
-      var midnight = new Date(nuevoTs); midnight.setHours(0,0,0,0);
-      var actualMs = nuevoTs - midnight.getTime();
+      // Usar helper TZ-safe (reemplaza midnight.setHours que dependía del timezone del dispositivo)
+      var actualMs = _hmsDesdeMedianocheES(nuevoTs).totalMs;
       var tolMs = (PA.horario.minutosTolerancia||10)*60000;
       updates.minutosRetraso = actualMs > espMs+tolMs ? Math.round((actualMs-espMs)/60000) : 0;
       updates.estadoPuntualidad = updates.minutosRetraso > 0 ? 'tarde' : 'a_tiempo';
@@ -7812,8 +7874,18 @@ function paImprimirResumenHE(data) {
 
   function fmtHora(ts) {
     if (!ts) return '--';
-    var d = new Date(ts);
-    return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+    var d = new Date(typeof ts === 'object' && ts.toMillis ? ts.toMillis()
+                      : typeof ts === 'object' && ts.seconds ? ts.seconds*1000 : ts);
+    // Siempre hora El Salvador (UTC-6), sin depender del timezone del dispositivo
+    try {
+      var s = d.toLocaleTimeString('sv-SE', {
+        timeZone: 'America/El_Salvador', hour:'2-digit', minute:'2-digit', hour12:false
+      });
+      return s.slice(0,5); // "HH:MM"
+    } catch(e) {
+      var esH = _hmsDesdeMedianocheES(d.getTime());
+      return String(esH.horas).padStart(2,'0')+':'+String(esH.minutos).padStart(2,'0');
+    }
   }
 
   function fmtFecha(fechaStr) {
@@ -8591,7 +8663,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-01-C';
+var PA_VERSION = 'v2026-07-01-E';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
