@@ -4897,7 +4897,26 @@ function paAdminHoy(content) {
         if (!marcs[empId]) marcs[empId] = { nombre: m.empleadoNombre, tipos: [], tarde: 0, centro: '', registros: [] };
         marcs[empId].tipos.push(m.tipo);
         marcs[empId].registros.push(m);
-        if (m.minutosRetraso > 0) marcs[empId].tarde = m.minutosRetraso;
+        // Recalcular tardanza desde el timestamp UTC (no del campo almacenado que puede
+        // estar contaminado por teléfonos con timezone incorrecto)
+        if (m.tipo === 'entrada' && m.ts) {
+          var _mts   = (typeof m.ts === 'object' && m.ts.toMillis) ? m.ts.toMillis()
+                     : (m.ts && m.ts.seconds) ? m.ts.seconds*1000 : (m.ts||0);
+          if (_mts > 0) {
+            var _empObj = PA.empleados.find(function(e){ return e.id === m.empleadoId; });
+            var _diaES  = _diaSemanaES(_mts);
+            var _horEmp = _empObj ? _horarioDeEmp(_empObj, _diaES) : PA.horario;
+            if (_horEmp && _horEmp.horaEntrada && _horEmp.trabaja !== false) {
+              var _pts   = _horEmp.horaEntrada.split(':');
+              var _espMs = parseInt(_pts[0])*3600000 + parseInt(_pts[1]||0)*60000;
+              var _hms   = _hmsDesdeMedianocheES(_mts);
+              var _tolMs = (PA.horario.minutosTolerancia || 10) * 60000;
+              if (_hms.totalMs > _espMs + _tolMs) {
+                marcs[empId].tarde = Math.round((_hms.totalMs - _espMs) / 60000);
+              }
+            }
+          }
+        }
         if (m.centroNombre) marcs[empId].centro = m.centroNombre;
         PA._marcacionesDetalle[m._id] = m;
       });
@@ -4917,7 +4936,12 @@ function paAdminHoy(content) {
       if (!Object.keys(marcs).length) {
         html += '<div style="text-align:center;padding:32px;color:var(--muted)">Sin marcaciones hoy.</div>';
       } else {
-        Object.keys(marcs).forEach(function(empId) {
+        // Ordenar alfabéticamente por nombre del empleado
+        Object.keys(marcs)
+          .sort(function(a,b){
+            return (marcs[a].nombre||'').localeCompare(marcs[b].nombre||'', 'es', {sensitivity:'base'});
+          })
+          .forEach(function(empId) {
           var emp = marcs[empId];
           var tardeBadge = emp.tarde > 0 ? ' <span style="color:var(--warn);font-size:10px">⚠ +'+emp.tarde+'min</span>' : '';
           html += '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:8px">'
@@ -4967,6 +4991,8 @@ function paAdminHoy(content) {
           });
           if (incsHoy.length) {
             html += '<div class="section-title" style="margin-top:16px">🏥 Incapacidades activas hoy ('+incsHoy.length+')</div>';
+            // Ordenar incapacidades alfabéticamente por nombre
+            incsHoy.sort(function(a,b){ return (a.empleadoNombre||'').localeCompare(b.empleadoNombre||'','es',{sensitivity:'base'}); });
             incsHoy.forEach(function(inc) {
               html += '<div class="report-row">'
                 +'<div style="flex:1">'
@@ -6288,7 +6314,12 @@ function paCargarAPs(tipo) {
         }
         docs.push(r);
       });
-      docs.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
+      docs.sort(function(a,b){
+        // Primero por nombre de empleado, luego por fecha descendente
+        var nameCmp = (a.empleadoNombre||'').localeCompare(b.empleadoNombre||'','es',{sensitivity:'base'});
+        if (nameCmp !== 0) return nameCmp;
+        return (b.ts||0)-(a.ts||0);
+      });
       // Pre-store APs para paImprimirAP (evitar inline data en onclick)
       window._paAPMap = window._paAPMap || {};
       docs.forEach(function(ap){ window._paAPMap[ap._id] = ap; });
@@ -8892,7 +8923,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-01-F';
+var PA_VERSION = 'v2026-07-01-G';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
