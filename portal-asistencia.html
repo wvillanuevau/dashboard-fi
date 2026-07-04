@@ -6782,7 +6782,7 @@ function paMigrarTimezonesRetroactivo() {
     var errores      = 0;
     var reporte      = [];
 
-    var tolerance = _toleranciaDeEmp(emp, diaES); // tolerancia real del empleado
+    // tolerance se calcula por documento dentro de procesarLote (emp y diaES son locales)
 
     function procesarLote(startIdx) {
       var LOTE = 10;
@@ -6814,7 +6814,8 @@ function paMigrarTimezonesRetroactivo() {
         var esperadaMs = parseInt(partes[0], 10)*3600000 + parseInt(partes[1], 10||0)*60000;
         var hmsES      = _hmsDesdeMedianocheES(ts);
         var actualMs   = hmsES.totalMs;
-        var tolMs      = tolerance * 60000;
+        var _tolMin    = _toleranciaDeEmp(emp, diaES); // tolerancia real del empleado para ese día
+        var tolMs      = _tolMin * 60000;
 
         var nuevoMinutosRetraso = 0;
         var nuevoEstado         = 'a_tiempo';
@@ -9010,7 +9011,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-01-N';
+var PA_VERSION = 'v2026-07-01-O';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
