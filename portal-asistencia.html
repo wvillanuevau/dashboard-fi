@@ -1081,7 +1081,9 @@ function _paBorrarVinculo() {
 }
 
 function paDesvincular() {
-  if (!confirm('Desvincular este dispositivo?\nLa proxima vez tendras que seleccionar tu nombre y PIN.')) return;
+
+  paConfirm('Desvincular este dispositivo?\nLa proxima vez tendras que seleccionar tu nombre y PIN.', function(){
+
   _paBorrarVinculo();
   PA.empleado = null;
   PA.marcacionesHoy = [];
@@ -1091,6 +1093,7 @@ function paDesvincular() {
   paToast('Dispositivo desvinculado. Selecciona tu nombre para continuar.');
   paLoadEmpleados();
   paShow('scSelectEmp');
+  });
 }
 
 function paSolicitarDesvinculacion() {
@@ -1394,7 +1397,7 @@ function _enviarConfigSW() {
 
 function _hhmm2min(hhmm) {
   var p = (hhmm || '00:00').split(':');
-  return parseInt(p[0]) * 60 + parseInt(p[1] || 0);
+  return parseInt(p[0], 10) * 60 + parseInt(p[1] || 0);
 }
 function _min2hhmm(mins) {
   var h = Math.floor(mins / 60) % 24;
@@ -1994,7 +1997,8 @@ function paVerifyPin() {
         paPinUpdate();
         if (errEl) errEl.textContent = '';
         paAfterAuth();
-      });
+      })
+      .catch(function(e){ console.warn('[Firebase write]', e.code||e.message); });
     }).catch(function(e) { if(errEl) errEl.textContent='Error: '+e.message; });
     return;
   }
@@ -3271,7 +3275,7 @@ function paAutoCompletarDiaAnterior(callback) {
         var horaSalida = PA.horario.horaSalida || '17:00';
         var parts = horaSalida.split(':');
         var dSalida = new Date(dia.fecha + 'T00:00:00');
-        dSalida.setHours(parseInt(parts[0]), parseInt(parts[1]||0), 0, 0);
+        dSalida.setHours(parseInt(parts[0], 10), parseInt(parts[1]||0), 0, 0);
         var tsSalida = dSalida.getTime();
 
         // Primero auto-completar almuerzo del dia abierto
@@ -3432,7 +3436,22 @@ function _horarioDeEmp(emp, dayOfWeek) {
   // ── Prioridad 1: horario por día específico ───────────────────
   if (empHorObj && empHorObj.horarioDias && dayOfWeek !== undefined && dayOfWeek !== null) {
     var diaConf = empHorObj.horarioDias[String(dayOfWeek)];
-    if (diaConf !== undefined) return diaConf; // {trabaja:false} o {trabaja:true,entrada:…}
+    if (diaConf !== undefined) {
+      // IMPORTANTE: paGuardarHorDias guarda campos como 'entrada'/'tolerancia'
+      // pero el sistema espera 'horaEntrada'/'minutosTolerancia'.
+      // Normalizamos aquí para que ambas convenciones funcionen.
+      // También hacemos merge con empHorObj para que el día herede
+      // los valores del horario plano individual cuando no los tenga propios.
+      var normalized = Object.assign({}, empHorObj, diaConf);
+      // Normalizar nombres de campo (convención horarioDias → convención general)
+      if (diaConf.entrada    && !diaConf.horaEntrada)       normalized.horaEntrada       = diaConf.entrada;
+      if (diaConf.salida     && !diaConf.horaSalida)         normalized.horaSalida         = diaConf.salida;
+      if (diaConf.tolerancia != null && diaConf.minutosTolerancia == null)
+        normalized.minutosTolerancia = Number(diaConf.tolerancia);
+      if (diaConf.almuerzo   != null && diaConf.minutosAlmuerzo == null)
+        normalized.minutosAlmuerzo   = Number(diaConf.almuerzo);
+      return normalized;
+    }
   }
   // ── Prioridad 2: horario plano individual ─────────────────────
   if (empHorObj && empHorObj.horaEntrada) return empHorObj;
@@ -3442,6 +3461,27 @@ function _horarioDeEmp(emp, dayOfWeek) {
   // ── Prioridad 4: horario general ─────────────────────────────
   return PA.horario;
 }
+
+// ── Tolerancia de llegada del empleado ──────────────────────────
+// Usa la misma jerarquía que _horarioDeEmp para la horaEntrada:
+// individual → rol → general → 10 min por defecto
+function _toleranciaDeEmp(emp, dayOfWeek) {
+  // Obtener el horario del empleado para el día dado (ya normalizado)
+  // _horarioDeEmp hace merge y normaliza 'tolerancia'→'minutosTolerancia'
+  var hor = _horarioDeEmp(emp, dayOfWeek);
+  if (hor && hor.minutosTolerancia != null) return Number(hor.minutosTolerancia);
+  // Si el horario retornado no tiene minutosTolerancia (es un día sin config),
+  // buscar en el horario plano individual
+  var empHorObj = emp && PA.horariosEmp && PA.horariosEmp[emp.id];
+  if (empHorObj && empHorObj.minutosTolerancia != null) return Number(empHorObj.minutosTolerancia);
+  // Horario del rol
+  var rolHor = emp && PA.horariosRol && PA.horariosRol[emp.cargo];
+  if (rolHor && rolHor.minutosTolerancia != null) return Number(rolHor.minutosTolerancia);
+  // Horario general
+  if (PA.horario && PA.horario.minutosTolerancia != null) return Number(PA.horario.minutosTolerancia);
+  return 10;
+}
+
 
 
 function _tardDescuentoHrs(minsTarde) {
@@ -3470,8 +3510,8 @@ function _quincenaActual() {
 function paTardanzasEmp(empId, marcaciones, horaEntradaStr) {
   if (!marcaciones || !horaEntradaStr) return { dias:[], totalTard:0, totalDescHrs:0 };
   var partes = horaEntradaStr.split(':');
-  var hrEnt  = parseInt(partes[0])||8;
-  var minEnt = parseInt(partes[1])||0;
+  var hrEnt  = parseInt(partes[0], 10)||8;
+  var minEnt = parseInt(partes[1], 10)||0;
   var schMin = hrEnt*60 + minEnt; // hora de entrada programada en minutos
 
   var empMarcs = marcaciones[empId] || {};
@@ -3954,10 +3994,10 @@ function paConfirmarMarca() {
       paToast('⚠️ Este día no esta en tu horario programado. El registro se guardará como jornada extraordinaria.');
     }
     var partes = (_eHor.horaEntrada || '07:00').split(':');
-    var esperadaMs = parseInt(partes[0])*3600000 + parseInt(partes[1]||0)*60000;
+    var esperadaMs = parseInt(partes[0], 10)*3600000 + parseInt(partes[1], 10||0)*60000;
     // Usar _hmsDesdeMedianocheES para que no dependa del timezone del teléfono
     var horaActualMs = _hmsDesdeMedianocheES(now).totalMs;
-    var toleranciaMs = (PA.horario.minutosTolerancia || 10) * 60000;
+    var toleranciaMs = _toleranciaDeEmp(PA.empleado, _diaSemana) * 60000;
     if (horaActualMs > esperadaMs + toleranciaMs) {
       minutosRetraso = Math.round((horaActualMs - esperadaMs) / 60000);
       estadoPuntualidad = 'tarde';
@@ -4908,9 +4948,9 @@ function paAdminHoy(content) {
             var _horEmp = _empObj ? _horarioDeEmp(_empObj, _diaES) : PA.horario;
             if (_horEmp && _horEmp.horaEntrada && _horEmp.trabaja !== false) {
               var _pts   = _horEmp.horaEntrada.split(':');
-              var _espMs = parseInt(_pts[0])*3600000 + parseInt(_pts[1]||0)*60000;
+              var _espMs = parseInt(_pts[0], 10)*3600000 + parseInt(_pts[1]||'0', 10)*60000;
               var _hms   = _hmsDesdeMedianocheES(_mts);
-              var _tolMs = (PA.horario.minutosTolerancia || 10) * 60000;
+              var _tolMs = _toleranciaDeEmp(_empObj, _diaES) * 60000; // tolerancia del empleado, no la general
               if (_hms.totalMs > _espMs + _tolMs) {
                 marcs[empId].tarde = Math.round((_hms.totalMs - _espMs) / 60000);
               }
@@ -4943,7 +4983,11 @@ function paAdminHoy(content) {
           })
           .forEach(function(empId) {
           var emp = marcs[empId];
-          var tardeBadge = emp.tarde > 0 ? ' <span style="color:var(--warn);font-size:10px">⚠ +'+emp.tarde+'min</span>' : '';
+          var _empForTol = PA.empleados.find(function(e){ return e.id === empId; });
+          var _tolUsada = _toleranciaDeEmp(_empForTol);
+          var tardeBadge = emp.tarde > 0
+            ? ' <span style="color:var(--warn);font-size:10px" title="Tolerancia: '+_tolUsada+' min">⚠ +'+emp.tarde+'min tarde</span>'
+            : '';
           html += '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:8px">'
             +'<div style="font-weight:700;margin-bottom:8px">'+esc(emp.nombre)+tardeBadge+'</div>'
             +'<div style="display:flex;flex-wrap:wrap;gap:8px">';
@@ -5276,19 +5320,25 @@ function _paPostApproval(btn, defaultTab) {
 }
 
 function paAprobarInc(incId, btn) {
-  if (!confirm('¿Aprobar esta incapacidad?')) return;
+
+  paConfirm('¿Aprobar esta incapacidad?', function(){
+
   if (btn) btn.disabled = true;
   paDb.collection('paIncapacidades').doc(incId).update({ estado: 'aprobada' })
     .then(function() { paToast('✅ Incapacidad aprobada'); _paPostApproval(btn, 'hoy'); })
     .catch(function(e) { paToast('Error: '+e.message,true); if(btn)btn.disabled=false; });
+  });
 }
 
 function paRechazarInc(incId, btn) {
-  if (!confirm('¿Rechazar esta incapacidad?')) return;
+
+  paConfirm('¿Rechazar esta incapacidad?', function(){
+
   if (btn) btn.disabled = true;
   paDb.collection('paIncapacidades').doc(incId).update({ estado: 'rechazada' })
     .then(function() { paToast('Incapacidad rechazada'); _paPostApproval(btn, 'hoy'); })
     .catch(function(e) { paToast('Error: '+e.message,true); if(btn)btn.disabled=false; });
+  });
 }
 
 function paVerMarcacion(marcId) {
@@ -5350,7 +5400,7 @@ function _paShowMarcModal(m) {
       });
     }, 300);
   } else if (m.foto) {
-    fotoHtml = '<img src="'+m.foto+'" style="width:100%;max-height:300px;object-fit:cover;border-radius:10px;margin-bottom:12px">';
+    fotoHtml = '<img src="'+(function(u){return(/^https?:\/\//.test(u||'')||String(u||'').startsWith('data:image/'))?u:'';})(m.foto)+'" style="width:100%;max-height:300px;object-fit:cover;border-radius:10px;margin-bottom:12px">';
   } else {
     fotoHtml = '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:24px;text-align:center;color:var(--muted);margin-bottom:12px">📷 Sin foto registrada</div>';
   }
@@ -5974,10 +6024,13 @@ function paEditarMarcacion(marcId) {
     if (nuevoTipo === 'entrada' && PA.horario) {
       var _cHor = _horarioDeEmp(PA.empleado);
       var partes = (_cHor.horaEntrada||'07:00').split(':');
-      var espMs = parseInt(partes[0])*3600000 + parseInt(partes[1]||0)*60000;
+      var espMs = parseInt(partes[0], 10)*3600000 + parseInt(partes[1], 10||0)*60000;
       // Usar helper TZ-safe (reemplaza midnight.setHours que dependía del timezone del dispositivo)
       var actualMs = _hmsDesdeMedianocheES(nuevoTs).totalMs;
-      var tolMs = (PA.horario.minutosTolerancia||10)*60000;
+      // Tolerancia del empleado (individual > rol > general > 10)
+      var _editEmp = PA.empleados.find(function(e){ return e.id === m.empleadoId; });
+      var _editDia = _diaSemanaES(nuevoTs);
+      var tolMs = _toleranciaDeEmp(_editEmp, _editDia) * 60000;
       updates.minutosRetraso = actualMs > espMs+tolMs ? Math.round((actualMs-espMs)/60000) : 0;
       updates.estadoPuntualidad = updates.minutosRetraso > 0 ? 'tarde' : 'a_tiempo';
     }
@@ -6157,7 +6210,8 @@ function paImprimirAP(apId) {
   ;
 
   var w = window.open('','_blank','width=800,height=700');
-  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8">'
+  if (w) {
+    var _apHtml = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
     +'<title>Acción de Personal</title>'
     +'<style>body{font-family:Arial,sans-serif;font-size:12px;padding:20px;color:#111}'
     +'table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px 8px;font-size:11px}'
@@ -6184,13 +6238,20 @@ function paImprimirAP(apId) {
     +'<div style="text-align:right;margin-top:12px">'
     +'<button onclick="window.print()" style="padding:8px 20px;background:#1a3a5c;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">🖨️ Imprimir</button></div>'
     +'<script>window.onload=function(){window.print();}<\/script>'
-    +'</body></html>');
+    +'</body></html>';
+    var _apBlob = new Blob([_apHtml], {type:'text/html;charset=utf-8'});
+    var _apUrl = URL.createObjectURL(_apBlob);
+    w.location.href = _apUrl;
+    setTimeout(function(){ URL.revokeObjectURL(_apUrl); }, 20000);
+  }
   w.document.close();
 }
 
 // ── Generar APs históricas de tardanzas (últimos 30 días) ────
 function paGenerarAPsHistoricas() {
-  if (!confirm('¿Generar APs de tardanzas para los últimos 30 días?\nSolo crea APs para empleados con 4+ tardanzas que aún no tengan AP en ese período.')) return;
+
+  paConfirm('¿Generar APs de tardanzas para los últimos 30 días?\nSolo crea APs para empleados con 4+ tardanzas que aún no tengan AP en ese período.', function(){
+
 
   paToast('Procesando... puede tardar unos segundos');
   var hoy = paHoy();
@@ -6256,7 +6317,7 @@ function paGenerarAPsHistoricas() {
 
         // Calcular hasta de quincena
         var parts = qDesde.split('-');
-        var y=parseInt(parts[0]),m=parseInt(parts[1]),d=parseInt(parts[2]);
+        var y=parseInt(parts[0], 10),m=parseInt(parts[1], 10),d=parseInt(parts[2]);
         var hasta = d===1
           ? y+'-'+String(m).padStart(2,'0')+'-15'
           : y+'-'+String(m).padStart(2,'0')+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0');
@@ -6280,6 +6341,7 @@ function paGenerarAPsHistoricas() {
       .then(function(){ paToast('✅ '+writes.length+' AP(s) generadas. Recarga la lista.'); paCargarAPsTodos(); })
       .catch(function(e){ paToast('Error: '+e.message, true); });
   }).catch(function(e){ paToast('Error cargando datos: '+e.message, true); });
+  });
 }
 
 
@@ -6415,7 +6477,10 @@ function paVerArchivoIncapacidad(apId) {
     // PDF: abrir en nueva pestaña (es una URL de datos, no un documento interno)
     var w = window.open('', '_blank');
     if (w) {
-      w.document.write('<iframe src="'+b64+'" style="width:100%;height:100vh;border:none"></iframe>');
+      var _vaiBlob = new Blob(['<iframe src="'+b64+'" style="width:100%;height:100vh;border:none"></iframe>'], {type:'text/html'});
+      var _vaiUrl = URL.createObjectURL(_vaiBlob);
+      w.location.href = _vaiUrl;
+      setTimeout(function(){ URL.revokeObjectURL(_vaiUrl); }, 30000);
       w.document.close();
     } else {
       paToast('Activa los popups para ver el PDF', true);
@@ -6437,10 +6502,13 @@ function paVerArchivoIncapacidad(apId) {
 
 
 function paEliminarAP(apId) {
-  if (!confirm('¿Eliminar esta Acción de Personal?')) return;
+
+  paConfirm('¿Eliminar esta Acción de Personal?', function(){
+
   paDb.collection('paAccionesPersonal').doc(apId).delete()
     .then(function(){ paToast('AP eliminada'); paCargarAPs(); })
     .catch(function(e){ paToast('Error: '+e.message, true); });
+  });
 }
 
 
@@ -6540,11 +6608,14 @@ function paAprobarFechaCanje(canjeId, fecha, btn) {
 }
 
 function paRechazarCanje(canjeId, btn) {
-  if (!confirm('¿Rechazar esta solicitud de canje?')) return;
+
+  paConfirm('¿Rechazar esta solicitud de canje?', function(){
+
   if (btn) btn.disabled = true;
   paDb.collection('paCanjes').doc(canjeId).update({ estado:'rechazado' })
     .then(function(){ paToast('Solicitud de canje rechazada'); _paPostApproval(btn, 'emps'); })
     .catch(function(e){ paToast('Error: '+e.message,true); if(btn)btn.disabled=false; });
+  });
 }
 
 
@@ -6711,7 +6782,7 @@ function paMigrarTimezonesRetroactivo() {
     var errores      = 0;
     var reporte      = [];
 
-    var tolerance = PA.horario && PA.horario.minutosTolerancia || 10;
+    var tolerance = _toleranciaDeEmp(emp, diaES); // tolerancia real del empleado
 
     function procesarLote(startIdx) {
       var LOTE = 10;
@@ -6740,7 +6811,7 @@ function paMigrarTimezonesRetroactivo() {
 
         // Recalcular con timezone correcto
         var partes    = horario.horaEntrada.split(':');
-        var esperadaMs = parseInt(partes[0])*3600000 + parseInt(partes[1]||0)*60000;
+        var esperadaMs = parseInt(partes[0], 10)*3600000 + parseInt(partes[1], 10||0)*60000;
         var hmsES      = _hmsDesdeMedianocheES(ts);
         var actualMs   = hmsES.totalMs;
         var tolMs      = tolerance * 60000;
@@ -6944,7 +7015,8 @@ function paAdminConfig(content) {
         // Valores por defecto para días sin configurar (del horario plano o general)
         var defEnt = empHor.horaEntrada || PA.horario.horaEntrada || '07:00';
         var defSal = empHor.horaSalida  || PA.horario.horaSalida  || '17:00';
-        var defTol = empHor.minutosTolerancia || PA.horario.minutosTolerancia || 10;
+        var defTol = empHor.minutosTolerancia != null ? empHor.minutosTolerancia
+                   : (PA.horario.minutosTolerancia != null ? PA.horario.minutosTolerancia : 10);
         var defAlm = empHor.minutosAlmuerzo   || PA.horario.minutosAlmuerzo   || 60;
         var html = '<div style="margin-bottom:14px">';
         html += '<div style="font-size:11px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">📅 Horario por día de semana</div>';
@@ -7255,12 +7327,15 @@ function paGuardarHorDias(empId, empNombre) {
       dias[String(d)] = { trabaja: false };
     } else {
       dias[String(d)] = {
-        trabaja: true,
-        entrada:    (document.getElementById('hd_'+empId+'_'+d+'_ent') ||{}).value || '07:00',
-        salida:     (document.getElementById('hd_'+empId+'_'+d+'_sal') ||{}).value || '17:00',
-        tolerancia: parseInt((document.getElementById('hd_'+empId+'_'+d+'_tol')||{}).value||10)||10,
-        almuerzo:   parseInt((document.getElementById('hd_'+empId+'_'+d+'_alm')||{}).value||60)||60,
-        tipo:       (document.getElementById('hd_'+empId+'_'+d+'_tipo')||{}).value || 'normal'
+        trabaja:          true,
+        horaEntrada:      (document.getElementById('hd_'+empId+'_'+d+'_ent')||{}).value || '07:00',
+        horaSalida:       (document.getElementById('hd_'+empId+'_'+d+'_sal')||{}).value || '17:00',
+        minutosTolerancia: parseInt((document.getElementById('hd_'+empId+'_'+d+'_tol')||{}).value||10, 10)||10,
+        minutosAlmuerzo:  parseInt((document.getElementById('hd_'+empId+'_'+d+'_alm')||{}).value||60, 10)||60,
+        tipo:             (document.getElementById('hd_'+empId+'_'+d+'_tipo')||{}).value || 'normal',
+        // Mantener también los alias viejos para compatibilidad con datos ya guardados
+        entrada:    (document.getElementById('hd_'+empId+'_'+d+'_ent')||{}).value || '07:00',
+        tolerancia: parseInt((document.getElementById('hd_'+empId+'_'+d+'_tol')||{}).value||10, 10)||10
       };
     }
   });
@@ -7809,7 +7884,9 @@ function paForzarUpdateTodos() {
 
 
 function paForzarUpdateEmp(empId) {
-  if (!confirm('¿Forzar actualización del portal en el próximo login de este empleado?')) return;
+
+  paConfirm('¿Forzar actualización del portal en el próximo login de este empleado?', function(){
+
   var docId = PA._pinsDocMap && PA._pinsDocMap[empId];
   if (!docId) { paToast('No se encontró registro del empleado', true); return; }
   paDb.collection('paPins').doc(docId)
@@ -7821,11 +7898,14 @@ function paForzarUpdateEmp(empId) {
       paAdminTab('emps');
     })
     .catch(function(e){ paToast('Error: '+e.message, true); });
+  });
 }
 
 
 function paDesvinculDispositivo(empId) {
-  if (!confirm('¿Desvincular el dispositivo de este empleado? La próxima vez que inicie sesión con su PIN, el nuevo teléfono quedará vinculado automáticamente.')) return;
+
+  paConfirm('¿Desvincular el dispositivo de este empleado? La próxima vez que inicie sesión con su PIN, el nuevo teléfono quedará vinculado automáticamente.', function(){
+
   var docId = PA._pinsDocMap && PA._pinsDocMap[empId];
   if (!docId) { paToast('No se encontró registro del empleado', true); return; }
   paDb.collection('paPins').doc(docId).update({ deviceId: null, deviceVinculado: null })
@@ -7838,6 +7918,7 @@ function paDesvinculDispositivo(empId) {
       paAdminTab('emps');
     })
     .catch(function(e){ paToast('Error: '+e.message, true); });
+  });
 }
 
 
@@ -8805,7 +8886,9 @@ function paAprobarCompensatorioTurno(docId, empNombre, btn) {
 }
 
 function paRechazarCompensatorioTurno(docId, btn) {
-  if (!confirm('¿Rechazar este compensatorio?')) return;
+
+  paConfirm('¿Rechazar este compensatorio?', function(){
+
   if (btn) btn.disabled = true;
   paDb.collection('paCanjes').doc(docId).update({
     estado: 'rechazado', rechazadoTs: Date.now()
@@ -8813,6 +8896,7 @@ function paRechazarCompensatorioTurno(docId, btn) {
     paToast('Compensatorio rechazado');
     _paPostApproval(btn, 'emps');
   }).catch(function(e){ paToast('Error: '+e.message,true); if(btn)btn.disabled=false; });
+  });
 }
 
 function paGoSolicitarComp() {
@@ -8852,10 +8936,13 @@ function paAprobarHorasExtra(docId, empId, horas, btn) {
 }
 
 function paRechazarHorasExtra(docId, btn) {
-  if (!confirm('¿Rechazar esta solicitud?')) return;
+
+  paConfirm('¿Rechazar esta solicitud?', function(){
+
   paDb.collection('paHorasExtra').doc(docId).update({ estado: 'rechazado' })
     .then(function() { paToast('Horas extra rechazadas'); _paPostApproval(btn||null, PA.adminTab||'emps'); })
     .catch(function(e){ paToast('Error: '+e.message, true); });
+  });
 }
 
 function paCrearEmpleado() {
@@ -8923,7 +9010,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-01-G';
+var PA_VERSION = 'v2026-07-01-N';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
