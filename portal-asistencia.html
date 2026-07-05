@@ -1163,14 +1163,17 @@ var PA = {
   centros: [],
   rutas: [],
   horario: {
-    horaEntrada: '07:00',
-    horaSalida: '17:00',
-    minutosTolerancia: 10,
-    minutosAlmuerzo: 60,
-    diasLaborales: [1,2,3,4,5,6],
-    sabadoEntrada: '08:00',
-    sabadoSalida: '12:00',
+    // Estos valores se cargan desde Firebase cuando el admin los configura.
+    // null = sin configurar (no usar en cálculos de tardanza)
+    horaEntrada:      null,
+    horaSalida:       null,
+    minutosTolerancia: null,
+    minutosAlmuerzo:  null,
+    diasLaborales:    [1,2,3,4,5,6],
+    sabadoEntrada:    null,
+    sabadoSalida:     null,
   },
+  _configCargado: false, // true cuando Firebase ha cargado el config del admin
   feriados: [], // fechas ISO cargadas desde paConfig
   marcacionesHoy: [],
   horasExtraAcum: 0,
@@ -1360,23 +1363,29 @@ function _enviarConfigSW() {
   }
 
   var emp = PA.empleado;
-  var h   = PA.horario;
+  // Usar el horario real del empleado (individual > rol > general), no solo el general
+  var _swDia = _diaSemanaES(Date.now());
+  var h = _horarioDeEmp(emp, _swDia) || {};
   var esMotorista = paEsMotorista(emp);
 
-  // Calcular hora de almuerzo y regreso desde configuración
-  var entradaMins = _hhmm2min(h.horaEntrada || '07:00');
-  var salidaMins  = _hhmm2min(h.horaSalida  || '17:00');
-  // Almuerzo ≈ mitad de la jornada
+  // Si no hay horario configurado, no enviar notificaciones de horario
+  if (!h.horaEntrada) return;
+
+  var entradaMins = _hhmm2min(h.horaEntrada);
+  var salidaMins  = _hhmm2min(h.horaSalida || h.horaEntrada); // fallback a misma hora
+  // Hora almuerzo: usar la configurada, o punto medio de la jornada como fallback
   var midMins = Math.round((entradaMins + salidaMins) / 2);
-  var horaAlmuerzo  = _min2hhmm(midMins);
-  var horaRegresoAlm = _min2hhmm(midMins + (h.minutosAlmuerzo || 60));
+  var horaAlmuerzo  = h.horaAlmuerzo ? h.horaAlmuerzo : _min2hhmm(midMins);
+  var _almDur = h.minutosAlmuerzo || 60;
+  var horaRegresoAlm = h.horaRegresoAlmuerzo ? h.horaRegresoAlmuerzo
+                     : _min2hhmm(_hhmm2min(horaAlmuerzo) + _almDur);
   // Recordatorio 15 min antes de salida
   var horaAviso = _min2hhmm(salidaMins - 15);
 
   var config = {
     esEmpleado:        true,
     nombreEmpleado:    emp.nombre,
-    horaEntrada:       h.horaEntrada || '07:00',
+    horaEntrada:       h.horaEntrada,
     horaAlmuerzo:      horaAlmuerzo,
     horaRegresoAlm:    horaRegresoAlm,
     horaSalida:        horaAviso,
@@ -1766,15 +1775,23 @@ function paLoadEmpleados(callback) {
       PA.rutas   = (data.vehiculos || []).map(function(v){ return {id:v.id, nombre:v.placa}; });
     }
 
-    // Cargar configuración (horario + feriados)
-    paDb.collection('paConfig').doc(PA.empresa).get().then(function(cfgDoc) {
+    // Cargar configuración Y PINs en paralelo — esperar AMBAS antes del callback
+    // (antes, paConfig podía llegar después del callback causando horarios null)
+    Promise.all([
+      paDb.collection('paConfig').doc(PA.empresa).get(),
+      paDb.collection('paPins').where('empresa','==',PA.empresa).limit(300).get()
+    ]).then(function(results) {
+      var cfgDoc  = results[0];
+      var snapPins = results[1];
+
+      // Aplicar configuración
       if (cfgDoc.exists) {
         var cfg = cfgDoc.data();
         if (cfg.horario)      PA.horario     = Object.assign(PA.horario, cfg.horario);
         if (cfg.feriados && cfg.feriados.length) PA.feriados = cfg.feriados;
         if (cfg.adminPin)     PA.adminPin     = cfg.adminPin;
-        // Horarios individuales y por rol — necesarios para cálculo de tardanzas
         if (cfg.horariosEmp)  PA.horariosEmp  = cfg.horariosEmp;
+        if (cfg.horariosEmp || cfg.horariosRol) PA._configCargado = true;
         if (cfg.periodoHE)    PA.periodoHE    = cfg.periodoHE;
         if (cfg.horariosRol)  PA.horariosRol  = cfg.horariosRol;
       }
@@ -1782,13 +1799,10 @@ function paLoadEmpleados(callback) {
         var yr = new Date().getFullYear();
         PA.feriados = PA_FERIADOS_SV.map(function(md){ return yr+'-'+md; });
       }
-    }).catch(function(){
-      var yr2 = new Date().getFullYear();
-      PA.feriados = PA_FERIADOS_SV.map(function(md){ return yr2+'-'+md; });
-    });
 
-    // Cargar PINs
-    paDb.collection('paPins').where('empresa','==',PA.empresa).limit(300).get().then(function(snapPins) {
+      // Procesar PINs (ahora garantizado que llega junto con la config)
+      // (reemplaza el bloque .then(function(snapPins) que estaba suelto)
+      if (true) { // bloque para mantener indentación idéntica
       var pins = {}, creds = {};
       PA._pinsDocMap = {};
       PA._horasMap   = {};
@@ -1827,9 +1841,10 @@ function paLoadEmpleados(callback) {
       if (badge) badge.textContent = PA.empleados.length + ' empleados';
       if (typeof callback === 'function') callback();
 
+      } // end if(true) paPins block
     }).catch(function(e) {
-      // paPins sin reglas aún — continuar sin PINs
-      console.warn('[Portal] paPins:', e.message);
+      // Error en paConfig o paPins — continuar sin ellos
+      console.warn('[Portal] config/pins error:', e.message);
       PA.empleados = tecnicos
         .filter(function(t){ return t.activo !== false; })
         .map(function(t){
@@ -2990,8 +3005,9 @@ function _heMinsNocturna(desdeMin, hastaMin) {
 function paCalcularHorasExtra(entradaTs, salidaTs, fecha) {
   // Domingo trabajado en TURNO no genera HE — se compensa con día libre
   function toMin(ts) {
-    var d = new Date(ts);
-    return d.getHours() * 60 + d.getMinutes();
+    // Usar El Salvador timezone (no del dispositivo)
+    var _h = _hmsDesdeMedianocheES(typeof ts==='number'?ts:Number(ts));
+    return _h.horas * 60 + _h.minutos;
   }
 
   var dia = new Date(fecha + 'T12:00:00').getDay(); // 0=Dom,6=Sab
@@ -3008,6 +3024,12 @@ function paCalcularHorasExtra(entradaTs, salidaTs, fecha) {
 
   // Usar horario individual por día > plano > rol > global
   var _hor = _horarioDeEmp(PA.empleado, dia);
+
+  // Sin horario configurado → no se puede calcular HE, devolver 0
+  if (!_hor) {
+    return { diurna:0, nocturna:0, total:0, esSabado:esSabado, esDomingo:false, esTurno:false,
+             minutosRetraso:0, descuentoDiaCompleto:false, descuentoJornada:false, sinHorario:true };
+  }
 
   // ── Día no programado ─────────────────────────────────────────
   // Si el empleado tiene horarioDias y ese día tiene trabaja:false,
@@ -3031,13 +3053,13 @@ function paCalcularHorasExtra(entradaTs, salidaTs, fecha) {
   }
   var ini, fin;
   if (esSabado) {
-    var hSabIni = _hor.sabadoEntrada || '08:00';
-    var hSabFin = _hor.sabadoSalida  || '12:00';
+    var hSabIni = _hor.sabadoEntrada || _hor.horaEntrada || null; if (!hSabIni) return {diurna:0,nocturna:0,total:0,esSabado:true,esDomingo:false,esTurno:false,minutosRetraso:0,descuentoDiaCompleto:false,descuentoJornada:false};
+    var hSabFin = _hor.sabadoSalida  || _hor.horaSalida  || null; if (!hSabFin) return {diurna:0,nocturna:0,total:0,esSabado:true,esDomingo:false,esTurno:false,minutosRetraso:0,descuentoDiaCompleto:false,descuentoJornada:false};
     ini = parseInt(hSabIni.split(':')[0]) * 60 + parseInt(hSabIni.split(':')[1] || 0);
     fin = parseInt(hSabFin.split(':')[0]) * 60 + parseInt(hSabFin.split(':')[1] || 0);
   } else {
-    var hIni = _hor.horaEntrada || '08:00';
-    var hFin = _hor.horaSalida  || '17:00';
+    var hIni = _hor.horaEntrada || null; if (!hIni) return {diurna:0,nocturna:0,total:0,esSabado:false,esDomingo:false,esTurno:false,minutosRetraso:0,descuentoDiaCompleto:false,descuentoJornada:false};
+    var hFin = _hor.horaSalida  || null; if (!hFin) return {diurna:0,nocturna:0,total:0,esSabado:false,esDomingo:false,esTurno:false,minutosRetraso:0,descuentoDiaCompleto:false,descuentoJornada:false};
     ini = parseInt(hIni.split(':')[0]) * 60 + parseInt(hIni.split(':')[1] || 0);
     fin = parseInt(hFin.split(':')[0]) * 60 + parseInt(hFin.split(':')[1] || 0);
   }
@@ -3076,15 +3098,20 @@ function paCalcularHorasExtra(entradaTs, salidaTs, fecha) {
     extraNocturna += _heMinsNocturna(minE, ini);
   }
 
-  // HE después del horario normal — se descuenta el retraso
-  if (minS > fin) {
-    var minsAfterEnd = minS - fin;                        // minutos extra brutos
-    var minsCompensados = Math.max(0, minsAfterEnd - minutosRetraso); // retraso absorbe HE
-    var finAjustado = fin + minsCompensados;               // nuevo límite efectivo
-    if (minsCompensados > 0) {
-      extraDiurna   += _heMinsDiurna(fin, finAjustado);
-      extraNocturna += _heMinsNocturna(fin, finAjustado);
-    }
+  // HE después del horario normal
+  // Si llegó tarde, el tiempo de tardanza se COMPENSA con las HE diurnas
+  // (el empleado "paga" su retraso trabajando de más al final)
+  var minsAfterEnd   = minS > fin ? minS - fin : 0;
+  var minsCompensados = Math.max(0, minsAfterEnd - minutosRetraso); // retraso absorbe HE diurna
+  var finAjustado     = fin + minsCompensados;
+
+  // Nota: el tiempo de tardanza reduce las HE netas (el empleado llegó tarde,
+  // esos minutos de "extra" solo cubren el retraso), pero la tardanza
+  // siempre cuenta para el ciclo de amonestaciones — no hay exención.
+
+  if (minsCompensados > 0) {
+    extraDiurna   += _heMinsDiurna(fin, finAjustado);
+    extraNocturna += _heMinsNocturna(fin, finAjustado);
   }
 
   var horasDiurna   = Math.round(extraDiurna   / 60 * 100) / 100;
@@ -3097,9 +3124,9 @@ function paCalcularHorasExtra(entradaTs, salidaTs, fecha) {
     esSabado:  esSabado,
     esDomingo: false,
     esTurno:   false,
-    minutosRetraso: minutosRetraso,
+    minutosRetraso:     minutosRetraso,
     descuentoDiaCompleto: false,
-    descuentoJornada: false
+    descuentoJornada:     false
   };
 }
 
@@ -3122,10 +3149,9 @@ function paAutoCompletarAlmuerzo(marcacionesHoy, fecha, empData, callback) {
   var HORA_CENA_FIN   = 21 * 60; // Cena: 20:00-21:00 // 20:00 en minutos del día
 
   function _tsAlmuerzoBase() {
-    var dLocal = new Date();
-    dLocal.setFullYear(parseInt(fecha.slice(0,4)), parseInt(fecha.slice(5,7))-1, parseInt(fecha.slice(8,10)));
-    dLocal.setHours(12, 0, 0, 0);
-    return dLocal.getTime();
+    // 12:00 El Salvador (UTC-6) = 18:00 UTC
+    var _y=parseInt(fecha.slice(0,4),10), _m=parseInt(fecha.slice(5,7),10)-1, _d=parseInt(fecha.slice(8,10),10);
+    return Date.UTC(_y, _m, _d, 18, 0, 0); // 12:00 ES = 18:00 UTC
   }
 
   function _crearMarca(tipo, ts) {
@@ -3155,8 +3181,8 @@ function paAutoCompletarAlmuerzo(marcacionesHoy, fecha, empData, callback) {
     if (_diaSem === 6) {
       var _mSal = marcs.find(function(m){ return m.tipo==='salida'||m.tipo==='salida_adicional'; });
       var _tsSal = _mSal ? _paToMs(_mSal.ts) : Date.now();
-      var _dSal  = new Date(_tsSal);
-      var _minsSal = _dSal.getHours() * 60 + _dSal.getMinutes();
+      var _hSal = _hmsDesdeMedianocheES(_tsSal);
+      var _minsSal = _hSal.horas * 60 + _hSal.minutos; // ES timezone
       if (_minsSal < 14 * 60 + 30) {
         // Antes de las 14:30 en sábado → sin almuerzo automático
         _autoCrearCena(marcs, callback);
@@ -3189,18 +3215,18 @@ function paAutoCompletarAlmuerzo(marcacionesHoy, fecha, empData, callback) {
     if (mCenaSal && mCenaReg) { cb(); return; }
     // Determinar si la jornada supera las 19:00
     var tsRef = mSalidaDoc ? _paToMs(mSalidaDoc.ts) : Date.now();
-    var dRef = new Date(tsRef);
-    var minsRef = dRef.getHours() * 60 + dRef.getMinutes();
+    var _hRef = _hmsDesdeMedianocheES(tsRef);
+    var minsRef = _hRef.horas * 60 + _hRef.minutos; // ES timezone
     if (minsRef < HORA_CENA_INICIO && !mCenaSal && !mCenaReg) { cb(); return; }
     // Calcular timestamps de cena
-    var dBase = new Date(fecha + 'T00:00:00');
-    var tsCenaSal = new Date(dBase.getTime());
-    tsCenaSal.setHours(19, 0, 0, 0);
-    var tsCenaReg = new Date(dBase.getTime());
-    tsCenaReg.setHours(20, 0, 0, 0);
+    // 19:00 ES (UTC-6) = 25:00 UTC = 01:00 UTC next day; Date.UTC handles overflow
+    var _cy=parseInt(fecha.slice(0,4),10), _cm=parseInt(fecha.slice(5,7),10)-1, _cd=parseInt(fecha.slice(8,10),10);
+    var tsCenaSal = Date.UTC(_cy, _cm, _cd, 25, 0, 0); // 19:00 ES = 25:00 UTC
+    var tsCenaReg = Date.UTC(_cy, _cm, _cd, 26, 0, 0); // 20:00 ES = 26:00 UTC
     var cenaProm = [];
-    if (!mCenaSal) cenaProm.push(_crearMarca('cena_salida', tsCenaSal.getTime()));
-    if (!mCenaReg) cenaProm.push(_crearMarca('cena_regreso', tsCenaReg.getTime()));
+    // Date.UTC() retorna un Number directamente — sin .getTime()
+    if (!mCenaSal) cenaProm.push(_crearMarca('cena_salida', tsCenaSal));
+    if (!mCenaReg) cenaProm.push(_crearMarca('cena_regreso', tsCenaReg));
     Promise.all(cenaProm)
       .then(function(){ cb(); })
       .catch(function(e){ console.warn('[AutoCena]', e.message); cb(); });
@@ -3272,11 +3298,18 @@ function paAutoCompletarDiaAnterior(callback) {
       var pending = diasAbiertos.length;
       diasAbiertos.forEach(function(dia) {
         // Cerrar a las 5pm (horario configurado) sin HE
-        var horaSalida = PA.horario.horaSalida || '17:00';
-        var parts = horaSalida.split(':');
-        var dSalida = new Date(dia.fecha + 'T00:00:00');
-        dSalida.setHours(parseInt(parts[0], 10), parseInt(parts[1]||0), 0, 0);
-        var tsSalida = dSalida.getTime();
+        // Usar horario configurado del empleado para el día (no hardcoded)
+        var _diaFecha = new Date(dia.fecha + 'T12:00:00').getDay(); // 0=Dom,6=Sab
+        var _horDia   = _horarioDeEmp(emp, _diaFecha);
+        var _eSalida  = (_horDia && _horDia.horaSalida) ? _horDia.horaSalida
+                      : (_horDia && _horDia.sabadoSalida && _diaFecha===6) ? _horDia.sabadoSalida
+                      : null;
+        if (!_eSalida) { pending--; if (!pending) _cbOnce(); return; } // sin horario → no auto-cerrar
+        var _cParts = _eSalida.split(':');
+        var _cY=parseInt(dia.fecha.slice(0,4),10), _cM=parseInt(dia.fecha.slice(5,7),10)-1, _cD=parseInt(dia.fecha.slice(8,10),10);
+        var _cH=parseInt(_cParts[0],10), _cMin=parseInt(_cParts[1]||'0',10);
+        // Crear timestamp en El Salvador (UTC-6): hora local ES + 6h = UTC
+        var tsSalida = Date.UTC(_cY, _cM, _cD, _cH+6, _cMin, 0);
 
         // Primero auto-completar almuerzo del dia abierto
         paAutoCompletarAlmuerzo(dia.marcs, dia.fecha, emp, function() {
@@ -3300,8 +3333,8 @@ function paAutoCompletarDiaAnterior(callback) {
             sinHorasExtra: true
           };
           paDb.collection('paMarcaciones').add(docSalida).then(function() {
-            console.log('[AutoCierre] dia', dia.fecha, 'cerrado a', horaSalida);
-            paToast('Día registrado' + dia.fecha + ' cerrado automaticamente a las ' + horaSalida);
+            console.log('[AutoCierre] dia', dia.fecha, 'cerrado a', _eSalida);
+            paToast('✅ Día ' + dia.fecha + ' cerrado automáticamente a las ' + _eSalida);
             pending--;
             if (pending === 0) _cbOnce();
           }).catch(function(e) {
@@ -3334,33 +3367,70 @@ function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
   var registrar = function(entradaTs) {
     var calc = paCalcularHorasExtra(entradaTs, salidaDocData.ts, hoy);
 
-    // ── Amonestación por tardanza individual ─────────────────────
-    // Se genera en la salida donde ya tenemos el cálculo exacto.
-    // Cada llegada tardía genera su propia amonestación con las horas.
+    // ── Amonestación en la 4ª tardanza de la quincena ────────────────
+    // La llegada tarde siempre cuenta, sin exención por horas extra.
+    // La HE neta se reduce (el tiempo de retraso no cuenta como extra),
+    // pero la sanción aplica siempre.
     if (calc.minutosRetraso > 0 && paDb && PA.empresa) {
-      var _hrsDesc  = parseFloat((calc.minutosRetraso / 60).toFixed(2));
-      var _concepto = 'Amonestación por llegada tardía';
-      var _justif   = 'El ' + hoy + ', ' + salidaDocData.empleadoNombre
-        + ' registró entrada con ' + calc.minutosRetraso
-        + ' minutos de retraso. Descuento de ' + _hrsDesc
-        + ' hora(s) de jornada conforme cálculo del sistema.';
-      paDb.collection('paAccionesPersonal').add({
-        empresa:        PA.empresa,
-        empleadoId:     empId,
-        empleadoNombre: salidaDocData.empleadoNombre,
-        cargo:          salidaDocData.cargo || '',
-        tipo:           'AMONESTACION_TARDANZA',
-        concepto:       _concepto,
-        justificacion:  _justif,
-        fecha:          hoy,
-        fechaEmision:   paHoy(),
-        minutosRetraso: calc.minutosRetraso,
-        horasDescuento: _hrsDesc,
-        opcionMarcada:  5,
-        estado:         'emitida',
-        origen:         'auto',
-        ts:             Date.now()
-      }).catch(function(e){ console.warn('[AP Amonestación]', e.message); });
+      var _q = _quincenaActual();
+      Promise.all([
+        paDb.collection('paMarcaciones')
+          .where('empresa',   '==', PA.empresa)
+          .where('empleadoId','==', empId)
+          .get(),
+        paDb.collection('paAccionesPersonal')
+          .where('empresa',   '==', PA.empresa)
+          .where('empleadoId','==', empId)
+          .where('tipo',      '==', 'AMONESTACION_TARDANZA')
+          .get()
+      ]).then(function(res) {
+        // Todas las tardanzas de la quincena actual
+        var _tardsQ = [];
+        res[0].forEach(function(d) {
+          var r = d.data();
+          if (r.tipo === 'entrada'
+              && (r.minutosRetraso||0) > 0
+              && (r.fecha||'') >= _q.desde
+              && (r.fecha||'') <= _q.hasta) {
+            _tardsQ.push({ fecha: r.fecha, mins: r.minutosRetraso });
+          }
+        });
+        _tardsQ.sort(function(a,b){ return a.fecha<b.fecha?-1:1; });
+
+        // AP ya generada esta quincena → no duplicar
+        var _yaAP = res[1].docs.some(function(d){
+          return d.data().quincenaDesde === _q.desde;
+        });
+
+        // Generar AP en la 4ª tardanza (o si ya hay >=4 sin AP aún)
+        if (_tardsQ.length >= 4 && !_yaAP) {
+          var _bloque   = _tardsQ.slice(0, 4);
+          var _totalHrs = _bloque.reduce(function(s,t){ return s + Math.ceil(t.mins/60); }, 0);
+          var _det = _bloque.map(function(t){
+            return t.fecha + ' (' + t.mins + ' min, ' + Math.ceil(t.mins/60) + 'h)';
+          }).join('; ');
+          paDb.collection('paAccionesPersonal').add({
+            empresa:        PA.empresa,
+            empleadoId:     empId,
+            empleadoNombre: salidaDocData.empleadoNombre,
+            cargo:          salidaDocData.cargo || '',
+            tipo:           'AMONESTACION_TARDANZA',
+            concepto:       'Amonestación por 4 tardanzas acumuladas en quincena',
+            justificacion:  'El empleado acumuló 4 tardanzas en la quincena del ' + _q.desde + ' al ' + _q.hasta + '. ' + _det + '. Total horas a descontar: ' + _totalHrs + 'h',
+            fecha:          hoy,
+            fechaEmision:   paHoy(),
+            totalTardanzas: 4,
+            horasDescuento: _totalHrs,
+            quincenaDesde:  _q.desde,
+            quincenaHasta:  _q.hasta,
+            diasDetalle:    _bloque,
+            opcionMarcada:  5,
+            estado:         'emitida',
+            origen:         'auto',
+            ts:             Date.now()
+          }).catch(function(e){ console.warn('[AP 4ta Tardanza]', e.message); });
+        }
+      }).catch(function(e){ console.warn('[AP Tardanza check]', e.message); });
     }
 
     if (calc.total <= 0) { if (callback) callback(null); return; } // sin horas extra
@@ -3431,21 +3501,23 @@ var paStream = null;
 // Descuento en horas según minutos de retraso (no hay horas parciales)
 // Retorna el horario efectivo del empleado: individual > rol > global
 function _horarioDeEmp(emp, dayOfWeek) {
-  if (!emp) return PA.horario;
-  var empHorObj = PA.horariosEmp && PA.horariosEmp[emp.id];
-  // ── Prioridad 1: horario por día específico ───────────────────
+  // Jerarquía: individual → rol → general (solo si config cargada de Firebase)
+  // Devuelve null si no hay horario configurado para evitar usar defaults hardcodeados
+
+  var empHorObj = emp && PA.horariosEmp && PA.horariosEmp[emp.id];
+
+  // ── Prioridad 1: horario por día específico ─────────────────────
   if (empHorObj && empHorObj.horarioDias && dayOfWeek !== undefined && dayOfWeek !== null) {
     var diaConf = empHorObj.horarioDias[String(dayOfWeek)];
     if (diaConf !== undefined) {
-      // IMPORTANTE: paGuardarHorDias guarda campos como 'entrada'/'tolerancia'
-      // pero el sistema espera 'horaEntrada'/'minutosTolerancia'.
-      // Normalizamos aquí para que ambas convenciones funcionen.
-      // También hacemos merge con empHorObj para que el día herede
-      // los valores del horario plano individual cuando no los tenga propios.
+      // Merge con horario plano individual para heredar campos no especificados por día
       var normalized = Object.assign({}, empHorObj, diaConf);
-      // Normalizar nombres de campo (convención horarioDias → convención general)
-      if (diaConf.entrada    && !diaConf.horaEntrada)       normalized.horaEntrada       = diaConf.entrada;
-      if (diaConf.salida     && !diaConf.horaSalida)         normalized.horaSalida         = diaConf.salida;
+      // Normalizar nombres: paGuardarHorDias usa 'entrada'/'tolerancia'
+      // el resto del sistema usa 'horaEntrada'/'minutosTolerancia'
+      if (diaConf.entrada    && !diaConf.horaEntrada)
+        normalized.horaEntrada = diaConf.entrada;
+      if (diaConf.salida     && !diaConf.horaSalida)
+        normalized.horaSalida  = diaConf.salida;
       if (diaConf.tolerancia != null && diaConf.minutosTolerancia == null)
         normalized.minutosTolerancia = Number(diaConf.tolerancia);
       if (diaConf.almuerzo   != null && diaConf.minutosAlmuerzo == null)
@@ -3453,33 +3525,46 @@ function _horarioDeEmp(emp, dayOfWeek) {
       return normalized;
     }
   }
-  // ── Prioridad 2: horario plano individual ─────────────────────
+
+  // ── Prioridad 2: horario plano individual ───────────────────────
   if (empHorObj && empHorObj.horaEntrada) return empHorObj;
-  // ── Prioridad 3: horario del rol ──────────────────────────────
-  var rolHor = PA.horariosRol && PA.horariosRol[emp.cargo];
+
+  // ── Prioridad 3: horario del rol ────────────────────────────────
+  var rolHor = PA.horariosRol && PA.horariosRol[emp && emp.cargo];
   if (rolHor && rolHor.horaEntrada) return rolHor;
-  // ── Prioridad 4: horario general ─────────────────────────────
-  return PA.horario;
+
+  // ── Prioridad 4: horario general (solo si cargado de Firebase) ──
+  // NO se usa PA.horario si _configCargado=false para evitar defaults hardcodeados
+  if (PA._configCargado && PA.horario && PA.horario.horaEntrada) return PA.horario;
+
+  // Sin horario configurado → null (el caller decidirá qué hacer)
+  return null;
 }
 
 // ── Tolerancia de llegada del empleado ──────────────────────────
 // Usa la misma jerarquía que _horarioDeEmp para la horaEntrada:
 // individual → rol → general → 10 min por defecto
 function _toleranciaDeEmp(emp, dayOfWeek) {
-  // Obtener el horario del empleado para el día dado (ya normalizado)
-  // _horarioDeEmp hace merge y normaliza 'tolerancia'→'minutosTolerancia'
+  // Lee la tolerancia del mismo horario que _horarioDeEmp devuelve (ya normalizado y mergeado).
+  // Si no hay tolerancia configurada en ningún nivel → 0 minutos
+  // (0 = nunca considerar tarde si no hay configuración explícita)
   var hor = _horarioDeEmp(emp, dayOfWeek);
   if (hor && hor.minutosTolerancia != null) return Number(hor.minutosTolerancia);
-  // Si el horario retornado no tiene minutosTolerancia (es un día sin config),
-  // buscar en el horario plano individual
+
+  // Si el horario por día no tiene tolerancia propia, buscar en el plano individual
   var empHorObj = emp && PA.horariosEmp && PA.horariosEmp[emp.id];
   if (empHorObj && empHorObj.minutosTolerancia != null) return Number(empHorObj.minutosTolerancia);
+
   // Horario del rol
-  var rolHor = emp && PA.horariosRol && PA.horariosRol[emp.cargo];
+  var rolHor = emp && PA.horariosRol && PA.horariosRol[emp && emp.cargo];
   if (rolHor && rolHor.minutosTolerancia != null) return Number(rolHor.minutosTolerancia);
-  // Horario general
-  if (PA.horario && PA.horario.minutosTolerancia != null) return Number(PA.horario.minutosTolerancia);
-  return 10;
+
+  // Horario general (solo si cargado de Firebase)
+  if (PA._configCargado && PA.horario && PA.horario.minutosTolerancia != null)
+    return Number(PA.horario.minutosTolerancia);
+
+  // Sin configuración de tolerancia → 0 (nunca marcar tarde por default)
+  return 0;
 }
 
 
@@ -3494,47 +3579,77 @@ function _tardDescuentoHrs(minsTarde) {
 
 // Rango de quincena actual
 function _quincenaActual() {
-  var d = new Date();
-  var y = d.getFullYear();
-  var m = String(d.getMonth()+1).padStart(2,'0');
-  if (d.getDate() <= 15) {
+  // Usar fecha de El Salvador (UTC-6)
+  var hoy = paHoy(); // 'YYYY-MM-DD'
+
+  // Prioridad 1: usar el período configurado manualmente por el admin
+  // (guardado en paConfig → PA.periodoHE)
+  var pHE = PA.periodoHE || {};
+  if (pHE.desde && pHE.hasta && hoy >= pHE.desde && hoy <= pHE.hasta) {
+    return { desde: pHE.desde, hasta: pHE.hasta };
+  }
+
+  // Prioridad 2: fallback al calendario estándar (1-15 / 16-fin de mes)
+  var y = hoy.slice(0,4);
+  var m = hoy.slice(5,7);
+  var d = parseInt(hoy.slice(8,10), 10);
+  if (d <= 15) {
     return { desde: y+'-'+m+'-01', hasta: y+'-'+m+'-15' };
   } else {
-    var ult = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
-    return { desde: y+'-'+m+'-16', hasta: y+'-'+m+'-'+ult };
+    var ult = new Date(parseInt(y,10), parseInt(m,10), 0).getDate();
+    return { desde: y+'-'+m+'-16', hasta: y+'-'+m+'-'+String(ult).padStart(2,'0') };
   }
 }
 
 // Calcula tardanzas de un empleado en un rango de fechas
 // Retorna: { dias: [{fecha, minsTarde, descHrs}], totalTard: N, totalDescHrs: N }
 function paTardanzasEmp(empId, marcaciones, horaEntradaStr) {
-  if (!marcaciones || !horaEntradaStr) return { dias:[], totalTard:0, totalDescHrs:0 };
-  var partes = horaEntradaStr.split(':');
-  var hrEnt  = parseInt(partes[0], 10)||8;
-  var minEnt = parseInt(partes[1], 10)||0;
-  var schMin = hrEnt*60 + minEnt; // hora de entrada programada en minutos
+  // horaEntradaStr ahora es opcional — se calcula por día si no se pasa
+  if (!marcaciones) return { dias:[], totalTard:0, totalDescHrs:0 };
 
   var empMarcs = marcaciones[empId] || {};
-  var result = { dias:[], totalTard:0, totalDescHrs:0 };
+  var _empObj  = (PA.empleados||[]).find(function(e){ return e.id===empId; }) || { id:empId, cargo:'' };
+  var result   = { dias:[], totalTard:0, totalDescHrs:0 };
 
   Object.keys(empMarcs).sort().forEach(function(fecha) {
     var diaMarcas = empMarcs[fecha] || [];
     var mEntrada = diaMarcas.find(function(m){ return m.tipo==='entrada'; });
     if (!mEntrada || !mEntrada.ts) return;
-    // Hora de entrada real
-    var tsMs = typeof mEntrada.ts==='object' && mEntrada.ts.toMillis
-      ? mEntrada.ts.toMillis()
-      : (mEntrada.ts.seconds ? mEntrada.ts.seconds*1000 : mEntrada.ts);
-    var d = new Date(tsMs);
-    var realMin = d.getHours()*60 + d.getMinutes();
+
+    // Normalizar timestamp
+    var tsMs = typeof mEntrada.ts==='object' && mEntrada.ts.toMillis ? mEntrada.ts.toMillis()
+             : (mEntrada.ts && mEntrada.ts.seconds) ? mEntrada.ts.seconds*1000 : Number(mEntrada.ts)||0;
+    if (!tsMs) return;
+
+    // ── Día de semana en El Salvador (no del dispositivo) ────────
+    var _diaES = _diaSemanaES(tsMs);
+
+    // ── Horario del empleado para ese día específico ─────────────
+    var _eHor2 = _horarioDeEmp(_empObj, _diaES);
+
+    // Sin horario configurado → no contar tardanza
+    if (!_eHor2 || !_eHor2.horaEntrada) return;
+
+    // Día no laborable → no contar tardanza
+    if (_eHor2.trabaja === false) return;
+
+    // ── Hora de entrada programada (del horario configurado) ──────
+    var _pts   = _eHor2.horaEntrada.split(':');
+    var schMin = parseInt(_pts[0], 10) * 60 + parseInt(_pts[1] || '0', 10);
+
+    // ── Hora de entrada real en El Salvador (no timezone del dispositivo) ──
+    var _hmsES  = _hmsDesdeMedianocheES(tsMs);
+    var realMin = _hmsES.horas * 60 + _hmsES.minutos;
     var minsTarde = realMin - schMin;
-    var _empObj = (PA.empleados||[]).find(function(e){return e.id===empId;}) || {id:empId,cargo:''};
-    var _eHor2 = _horarioDeEmp(_empObj);
-    var tolMin = _eHor2.minutosTolerancia || 5;
-    if (minsTarde > tolMin) { // tolerancia en minutos
+
+    // ── Tolerancia del horario del empleado ──────────────────────
+    var tolMin = (_eHor2.minutosTolerancia != null) ? Number(_eHor2.minutosTolerancia)
+               : _toleranciaDeEmp(_empObj, _diaES);
+
+    if (minsTarde > tolMin) {
       var descHrs = _tardDescuentoHrs(minsTarde);
-      result.dias.push({ fecha:fecha, minsTarde:minsTarde, descHrs:descHrs,
-                         horaReal: (d.getHours()<10?'0':'')+d.getHours()+':'+(d.getMinutes()<10?'0':'')+d.getMinutes() });
+      var horaRealStr = String(_hmsES.horas).padStart(2,'0') + ':' + String(_hmsES.minutos).padStart(2,'0');
+      result.dias.push({ fecha:fecha, minsTarde:minsTarde, descHrs:descHrs, horaReal:horaRealStr });
       result.totalTard++;
       result.totalDescHrs += descHrs;
     }
@@ -3561,7 +3676,8 @@ function paCargarTardanzasEmpActual(callback) {
         marcaciones[PA.empleado.id][r.fecha].push(r);
       });
       var _hor = _horarioDeEmp(PA.empleado);
-      PA.tardanzas = paTardanzasEmp(PA.empleado.id, marcaciones, _hor.horaEntrada || '08:00');
+      var _horaEntradaTard = (_hor && _hor.horaEntrada) ? _hor.horaEntrada : null;
+      PA.tardanzas = paTardanzasEmp(PA.empleado.id, marcaciones, _horaEntradaTard);
       PA.tardanzas.quincena = q;
       if (callback) callback();
     })
@@ -3652,8 +3768,8 @@ function paMostrarWarningTardanzas(tard) {
   var icono   = es4plus ? '🚨' : '⚠️';
   var titulo  = es4plus ? 'Acción de Personal Aplicada — Descuento Día y Séptimo' : 'Advertencia — Tardanzas Acumuladas';
   var msg     = es4plus
-    ? 'Has acumulado <strong>'+tard.totalTard+' llegadas tardías</strong> en esta quincena. Se ha generado una Acción de Personal por <strong>Descuento de Día y Séptimo</strong>. Cada llegada tardía también genera una amonestación individual. Consulta con tu supervisor.'
-    : 'Tienes <strong>'+tard.totalTard+' llegada(s) tardía(s)</strong> en esta quincena. Cada una genera una amonestación. Al llegar tarde por <strong>5ª vez</strong> se aplicará Descuento de Día y Séptimo.';
+    ? 'Has acumulado <strong>'+tard.totalTard+' llegadas tardías</strong> en esta quincena. Se ha generado una Acción de Personal por <strong>Descuento de Día y Séptimo</strong>. Consulta con tu supervisor.'
+    : 'Tienes <strong>'+tard.totalTard+' llegada(s) tardía(s)</strong> en esta quincena. A la <strong>4ª tardanza</strong> se genera amonestación con descuento del total de horas. A la <strong>5ª</strong> se aplica Descuento de Día y Séptimo.';
 
   // Si 4+ tardanzas: guardar AP real en Firestore (solo si no existe ya para esta quincena)
   if (es4plus && PA.empleado && paDb) {
@@ -3949,11 +4065,9 @@ function paGetLocation() {
 }
 
 function paConfirmarMarca() {
-  if (!PA.empleado) { paToast("Error: no hay empleado seleccionado", true); return; }
-
   // Guard: empleado debe estar autenticado
   if (!PA.empleado || !PA.empleado.id) {
-    console.warn('[Marca] PA.empleado es null — no se puede marcar');
+    paToast('Error: no hay empleado seleccionado', true);
     paShow('scLanding');
     return;
   }
@@ -3985,23 +4099,26 @@ function paConfirmarMarca() {
   var centro = PA.centros.find(function(c){ return c.id === centroId; });
   var minutosRetraso = 0;
   var estadoPuntualidad = 'a_tiempo';
-  if (PA.tipoMarca === 'entrada' && PA.horario) {
-    // Siempre usar el día de semana en hora El Salvador (no del dispositivo)
+  if (PA.tipoMarca === 'entrada') {
     var _diaSemana = _diaSemanaES(now);
     var _eHor = _horarioDeEmp(PA.empleado, _diaSemana);
-    // Advertir si el día no está programado (sin bloquear)
+
     if (_eHor && _eHor.trabaja === false) {
-      paToast('⚠️ Este día no esta en tu horario programado. El registro se guardará como jornada extraordinaria.');
+      // Día no laborable en el horario del empleado
+      paToast('⚠️ Este día no está en tu horario programado. Se guarda como jornada extraordinaria.');
+    } else if (_eHor && _eHor.horaEntrada) {
+      // Horario configurado — calcular tardanza con la hora correcta
+      var _partes   = _eHor.horaEntrada.split(':');
+      var _espMs    = parseInt(_partes[0], 10) * 3600000 + parseInt(_partes[1] || '0', 10) * 60000;
+      var _actualMs = _hmsDesdeMedianocheES(now).totalMs;
+      var _tolMs    = _toleranciaDeEmp(PA.empleado, _diaSemana) * 60000;
+      if (_actualMs > _espMs + _tolMs) {
+        minutosRetraso    = Math.round((_actualMs - _espMs) / 60000);
+        estadoPuntualidad = 'tarde';
+      }
     }
-    var partes = (_eHor.horaEntrada || '07:00').split(':');
-    var esperadaMs = parseInt(partes[0], 10)*3600000 + parseInt(partes[1], 10||0)*60000;
-    // Usar _hmsDesdeMedianocheES para que no dependa del timezone del teléfono
-    var horaActualMs = _hmsDesdeMedianocheES(now).totalMs;
-    var toleranciaMs = _toleranciaDeEmp(PA.empleado, _diaSemana) * 60000;
-    if (horaActualMs > esperadaMs + toleranciaMs) {
-      minutosRetraso = Math.round((horaActualMs - esperadaMs) / 60000);
-      estadoPuntualidad = 'tarde';
-    }
+    // Si _eHor es null → sin horario configurado → no calcular tardanza → a_tiempo
+    // El admin debe configurar el horario del empleado, rol o general en el panel
   }
   // Día de semana y feriado también en hora El Salvador
   var diaSemana    = _diaSemanaES(now);
@@ -4696,10 +4813,11 @@ function _paVerificarFaltasAutomaticas() {
         if (yaGeneradaHoy[emp.id]) return;         // ya se generó
 
         // Verificar si hoy es día laboral para este empleado
-        var horEmp = (PA.horariosEmp || {})[emp.id]
-                   || (PA.horariosRol || {})[emp.cargo]
-                   || PA.horario || {};
-        var dias = horEmp.diasLaborales || (PA.horario && PA.horario.diasLaborales) || [1,2,3,4,5,6];
+        // Usar _horarioDeEmp para respetar la jerarquía configurada
+        var horEmp = _horarioDeEmp(emp, diaSemana);
+        if (!horEmp) return; // sin horario → no marcar falta automática
+        var dias = horEmp.diasLaborales || (PA._configCargado && PA.horario && PA.horario.diasLaborales) || null;
+        if (!dias) return; // sin diasLaborales configurados → no marcar falta
         if (dias.indexOf(diaSemana) === -1) return; // no le tocaba laborar hoy
 
         var motivo = 'Generado automáticamente: el empleado no registró marcación de entrada '
@@ -4945,15 +5063,23 @@ function paAdminHoy(content) {
           if (_mts > 0) {
             var _empObj = PA.empleados.find(function(e){ return e.id === m.empleadoId; });
             var _diaES  = _diaSemanaES(_mts);
-            var _horEmp = _empObj ? _horarioDeEmp(_empObj, _diaES) : PA.horario;
-            if (_horEmp && _horEmp.horaEntrada && _horEmp.trabaja !== false) {
+            var _horEmp = _empObj ? _horarioDeEmp(_empObj, _diaES) : null;
+            if (!_empObj) marcs[empId].sinHorario = true;
+            if (_horEmp && _horEmp.trabaja === false) {
+              // Día no laborable — marcación extraordinaria, sin cálculo tardanza
+              marcs[empId].extraord = true;
+            } else if (_horEmp && _horEmp.horaEntrada) {
+              // Horario configurado — recalcular tardanza desde ts UTC
               var _pts   = _horEmp.horaEntrada.split(':');
               var _espMs = parseInt(_pts[0], 10)*3600000 + parseInt(_pts[1]||'0', 10)*60000;
               var _hms   = _hmsDesdeMedianocheES(_mts);
-              var _tolMs = _toleranciaDeEmp(_empObj, _diaES) * 60000; // tolerancia del empleado, no la general
+              var _tolMs = _toleranciaDeEmp(_empObj, _diaES) * 60000;
               if (_hms.totalMs > _espMs + _tolMs) {
                 marcs[empId].tarde = Math.round((_hms.totalMs - _espMs) / 60000);
               }
+            } else if (!_horEmp) {
+              // Sin horario configurado — marcar para que el admin lo sepa
+              marcs[empId].sinHorario = true;
             }
           }
         }
@@ -4983,10 +5109,10 @@ function paAdminHoy(content) {
           })
           .forEach(function(empId) {
           var emp = marcs[empId];
-          var _empForTol = PA.empleados.find(function(e){ return e.id === empId; });
-          var _tolUsada = _toleranciaDeEmp(_empForTol);
-          var tardeBadge = emp.tarde > 0
-            ? ' <span style="color:var(--warn);font-size:10px" title="Tolerancia: '+_tolUsada+' min">⚠ +'+emp.tarde+'min tarde</span>'
+          var tardeBadge = emp.sinHorario
+            ? ' <span style="color:var(--muted);font-size:10px" title="Configura el horario de este empleado en el panel de empleados">⚙ Sin horario</span>'
+            : emp.tarde > 0
+            ? ' <span style="color:var(--warn);font-size:10px">⚠ +'+emp.tarde+'min tarde</span>'
             : '';
           html += '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:8px">'
             +'<div style="font-weight:700;margin-bottom:8px">'+esc(emp.nombre)+tardeBadge+'</div>'
@@ -5489,9 +5615,14 @@ var PA_AP_TIPOS = {
 
 function paAccionPersonalTardanza(empId, empNombre, empCargo) {
   if (!paDb || !empId) { paToast('Sin datos del empleado', true); return; }
-  paToast('Calculando tardanzas del mes...');
 
-  var mesActual = paHoy().slice(0, 7); // 'YYYY-MM'
+  // Usar el mismo período que el sistema automático: PA.periodoHE si está configurado,
+  // de lo contrario la quincena calendario actual
+  var _q = _quincenaActual();
+  var periodoLabel = _q.desde + ' al ' + _q.hasta;
+
+  paToast('Calculando tardanzas de la quincena ' + periodoLabel + '...');
+
   paDb.collection('paMarcaciones')
     .where('empresa', '==', PA.empresa)
     .where('empleadoId', '==', empId)
@@ -5500,7 +5631,11 @@ function paAccionPersonalTardanza(empId, empNombre, empCargo) {
       var tardanzas = [];
       snap.forEach(function(d) {
         var r = d.data();
-        if (r.tipo === 'entrada' && (r.minutosRetraso||0) > 0 && (r.fecha||'').slice(0,7) === mesActual) {
+        // Contar por quincena (o período configurado) — igual que el sistema automático
+        if (r.tipo === 'entrada'
+            && (r.minutosRetraso||0) > 0
+            && (r.fecha||'') >= _q.desde
+            && (r.fecha||'') <= _q.hasta) {
           tardanzas.push({ fecha: r.fecha, mins: r.minutosRetraso });
         }
       });
@@ -5508,30 +5643,23 @@ function paAccionPersonalTardanza(empId, empNombre, empCargo) {
       var n = tardanzas.length;
 
       if (n === 0) {
-        paToast('Este empleado no tiene tardanzas registradas este mes', true);
+        paToast('Sin tardanzas en la quincena ' + periodoLabel, true);
         return;
       }
 
-      // Determinar acción según la posición de la tardanza más reciente
-      // dentro del ciclo de 5 (4ª, 8ª, 12ª... = descuento horas;
-      //                        5ª, 10ª, 15ª... = día y séptimo)
+      // Ciclo de 5: 4ª = descuento horas; 5ª = día y séptimo
       var esDiaSeptimo = (n % 5 === 0);
       var esDescHoras   = (!esDiaSeptimo && n % 4 === 0);
 
       if (!esDiaSeptimo && !esDescHoras) {
-        var faltan4 = 4 - (n % 4);
-        var faltan5 = 5 - (n % 5);
-        paToast('Este empleado lleva ' + n + ' tardanza(s) este mes. '
-          + 'Faltan ' + Math.min(faltan4,faltan5) + ' más para la próxima acción automática.', true);
+        var faltan = Math.min(4 - (n % 4), 5 - (n % 5));
+        paToast(empNombre + ' lleva ' + n + ' tardanza(s) en la quincena. '
+          + 'Faltan ' + faltan + ' más para la próxima acción.', true);
         return;
       }
 
-      // Tomar el bloque de tardanzas relevante para el detalle (últimas 4 o 5)
       var bloqueSize = esDiaSeptimo ? 5 : 4;
       var bloque = tardanzas.slice(n - bloqueSize);
-
-      // Horas a descontar: SUMA de horas completas (redondeo hacia arriba,
-      // sin fracciones) por cada tardanza del bloque — "no parciales"
       var totalHoras = bloque.reduce(function(s,t){ return s + Math.ceil(t.mins/60); }, 0);
 
       var detalleTxt = bloque.map(function(t){
@@ -5539,10 +5667,10 @@ function paAccionPersonalTardanza(empId, empNombre, empCargo) {
       }).join('\n');
 
       var tipoAccion = esDiaSeptimo
-        ? 'Descuento de Día y Séptimo (5ª tardanza del mes)'
-        : 'Descuento de horas totales (4ª tardanza del mes)';
+        ? 'Descuento de Día y Séptimo (5ª tardanza de la quincena)'
+        : 'Descuento de horas totales (4ª tardanza de la quincena)';
 
-      var msg = empNombre + ' acumula ' + n + ' tardanza(s) este mes.\n\n'
+      var msg = empNombre + ' acumula ' + n + ' tardanza(s) en la quincena ' + periodoLabel + '.\n\n'
         + 'Acción a generar: ' + tipoAccion + '\n\n'
         + 'Detalle:\n' + detalleTxt + '\n\n'
         + (esDiaSeptimo ? '' : ('Total horas a descontar: ' + totalHoras + 'h\n\n'))
@@ -5550,25 +5678,19 @@ function paAccionPersonalTardanza(empId, empNombre, empCargo) {
 
       if (!confirm(msg)) return;
 
-      // Preparar override de tipo/concepto + explicación detallada
       if (esDiaSeptimo) {
-        PA._apCtx.opcion = 7; window._paAPOpcion = 7; // legacy compat
-        window._paAPTipoOverride = { tipo:'TARDANZAS', concepto:'Descuento de Día y Séptimo por acumulación de tardanzas' };
+        PA._apCtx.opcion = 7; window._paAPOpcion = 7;
+        window._paAPTipoOverride = { tipo:'TARDANZAS', concepto:'Descuento de Día y Séptimo por acumulación de tardanzas en quincena' };
       } else {
-        PA._apCtx.opcion = 5; window._paAPOpcion = 5; // legacy compat
-        window._paAPTipoOverride = { tipo:'AMONESTACION_TARDANZA', concepto:'Descuento de horas totales por acumulación de tardanzas' };
+        PA._apCtx.opcion = 5; window._paAPOpcion = 5;
+        window._paAPTipoOverride = { tipo:'AMONESTACION_TARDANZA', concepto:'Descuento de horas totales por acumulación de tardanzas en quincena' };
       }
 
-      var explicacion = 'El empleado ' + empNombre + ' acumula ' + n + ' tardanza(s) en el mes de '
-        + mesActual + '.\n' + tipoAccion + '.\n\nDetalle de tardanzas consideradas:\n' + detalleTxt
-        + (esDiaSeptimo ? '' : ('\n\nTotal de horas a descontar (redondeado, sin fracciones): ' + totalHoras + 'h'));
+      var explicacion = 'El empleado ' + empNombre + ' acumula ' + n + ' tardanza(s) en la quincena del '
+        + periodoLabel + '.\n' + tipoAccion + '.\n\nDetalle:\n' + detalleTxt
+        + (esDiaSeptimo ? '' : ('\n\nTotal a descontar: ' + totalHoras + 'h'));
 
       PA._apCtx.accionData = window._paAccionData = { id: empId, nombre: empNombre, cargo: empCargo||'tecnico', fecha: paHoy() };
-
-      // Inyectar la explicación directamente vía un campo temporal,
-      // ya que paGenerarAccionPersonal lee el textarea #acpExplicacion —
-      // creamos un overlay mínimo solo para capturar solicita/autoriza
-      // y disparar la generación con la explicación ya calculada.
       _paTardanzaConfirmModal(explicacion, esDiaSeptimo);
     })
     .catch(function(e){ paToast('Error: ' + e.message, true); });
@@ -5975,7 +6097,11 @@ function paEditarMarcacion(marcId) {
 
   // Hora actual del registro — normalizar ts (puede ser Firestore Timestamp)
   var _mts = m.ts ? (_paToMs ? _paToMs(m.ts) : (typeof m.ts==='object'&&m.ts.toMillis ? m.ts.toMillis() : (m.ts.seconds ? m.ts.seconds*1000 : m.ts))) : 0;
-  var horaActual = _mts ? new Date(_mts).toTimeString().slice(0,5) : '08:00';
+  // Hora en El Salvador (no timezone del dispositivo)
+  var horaActual = _mts ? (function(){
+    var h=_hmsDesdeMedianocheES(_mts);
+    return String(h.horas).padStart(2,'0')+':'+String(h.minutos).padStart(2,'0');
+  })() : '';
   var fechaActual = m.fecha || paHoy();
 
   var old = document.getElementById('modalEditMarca'); if (old) old.remove();
@@ -6010,7 +6136,13 @@ function paEditarMarcacion(marcId) {
     if (!nuevaFecha || !nuevaHora) { paToast('Completa fecha y hora', true); return; }
 
     // Construir nuevo timestamp
-    var nuevoTs = new Date(nuevaFecha+'T'+nuevaHora+':00').getTime();
+    // Crear timestamp en timezone El Salvador (UTC-6) — independiente del dispositivo
+    // El admin ingresa la hora local de El Salvador, convertirla a UTC correcto
+    var _dtParts = (nuevaFecha+'T'+nuevaHora+':00').split(/[-T:]/);
+    var nuevoTs = Date.UTC(
+      parseInt(_dtParts[0],10), parseInt(_dtParts[1],10)-1, parseInt(_dtParts[2],10),
+      parseInt(_dtParts[3],10)+6, parseInt(_dtParts[4],10), 0  // +6h porque ES es UTC-6
+    );
     var updates = {
       tipo: nuevoTipo,
       fecha: nuevaFecha,
@@ -6021,18 +6153,21 @@ function paEditarMarcacion(marcId) {
     };
 
     // Recalcular minutosRetraso si es entrada
-    if (nuevoTipo === 'entrada' && PA.horario) {
-      var _cHor = _horarioDeEmp(PA.empleado);
-      var partes = (_cHor.horaEntrada||'07:00').split(':');
-      var espMs = parseInt(partes[0], 10)*3600000 + parseInt(partes[1], 10||0)*60000;
-      // Usar helper TZ-safe (reemplaza midnight.setHours que dependía del timezone del dispositivo)
-      var actualMs = _hmsDesdeMedianocheES(nuevoTs).totalMs;
-      // Tolerancia del empleado (individual > rol > general > 10)
-      var _editEmp = PA.empleados.find(function(e){ return e.id === m.empleadoId; });
-      var _editDia = _diaSemanaES(nuevoTs);
-      var tolMs = _toleranciaDeEmp(_editEmp, _editDia) * 60000;
-      updates.minutosRetraso = actualMs > espMs+tolMs ? Math.round((actualMs-espMs)/60000) : 0;
-      updates.estadoPuntualidad = updates.minutosRetraso > 0 ? 'tarde' : 'a_tiempo';
+    if (nuevoTipo === 'entrada') {
+      var _editDia2 = _diaSemanaES(nuevoTs);
+      var _editEmp2 = PA.empleados.find(function(e){ return e.id === m.empleadoId; });
+      var _cHor = _horarioDeEmp(_editEmp2 || PA.empleado, _editDia2);
+      if (_cHor && _cHor.horaEntrada) {
+        var _partes2 = _cHor.horaEntrada.split(':');
+        var _espMs2 = parseInt(_partes2[0], 10)*3600000 + parseInt(_partes2[1]||'0', 10)*60000;
+        var _actualMs2 = _hmsDesdeMedianocheES(nuevoTs).totalMs;
+        var _tolMs2 = _toleranciaDeEmp(_editEmp2, _editDia2) * 60000;
+        updates.minutosRetraso = _actualMs2 > _espMs2+_tolMs2 ? Math.round((_actualMs2-_espMs2)/60000) : 0;
+        updates.estadoPuntualidad = updates.minutosRetraso > 0 ? 'tarde' : 'a_tiempo';
+      } else {
+        updates.minutosRetraso = 0;
+        updates.estadoPuntualidad = 'a_tiempo';
+      }
     }
 
     paDb.collection('paMarcaciones').doc(marcId).update(updates)
@@ -6102,7 +6237,30 @@ function paAgregarMarcacion(empId, empNom, fecha) {
     var hora  = document.getElementById('addHora').value;
     var obs   = document.getElementById('addObs').value.trim();
     if (!hora) { paToast('Ingresa la hora', true); return; }
-    var ts = new Date(fecha+'T'+hora+':00').getTime();
+    // Crear timestamp en El Salvador (UTC-6) — independiente del dispositivo
+    var _aParts = (fecha+'T'+hora+':00').split(/[-T:]/);
+    var ts = Date.UTC(
+      parseInt(_aParts[0],10), parseInt(_aParts[1],10)-1, parseInt(_aParts[2],10),
+      parseInt(_aParts[3],10)+6, parseInt(_aParts[4],10), 0
+    );
+    // Calcular tardanza si el admin agrega una entrada manualmente
+    var _addMinutosRetraso = 0;
+    var _addEstado = 'a_tiempo';
+    if (tipo === 'entrada') {
+      var _addEmpObj = PA.empleados.find(function(e){ return e.id === empId; });
+      var _addDia = _diaSemanaES(ts);
+      var _addHor = _horarioDeEmp(_addEmpObj, _addDia);
+      if (_addHor && _addHor.horaEntrada) {
+        var _addP = _addHor.horaEntrada.split(':');
+        var _addEspMs = parseInt(_addP[0],10)*3600000 + parseInt(_addP[1]||'0',10)*60000;
+        var _addActMs = _hmsDesdeMedianocheES(ts).totalMs;
+        var _addTolMs = _toleranciaDeEmp(_addEmpObj, _addDia) * 60000;
+        if (_addActMs > _addEspMs + _addTolMs) {
+          _addMinutosRetraso = Math.round((_addActMs - _addEspMs) / 60000);
+          _addEstado = 'tarde';
+        }
+      }
+    }
     var docData = {
       empresa: PA.empresa,
       empleadoId: empId,
@@ -6110,8 +6268,10 @@ function paAgregarMarcacion(empId, empNom, fecha) {
       tipo: tipo, fecha: fecha, ts: ts,
       observacion: obs || 'Agregado manualmente por admin',
       fotoRef: null, ubicacion: null,
-      minutosRetraso: 0, estadoPuntualidad: 'a_tiempo',
-      esFeriado: false, esFinDeSemana: false,
+      minutosRetraso: _addMinutosRetraso,
+      estadoPuntualidad: _addEstado,
+      esFeriado: PA.feriados.indexOf(fecha) >= 0,
+      esFinDeSemana: (_diaSemanaES(ts) === 0 || _diaSemanaES(ts) === 6),
       folio: 'MRC-ADM-'+paGenId().toUpperCase(),
       _agregadoPor: 'admin', _agregadoTs: Date.now()
     };
@@ -6293,8 +6453,8 @@ function paGenerarAPsHistoricas() {
         var m = empData.dias[fecha];
         marcObj[empId][fecha] = [m];
       });
-      var hor = _horarioDeEmp(empObj);
-      var tard = paTardanzasEmp(empId, marcObj, hor.horaEntrada||'08:00');
+      // paTardanzasEmp lee el horario por día internamente — no necesita horaEntradaStr
+      var tard = paTardanzasEmp(empId, marcObj, null);
 
       // Agrupar tardanzas por quincena
       var quincenas = {};
@@ -7266,15 +7426,18 @@ function _leerHorForm(prefix) {
   var entrada = e('_entrada') ? e('_entrada').value : '';
   var salida  = e('_salida')  ? e('_salida').value  : '';
   if (!entrada && !salida) return null;
+  var _tolV = parseInt((e('_tol')||{}).value, 10);
+  var _almV = parseInt((e('_alm')||{}).value, 10);
+  var _sabT = parseInt((e('_sabTol')||{}).value, 10);
   return {
-    horaEntrada:       entrada || '07:00',
-    horaSalida:        salida  || '17:00',
-    minutosTolerancia: parseInt((e('_tol')||{}).value||10)||10,
-    minutosAlmuerzo:   parseInt((e('_alm')||{}).value||60)||60,
+    horaEntrada:       entrada || null,   // null si no configurado
+    horaSalida:        salida  || null,
+    minutosTolerancia: isNaN(_tolV) ? null : _tolV,
+    minutosAlmuerzo:   isNaN(_almV) ? null : _almV,
     trabajaSabado:     !!(e('_trabSab')||{}).checked,
-    sabadoEntrada:     (e('_sabEntrada')||{}).value||'08:00',
-    sabadoSalida:      (e('_sabSalida') ||{}).value||'12:00',
-    sabadoTolerancia:  parseInt((e('_sabTol')||{}).value||10)||10,
+    sabadoEntrada:     (e('_sabEntrada')||{}).value || null,
+    sabadoSalida:      (e('_sabSalida') ||{}).value || null,
+    sabadoTolerancia:  isNaN(_sabT) ? null : _sabT,
     trabajaDomingo:    !!(e('_trabDom')||{}).checked
   };
 }
@@ -7296,6 +7459,7 @@ function paGuardarHorariosRol() {
   }
   PA.horariosRol = horRoles;
   // Guardar en paConfig
+  PA._configCargado = true; // la config acaba de guardarse — está válida
   paDb.collection('paConfig').doc(PA.empresa).set({
     horario: PA.horario,
     horariosRol: horRoles
@@ -7329,13 +7493,13 @@ function paGuardarHorDias(empId, empNombre) {
     } else {
       dias[String(d)] = {
         trabaja:          true,
-        horaEntrada:      (document.getElementById('hd_'+empId+'_'+d+'_ent')||{}).value || '07:00',
-        horaSalida:       (document.getElementById('hd_'+empId+'_'+d+'_sal')||{}).value || '17:00',
+        horaEntrada:      (document.getElementById('hd_'+empId+'_'+d+'_ent')||{}).value || null,
+        horaSalida:       (document.getElementById('hd_'+empId+'_'+d+'_sal')||{}).value || null,
         minutosTolerancia: parseInt((document.getElementById('hd_'+empId+'_'+d+'_tol')||{}).value||10, 10)||10,
         minutosAlmuerzo:  parseInt((document.getElementById('hd_'+empId+'_'+d+'_alm')||{}).value||60, 10)||60,
         tipo:             (document.getElementById('hd_'+empId+'_'+d+'_tipo')||{}).value || 'normal',
         // Mantener también los alias viejos para compatibilidad con datos ya guardados
-        entrada:    (document.getElementById('hd_'+empId+'_'+d+'_ent')||{}).value || '07:00',
+        entrada:    (document.getElementById('hd_'+empId+'_'+d+'_ent')||{}).value || null,
         tolerancia: parseInt((document.getElementById('hd_'+empId+'_'+d+'_tol')||{}).value||10, 10)||10
       };
     }
@@ -7372,17 +7536,20 @@ function paGuardarHorEmp(empId, empNombre) {
   var entrada = (document.getElementById('hemp_'+empId+'_entrada')||{}).value||'';
   var salida  = (document.getElementById('hemp_'+empId+'_salida') ||{}).value||'';
   if (!entrada && !salida) { paToast('Ingresa al menos entrada y salida', true); return; }
+  var _tolVal  = parseInt((document.getElementById('hemp_'+empId+'_tol')||{}).value, 10);
+  var _almVal  = parseInt((document.getElementById('hemp_'+empId+'_alm')||{}).value, 10);
+  var _sabTol  = parseInt((document.getElementById('hemp_'+empId+'_sabTol')||{}).value, 10);
   var horEmp = PA.horariosEmp || {};
   horEmp[empId] = {
-    horaEntrada:        entrada||'07:00',
-    horaSalida:         salida||'17:00',
-    minutosTolerancia:  parseInt((document.getElementById('hemp_'+empId+'_tol')||{}).value||10)||10,
-    minutosAlmuerzo:    parseInt((document.getElementById('hemp_'+empId+'_alm')||{}).value||60)||60,
+    horaEntrada:        entrada,      // sin fallback — el admin debe ingresar un valor
+    horaSalida:         salida,       // sin fallback
+    minutosTolerancia:  isNaN(_tolVal) ? null : _tolVal,
+    minutosAlmuerzo:    isNaN(_almVal) ? null : _almVal,
     // Sábado
     trabajaSabado:      !!(document.getElementById('hemp_'+empId+'_trabSabado')||{}).checked,
-    sabadoEntrada:      (document.getElementById('hemp_'+empId+'_sabEntrada')||{}).value||'08:00',
-    sabadoSalida:       (document.getElementById('hemp_'+empId+'_sabSalida') ||{}).value||'12:00',
-    sabadoTolerancia:   parseInt((document.getElementById('hemp_'+empId+'_sabTol')||{}).value||10)||10,
+    sabadoEntrada:      (document.getElementById('hemp_'+empId+'_sabEntrada')||{}).value || null,
+    sabadoSalida:       (document.getElementById('hemp_'+empId+'_sabSalida') ||{}).value || null,
+    sabadoTolerancia:   isNaN(_sabTol) ? null : _sabTol,
     // Domingo
     trabajaDomingo:     !!(document.getElementById('hemp_'+empId+'_trabDomingo')||{}).checked
   };
@@ -8695,8 +8862,8 @@ function paExportarExcel() {
       }
       function _fmtTs(ts){
         if(!ts)return '--';
-        var d=new Date(ts);
-        return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+        var _h=_hmsDesdeMedianocheES(ts);
+        return String(_h.horas).padStart(2,'0')+':'+String(_h.minutos).padStart(2,'0');
       }
       function _mins(m){
         if(!m||m===0)return '--';
@@ -9011,7 +9178,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-01-O';
+var PA_VERSION = 'v2026-07-01-Z';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -9321,9 +9488,11 @@ window.addEventListener('DOMContentLoaded', function() {
         var cfg = cfgDoc.data();
         if (cfg.adminPin) PA.adminPin = cfg.adminPin;
         if (cfg.horario)  PA.horario  = Object.assign(PA.horario, cfg.horario);
+        if (cfg.horario) PA._configCargado = true;
         if (cfg.feriados && cfg.feriados.length) PA.feriados = cfg.feriados;
         if (cfg.horariosRol) PA.horariosRol = cfg.horariosRol;
         if (cfg.horariosEmp) PA.horariosEmp = cfg.horariosEmp;
+        if (cfg.horariosEmp || cfg.horariosRol) PA._configCargado = true;
       }
       if (!PA.feriados.length) {
         var yr = new Date().getFullYear();
