@@ -6561,54 +6561,54 @@ function paCargarAPs(tipo) {
         INCAPACIDAD:         { icon:'🏥', label:'Incapacidad',                      color:'#388bfd' },
       };
 
-      var html = '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">'+docs.length+' acción(es) encontrada(s)</div>';
+      // ── Barra de selección múltiple ─────────────────────────────
+      window._paAPDocs = docs;
+      var _barHtml = '<div id="apSelBar" style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface);border-radius:10px;margin-bottom:10px;flex-wrap:wrap">'
+        + '<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">'
+        + '<input type="checkbox" id="apSelTodos" onchange="paToggleSelTodas(this.checked)" style="accent-color:var(--accent);width:16px;height:16px"> Seleccionar todo</label>'
+        + '<span id="apSelCount" style="font-size:11px;color:var(--muted)">'+docs.length+' AP(s)</span>'
+        + '<button id="apBtnElimSel" onclick="paEliminarAPsSeleccionadas()" disabled style="margin-left:auto;background:#f85149;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;opacity:.4">🗑 Eliminar sel.</button>'
+        + '<button onclick="paAuditarAPs()" style="background:#e8a020;color:#000;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer">🔍 Auditar</button>'
+        + '</div>';
+      var html = _barHtml;
       docs.forEach(function(ap) {
         var ti = TIPO_LABEL[ap.tipo] || { icon:'📋', label: ap.tipo||'Desconocido', color:'#7d8590' };
+        var _nom = ap.empleadoNombre || ap.nombre || '(sin nombre)';
+        var _con = ap.concepto || ap.justificacion || ap.motivo || '(sin descripción)';
+        var _inc = !ap.empleadoNombre || (!ap.concepto && !ap.justificacion && !ap.motivo);
+        var _badge = _inc ? ' <span style="font-size:9px;background:#f85149;color:#fff;padding:1px 5px;border-radius:3px">⚠ incompleta</span>' : '';
         var detalleHtml = '';
-        if (ap.tipo==='TARDANZAS' && ap.diasDetalle && ap.diasDetalle.length) {
-          detalleHtml = '<div style="margin-top:8px;font-size:11px;color:var(--muted)">';
-          ap.diasDetalle.forEach(function(d){ detalleHtml+='<span style="margin-right:8px">'+d.fecha+' ('+d.minsTarde+'min → −'+d.descHrs+'h)</span>'; });
-          detalleHtml += '<br>Total horas a descontar: <strong style="color:'+ti.color+'">'+ap.totalDescHrs+'h</strong></div>';
+        if (ap.quincenaDesde) detalleHtml += '<div style="font-size:10px;color:var(--muted);margin-top:2px">Quincena: '+ap.quincenaDesde+' al '+(ap.quincenaHasta||'?')+(ap.totalTardanzas?' · '+ap.totalTardanzas+' tard.':'')+(ap.horasDescuento?' · −'+ap.horasDescuento+'h':'')+'</div>';
+        if ((ap.tipo==='TARDANZAS'||ap.tipo==='AMONESTACION_TARDANZA'||ap.tipo==='DESCUENTO_DIA_SEPTIMO') && ap.diasDetalle && ap.diasDetalle.length) {
+          detalleHtml += '<div style="font-size:10px;color:var(--muted);margin-top:4px">';
+          ap.diasDetalle.slice(0,4).forEach(function(d){ detalleHtml+='<span style="margin-right:6px">'+d.fecha+' (+'+(d.minsTarde||d.mins||'?')+'min)</span>'; });
+          if (ap.diasDetalle.length>4) detalleHtml+='<span>+'+(ap.diasDetalle.length-4)+' más</span>';
+          detalleHtml += '</div>';
         }
-        if (ap.tipo==='FALTA_INJUSTIFICADA') {
-          detalleHtml = '<div style="margin-top:6px;font-size:11px;color:var(--muted)">Fecha de falta: '+(ap.fecha||'—')+'</div>';
-        }
+        if (ap.tipo==='FALTA_INJUSTIFICADA') detalleHtml += '<div style="margin-top:4px;font-size:11px;color:var(--muted)">Fecha: '+(ap.fecha||'—')+'</div>';
         if (ap.tipo==='INCAPACIDAD') {
-          var _apFotoB64 = ap.foto || '';
-          var _apTipo    = ap.tipoArchivo || 'imagen';
-          var _verBtn    = '';
-          if (_apFotoB64 && _apFotoB64.length > 100) {
-            window._paAPMap[ap._id] = window._paAPMap[ap._id] || ap;
-            window._paAPMap[ap._id]._fotoB64 = _apFotoB64;
-            _verBtn = '<br><button data-apid="'+ap._id+'" onclick="paVerArchivoIncapacidad(this.dataset.apid)" '
-              +'style="margin-top:6px;background:rgba(56,139,253,.12);border:1px solid rgba(0,107,63,.3);color:#006B3F;border-radius:8px;padding:4px 10px;cursor:pointer;font-size:11px">'
-              +(_apTipo==='pdf' ? '📄 Ver PDF' : '🖼️ Ver imagen')+'</button>';
-          }
-          detalleHtml = '<div style="margin-top:6px;font-size:11px;color:var(--muted)">Período: '+(ap.fechaInicio||'?')+' al '+(ap.fechaFin||'?')+' · '+(ap.dias||'?')+' día(s)'+_verBtn+'</div>';
+          var _apFotoB64=ap.foto||'', _apTipo=ap.tipoArchivo||'imagen', _verBtn='';
+          if (_apFotoB64 && _apFotoB64.length>100) { window._paAPMap[ap._id]=window._paAPMap[ap._id]||ap; window._paAPMap[ap._id]._fotoB64=_apFotoB64; _verBtn='<br><button data-apid="'+ap._id+'" onclick="paVerArchivoIncapacidad(this.dataset.apid)" style="margin-top:4px;background:rgba(56,139,253,.12);border:1px solid rgba(0,107,63,.3);color:#006B3F;border-radius:8px;padding:3px 8px;cursor:pointer;font-size:10px">'+(_apTipo==='pdf'?'📄 PDF':'🖼️ Ver')+'</button>'; }
+          detalleHtml+='<div style="margin-top:4px;font-size:11px;color:var(--muted)">'+(ap.fechaInicio||'?')+' al '+(ap.fechaFin||'?')+' · '+(ap.dias||'?')+' día(s)'+_verBtn+'</div>';
         }
-        html += '<div class="report-row" style="border-left:3px solid '+ti.color+'">'
-          +'<div style="flex:1">'
-          +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'
-          +'<span style="font-size:18px">'+ti.icon+'</span>'
-          +'<span style="font-weight:700;font-size:14px">'+esc(ap.empleadoNombre||'?')+'</span>'
-          +'<span style="font-size:11px;color:var(--muted)">'+esc(ap.cargo||'')+'</span>'
-          +'</div>'
-          +'<div style="font-size:12px;color:'+ti.color+';font-weight:600">'+ti.label+'</div>'
-          +'<div style="font-size:11px;color:var(--muted)">Emitida: '+(ap.fechaEmision||'—')+'</div>'
-          +detalleHtml
-          +'</div>'
-          +'<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'
-          +'<span style="font-size:10px;padding:3px 8px;border-radius:20px;background:rgba(46,160,67,.15);color:#3fb950">'+esc(ap.estado||'emitida')+'</span>'
-          +(ap.concepto||ap.justificacion
-            ? '<div style="font-size:10px;border-left:3px solid rgba(0,107,63,.4);'
-              +'padding:3px 8px;margin:4px 0;color:var(--muted);border-radius:0 4px 4px 0">'
-              +(ap.concepto?'<strong style="color:var(--text)">'+esc(ap.concepto)+'</strong><br>':'')
-              +(ap.justificacion?esc(ap.justificacion.substring(0,100))+(ap.justificacion.length>100?'…':''):'')
-              +'</div>':'')
-          +'<button data-apid="'+ap._id+'" onclick="paImprimirAP(this.dataset.apid)" style="background:rgba(56,139,253,.12);border:1px solid rgba(0,107,63,.3);color:#006B3F;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:11px">🖨️ Ver</button>'
-          +'<button style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:11px" onclick="paEliminarAP(\''+ap._id+'\')" >🗑</button>'
-          +'</div>'
-          +'</div>';
+        html += '<div class="report-row" style="border-left:3px solid '+ti.color+';align-items:flex-start;gap:10px">'
+          + '<input type="checkbox" class="ap-sel-cb" data-apid="'+ap._id+'" onchange="paActualizarSelAP()" style="accent-color:var(--accent);width:18px;height:18px;margin-top:3px;flex-shrink:0">'
+          + '<div style="flex:1;min-width:0">'
+          + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">'
+          + '<span style="font-size:16px">'+ti.icon+'</span>'
+          + '<span style="font-weight:700;font-size:13px">'+esc(_nom)+_badge+'</span>'
+          + '<span style="font-size:11px;color:var(--muted)">'+esc(ap.cargo||'')+'</span>'
+          + '</div>'
+          + '<div style="font-size:12px;color:'+ti.color+';font-weight:600">'+ti.label+'</div>'
+          + '<div style="font-size:10px;color:var(--muted);margin-top:1px">Emitida: '+(ap.fechaEmision||ap.fecha||'—')+' · '+esc(_con.substring(0,70))+(_con.length>70?'…':'')+'</div>'
+          + detalleHtml
+          + '</div>'
+          + '<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex-shrink:0">'
+          + '<span style="font-size:9px;padding:2px 6px;border-radius:20px;background:rgba(46,160,67,.15);color:#3fb950">'+esc(ap.estado||'emitida')+'</span>'
+          + '<button data-apid="'+ap._id+'" onclick="paImprimirAP(this.dataset.apid)" style="background:rgba(56,139,253,.12);border:1px solid rgba(0,107,63,.3);color:#006B3F;border-radius:8px;padding:4px 8px;cursor:pointer;font-size:10px">🖨️ Ver</button>'
+          + '<button onclick="paEliminarAP(\''+ap._id+'\')" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:4px 8px;cursor:pointer;font-size:10px">🗑</button>'
+          + '</div>'
+          + '</div>';
       });
       lista.innerHTML = html;
     })
@@ -6670,6 +6670,122 @@ function paEliminarAP(apId) {
     .catch(function(e){ paToast('Error: '+e.message, true); });
   });
 }
+
+// ── Selección múltiple de APs ──────────────────────────────────────
+function paToggleSelTodas(checked) {
+  document.querySelectorAll('.ap-sel-cb').forEach(function(cb){ cb.checked = checked; });
+  paActualizarSelAP();
+}
+
+function paActualizarSelAP() {
+  var sel = document.querySelectorAll('.ap-sel-cb:checked');
+  var btn = document.getElementById('apBtnElimSel');
+  var cnt = document.getElementById('apSelCount');
+  var chkTodos = document.getElementById('apSelTodos');
+  var total = document.querySelectorAll('.ap-sel-cb').length;
+  if (cnt) cnt.textContent = sel.length + ' de ' + total + ' seleccionadas';
+  if (btn) {
+    btn.disabled = sel.length === 0;
+    btn.style.opacity = sel.length > 0 ? '1' : '.4';
+  }
+  if (chkTodos) chkTodos.indeterminate = sel.length > 0 && sel.length < total;
+  if (chkTodos) chkTodos.checked = sel.length === total && total > 0;
+}
+
+function paEliminarAPsSeleccionadas() {
+  var sel = Array.from(document.querySelectorAll('.ap-sel-cb:checked'));
+  if (!sel.length) return;
+  var ids = sel.map(function(cb){ return cb.dataset.apid; });
+  paConfirm('¿Eliminar ' + ids.length + ' Acción(es) de Personal seleccionada(s)?\nEsta acción no se puede deshacer.', function() {
+    var batch = paDb.batch();
+    ids.forEach(function(id){
+      batch.delete(paDb.collection('paAccionesPersonal').doc(id));
+    });
+    batch.commit()
+      .then(function(){
+        paToast('✅ ' + ids.length + ' AP(s) eliminadas');
+        paCargarAPs();
+      })
+      .catch(function(e){ paToast('Error: ' + e.message, true); });
+  });
+}
+
+// ── Auditoría de APs: identifica las inconsistentes con criterios actuales ──
+function paAuditarAPs() {
+  paToast('Auditando Acciones de Personal...');
+  paDb.collection('paAccionesPersonal')
+    .where('empresa', '==', PA.empresa)
+    .get()
+    .then(function(snap) {
+      var inconsistentes = [];
+      snap.forEach(function(d) {
+        var ap = Object.assign({ _id: d.id }, d.data());
+        var razones = [];
+
+        // Sin nombre de empleado
+        if (!ap.empleadoNombre && !ap.nombre) razones.push('sin nombre de empleado');
+
+        // Sin concepto ni justificación ni motivo
+        if (!ap.concepto && !ap.justificacion && !ap.motivo) razones.push('sin descripción');
+
+        // AMONESTACION_TARDANZA individual (criterio viejo: una por cada tardanza)
+        // Las nuevas siempre tienen quincenaDesde y totalTardanzas >= 4
+        if (ap.tipo === 'AMONESTACION_TARDANZA') {
+          if (!ap.quincenaDesde) razones.push('amonestación individual (criterio viejo, sin quincenaDesde)');
+          else if (!ap.totalTardanzas || ap.totalTardanzas < 4) razones.push('amonestación sin acumulado de 4 tardanzas (criterio viejo)');
+        }
+
+        // TARDANZAS (tipo viejo, reemplazado por DESCUENTO_DIA_SEPTIMO y AMONESTACION_TARDANZA)
+        if (ap.tipo === 'TARDANZAS') razones.push('tipo obsoleto TARDANZAS (criterio viejo)');
+
+        // DESCUENTO_DIA_SEPTIMO sin quincenaDesde
+        if (ap.tipo === 'DESCUENTO_DIA_SEPTIMO' && !ap.quincenaDesde) {
+          razones.push('Descuento Día y Séptimo sin quincena asignada (criterio viejo)');
+        }
+
+        if (razones.length) inconsistentes.push({ ap: ap, razones: razones });
+      });
+
+      if (!inconsistentes.length) {
+        paToast('✅ Todas las APs son consistentes con los criterios actuales', false, 4000);
+        return;
+      }
+
+      // Mostrar resultados en un overlay
+      var ov = document.createElement('div');
+      ov.id = 'apAuditOv';
+      ov.style.cssText = 'position:fixed;inset:0;z-index:700;background:rgba(0,0,0,.92);display:flex;align-items:flex-end;justify-content:center;padding:0';
+
+      var itemsHtml = inconsistentes.map(function(it) {
+        var ap = it.ap;
+        var _nom = ap.empleadoNombre || ap.nombre || '(sin nombre)';
+        return '<div style="padding:10px;background:var(--surface2);border-radius:8px;margin-bottom:6px">'          +'<label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">'          +'<input type="checkbox" class="ap-audit-cb" data-apid="'+ap._id+'" checked '          +'style="accent-color:#f85149;width:16px;height:16px;margin-top:2px;flex-shrink:0">'          +'<div>'          +'<div style="font-weight:700;font-size:12px">'+esc(_nom)+'</div>'          +'<div style="font-size:10px;color:var(--muted)">'+esc(ap.tipo||'?')+' · '+(ap.fechaEmision||ap.fecha||'?')+'</div>'          +'<div style="font-size:10px;color:#f85149;margin-top:2px">⚠ ' + it.razones.join(' · ') + '</div>'          +'</div>'          +'</label>'          +'</div>';
+      }).join('');
+
+      ov.innerHTML = '<div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;padding:20px 16px 36px;max-height:88vh;overflow-y:auto">'        +'<span style="display:block;width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px"></span>'        +'<div style="font-size:16px;font-weight:700;margin-bottom:4px">🔍 Auditoría de APs</div>'        +'<div style="font-size:13px;color:var(--muted);margin-bottom:14px">'          + inconsistentes.length + ' AP(s) inconsistentes con los criterios actuales.'          +'<br><small>Desmarca las que no quieras eliminar.</small></div>'        + itemsHtml        +'<div style="display:flex;gap:10px;margin-top:16px">'        +'<button onclick="document.getElementById(\'apAuditOv\').remove()" '        +'style="flex:1;padding:12px;background:transparent;border:1px solid var(--border);border-radius:12px;color:var(--muted);font-family:inherit;font-size:13px">Cancelar</button>'        +'<button onclick="paEliminarAuditadas()" '        +'style="flex:2;padding:12px;background:#f85149;color:#fff;border:none;border-radius:12px;font-weight:700;font-size:14px;font-family:inherit">🗑 Eliminar marcadas</button>'        +'</div>'        +'</div>';
+      document.body.appendChild(ov);
+    })
+    .catch(function(e){ paToast('Error: ' + e.message, true); });
+}
+
+function paEliminarAuditadas() {
+  var cbs = Array.from(document.querySelectorAll('.ap-audit-cb:checked'));
+  if (!cbs.length) { paToast('Sin APs marcadas', true); return; }
+  var ids = cbs.map(function(cb){ return cb.dataset.apid; });
+  var batch = paDb.batch();
+  ids.forEach(function(id){
+    batch.delete(paDb.collection('paAccionesPersonal').doc(id));
+  });
+  batch.commit()
+    .then(function(){
+      var ov = document.getElementById('apAuditOv');
+      if (ov) ov.remove();
+      paToast('✅ ' + ids.length + ' AP(s) eliminadas. Regenera con "Generar APs históricas".');
+      paCargarAPs();
+    })
+    .catch(function(e){ paToast('Error: ' + e.message, true); });
+}
+
 
 
 
@@ -9178,7 +9294,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-01-Z';
+var PA_VERSION = 'v2026-07-04-D';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
