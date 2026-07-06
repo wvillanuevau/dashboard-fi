@@ -3581,17 +3581,17 @@ function _tardDescuentoHrs(minsTarde) {
 
 // Rango de quincena actual
 function _quincenaActual() {
-  // Usar fecha de El Salvador (UTC-6)
-  var hoy = paHoy(); // 'YYYY-MM-DD'
-
-  // Prioridad 1: usar el período configurado manualmente por el admin
-  // (guardado en paConfig → PA.periodoHE)
+  // Si el admin configuró un período en paConfig → PA.periodoHE, SIEMPRE usarlo.
+  // No importa si hoy está dentro o fuera del período — el admin lo cambió
+  // cuando quiera avanzar al siguiente. Así APs, reportes y tardanzas
+  // siempre apuntan al período configurado (ej: 06/20–07/04).
   var pHE = PA.periodoHE || {};
-  if (pHE.desde && pHE.hasta && hoy >= pHE.desde && hoy <= pHE.hasta) {
+  if (pHE.desde && pHE.hasta) {
     return { desde: pHE.desde, hasta: pHE.hasta };
   }
 
-  // Prioridad 2: fallback al calendario estándar (1-15 / 16-fin de mes)
+  // Sin período configurado → fallback al calendario (1-15 / 16-fin de mes)
+  var hoy = paHoy();
   var y = hoy.slice(0,4);
   var m = hoy.slice(5,7);
   var d = parseInt(hoy.slice(8,10), 10);
@@ -9555,7 +9555,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-04-S';
+var PA_VERSION = 'v2026-07-04-T';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
