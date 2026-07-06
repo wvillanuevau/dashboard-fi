@@ -6550,10 +6550,11 @@ function paGenerarAPsHistoricas() {
 
     Promise.all([
       // Traer solo marcaciones del período configurado
+      // Solo filtrar por fecha — empresa se filtra client-side
+      // (empresa + fecha + rango requiere índice compuesto en Firestore)
       paDb.collection('paMarcaciones')
-        .where('empresa', '==', PA.empresa)
-        .where('fecha',   '>=', _qGen.desde)
-        .where('fecha',   '<=', _qGen.hasta)
+        .where('fecha', '>=', _qGen.desde)
+        .where('fecha', '<=', _qGen.hasta)
         .get(),
       // APs existentes del período para no duplicar
       paDb.collection('paAccionesPersonal')
@@ -6577,6 +6578,7 @@ function paGenerarAPsHistoricas() {
       var porEmp = {}; // empId → [{ fecha, ts, minutosRetraso }]
       snapM.forEach(function(d) {
         var r = d.data();
+        if (r.empresa !== PA.empresa) return; // filtrar empresa client-side
         if (r.tipo !== 'entrada') return;
         if ((r.minutosRetraso || 0) <= 0) return; // solo tardanzas
         if (!porEmp[r.empleadoId]) porEmp[r.empleadoId] = { nombre: r.empleadoNombre||'', cargo: r.cargo||'', tardanzas: [] };
@@ -9887,7 +9889,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-05-F';
+var PA_VERSION = 'v2026-07-05-G';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
