@@ -1874,7 +1874,8 @@ function paRenderEmpList(emps) {
     list.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted)">Sin empleados registrados.<br>El administrador debe agregarlos primero.</div>';
     return;
   }
-  list.innerHTML = emps.map(function(e) {
+  var empsActivos = emps.filter(function(e){ return e.activo !== false; });
+  list.innerHTML = empsActivos.map(function(e) {
     var initials = (e.nombre||'?').split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase();
     return '<div class="emp-item" onclick="paSelectEmp(\''+e.id+'\')">'
       + '<div class="emp-avatar">'+initials+'</div>'
@@ -2534,6 +2535,8 @@ function paAfterAuth() {
         }
         _paGuardarVinculo(PA.empleado);
         paUpdateDash();
+        // Cargar ausencias del período para resumen
+        setTimeout(_paCargarAusenciasPeriodo, 800);
         // Verificar compensatorios de fin de semana (solo admin)
         setTimeout(_paCheckCompensatorioFDS, 1500);
         paShow('scDash');
@@ -3362,6 +3365,9 @@ function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
   }
   var hoy = salidaDocData.fecha;
   var empId = salidaDocData.empleadoId;
+  // Omitir empleados inactivos
+  var _empAR = (PA.empleados||[]).find(function(e){ return e.id === empId; });
+  if (_empAR && _empAR.activo === false) return;
 
   // Buscar en marcaciones locales primero
   var mEntrada = PA.marcacionesHoy.find(function(m){ return m.tipo === entradaTipo && m.fecha === hoy; });
@@ -4809,7 +4815,7 @@ function _paVerificarFaltasAutomaticas() {
       var generadas = 0;
       var pendientesEscritura = [];
 
-      (PA.empleados || []).forEach(function(emp) {
+      (PA.empleados || []).filter(function(e){ return e.activo !== false; }).forEach(function(emp) {
         if (marcaronHoy[emp.id]) return;          // sí marcó
         if (incapacitadosHoy[emp.id]) return;      // tiene incapacidad
         if (yaGeneradaHoy[emp.id]) return;         // ya se generó
@@ -4967,6 +4973,8 @@ function _paCerrarAdmin() {
     document.removeEventListener('click', PA._adminDocClickHandler);
     PA._adminDocClickHandler = null;
   }
+  // Cancelar listeners en tiempo real de la pestaña Hoy
+  _paUnsubscribeHoy();
   var panel = document.getElementById('paAdminPanel');
   if(panel) panel.remove();
   PA.isAdmin = false;
@@ -5004,6 +5012,7 @@ function paAdminTab(tab) {
 
   try {
     if (tab === 'hoy')     paAdminHoy(content);
+    else                  _paUnsubscribeHoy(); // cancelar listeners si salimos de Hoy
     if (tab === 'emps')    paAdminEmps(content);
     if (tab === 'reporte') paAdminReporte(content);
     if (tab === 'acciones') paAdminAcciones(content);
@@ -5027,168 +5036,257 @@ function paAdminTab(tab) {
   }
 }
 
+// ── Render de paAdminHoy — llamado por cada onSnapshot ────────
+function _paAdminHoyRender(snap, snapInc, content, hoy) {
+  if (!content || !document.body.contains(content)) return;
+var snap = results[0];
+var snapInc = results[1];
+console.log('[Admin] paMarcaciones query OK — docs:', snap.size);
+  // Filtrar por empresa en cliente
+  var marcs = {};
+  PA._marcacionesDetalle = {}; // store full records for viewer
+  snap.forEach(function(d) {
+    var m = Object.assign({ _id: d.id }, d.data());
+    // Normalizar ts desde Firestore Timestamp
+    if (m.ts && typeof m.ts === 'object' && m.ts.toMillis) m.ts = m.ts.toMillis();
+    else if (m.ts && m.ts.seconds) m.ts = m.ts.seconds * 1000 + Math.round((m.ts.nanoseconds||0)/1e6);
+    // Filtrar por empresa en cliente (evita índice compuesto)
+    if (m.empresa !== PA.empresa) return;
+    var empId = m.empleadoId;
+    if (!marcs[empId]) marcs[empId] = { nombre: m.empleadoNombre, tipos: [], tarde: 0, centro: '', registros: [] };
+    marcs[empId].tipos.push(m.tipo);
+    marcs[empId].registros.push(m);
+    // Recalcular tardanza desde el timestamp UTC (no del campo almacenado que puede
+    // estar contaminado por teléfonos con timezone incorrecto)
+    if (m.tipo === 'entrada' && m.ts) {
+      var _mts   = (typeof m.ts === 'object' && m.ts.toMillis) ? m.ts.toMillis()
+                 : (m.ts && m.ts.seconds) ? m.ts.seconds*1000 : (m.ts||0);
+      if (_mts > 0) {
+        var _empObj = PA.empleados.find(function(e){ return e.id === m.empleadoId; });
+        var _diaES  = _diaSemanaES(_mts);
+        var _horEmp = _empObj ? _horarioDeEmp(_empObj, _diaES) : null;
+        if (!_empObj) marcs[empId].sinHorario = true;
+        if (_horEmp && _horEmp.trabaja === false) {
+          // Día no laborable — marcación extraordinaria, sin cálculo tardanza
+          marcs[empId].extraord = true;
+        } else if (_horEmp && _horEmp.horaEntrada) {
+          // Horario configurado — recalcular tardanza desde ts UTC
+          var _pts   = _horEmp.horaEntrada.split(':');
+          var _espMs = parseInt(_pts[0], 10)*3600000 + parseInt(_pts[1]||'0', 10)*60000;
+          var _hms   = _hmsDesdeMedianocheES(_mts);
+          var _tolMs = _toleranciaDeEmp(_empObj, _diaES) * 60000;
+          if (_hms.totalMs > _espMs + _tolMs) {
+            marcs[empId].tarde = Math.round((_hms.totalMs - _espMs) / 60000);
+          }
+        } else if (!_horEmp) {
+          // Sin horario configurado — marcar para que el admin lo sepa
+          marcs[empId].sinHorario = true;
+        }
+      }
+    }
+    if (m.centroNombre) marcs[empId].centro = m.centroNombre;
+    PA._marcacionesDetalle[m._id] = m;
+  });
+
+  var conEntrada = Object.keys(marcs).filter(function(k){ return marcs[k].tipos.indexOf('entrada') >= 0; }).length;
+  var conSalida  = Object.keys(marcs).filter(function(k){ return marcs[k].tipos.indexOf('salida') >= 0; }).length;
+
+  var html = '<div class="stat-grid">'
+    +'<div class="stat-card"><div class="stat-val" style="color:var(--accent)">'+conEntrada+'</div><div class="stat-lbl">Con entrada hoy</div></div>'
+    +'<div class="stat-card"><div class="stat-val" style="color:var(--warn)">'+conSalida+'</div><div class="stat-lbl">Con salida hoy</div></div>'
+    +'</div>';
+
+  html += '<div class="section-title">Marcaciones de hoy — clic para ver foto y ubicación</div>';
+
+  var tiposLabel = { entrada:'🏢 Entrada', almuerzo_salida:'🍽️ Sal. almuerzo', almuerzo_regreso:'↩️ Reg. almuerzo', cena_salida:'🌙 Sal. cena', cena_regreso:'🌙 Reg. cena', salida:'🏠 Salida', entrada_adicional:'⚡ Entrada adicional', salida_adicional:'⚡ Sal. adicional' };
+
+  if (!Object.keys(marcs).length) {
+    html += '<div style="text-align:center;padding:32px;color:var(--muted)">Sin marcaciones hoy.</div>';
+  } else {
+    // ── Sin marcación de entrada hoy ──────────────────────
+    var _hoyDiaSem = new Date(hoy+'T12:00:00').getDay();
+    var _sinMarcHoy = (PA.empleados||[]).filter(function(emp) {
+      if (emp.activo === false) return false;
+      if (marcs[emp.id]) return false; // ya marcó algo
+      var _hor = _horarioDeEmp(emp, _hoyDiaSem);
+      return _hor && _hor.horaEntrada && _hor.trabaja !== false;
+    });
+    if (_sinMarcHoy.length > 0) {
+      html += '<div style="background:rgba(248,81,73,.08);border:1.5px solid rgba(248,81,73,.25);border-radius:12px;padding:10px 12px;margin-bottom:10px">';
+      html += '<div style="font-weight:700;font-size:12px;color:#f85149;margin-bottom:6px">⚠ Sin marcación de entrada hoy (' + _sinMarcHoy.length + ')</div>';
+      _sinMarcHoy.forEach(function(emp) {
+        html += '<div style="font-size:12px;color:var(--text);padding:3px 0;border-bottom:1px solid rgba(248,81,73,.1);display:flex;justify-content:space-between">';
+        html += '<span>' + esc(emp.nombre) + '</span>';
+        html += '<span style="color:var(--muted);font-size:10px">' + esc(emp.cargo||'') + '</span>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    // ── Ausencias recurrentes en el período ──────────────────
+    var _qHoy = _quincenaActual();
+    if (PA._ausPeriodo && Object.keys(PA._ausPeriodo).length > 0) {
+      var _recE = Object.keys(PA._ausPeriodo)
+        .filter(function(id){ return (PA._ausPeriodo[id]||0) >= 2; })
+        .map(function(id){
+          var emp2 = (PA.empleados||[]).find(function(x){ return x.id===id; })||{nombre:id,cargo:''};
+          return { id:id, nombre:emp2.nombre, cargo:emp2.cargo||'', count:PA._ausPeriodo[id] };
+        }).sort(function(a,b){ return b.count-a.count; });
+      if (_recE.length > 0) {
+        var _c4=_recE.filter(function(x){return x.count>=4;}).length;
+        var _c3=_recE.filter(function(x){return x.count===3;}).length;
+        var _c2=_recE.filter(function(x){return x.count===2;}).length;
+        html += '<div style="background:rgba(232,160,32,.08);border:1.5px solid rgba(232,160,32,.25);border-radius:12px;padding:10px 12px;margin-bottom:10px">';
+        html += '<div style="font-weight:700;font-size:12px;color:#e8a020;margin-bottom:6px">📅 Ausencias en período ' + _qHoy.desde + ' — ' + _qHoy.hasta;
+        if(_c4>0)html+=' <span style="background:#f85149;color:#fff;font-size:9px;padding:1px 5px;border-radius:3px">'+_c4+'×4+</span>';
+        if(_c3>0)html+=' <span style="background:#e8a020;color:#000;font-size:9px;padding:1px 5px;border-radius:3px">'+_c3+'×3</span>';
+        if(_c2>0)html+=' <span style="background:rgba(232,160,32,.3);color:var(--text);font-size:9px;padding:1px 5px;border-radius:3px">'+_c2+'×2</span>';
+        html += '</div>';
+        _recE.forEach(function(s) {
+          var _col2=s.count>=4?'#f85149':s.count===3?'#e8a020':'var(--text)';
+          html+='<div style="font-size:12px;padding:2px 0;border-bottom:1px solid rgba(232,160,32,.1);display:flex;justify-content:space-between">';
+          html+='<span>'+esc(s.nombre)+' <span style="color:var(--muted);font-size:10px">'+esc(s.cargo)+'</span></span>';
+          html+='<span style="font-weight:700;color:'+_col2+'">'+s.count+' aus.</span>';
+          html+='</div>';
+        });
+        html += '</div>';
+      }
+    }
+
+    // Ordenar alfabéticamente por nombre del empleado
+    Object.keys(marcs)
+      .sort(function(a,b){
+        return (marcs[a].nombre||'').localeCompare(marcs[b].nombre||'', 'es', {sensitivity:'base'});
+      })
+      .forEach(function(empId) {
+      var emp = marcs[empId];
+      var tardeBadge = emp.sinHorario
+        ? ' <span style="color:var(--muted);font-size:10px" title="Configura el horario de este empleado en el panel de empleados">⚙ Sin horario</span>'
+        : emp.tarde > 0
+        ? ' <span style="color:var(--warn);font-size:10px">⚠ +'+emp.tarde+'min tarde</span>'
+        : '';
+      html += '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:8px">'
+        +'<div style="font-weight:700;margin-bottom:8px">'+esc(emp.nombre)+tardeBadge+'</div>'
+        +'<div style="display:flex;flex-wrap:wrap;gap:8px">';
+      emp.registros.sort(function(a,b){ return (a.ts||0)-(b.ts||0); }).forEach(function(r) {
+        var hora = r.ts ? paFmtHora(r.ts) : '—';
+        var hasFoto = !!r.foto;
+        var hasLoc  = !!(r.ubicacion && r.ubicacion.lat);
+        var badges  = (hasFoto ? '📸' : '') + (hasLoc ? '📍' : '');
+        html += '<button onclick="paVerMarcacion(\''+r._id+'\')" '
+          +'style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:8px 12px;cursor:pointer;text-align:left;color:var(--text);font-family:inherit">'
+          +'<div style="font-size:11px;font-weight:700;color:var(--accent2)">'+(tiposLabel[r.tipo]||r.tipo)+'</div>'
+          +'<div style="font-size:12px;font-family:\'JetBrains Mono\',monospace;margin:2px 0">'+hora+'</div>'
+          +'<div style="font-size:11px;color:var(--muted)">'+badges+(r.centroNombre?' · '+r.centroNombre:'')+'</div>'
+          +'</button>';
+      });
+      html += '</div></div>';
+    });
+  }
+
+  // Pending extra hours
+  paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).get()
+    .then(function(snapH) {
+      var docsHEPend = [];
+      snapH.forEach(function(d){ var r=d.data(); if(r.estado==='pendiente') docsHEPend.push({id:d.id,h:r}); });
+      if (docsHEPend.length > 0) {
+        html += '<div class="section-title" style="margin-top:20px">⏳ Horas extra pendientes ('+docsHEPend.length+')</div>';
+        docsHEPend.forEach(function(entry) {
+          var h = entry.h;
+          var tipos = { diurna:'☀️', nocturna:'🌙', feriado:'🎉', finde:'📅' };
+          html += '<div class="report-row">'
+            + '<div><div class="report-emp">'+h.empleadoNombre+'</div>'
+            + '<div class="report-detail">'+h.fecha+' · '+(tipos[h.tipo]||'')+' '+h.horas+' hrs · '+h.descripcion.slice(0,40)+'</div></div>'
+            + '<div style="display:flex;gap:6px">'
+      +'<button onclick="paAprobarHEBtn(this)" data-id="'+entry.id+'" data-emp="'+h.empleadoId+'" data-h="'+h.horas+'" style="background:#006B3F;color:#fff;border:none;border-radius:8px;padding:6px 10px;font-weight:700;font-size:11px">✓ Aprobar</button>'
+            + '<button style="background:var(--red);color:#fff;border:none;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:11px" onclick="paRechazarHorasExtra(\''+entry.id+'\')">✗</button>'
+            + '</div></div>';
+        });
+      }
+      // ── Incapacidades activas hoy ───────────────────────────
+      var incsHoy = [];
+      snapInc.forEach(function(d) {
+        var inc = Object.assign({ id: d.id }, d.data());
+        if (inc.fechaFin < hoy) return; // filtro cliente — reemplaza where fechaFin>=hoy
+        if (inc.fechaInicio <= hoy && inc.fechaFin >= hoy) incsHoy.push(inc);
+      });
+      if (incsHoy.length) {
+        html += '<div class="section-title" style="margin-top:16px">🏥 Incapacidades activas hoy ('+incsHoy.length+')</div>';
+        // Ordenar incapacidades alfabéticamente por nombre
+        incsHoy.sort(function(a,b){ return (a.empleadoNombre||'').localeCompare(b.empleadoNombre||'','es',{sensitivity:'base'}); });
+        incsHoy.forEach(function(inc) {
+          html += '<div class="report-row">'
+            +'<div style="flex:1">'
+            +'<div class="report-emp">'+inc.empleadoNombre+'</div>'
+            +'<div class="report-detail">'+inc.motivo+'</div>'
+            +'<div class="report-detail" style="color:var(--muted)">'+inc.fechaInicio+' → '+inc.fechaFin+' · '+inc.dias+' día(s) · Estado: <strong>'+inc.estado+'</strong></div>'
+            +'</div>'
+            +'<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">'
+            +(inc.foto?'<button onclick="paVerFotoInc(\''+inc.id+'\')" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;color:var(--text)">📷 Ver</button>':'')
+            +(inc.estado==='pendiente'?'<button onclick="paAprobarInc(\''+inc.id+'\')" style="background:#006B3F;color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer">✓ Aprobar</button>':'')
+            +(inc.estado==='pendiente'?'<button onclick="paRechazarInc(\''+inc.id+'\')" style="background:var(--red);color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer">✗</button>':'')
+            +'</div></div>';
+        });
+      }
+
+      console.log('[Admin] paAdminHoy renderizando HTML, longitud:', html.length, '| adminContent.clientHeight:', content.clientHeight);
+      content.innerHTML = html;
+      console.log('[Admin] paAdminHoy HTML renderizado OK | adminContent.scrollHeight:', content.scrollHeight);
+    });
+}
+
+// ── Cancelar listeners de la pestaña Hoy ────────────────────
+function _paUnsubscribeHoy() {
+  if (PA._hoyUnsubs) {
+    PA._hoyUnsubs.forEach(function(u) { try { u(); } catch(e) {} });
+    PA._hoyUnsubs = null;
+  }
+}
+
 function paAdminHoy(content) {
   if (!paDb) {
     content.innerHTML = '<div style="color:#f85149;padding:20px;text-align:center">⚠ Sin conexión a Firebase.<br><small>Recarga la página e intenta de nuevo.</small></div>';
     return;
   }
   var hoy = paHoy();
-  console.log('[Admin] paAdminHoy — fecha:', hoy, '| empresa:', PA.empresa, '| paDb:', !!paDb);
+  content.innerHTML = '<div class="spinner"></div>';
+  _paUnsubscribeHoy();
 
-  // Cargar marcaciones + incapacidades en paralelo
-  Promise.all([
-    paDb.collection('paMarcaciones').where('fecha','==',hoy).get(),
-    paDb.collection('paIncapacidades').where('empresa','==',PA.empresa).limit(500).get()
-  ]).then(function(results) {
-    var snap = results[0];
-    var snapInc = results[1];
-    console.log('[Admin] paMarcaciones query OK — docs:', snap.size);
-      // Filtrar por empresa en cliente
-      var marcs = {};
-      PA._marcacionesDetalle = {}; // store full records for viewer
-      snap.forEach(function(d) {
-        var m = Object.assign({ _id: d.id }, d.data());
-        // Normalizar ts desde Firestore Timestamp
-        if (m.ts && typeof m.ts === 'object' && m.ts.toMillis) m.ts = m.ts.toMillis();
-        else if (m.ts && m.ts.seconds) m.ts = m.ts.seconds * 1000 + Math.round((m.ts.nanoseconds||0)/1e6);
-        // Filtrar por empresa en cliente (evita índice compuesto)
-        if (m.empresa !== PA.empresa) return;
-        var empId = m.empleadoId;
-        if (!marcs[empId]) marcs[empId] = { nombre: m.empleadoNombre, tipos: [], tarde: 0, centro: '', registros: [] };
-        marcs[empId].tipos.push(m.tipo);
-        marcs[empId].registros.push(m);
-        // Recalcular tardanza desde el timestamp UTC (no del campo almacenado que puede
-        // estar contaminado por teléfonos con timezone incorrecto)
-        if (m.tipo === 'entrada' && m.ts) {
-          var _mts   = (typeof m.ts === 'object' && m.ts.toMillis) ? m.ts.toMillis()
-                     : (m.ts && m.ts.seconds) ? m.ts.seconds*1000 : (m.ts||0);
-          if (_mts > 0) {
-            var _empObj = PA.empleados.find(function(e){ return e.id === m.empleadoId; });
-            var _diaES  = _diaSemanaES(_mts);
-            var _horEmp = _empObj ? _horarioDeEmp(_empObj, _diaES) : null;
-            if (!_empObj) marcs[empId].sinHorario = true;
-            if (_horEmp && _horEmp.trabaja === false) {
-              // Día no laborable — marcación extraordinaria, sin cálculo tardanza
-              marcs[empId].extraord = true;
-            } else if (_horEmp && _horEmp.horaEntrada) {
-              // Horario configurado — recalcular tardanza desde ts UTC
-              var _pts   = _horEmp.horaEntrada.split(':');
-              var _espMs = parseInt(_pts[0], 10)*3600000 + parseInt(_pts[1]||'0', 10)*60000;
-              var _hms   = _hmsDesdeMedianocheES(_mts);
-              var _tolMs = _toleranciaDeEmp(_empObj, _diaES) * 60000;
-              if (_hms.totalMs > _espMs + _tolMs) {
-                marcs[empId].tarde = Math.round((_hms.totalMs - _espMs) / 60000);
-              }
-            } else if (!_horEmp) {
-              // Sin horario configurado — marcar para que el admin lo sepa
-              marcs[empId].sinHorario = true;
-            }
-          }
-        }
-        if (m.centroNombre) marcs[empId].centro = m.centroNombre;
-        PA._marcacionesDetalle[m._id] = m;
-      });
+  var _latestMarc = null, _latestInc = null, _pending = false;
 
-      var conEntrada = Object.keys(marcs).filter(function(k){ return marcs[k].tipos.indexOf('entrada') >= 0; }).length;
-      var conSalida  = Object.keys(marcs).filter(function(k){ return marcs[k].tipos.indexOf('salida') >= 0; }).length;
-
-      var html = '<div class="stat-grid">'
-        +'<div class="stat-card"><div class="stat-val" style="color:var(--accent)">'+conEntrada+'</div><div class="stat-lbl">Con entrada hoy</div></div>'
-        +'<div class="stat-card"><div class="stat-val" style="color:var(--warn)">'+conSalida+'</div><div class="stat-lbl">Con salida hoy</div></div>'
-        +'</div>';
-
-      html += '<div class="section-title">Marcaciones de hoy — clic para ver foto y ubicación</div>';
-
-      var tiposLabel = { entrada:'🏢 Entrada', almuerzo_salida:'🍽️ Sal. almuerzo', almuerzo_regreso:'↩️ Reg. almuerzo', cena_salida:'🌙 Sal. cena', cena_regreso:'🌙 Reg. cena', salida:'🏠 Salida', entrada_adicional:'⚡ Entrada adicional', salida_adicional:'⚡ Sal. adicional' };
-
-      if (!Object.keys(marcs).length) {
-        html += '<div style="text-align:center;padding:32px;color:var(--muted)">Sin marcaciones hoy.</div>';
-      } else {
-        // Ordenar alfabéticamente por nombre del empleado
-        Object.keys(marcs)
-          .sort(function(a,b){
-            return (marcs[a].nombre||'').localeCompare(marcs[b].nombre||'', 'es', {sensitivity:'base'});
-          })
-          .forEach(function(empId) {
-          var emp = marcs[empId];
-          var tardeBadge = emp.sinHorario
-            ? ' <span style="color:var(--muted);font-size:10px" title="Configura el horario de este empleado en el panel de empleados">⚙ Sin horario</span>'
-            : emp.tarde > 0
-            ? ' <span style="color:var(--warn);font-size:10px">⚠ +'+emp.tarde+'min tarde</span>'
-            : '';
-          html += '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:8px">'
-            +'<div style="font-weight:700;margin-bottom:8px">'+esc(emp.nombre)+tardeBadge+'</div>'
-            +'<div style="display:flex;flex-wrap:wrap;gap:8px">';
-          emp.registros.sort(function(a,b){ return (a.ts||0)-(b.ts||0); }).forEach(function(r) {
-            var hora = r.ts ? paFmtHora(r.ts) : '—';
-            var hasFoto = !!r.foto;
-            var hasLoc  = !!(r.ubicacion && r.ubicacion.lat);
-            var badges  = (hasFoto ? '📸' : '') + (hasLoc ? '📍' : '');
-            html += '<button onclick="paVerMarcacion(\''+r._id+'\')" '
-              +'style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:8px 12px;cursor:pointer;text-align:left;color:var(--text);font-family:inherit">'
-              +'<div style="font-size:11px;font-weight:700;color:var(--accent2)">'+(tiposLabel[r.tipo]||r.tipo)+'</div>'
-              +'<div style="font-size:12px;font-family:\'JetBrains Mono\',monospace;margin:2px 0">'+hora+'</div>'
-              +'<div style="font-size:11px;color:var(--muted)">'+badges+(r.centroNombre?' · '+r.centroNombre:'')+'</div>'
-              +'</button>';
-          });
-          html += '</div></div>';
-        });
-      }
-
-      // Pending extra hours
-      paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).get()
-        .then(function(snapH) {
-          var docsHEPend = [];
-          snapH.forEach(function(d){ var r=d.data(); if(r.estado==='pendiente') docsHEPend.push({id:d.id,h:r}); });
-          if (docsHEPend.length > 0) {
-            html += '<div class="section-title" style="margin-top:20px">⏳ Horas extra pendientes ('+docsHEPend.length+')</div>';
-            docsHEPend.forEach(function(entry) {
-              var h = entry.h;
-              var tipos = { diurna:'☀️', nocturna:'🌙', feriado:'🎉', finde:'📅' };
-              html += '<div class="report-row">'
-                + '<div><div class="report-emp">'+h.empleadoNombre+'</div>'
-                + '<div class="report-detail">'+h.fecha+' · '+(tipos[h.tipo]||'')+' '+h.horas+' hrs · '+h.descripcion.slice(0,40)+'</div></div>'
-                + '<div style="display:flex;gap:6px">'
-          +'<button onclick="paAprobarHEBtn(this)" data-id="'+entry.id+'" data-emp="'+h.empleadoId+'" data-h="'+h.horas+'" style="background:#006B3F;color:#fff;border:none;border-radius:8px;padding:6px 10px;font-weight:700;font-size:11px">✓ Aprobar</button>'
-                + '<button style="background:var(--red);color:#fff;border:none;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:11px" onclick="paRechazarHorasExtra(\''+entry.id+'\')">✗</button>'
-                + '</div></div>';
-            });
-          }
-          // ── Incapacidades activas hoy ───────────────────────────
-          var incsHoy = [];
-          snapInc.forEach(function(d) {
-            var inc = Object.assign({ id: d.id }, d.data());
-            if (inc.fechaFin < hoy) return; // filtro cliente — reemplaza where fechaFin>=hoy
-            if (inc.fechaInicio <= hoy && inc.fechaFin >= hoy) incsHoy.push(inc);
-          });
-          if (incsHoy.length) {
-            html += '<div class="section-title" style="margin-top:16px">🏥 Incapacidades activas hoy ('+incsHoy.length+')</div>';
-            // Ordenar incapacidades alfabéticamente por nombre
-            incsHoy.sort(function(a,b){ return (a.empleadoNombre||'').localeCompare(b.empleadoNombre||'','es',{sensitivity:'base'}); });
-            incsHoy.forEach(function(inc) {
-              html += '<div class="report-row">'
-                +'<div style="flex:1">'
-                +'<div class="report-emp">'+inc.empleadoNombre+'</div>'
-                +'<div class="report-detail">'+inc.motivo+'</div>'
-                +'<div class="report-detail" style="color:var(--muted)">'+inc.fechaInicio+' → '+inc.fechaFin+' · '+inc.dias+' día(s) · Estado: <strong>'+inc.estado+'</strong></div>'
-                +'</div>'
-                +'<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">'
-                +(inc.foto?'<button onclick="paVerFotoInc(\''+inc.id+'\')" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;color:var(--text)">📷 Ver</button>':'')
-                +(inc.estado==='pendiente'?'<button onclick="paAprobarInc(\''+inc.id+'\')" style="background:#006B3F;color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer">✓ Aprobar</button>':'')
-                +(inc.estado==='pendiente'?'<button onclick="paRechazarInc(\''+inc.id+'\')" style="background:var(--red);color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer">✗</button>':'')
-                +'</div></div>';
-            });
-          }
-
-          console.log('[Admin] paAdminHoy renderizando HTML, longitud:', html.length, '| adminContent.clientHeight:', content.clientHeight);
-          content.innerHTML = html;
-          console.log('[Admin] paAdminHoy HTML renderizado OK | adminContent.scrollHeight:', content.scrollHeight);
-        });
-    }).catch(function(e) {
-      console.error('[Admin] paAdminHoy ERROR:', e.code, e.message);
-      content.innerHTML = '<div style="color:var(--red);padding:20px;text-align:center">Error Firebase: ' + (e.code||'') + '<br>' + e.message + '</div>';
+  function _tryRender() {
+    if (!_latestMarc || !_latestInc) return;
+    if (_pending) return;
+    _pending = true;
+    requestAnimationFrame(function() {
+      _pending = false;
+      _paAdminHoyRender(_latestMarc, _latestInc, content, hoy);
     });
+  }
+
+  var _u1 = paDb.collection('paMarcaciones')
+    .where('fecha', '==', hoy)
+    .onSnapshot(
+      function(snap) { _latestMarc = snap; _tryRender(); },
+      function(err)  { console.error('[Hoy/marc]', err.message);
+        content.innerHTML = '<div style="color:var(--red);padding:20px">Error: '+err.message+'</div>'; }
+    );
+
+  var _u2 = paDb.collection('paIncapacidades')
+    .where('empresa', '==', PA.empresa)
+    .limit(500)
+    .onSnapshot(
+      function(snapInc) { _latestInc = snapInc; _tryRender(); },
+      function(err) {
+        console.warn('[Hoy/inc]', err.message);
+        if (!_latestInc) _latestInc = { forEach: function(){}, docs: [], size: 0 };
+        _tryRender();
+      }
+    );
+
+  PA._hoyUnsubs = [_u1, _u2];
 }
+
 
 function paVerFotoInc(incId) {
   paDb.collection('paIncapacidades').doc(incId).get().then(function(d) {
@@ -6178,10 +6276,13 @@ function paEditarMarcacion(marcId) {
 
     paDb.collection('paMarcaciones').doc(marcId).update(updates)
       .then(function() {
-        // Actualizar en memoria
         Object.assign(PA._marcacionesDetalle[marcId], updates);
         div.remove();
         paToast('✅ Marcación actualizada');
+        // Si se editó una salida → recalcular HE (eliminar las viejas y recalcular)
+        if ((nuevoTipo === 'salida' || nuevoTipo === 'salida_adicional') && m.empleadoId && m.fecha) {
+          _paRecalcularHE(m.empleadoId, m.fecha, updates.ts || nuevoTs);
+        }
         if (m.empleadoId) _paBuscarHistEmp(m.empleadoId);
       })
       .catch(function(e) { paToast('Error: '+e.message, true); });
@@ -6685,6 +6786,32 @@ function paEliminarAP(apId) {
 }
 
 // ── Selección múltiple de APs ──────────────────────────────────────
+
+// ── Activar / Desactivar empleado ──────────────────────────────
+function paToggleActivoEmp(empId) {
+  var emp = PA.empleados.find(function(e){ return e.id === empId; });
+  if (!emp) return;
+  var nuevoActivo = emp.activo === false; // toggle
+  var docId = PA._pinsDocMap && PA._pinsDocMap[empId];
+  var label = nuevoActivo ? 'activar' : 'desactivar';
+  paConfirm('¿' + label.charAt(0).toUpperCase() + label.slice(1) + ' a ' + emp.nombre + '?' +
+    (nuevoActivo ? '' : '\nNo aparecerá en el portal ni en reportes.'), function() {
+    var promise;
+    if (docId) {
+      promise = paDb.collection('paPins').doc(docId).update({ activo: nuevoActivo });
+    } else {
+      promise = paDb.collection('paPins').add({
+        empresa: PA.empresa, empleadoId: empId, activo: nuevoActivo
+      });
+    }
+    promise.then(function() {
+      emp.activo = nuevoActivo;
+      paToast(nuevoActivo ? '✅ Empleado activado' : '⛔ Empleado desactivado');
+      paAdminTab('emps');
+    }).catch(function(e){ paToast('Error: ' + e.message, true); });
+  });
+}
+
 function paToggleSelTodas(checked) {
   document.querySelectorAll('.ap-sel-cb').forEach(function(cb){ cb.checked = checked; });
   paActualizarSelAP();
@@ -6800,6 +6927,98 @@ function paEliminarAuditadas() {
 }
 
 // ── Verificación compensatorio fin de semana (admin login) ──────
+
+// ── Cargar ausencias del período activo (para resumen en "Hoy") ──
+
+// ── Recalcular HE cuando el admin edita una salida ──────────────
+function _paRecalcularHE(empId, fecha, newSalidaTs) {
+  if (!paDb || !empId || !fecha) return;
+  // 1. Eliminar HE existentes para este empleado y fecha
+  paDb.collection('paHorasExtra')
+    .where('empresa',   '==', PA.empresa)
+    .where('empleadoId','==', empId)
+    .where('fecha',     '==', fecha)
+    .get()
+    .then(function(snap) {
+      var batch = paDb.batch();
+      snap.forEach(function(d) { batch.delete(d.ref); });
+      return batch.commit();
+    })
+    .then(function() {
+      // 2. Buscar la marcación de entrada de ese día para recalcular
+      return paDb.collection('paMarcaciones')
+        .where('empresa',   '==', PA.empresa)
+        .where('empleadoId','==', empId)
+        .where('fecha',     '==', fecha)
+        .where('tipo',      '==', 'entrada')
+        .limit(1).get();
+    })
+    .then(function(snapEnt) {
+      if (snapEnt.empty) return;
+      var entDoc = snapEnt.docs[0].data();
+      var entTs = entDoc.ts && entDoc.ts.toMillis ? entDoc.ts.toMillis()
+                : (entDoc.ts && entDoc.ts.seconds) ? entDoc.ts.seconds*1000 : Number(entDoc.ts)||0;
+      if (!entTs) return;
+      // 3. Construir objeto de salida simulado y recalcular
+      var salidaSimulada = {
+        empleadoId: empId,
+        empleadoNombre: entDoc.empleadoNombre,
+        cargo: entDoc.cargo||'',
+        fecha: fecha,
+        tipo: 'salida',
+        ts: newSalidaTs
+      };
+      paAutoRegistrarHorasExtra(salidaSimulada);
+      console.log('[RecalcHE] HE recalculadas para', empId, fecha);
+    })
+    .catch(function(e){ console.warn('[RecalcHE] Error:', e.message); });
+}
+
+function _paCargarAusenciasPeriodo() {
+  if (!paDb || !PA.empresa) return;
+  var _q = _quincenaActual();
+  // Cargar todas las marcaciones del período para contar ausencias por empleado
+  paDb.collection('paMarcaciones')
+    .where('empresa', '==', PA.empresa)
+    .where('fecha', '>=', _q.desde)
+    .where('fecha', '<=', _q.hasta)
+    .get()
+    .then(function(snap) {
+      // Construir set de días que cada empleado marcó entrada
+      var marcoEntrada = {}; // empId → Set de fechas
+      snap.forEach(function(d) {
+        var r = d.data();
+        if (r.tipo !== 'entrada') return;
+        if (!marcoEntrada[r.empleadoId]) marcoEntrada[r.empleadoId] = {};
+        marcoEntrada[r.empleadoId][r.fecha] = true;
+      });
+
+      // Generar lista de días laborables en el período
+      var diasLaborables = [];
+      var _cur = new Date(_q.desde+'T12:00:00');
+      var _fin = new Date(_q.hasta+'T12:00:00');
+      var _hoy = paHoy();
+      while (_cur <= _fin) {
+        var _fStr = _cur.getFullYear()+'-'+String(_cur.getMonth()+1).padStart(2,'0')+'-'+String(_cur.getDate()).padStart(2,'0');
+        if (_fStr <= _hoy) diasLaborables.push({ fecha:_fStr, diaSem:_cur.getDay() });
+        _cur.setDate(_cur.getDate()+1);
+      }
+
+      // Para cada empleado activo, contar ausencias (días sin entrada)
+      var ausPeriodo = {};
+      (PA.empleados||[]).filter(function(e){ return e.activo !== false; }).forEach(function(emp) {
+        var ausencias = 0;
+        diasLaborables.forEach(function(dia) {
+          var _hor = _horarioDeEmp(emp, dia.diaSem);
+          if (!_hor || !_hor.horaEntrada || _hor.trabaja === false) return; // no laborable para él
+          if (!(marcoEntrada[emp.id] && marcoEntrada[emp.id][dia.fecha])) ausencias++;
+        });
+        if (ausencias > 0) ausPeriodo[emp.id] = ausencias;
+      });
+      PA._ausPeriodo = ausPeriodo;
+    }).catch(function(e){ console.warn('[AusPeriodo]', e.message); });
+}
+
 function _paCheckCompensatorioFDS() {
   // Ejecutar cualquier día hasta que el admin confirme
   var hoy = paHoy();
@@ -6887,10 +7106,15 @@ function _paCheckCompensatorioFDS() {
       var r = d.data();
       if (r.tipo !== 'entrada') return;
       var _realHD = _hmsDesdeMedianocheES(typeof r.ts==='object'&&r.ts.toMillis?r.ts.toMillis():Number(r.ts)||0);
+      // Buscar salida del domingo para calcular horas
+      var _domSalMs = 0;
+      snapDom.forEach(function(d3){ if(d3.data().empleadoId===r.empleadoId&&d3.data().tipo==='salida'){ _domSalMs=typeof d3.data().ts==='object'&&d3.data().ts.toMillis?d3.data().ts.toMillis():Number(d3.data().ts)||0; } });
+      var _domHrsT = _domSalMs ? Math.round((_hmsDesdeMedianocheES(_domSalMs).horas*60+_hmsDesdeMedianocheES(_domSalMs).minutos - (_realHD.horas*60+_realHD.minutos)) / 60 * 10) / 10 : 0;
       domEmps[r.empleadoId] = {
         nombre:      r.empleadoNombre || '?',
         cargo:       r.cargo || '',
         horaEntrada: String(_realHD.horas).padStart(2,'0')+':'+String(_realHD.minutos).padStart(2,'0'),
+        horasTrabDom: _domHrsT,
         trabajoDom:  true
       };
     });
@@ -6946,7 +7170,7 @@ function _paMostrarModalCompFDS(empleados, semKey, lastSat, lastSun, nextFri, ne
       + '<div style="flex:1">'
       + '<div style="font-weight:700;font-size:13px">'+esc(e.nombre)+'</div>'
       + '<div style="font-size:10px;color:var(--muted)">'+esc(e.cargo||'')+'</div>'
-      + '<div style="font-size:11px;color:#e8a020;margin-top:3px">⏱ '+trabajoDesc.join(' · ')+'</div>'
+      + '<div style="font-size:11px;color:#e8a020;margin-top:3px">⏱ '+trabajoDesc.join(' · ')+(e.horasTrabSat||e.horasTrabDom?' <span style="color:var(--muted)">· Total: '+((e.horasTrabSat||0)+(e.horasTrabDom||0)).toFixed(1)+'h</span>':'')+'</div>'
       + '<div style="font-size:11px;color:var(--accent);margin-top:3px">🗓 Compensatorio: <strong>'+compDias.join(' + ')+'</strong></div>'
       + '</div>'
       + '</label>'
@@ -8072,7 +8296,9 @@ function _paAdminEmpsRender(content) {
     html += '<div class="_emp-toggle" data-eid="' + eid + '" style="padding:12px 14px;cursor:pointer">';
     html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
     html += '<div style="flex:1">';
-    html += '<div class="report-emp">' + enom + (pendCount>0 ? ' <span style="font-size:10px;font-weight:700;color:#f85149">⚠ ' + pendCount + ' pendiente(s)</span>' : '') + '</div>';
+    var _empActivo = emp.activo !== false;
+    var _inactivoBadge = _empActivo ? '' : ' <span style="font-size:10px;background:#f85149;color:#fff;padding:1px 6px;border-radius:4px;font-weight:700">INACTIVO</span>';
+    html += '<div class="report-emp" style="opacity:' + (_empActivo?'1':'.5') + '">' + enom + _inactivoBadge + (pendCount>0&&_empActivo ? ' <span style="font-size:10px;font-weight:700;color:#f85149">⚠ ' + pendCount + ' pendiente(s)</span>' : '') + '</div>';
     html += '<div class="report-detail">' + (emp.cargo||'—') + ' · ' + (emp.pin?'🔒 PIN asignado':'⚠ Sin PIN') + ' · ' + devStatus + '</div>';
     html += '<div class="report-detail">☀️ ' + heDiurna.toFixed(1) + 'h · 🌙 ' + heNoc.toFixed(1) + 'h extra · 🏖️ ' + (emp.diasVacacionesDisponibles||15) + ' días vac.</div>';
     html += '<div class="report-detail" style="font-size:10px">' + verBadge + '</div>';
@@ -8083,6 +8309,7 @@ function _paAdminEmpsRender(content) {
     // Botones de acción
     html += '<div style="display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px;border-top:1.5px solid #C4956A;background:var(--surface2)">';
     html += '<button class="_btn-edit-emp" data-eid="' + eid + '" style="padding:7px 10px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;font-size:11px;cursor:pointer;font-family:inherit;color:var(--text)">✏ Editar</button>';
+    html += '<button onclick="paToggleActivoEmp(\''+eid+'\')" style="padding:7px 10px;background:' + (_empActivo?'rgba(248,81,73,.12)':'rgba(46,160,67,.12)') + ';border:1px solid ' + (_empActivo?'rgba(248,81,73,.3)':'rgba(46,160,67,.3)') + ';color:' + (_empActivo?'#f85149':'#3fb950') + ';border-radius:8px;cursor:pointer;font-size:11px;font-family:inherit">' + (_empActivo?'⛔ Desactivar':'✅ Activar') + '</button>';
     if (devStatus === '📱 Vinculado') {
       html += '<button class="_btn-desvincul" data-empid="' + eid + '" data-nom="' + enom + '" style="padding:7px 10px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:8px;cursor:pointer;font-size:11px;font-family:inherit">🔌 Desvincular</button>';
     }
@@ -9566,7 +9793,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-04-U';
+var PA_VERSION = 'v2026-07-04-Y';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
