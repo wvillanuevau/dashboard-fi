@@ -1105,7 +1105,8 @@ function paSolicitarDesvinculacion() {
     paToast('Sin conexión. Contacta al administrador directamente.', true);
     return;
   }
-  paDb.collection('paAccionesPersonal').add({
+  // Notificación al admin — NO va en paAccionesPersonal (no es una AP disciplinaria)
+  paDb.collection('paNotificaciones').add({
     empresa:     PA.empresa,
     empleadoId:  emp ? emp.id : null,
     empleadoNombre: empNombre,
@@ -2535,6 +2536,8 @@ function paAfterAuth() {
         }
         _paGuardarVinculo(PA.empleado);
         paUpdateDash();
+        // Cargar notificaciones de dispositivo
+        setTimeout(_paCargarNotificaciones, 600);
         // Cargar ausencias del período para resumen
         setTimeout(_paCargarAusenciasPeriodo, 800);
         // Verificar compensatorios de fin de semana (solo admin)
@@ -4796,12 +4799,17 @@ function _paVerificarFaltasAutomaticas() {
     var diaSemana = _diaSemanaES(ahora.getTime()); // día en El Salvador, no del dispositivo // 0=domingo ... 6=sábado
 
     Promise.all([
-      paDb.collection('paMarcaciones').where('empresa','==',PA.empresa).where('fecha','==',hoy).where('tipo','==','entrada').get(),
+      // Solo 2 filtros para evitar requerir índice compuesto — tipo se filtra client-side
+      paDb.collection('paMarcaciones').where('empresa','==',PA.empresa).where('fecha','==',hoy).get(),
       paDb.collection('paIncapacidades').where('empresa','==',PA.empresa).limit(500).get(),
       paDb.collection('paAccionesPersonal').where('empresa','==',PA.empresa).where('tipo','==','FALTA_INJUSTIFICADA').where('fecha','==',hoy).get()
     ]).then(function(res) {
       var marcaronHoy = {};
-      res[0].forEach(function(d){ marcaronHoy[d.data().empleadoId] = true; });
+      res[0].forEach(function(d) {
+        var _r = d.data();
+        // Filtrar por tipo client-side (antes era .where que requería índice compuesto)
+        if (_r.tipo === 'entrada') marcaronHoy[_r.empleadoId] = true;
+      });
 
       var incapacitadosHoy = {};
       res[1].forEach(function(d){
@@ -5950,7 +5958,11 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
 
   var sol      = (document.getElementById('acpSolicita')   ||{}).value || 'WILFREDO VILLANUEVA';
   var aut      = (document.getElementById('acpAutoriza')   ||{}).value || 'Julio de Paul';
-  var exp      = (document.getElementById('acpExplicacion')||{}).value || '';
+  // Leer explicación del formulario; si está vacío usar el motivo guardado en la AP
+  var exp      = (document.getElementById('acpExplicacion')||{}).value
+               || (PA._apCtx && PA._apCtx.accionData && PA._apCtx.accionData.motivo)
+               || (window._paAccionData && window._paAccionData.motivo)
+               || '';
   var SELECTED = window._paAPOpcion || 9;
   window._paAPOpcion = null;
 
@@ -6419,7 +6431,7 @@ function paAdminAcciones(content) {
     +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(232,160,32,.12);border-color:rgba(232,160,32,.3);color:#e8a020" onclick="paCargarAPsTardanzas()">⏰ Desc. Día/7° (tard.)</button>'
     +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(0,107,63,.12);border-color:rgba(0,107,63,.3);color:#006B3F" onclick="paCargarAPsIncapacidades()">🏥 Incapacidades</button>'
     +'</div>'
-    +'<button onclick="paGenerarAPsHistoricas()" style="width:100%;padding:10px;margin-bottom:10px;background:rgba(125,133,144,.06);border:1px solid var(--border);border-radius:10px;color:var(--muted);cursor:pointer;font-size:12px;font-family:inherit">🔄 Generar APs históricas de tardanzas (últimos 30 días)</button>'
+    +'<button onclick="paGenerarAPsHistoricas()" style="width:100%;padding:12px;margin-bottom:2px;background:rgba(56,139,253,.12);border:1.5px solid rgba(56,139,253,.4);border-radius:10px;color:#58a6ff;cursor:pointer;font-size:13px;font-family:inherit;font-weight:700">⚡ Generar APs del período activo (sin repetir)</button>'
     +'<div id="apLista"><div class="spinner"></div></div>';
 
   paCargarAPsTodos();
@@ -6447,7 +6459,16 @@ function paImprimirAP(apId) {
         : '')
   };
   // Seleccionar opción correcta según tipo
-  var opcion = ap.tipo==='TARDANZAS' ? 7 : ap.tipo==='INCAPACIDAD' ? 13 : 9;
+  // Mapear tipo de AP a opción del formulario correcta
+  var _tipoOpMap = {
+    'AMONESTACION_TARDANZA':  5,
+    'TARDANZAS':              7,
+    'DESCUENTO_DIA_SEPTIMO':  7,
+    'FALTA_INJUSTIFICADA':    9,
+    'INCAPACIDAD':           13,
+    'GENERICA':               9
+  };
+  var opcion = _tipoOpMap[ap.tipo] || ap.opcionMarcada || 9;
   // Guardar opcion temporalmente para que paGenerarAccionPersonal la use
   window._paAPOpcion = opcion;
   paGenerarAccionPersonal(ap.empleadoId, ap.empleadoNombre, ap.cargo||'', ap.fecha||ap.fechaEmision);
@@ -6517,99 +6538,107 @@ function paImprimirAP(apId) {
 
 // ── Generar APs históricas de tardanzas (últimos 30 días) ────
 function paGenerarAPsHistoricas() {
+  // Usar el período configurado (PA.periodoHE) como fuente única de verdad
+  var _qGen = _quincenaActual();
 
-  paConfirm('¿Generar APs de tardanzas para el período ' + _quincenaActual().desde + ' al ' + _quincenaActual().hasta + '?\nSolo crea APs para empleados con 4+ tardanzas sin AP en ese período.', function(){
+  paConfirm('Período activo: ' + _qGen.desde + ' → ' + _qGen.hasta
+    + '\n\n✅ Solo crea APs para empleados con 4+ tardanzas en este período.'
+    + '\n✅ No duplica APs ya existentes.'
+    + '\n\n¿Continuar?', function() {
 
+    paToast('Procesando...');
 
-  paToast('Procesando... puede tardar unos segundos');
-  var hoy = paHoy();
-  // Usar PA.periodoHE si configurado; sino últimos 30 días como fallback
-  var _qHist = _quincenaActual();
-  var periodoDesde = _qHist.desde;
-  hoy        = _qHist.hasta;
+    Promise.all([
+      // Traer solo marcaciones del período configurado
+      paDb.collection('paMarcaciones')
+        .where('empresa', '==', PA.empresa)
+        .where('fecha',   '>=', _qGen.desde)
+        .where('fecha',   '<=', _qGen.hasta)
+        .get(),
+      // APs existentes del período para no duplicar
+      paDb.collection('paAccionesPersonal')
+        .where('empresa', '==', PA.empresa)
+        .get()
+    ]).then(function(results) {
+      var snapM = results[0], snapAP = results[1];
 
-  // Cargar marcaciones del período configurado (PA.periodoHE o quincena calendario)
-  Promise.all([
-    paDb.collection('paMarcaciones').where('empresa','==',PA.empresa).get(),
-    paDb.collection('paAccionesPersonal').where('empresa','==',PA.empresa).limit(500).get()
-  ]).then(function(results) {
-    var snapM = results[0], snapAP = results[1];
-
-    // APs de tardanzas ya existentes → no duplicar
-    var apsExistentes = {};
-    snapAP.forEach(function(d){ var r=d.data(); if(r.tipo==='TARDANZAS') apsExistentes[(r.empleadoId||'')+'|'+(r.quincenaDesde||'')] = true; });
-
-    // Agrupar marcaciones por empleado y fecha
-    var porEmp = {};
-    snapM.forEach(function(d){
-      var r=d.data();
-      if (!r.fecha || r.fecha < periodoDesde) return;
-      if (r.tipo !== 'entrada') return;
-      if (r.ts && typeof r.ts==='object' && r.ts.toMillis) r.ts=r.ts.toMillis();
-      else if (r.ts && r.ts.seconds) r.ts=r.ts.seconds*1000;
-      if (!porEmp[r.empleadoId]) porEmp[r.empleadoId] = { nombre:r.empleadoNombre||'', cargo:'', dias:{} };
-      porEmp[r.empleadoId].dias[r.fecha] = r;
-    });
-
-    // Para cada empleado calcular tardanzas por quincena
-    var writes = [];
-    Object.keys(porEmp).forEach(function(empId) {
-      var empObj = (PA.empleados||[]).find(function(e){ return e.id===empId; }) || {};
-      var empData = porEmp[empId];
-      var marcObj = {}; marcObj[empId] = {};
-      Object.keys(empData.dias).forEach(function(fecha){
-        var m = empData.dias[fecha];
-        marcObj[empId][fecha] = [m];
-      });
-      // paTardanzasEmp lee el horario por día internamente — no necesita horaEntradaStr
-      var tard = paTardanzasEmp(empId, marcObj, null);
-
-      // Agrupar tardanzas por quincena
-      var quincenas = {};
-      tard.dias.forEach(function(d){
-        var fecha = d.fecha;
-        var day = parseInt(fecha.slice(8));
-        var mes = fecha.slice(0,7);
-        var q = day<=15 ? mes+'-01' : mes+'-16';
-        if (!quincenas[q]) quincenas[q] = { dias:[], totalTard:0, totalDescHrs:0, desde:q };
-        quincenas[q].dias.push(d);
-        quincenas[q].totalTard++;
-        quincenas[q].totalDescHrs += d.descHrs;
+      // APs de tardanzas ya existentes en este período → no duplicar
+      var apsExistentes = {};
+      snapAP.forEach(function(d) {
+        var r = d.data();
+        if (r.tipo === 'TARDANZAS' || r.tipo === 'AMONESTACION_TARDANZA' || r.tipo === 'DESCUENTO_DIA_SEPTIMO') {
+          // Usa quincenaDesde si existe, si no usa fecha de acción para comparar con el período
+          var _key = (r.empleadoId||'') + '|' + (r.quincenaDesde || r.fecha || '');
+          apsExistentes[_key] = true;
+        }
       });
 
-      Object.keys(quincenas).forEach(function(qDesde){
-        var qData = quincenas[qDesde];
-        if (qData.totalTard < 4) return;
-        var key = empId+'|'+qDesde;
-        if (apsExistentes[key]) return; // ya existe
+      // Agrupar marcaciones de entrada por empleado
+      var porEmp = {}; // empId → [{ fecha, ts, minutosRetraso }]
+      snapM.forEach(function(d) {
+        var r = d.data();
+        if (r.tipo !== 'entrada') return;
+        if ((r.minutosRetraso || 0) <= 0) return; // solo tardanzas
+        if (!porEmp[r.empleadoId]) porEmp[r.empleadoId] = { nombre: r.empleadoNombre||'', cargo: r.cargo||'', tardanzas: [] };
+        porEmp[r.empleadoId].tardanzas.push({ fecha: r.fecha, mins: r.minutosRetraso||0 });
+      });
 
-        // Calcular hasta de quincena
-        var parts = qDesde.split('-');
-        var y=parseInt(parts[0], 10),m=parseInt(parts[1], 10),d=parseInt(parts[2]);
-        var hasta = d===1
-          ? y+'-'+String(m).padStart(2,'0')+'-15'
-          : y+'-'+String(m).padStart(2,'0')+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0');
+      var writes = [];
+      Object.keys(porEmp).forEach(function(empId) {
+        var empData = porEmp[empId];
+        var empObj  = (PA.empleados||[]).find(function(e){ return e.id === empId; }) || {};
+        if (empObj.activo === false) return; // omitir inactivos
+
+        // Ordenar por fecha
+        var tards = empData.tardanzas.sort(function(a,b){ return a.fecha < b.fecha ? -1 : 1; });
+        if (tards.length < 4) return; // menos de 4 tardanzas → sin AP
+
+        // Verificar si ya existe AP para este empleado en este período
+        var _keyPeriodo = empId + '|' + _qGen.desde;
+        if (apsExistentes[_keyPeriodo]) return; // ya existe
+
+        // Tomar las primeras 4 para la amonestación
+        var bloque    = tards.slice(0, 4);
+        var totalHrs  = bloque.reduce(function(s,t){ return s + Math.ceil(t.mins/60); }, 0);
+        var detalle   = bloque.map(function(t){ return t.fecha + ' (' + t.mins + ' min)'; }).join('; ');
+        var ultimaFecha = bloque[bloque.length-1].fecha;
 
         writes.push(paDb.collection('paAccionesPersonal').add({
-          empresa: PA.empresa, empleadoId: empId,
-          empleadoNombre: empObj.nombre||empData.nombre,
-          cargo: empObj.cargo||'', tipo: 'DESCUENTO_DIA_SEPTIMO',
-          concepto: 'Descuento de Día y Séptimo por tardanzas acumuladas',
-          origenTardanzas: true,
-          quincenaDesde: qDesde, quincenaHasta: hasta,
-          totalTardanzas: qData.totalTard, totalDescHrs: qData.totalDescHrs,
-          diasDetalle: qData.dias, opcionMarcada: 7,
-          fecha: (qData.dias&&qData.dias.length)?qData.dias[qData.dias.length-1].fecha:hasta,
-          estado: 'emitida', fechaEmision: paHoy(), ts: Date.now()
+          empresa:        PA.empresa,
+          empleadoId:     empId,
+          empleadoNombre: empObj.nombre || empData.nombre,
+          cargo:          empObj.cargo  || empData.cargo || '',
+          tipo:           'AMONESTACION_TARDANZA',
+          concepto:       'Amonestación por 4 tardanzas acumuladas en el período',
+          justificacion:  'El empleado acumuló ' + tards.length + ' tardanza(s) en el período del '
+            + _qGen.desde + ' al ' + _qGen.hasta + '. '
+            + 'Primeras 4: ' + detalle + '. '
+            + 'Total horas a descontar: ' + totalHrs + 'h.',
+          fecha:          ultimaFecha,
+          fechaEmision:   paHoy(),
+          totalTardanzas: tards.length,
+          horasDescuento: totalHrs,
+          quincenaDesde:  _qGen.desde,
+          quincenaHasta:  _qGen.hasta,
+          diasDetalle:    bloque,
+          opcionMarcada:  5,
+          estado:         'emitida',
+          origen:         'historico',
+          ts:             Date.now()
         }));
       });
-    });
 
-    if (!writes.length) { paToast('Sin APs nuevas que generar — ya están todas registradas o no hay 4+ tardanzas'); return; }
-    Promise.all(writes)
-      .then(function(){ paToast('✅ '+writes.length+' AP(s) generadas. Recarga la lista.'); paCargarAPsTodos(); })
-      .catch(function(e){ paToast('Error: '+e.message, true); });
-  }).catch(function(e){ paToast('Error cargando datos: '+e.message, true); });
+      if (!writes.length) {
+        paToast('Sin APs nuevas — todos tienen menos de 4 tardanzas o ya tienen AP en este período.');
+        return;
+      }
+      Promise.all(writes)
+        .then(function() {
+          paToast('✅ ' + writes.length + ' AP(s) generadas para el período ' + _qGen.desde + ' — ' + _qGen.hasta + '.');
+          paCargarAPsTodos();
+        })
+        .catch(function(e){ paToast('Error: ' + e.message, true); });
+    }).catch(function(e){ paToast('Error cargando datos: ' + e.message, true); });
   });
 }
 
@@ -6972,6 +7001,71 @@ function _paRecalcularHE(empId, fecha, newSalidaTs) {
       console.log('[RecalcHE] HE recalculadas para', empId, fecha);
     })
     .catch(function(e){ console.warn('[RecalcHE] Error:', e.message); });
+}
+
+
+// ── Cargar y mostrar notificaciones de dispositivo al admin ──────
+function _paCargarNotificaciones() {
+  if (!paDb || !PA.empresa) return;
+  paDb.collection('paNotificaciones')
+    .where('empresa', '==', PA.empresa)
+    .where('estado',  '==', 'pendiente')
+    .limit(50)
+    .get()
+    .then(function(snap) {
+      if (snap.empty) return;
+      // Mostrar badge en la pestaña Config o en el panel pendientes
+      var items = [];
+      snap.forEach(function(d) {
+        var r = Object.assign({ _id: d.id }, d.data());
+        items.push(r);
+      });
+      // Mostrar como toast o inyectar en el panel
+      var panel = document.getElementById('paAdminPanel');
+      if (!panel) return;
+      var existing = panel.querySelector('#_paNotifBar');
+      if (existing) existing.remove();
+      var bar = document.createElement('div');
+      bar.id = '_paNotifBar';
+      bar.style.cssText = 'position:sticky;top:0;z-index:100;background:#e8a020;color:#000;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer';
+      bar.textContent = '📱 ' + items.length + ' solicitud(es) de desvinculación de dispositivo pendiente(s) — tap para ver';
+      bar.onclick = function() { _paMostrarNotificaciones(items); };
+      panel.prepend(bar);
+    }).catch(function(e){ console.warn('[Notif]', e.message); });
+}
+
+function _paMostrarNotificaciones(items) {
+  var ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;z-index:800;background:rgba(0,0,0,.92);display:flex;align-items:flex-end;justify-content:center';
+  var html = '<div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;padding:20px 16px 36px;max-height:80vh;overflow-y:auto">';
+  html += '<div style="font-size:16px;font-weight:700;margin-bottom:12px">📱 Solicitudes de desvinculación</div>';
+  items.forEach(function(r) {
+    html += '<div style="background:var(--surface);border-radius:10px;padding:12px;margin-bottom:8px">';
+    html += '<div style="font-weight:700">' + esc(r.empleadoNombre||'?') + '</div>';
+    html += '<div style="font-size:11px;color:var(--muted)">' + esc(r.descripcion||r.concepto||'') + '</div>';
+    html += '<div style="font-size:10px;color:var(--muted);margin-top:4px">Fecha: ' + (r.fecha||'?') + '</div>';
+    html += '<button onclick="_paResolverNotif(\''+r._id+'\',this)" ';
+    html += 'style="margin-top:8px;background:rgba(46,160,67,.15);border:1px solid rgba(46,160,67,.4);color:#3fb950;border-radius:8px;padding:5px 12px;cursor:pointer;font-size:11px">✅ Marcar como resuelta</button>';
+    html += '</div>';
+  });
+  html += '<button onclick="this.closest(\'div[style*=fixed]\').remove()" style="width:100%;margin-top:8px;padding:12px;background:transparent;border:1px solid var(--border);border-radius:12px;color:var(--muted);font-family:inherit">Cerrar</button>';
+  html += '</div>';
+  ov.innerHTML = html;
+  document.body.appendChild(ov);
+}
+
+function _paResolverNotif(notifId, btn) {
+  paDb.collection('paNotificaciones').doc(notifId)
+    .update({ estado: 'resuelta', resueltoTs: Date.now() })
+    .then(function() {
+      btn.closest('div[style*=background]').style.opacity = '.4';
+      btn.textContent = '✅ Resuelta';
+      btn.disabled = true;
+      paToast('✅ Solicitud marcada como resuelta');
+      var bar = document.getElementById('_paNotifBar');
+      if (bar) bar.remove();
+    })
+    .catch(function(e){ paToast('Error: '+e.message, true); });
 }
 
 function _paCargarAusenciasPeriodo() {
@@ -9793,7 +9887,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-05-A';
+var PA_VERSION = 'v2026-07-05-F';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
