@@ -5039,9 +5039,6 @@ function paAdminTab(tab) {
 // ── Render de paAdminHoy — llamado por cada onSnapshot ────────
 function _paAdminHoyRender(snap, snapInc, content, hoy) {
   if (!content || !document.body.contains(content)) return;
-var snap = results[0];
-var snapInc = results[1];
-console.log('[Admin] paMarcaciones query OK — docs:', snap.size);
   // Filtrar por empresa en cliente
   var marcs = {};
   PA._marcacionesDetalle = {}; // store full records for viewer
@@ -9793,7 +9790,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-04-Y';
+var PA_VERSION = 'v2026-07-04-Z';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
