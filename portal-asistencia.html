@@ -9122,7 +9122,8 @@ function paExportarExcel() {
   // Detectar y loguear empleados con IDs distintos pero mismo nombre
   var _nombreVisto = {};
   Object.keys(data.porEmp || {}).forEach(function(eid) {
-    var nom = (data.porEmp[eid].nombre||'').trim();
+    // Normalizar: trim + lowercase + colapsar espacios internos para detectar todos los duplicados
+    var nom = (data.porEmp[eid].nombre||'').trim().toLowerCase().replace(/\s+/g,' ');
     if (_nombreVisto[nom]) {
       console.warn('[Excel] Empleado duplicado por nombre:', nom,
         '| IDs:', _nombreVisto[nom], 'y', eid,
@@ -9297,14 +9298,24 @@ function paExportarExcel() {
 
       // ── HOJAS POR EMPLEADO ────────────────────────────────────
       var fechas=_fechas(data.desde,data.hasta);
+      var _usedSheetNames = new Set(['RESUMEN']); // prevenir colisión con la hoja de resumen
       empIds.forEach(function(eid){
         var e=data.porEmp[eid];
         var marcs=(data.marcaciones||{})[eid]||{};
         var emp2=PA.empleados.find(function(x){return x.id===eid;});
         var afil=(emp2&&emp2.afiliacion)||'';
-        var _snameBase=(e.nombre||eid).replace(/[\/\\\?\*\[\]:]/g,'').slice(0,28);
+        // Sanitizar nombre: quitar caracteres inválidos para hojas Excel
+        var _snameBase=(e.nombre||eid)
+          .replace(/[\/\\\?\*\[\]:\u2019\u2018\u201c\u201d]/g,'')  // chars inválidos + comillas especiales
+          .replace(/\s+/g,' ')  // colapsar espacios
+          .trim()
+          .slice(0,28);
         var sname=_snameBase; var _snIdx=2;
-        while(wb.getWorksheet(sname)){sname=_snameBase.slice(0,25)+' '+_snIdx++;}
+        // Usar Set propio (más confiable que wb.getWorksheet en ExcelJS)
+        while(_usedSheetNames.has(sname.toLowerCase())){
+          sname=_snameBase.slice(0,25)+' '+_snIdx++;
+        }
+        _usedSheetNames.add(sname.toLowerCase());
         var ws=wb.addWorksheet(sname);
         ws.columns=[{width:30},{width:10},{width:10},{width:10},{width:16},{width:14},{width:14},{width:16},{width:14},{width:14}];
         var t1=ws.addRow([null,'HORAS TRABAJADAS']);
@@ -9555,7 +9566,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-04-T';
+var PA_VERSION = 'v2026-07-04-U';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
