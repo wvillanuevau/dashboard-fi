@@ -1406,7 +1406,7 @@ function _enviarConfigSW() {
 
 function _hhmm2min(hhmm) {
   var p = (hhmm || '00:00').split(':');
-  return parseInt(p[0], 10) * 60 + parseInt(p[1] || 0);
+  return parseInt(p[0], 10) * 60 + parseInt(p[1] || '0', 10);
 }
 function _min2hhmm(mins) {
   var h = Math.floor(mins / 60) % 24;
@@ -2534,6 +2534,8 @@ function paAfterAuth() {
         }
         _paGuardarVinculo(PA.empleado);
         paUpdateDash();
+        // Verificar compensatorios de fin de semana (solo admin)
+        setTimeout(_paCheckCompensatorioFDS, 1500);
         paShow('scDash');
       });
     }).catch(function() {
@@ -3136,7 +3138,7 @@ function _paToMs(ts) {
   if (typeof ts === 'number') return ts;
   if (ts.toMillis) return ts.toMillis();
   if (ts.seconds)  return ts.seconds * 1000 + Math.round((ts.nanoseconds||0)/1e6);
-  return parseInt(ts) || 0;
+  return parseInt(ts, 10) || 0;
 }
 
 // ══════════════════════════════════════════════════════
@@ -4588,7 +4590,7 @@ function paInitVacaciones() {
         var vac = d.data();
         if (vac.empresa !== PA.empresa) return; // filtro cliente
         if ((vac.fechaInicio || '').startsWith(String(year)) && vac.estado !== 'rechazada') {
-          usados += parseInt(vac.dias || 0);
+          usados += parseInt(vac.dias || 0, 10);
         }
       });
       if (usadosEl) usadosEl.textContent = usados;
@@ -5224,7 +5226,7 @@ function paCloseCanjeModal() {
 
 function paRevertirCanje(canjeId, empId, horasHE, tipoHE) {
   var tipoLabel = tipoHE === 'nocturna' ? 'nocturnas' : 'diurnas';
-  if (!confirm('\u00bfRevertir este canje?\nSe restaurar\xe1n ' + horasHE + 'h HE ' + tipoLabel + ' al saldo del empleado.')) return;
+  paConfirm('\u00bfRevertir este canje?\nSe restaurar\xe1n ' + horasHE + 'h HE ' + tipoLabel + ' al saldo del empleado.', function() {
   paDb.collection('paCanjes').doc(canjeId).update({ estado: 'revertido', fechaReversion: paHoy(), revertidoPor: 'admin' })
     .then(function() {
       // El saldo se recalcula automáticamente al revertir (el canje ya queda 'revertido')
@@ -5233,6 +5235,7 @@ function paRevertirCanje(canjeId, empId, horasHE, tipoHE) {
       var panelContent = document.getElementById('empPanelContent_' + empId);
       if (panelContent) { panelContent.innerHTML = '<div class="spinner"></div>'; setTimeout(function(){ _paCargarPanelEmp(empId); }, 400); }
     }).catch(function(e){ paToast('Error: ' + e.message, true); });
+  });
 }
 
 function paCanjearHorasExtra(empId, empNombre, saldoDiurna, saldoNocturna) {
@@ -5676,7 +5679,7 @@ function paAccionPersonalTardanza(empId, empNombre, empCargo) {
         + (esDiaSeptimo ? '' : ('Total horas a descontar: ' + totalHoras + 'h\n\n'))
         + '¿Generar la Acción de Personal?';
 
-      if (!confirm(msg)) return;
+      paConfirm(msg, function() {
 
       if (esDiaSeptimo) {
         PA._apCtx.opcion = 7; window._paAPOpcion = 7;
@@ -5690,10 +5693,13 @@ function paAccionPersonalTardanza(empId, empNombre, empCargo) {
         + periodoLabel + '.\n' + tipoAccion + '.\n\nDetalle:\n' + detalleTxt
         + (esDiaSeptimo ? '' : ('\n\nTotal a descontar: ' + totalHoras + 'h'));
 
-      PA._apCtx.accionData = window._paAccionData = { id: empId, nombre: empNombre, cargo: empCargo||'tecnico', fecha: paHoy() };
+      // fecha = fecha de la última tardanza del bloque (no la fecha de emisión del admin)
+      var _ultimaTard = bloque[bloque.length-1];
+      PA._apCtx.accionData = window._paAccionData = { id: empId, nombre: empNombre, cargo: empCargo||'tecnico', fecha: _ultimaTard ? _ultimaTard.fecha : paHoy() };
       _paTardanzaConfirmModal(explicacion, esDiaSeptimo);
     })
     .catch(function(e){ paToast('Error: ' + e.message, true); });
+      });
 }
 
 // Modal mínimo de confirmación final (solicita/autoriza) antes de imprimir
@@ -6185,7 +6191,7 @@ function paEditarMarcacion(marcId) {
 function paEliminarMarcacion(marcId) {
   var m = PA._marcacionesDetalle && PA._marcacionesDetalle[marcId];
   var nom = m ? m.empleadoNombre+' — '+(m.tipo||'')+(m.ts?' '+paFmtHora(m.ts):'') : marcId;
-  if (!confirm('¿Eliminar este registro?\n'+nom+'\n\nEsta acción no se puede deshacer.')) return;
+  paConfirm('¿Eliminar este registro? ' + nom + ' — Esta acción no se puede deshacer.', function() {
   paDb.collection('paMarcaciones').doc(marcId).delete()
     .then(function() {
       delete PA._marcacionesDetalle[marcId];
@@ -6204,6 +6210,7 @@ function paEliminarMarcacion(marcId) {
       if (m && m.empleadoId) _paBuscarHistEmp(m.empleadoId);
     })
     .catch(function(e) { paToast('Error: '+e.message, true); });
+  });
 }
 
 function paAgregarMarcacion(empId, empNom, fecha) {
@@ -6491,6 +6498,7 @@ function paGenerarAPsHistoricas() {
           quincenaDesde: qDesde, quincenaHasta: hasta,
           totalTardanzas: qData.totalTard, totalDescHrs: qData.totalDescHrs,
           diasDetalle: qData.dias, opcionMarcada: 7,
+          fecha: (qData.dias&&qData.dias.length)?qData.dias[qData.dias.length-1].fecha:hasta,
           estado: 'emitida', fechaEmision: paHoy(), ts: Date.now()
         }));
       });
@@ -6516,8 +6524,12 @@ function paCargarAPs(tipo) {
   if (!lista) return;
   lista.innerHTML = '<div class="spinner"></div>';
 
-  var desde = (document.getElementById('apDesde')||{}).value || paHoy().slice(0,8)+'01';
-  var hasta  = (document.getElementById('apHasta')||{}).value || paHoy();
+  // Usar el mismo período que HE (PA.periodoHE) como default
+  var _pHE    = PA.periodoHE || {};
+  var _defDesde = _pHE.desde || paHoy().slice(0,8)+'01';
+  var _defHasta  = _pHE.hasta || paHoy();
+  var desde = (document.getElementById('apDesde')||{}).value || _defDesde;
+  var hasta  = (document.getElementById('apHasta')||{}).value || _defHasta;
   var filtroTipo = tipo || 'todos';
 
   paDb.collection('paAccionesPersonal')
@@ -6527,7 +6539,8 @@ function paCargarAPs(tipo) {
       var docs = [];
       snap.forEach(function(d) {
         var r = Object.assign({ _id: d.id }, d.data());
-        var fDoc = r.fechaEmision || (r.fecha ? r.fecha : '');
+        // Usar fecha de la acción (cuando ocurrió), no fecha de emisión del AP
+        var fDoc = r.fecha || r.fechaEmision || '';
         if (fDoc < desde || fDoc > hasta) return;
         if (filtroTipo !== 'todos') {
           if (filtroTipo === 'FALTAS') {
@@ -6600,7 +6613,7 @@ function paCargarAPs(tipo) {
           + '<span style="font-size:11px;color:var(--muted)">'+esc(ap.cargo||'')+'</span>'
           + '</div>'
           + '<div style="font-size:12px;color:'+ti.color+';font-weight:600">'+ti.label+'</div>'
-          + '<div style="font-size:10px;color:var(--muted);margin-top:1px">Emitida: '+(ap.fechaEmision||ap.fecha||'—')+' · '+esc(_con.substring(0,70))+(_con.length>70?'…':'')+'</div>'
+          + '<div style="font-size:10px;color:var(--muted);margin-top:1px">Acción: '+(ap.fecha||ap.fechaEmision||'—')+' · '+esc(_con.substring(0,70))+(_con.length>70?'…':'')+'</div>'
           + detalleHtml
           + '</div>'
           + '<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex-shrink:0">'
@@ -6785,6 +6798,253 @@ function paEliminarAuditadas() {
     })
     .catch(function(e){ paToast('Error: ' + e.message, true); });
 }
+
+// ── Verificación compensatorio fin de semana (admin login) ──────
+function _paCheckCompensatorioFDS() {
+  // Ejecutar cualquier día hasta que el admin confirme
+  var hoy = paHoy();
+
+  // Calcular sábado y domingo del fin de semana ANTERIOR
+  var _ref = new Date(hoy + 'T12:00:00');
+  var _diaSem = _ref.getDay(); // 0=dom,1=lun...6=sab
+  // Retroceder hasta el domingo más reciente
+  var diasHastaDom = _diaSem === 0 ? 0 : _diaSem; // si hoy es lunes=1, domingo fue hace 1 día
+  var _domDate = new Date(_ref); _domDate.setDate(_ref.getDate() - diasHastaDom);
+  var _satDate = new Date(_domDate); _satDate.setDate(_domDate.getDate() - 1);
+
+  var lastSatStr = _satDate.getFullYear() + '-'
+    + String(_satDate.getMonth()+1).padStart(2,'0') + '-'
+    + String(_satDate.getDate()).padStart(2,'0');
+  var lastSunStr = _domDate.getFullYear() + '-'
+    + String(_domDate.getMonth()+1).padStart(2,'0') + '-'
+    + String(_domDate.getDate()).padStart(2,'0');
+
+  // No preguntar por el fin de semana actual si hoy es sábado o domingo
+  if (_diaSem === 0 || _diaSem === 6) return;
+
+  var _semKey = 'compFDS_' + lastSatStr;
+
+  // Verificar si ya fue confirmado esta semana (en memoria)
+  if (PA._compFDSConfirmado && PA._compFDSConfirmado[_semKey]) return;
+
+  // Calcular viernes y sábado próximos (compensatorio)
+  var diasHastaVie = 5 - _diaSem; // días hasta el próximo viernes
+  if (diasHastaVie <= 0) diasHastaVie += 7;
+  var _viernes = new Date(_ref); _viernes.setDate(_ref.getDate() + diasHastaVie);
+  var _sabComp  = new Date(_viernes); _sabComp.setDate(_viernes.getDate() + 1);
+  var nextFriStr = _viernes.getFullYear() + '-'
+    + String(_viernes.getMonth()+1).padStart(2,'0') + '-'
+    + String(_viernes.getDate()).padStart(2,'0');
+  var nextSatStr = _sabComp.getFullYear() + '-'
+    + String(_sabComp.getMonth()+1).padStart(2,'0') + '-'
+    + String(_sabComp.getDate()).padStart(2,'0');
+
+  if (!paDb || !PA.empresa) return;
+
+  Promise.all([
+    paDb.collection('paMarcaciones').where('empresa','==',PA.empresa).where('fecha','==',lastSatStr).get(),
+    paDb.collection('paMarcaciones').where('empresa','==',PA.empresa).where('fecha','==',lastSunStr).get(),
+    paDb.collection('paConfig').doc(PA.empresa).get()
+  ]).then(function(res) {
+    var snapSat = res[0], snapDom = res[1], cfgDoc = res[2];
+
+    // Verificar si ya confirmado en Firestore
+    if (cfgDoc.exists) {
+      var _cfg = cfgDoc.data();
+      if (_cfg.compFDSConfirmado && _cfg.compFDSConfirmado[_semKey]) {
+        if (!PA._compFDSConfirmado) PA._compFDSConfirmado = {};
+        PA._compFDSConfirmado[_semKey] = true;
+        return;
+      }
+    }
+
+    // Empleados que trabajaron SÁBADO TARDE (salida después de la hora configurada)
+    var satEmps = {};
+    snapSat.forEach(function(d) {
+      var r = d.data();
+      if (r.tipo !== 'salida' && r.tipo !== 'salida_adicional') return;
+      var empObj = (PA.empleados||[]).find(function(e){ return e.id === r.empleadoId; });
+      var _horSat = _horarioDeEmp(empObj, 6);
+      var _sabFinStr = (_horSat && (_horSat.sabadoSalida || _horSat.horaSalida)) || '12:00';
+      var _finParts  = _sabFinStr.split(':');
+      var _finMins   = parseInt(_finParts[0],10)*60 + parseInt(_finParts[1]||'0',10);
+      var _realHS    = _hmsDesdeMedianocheES(typeof r.ts==='object'&&r.ts.toMillis?r.ts.toMillis():Number(r.ts)||0);
+      var _realMins  = _realHS.horas*60 + _realHS.minutos;
+      // Sábado tarde: salida más de 30 min después de la hora de salida configurada
+      if (_realMins > _finMins + 30) {
+        satEmps[r.empleadoId] = {
+          nombre:     r.empleadoNombre || '?',
+          cargo:      r.cargo || '',
+          horaSalida: String(_realHS.horas).padStart(2,'0')+':'+String(_realHS.minutos).padStart(2,'0'),
+          trabajoSat: true
+        };
+      }
+    });
+
+    // Empleados que trabajaron DOMINGO (cualquier entrada)
+    var domEmps = {};
+    snapDom.forEach(function(d) {
+      var r = d.data();
+      if (r.tipo !== 'entrada') return;
+      var _realHD = _hmsDesdeMedianocheES(typeof r.ts==='object'&&r.ts.toMillis?r.ts.toMillis():Number(r.ts)||0);
+      domEmps[r.empleadoId] = {
+        nombre:      r.empleadoNombre || '?',
+        cargo:       r.cargo || '',
+        horaEntrada: String(_realHD.horas).padStart(2,'0')+':'+String(_realHD.minutos).padStart(2,'0'),
+        trabajoDom:  true
+      };
+    });
+
+    // Combinar
+    var combined = {};
+    Object.keys(satEmps).forEach(function(id){ combined[id] = Object.assign({},satEmps[id]); });
+    Object.keys(domEmps).forEach(function(id){
+      if (combined[id]) combined[id].trabajoDom = true;
+      else combined[id] = Object.assign({},domEmps[id]);
+    });
+
+    var keys = Object.keys(combined);
+    if (keys.length === 0) {
+      // Nadie trabajó finde — marcar confirmado para no preguntar
+      var _upd = {}; _upd['compFDSConfirmado.'+_semKey] = true;
+      paDb.collection('paConfig').doc(PA.empresa).update(_upd)
+        .catch(function(){});
+      return;
+    }
+
+    _paMostrarModalCompFDS(combined, _semKey, lastSatStr, lastSunStr, nextFriStr, nextSatStr);
+  }).catch(function(e){ console.warn('[CompFDS]', e.message); });
+}
+
+function _paMostrarModalCompFDS(empleados, semKey, lastSat, lastSun, nextFri, nextSat) {
+  // Evitar duplicar el modal
+  if (document.getElementById('paModalCompFDS')) return;
+
+  var ov = document.createElement('div');
+  ov.id = 'paModalCompFDS';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:800;background:rgba(0,0,0,.92);display:flex;align-items:flex-end;justify-content:center;padding:0';
+
+  var itemsHtml = Object.keys(empleados).map(function(id) {
+    var e = empleados[id];
+    var trabajoDesc = [];
+    if (e.trabajoSat) trabajoDesc.push('Sáb tarde — salió ' + e.horaSalida + ' ('+lastSat+')');
+    if (e.trabajoDom) trabajoDesc.push('Dom completo — entró '+( e.horaEntrada||'?')+ ' ('+lastSun+')');
+
+    // Calcular qué días compensatorios corresponden
+    var compDias = [];
+    if (e.trabajoSat && e.trabajoDom) { compDias.push('Viernes '+nextFri); compDias.push('Sábado mañana '+nextSat); }
+    else if (e.trabajoDom)  { compDias.push('Viernes '+nextFri); }
+    else if (e.trabajoSat)  { compDias.push('Sábado mañana '+nextSat); }
+
+    return '<div style="padding:12px;background:var(--surface2);border-radius:10px;margin-bottom:8px">'
+      + '<label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">'
+      + '<input type="checkbox" class="comp-fds-cb" data-empid="'+id+'" checked '
+      + 'data-nombre="'+e.nombre.replace(/"/g,'&quot;')+'" data-cargo="'+(e.cargo||'')+'" '
+      + 'data-trabajosat="'+(e.trabajoSat?'1':'0')+'" data-trabajodom="'+(e.trabajoDom?'1':'0')+'" '
+      + 'data-nextfri="'+nextFri+'" data-nextsat="'+nextSat+'" '
+      + 'style="accent-color:var(--accent);width:18px;height:18px;margin-top:2px;flex-shrink:0">'
+      + '<div style="flex:1">'
+      + '<div style="font-weight:700;font-size:13px">'+esc(e.nombre)+'</div>'
+      + '<div style="font-size:10px;color:var(--muted)">'+esc(e.cargo||'')+'</div>'
+      + '<div style="font-size:11px;color:#e8a020;margin-top:3px">⏱ '+trabajoDesc.join(' · ')+'</div>'
+      + '<div style="font-size:11px;color:var(--accent);margin-top:3px">🗓 Compensatorio: <strong>'+compDias.join(' + ')+'</strong></div>'
+      + '</div>'
+      + '</label>'
+      + '</div>';
+  }).join('');
+
+  ov.innerHTML = '<div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:520px;'
+    + 'padding:20px 16px 40px;max-height:90vh;overflow-y:auto">'
+    + '<span style="display:block;width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px"></span>'
+    + '<div style="font-size:18px;font-weight:700;margin-bottom:4px">📅 Compensatorio de fin de semana</div>'
+    + '<div style="font-size:13px;color:var(--muted);margin-bottom:6px">'
+    + 'Fin de semana: <strong>'+lastSat+' — '+lastSun+'</strong></div>'
+    + '<div style="font-size:12px;color:var(--muted);margin-bottom:14px">'
+    + 'Los siguientes empleados trabajaron fuera de su horario regular.<br>'
+    + 'Confirma si descansarán el próximo viernes y/o sábado por la mañana.</div>'
+    + itemsHtml
+    + '<div style="font-size:11px;color:var(--muted);margin:12px 0 16px">'
+    + 'Desmarca los empleados que NO tomarán compensatorio esta semana.</div>'
+    + '<div style="display:flex;gap:10px">'
+    + '<button onclick="_paConfirmarCompFDS(\''+semKey+'\')" '
+    + 'style="flex:2;padding:14px;background:var(--accent);color:#fff;border:none;border-radius:12px;font-weight:700;font-size:14px;font-family:inherit;cursor:pointer">✅ Confirmar compensatorios</button>'
+    + '<button onclick="_paSkipCompFDS()" '
+    + 'style="flex:1;padding:14px;background:transparent;border:1px solid var(--border);border-radius:12px;color:var(--muted);font-family:inherit;font-size:13px;cursor:pointer">Después</button>'
+    + '</div>'
+    + '</div>';
+
+  document.body.appendChild(ov);
+}
+
+function _paConfirmarCompFDS(semKey) {
+  var cbs = Array.from(document.querySelectorAll('.comp-fds-cb:checked'));
+  var batch = paDb.batch();
+  var count = 0;
+
+  cbs.forEach(function(cb) {
+    var empId    = cb.dataset.empid;
+    var nombre   = cb.dataset.nombre;
+    var cargo    = cb.dataset.cargo;
+    var sat      = cb.dataset.trabajosat === '1';
+    var dom      = cb.dataset.trabajodom === '1';
+    var nextFri  = cb.dataset.nextfri;
+    var nextSat  = cb.dataset.nextsat;
+
+    // Crear registro de compensatorio para viernes
+    if (dom || (sat && dom)) {
+      var docVie = paDb.collection('paCanjes').doc();
+      batch.set(docVie, {
+        empresa: PA.empresa, empleadoId: empId, empleadoNombre: nombre, cargo: cargo,
+        esCompensatorio: true, esAutoTurno: true, tipoComp: 'viernes',
+        fechaLibre: nextFri, diasLibres: 1, horasLibres: 8,
+        motivo: 'Compensatorio por trabajo dominical — descanso viernes '+nextFri,
+        estado: 'asignado', aprobadoTs: Date.now(),
+        semanaOrigen: semKey, ts: Date.now(),
+        folio: 'COMP-VIE-'+paGenId().toUpperCase()
+      });
+      count++;
+    }
+
+    // Crear registro de compensatorio para sábado por la mañana
+    if (sat || (sat && dom)) {
+      var docSab = paDb.collection('paCanjes').doc();
+      batch.set(docSab, {
+        empresa: PA.empresa, empleadoId: empId, empleadoNombre: nombre, cargo: cargo,
+        esCompensatorio: true, esAutoTurno: true, tipoComp: 'sabado_manana',
+        fechaLibre: nextSat, diasLibres: 0.5, horasLibres: 4,
+        motivo: 'Compensatorio por trabajo sábado tarde — descanso sábado mañana '+nextSat,
+        estado: 'asignado', aprobadoTs: Date.now(),
+        semanaOrigen: semKey, ts: Date.now(),
+        folio: 'COMP-SAB-'+paGenId().toUpperCase()
+      });
+      count++;
+    }
+  });
+
+  // Marcar esta semana como confirmada en Firestore
+  var _cfgUpd = {};
+  _cfgUpd['compFDSConfirmado.'+semKey] = true;
+  batch.update(paDb.collection('paConfig').doc(PA.empresa), _cfgUpd);
+
+  batch.commit().then(function() {
+    if (!PA._compFDSConfirmado) PA._compFDSConfirmado = {};
+    PA._compFDSConfirmado[semKey] = true;
+    var ov = document.getElementById('paModalCompFDS');
+    if (ov) ov.remove();
+    if (count > 0)
+      paToast('✅ '+count+' compensatorio(s) asignados correctamente');
+    else
+      paToast('Sin compensatorios asignados — marcado como revisado');
+  }).catch(function(e){ paToast('Error: '+e.message, true); });
+}
+
+function _paSkipCompFDS() {
+  // Solo cierra el modal esta sesión — vuelve a aparecer la próxima vez que abra
+  var ov = document.getElementById('paModalCompFDS');
+  if (ov) ov.remove();
+  paToast('Compensatorios pendientes de confirmar', false, 3000);
+}
+
 
 
 
@@ -6998,10 +7258,9 @@ function _paBuscarHistEmp(empId) {
 // ════════════════════════════════════════════════════════════════════
 function paMigrarTimezonesRetroactivo() {
   if (!paDb || !PA.empresa) { paToast('Sin conexión', true); return; }
-  if (!confirm('Esta herramienta recalculará el minutosRetraso de TODAS las marcaciones de entrada '
-    + 'usando la hora real de El Salvador (UTC-6).\n\nEsto corregirá errores causados por teléfonos '
-    + 'con timezone incorrecto (ej: UTC-5 en lugar de UTC-6).\n\n'
-    + '¿Continuar con la migración?')) return;
+  paConfirm('¿Migrar marcaciones? Esta herramienta recalculará el minutosRetraso '
+    + 'de TODAS las marcaciones usando UTC-6 El Salvador. '
+    + 'Corrige errores por teléfonos con timezone incorrecto.', function() {
 
   var overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:var(--bg);z-index:999;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:inherit;padding:20px';
@@ -7201,6 +7460,7 @@ function paMigrarTimezonesRetroactivo() {
   }).catch(function(e){
     if (overlay) overlay.remove();
     paToast('Error al cargar marcaciones: ' + e.message, true);
+  });
   });
 }
 
@@ -7611,12 +7871,12 @@ function paGuardarHorDias(empId, empNombre) {
         trabaja:          true,
         horaEntrada:      (document.getElementById('hd_'+empId+'_'+d+'_ent')||{}).value || null,
         horaSalida:       (document.getElementById('hd_'+empId+'_'+d+'_sal')||{}).value || null,
-        minutosTolerancia: parseInt((document.getElementById('hd_'+empId+'_'+d+'_tol')||{}).value||10, 10)||10,
-        minutosAlmuerzo:  parseInt((document.getElementById('hd_'+empId+'_'+d+'_alm')||{}).value||60, 10)||60,
+        minutosTolerancia: (function(){ var _tv=(document.getElementById('hd_'+empId+'_'+d+'_tol')||{}).value; return _tv?parseInt(_tv,10):null; })(),
+        minutosAlmuerzo:  (function(){ var _av=(document.getElementById('hd_'+empId+'_'+d+'_alm')||{}).value; return _av?parseInt(_av,10):null; })(),
         tipo:             (document.getElementById('hd_'+empId+'_'+d+'_tipo')||{}).value || 'normal',
         // Mantener también los alias viejos para compatibilidad con datos ya guardados
         entrada:    (document.getElementById('hd_'+empId+'_'+d+'_ent')||{}).value || null,
-        tolerancia: parseInt((document.getElementById('hd_'+empId+'_'+d+'_tol')||{}).value||10, 10)||10
+        tolerancia: (function(){ var _tv=(document.getElementById('hd_'+empId+'_'+d+'_tol')||{}).value; return _tv?parseInt(_tv,10):null; })()
       };
     }
   });
@@ -7682,8 +7942,8 @@ function paAplicarHorarioRol(empId, rolVal, empNombre, btn) {
   var horRol = rolVal === '__general__' ? PA.horario : (PA.horariosRol || {})[rolVal];
   if (!horRol) { paToast('Sin horario para: ' + rolVal, true); return; }
   var nom = empNombre || empId;
-  if (!confirm('¿Aplicar horario "' + (rolVal==='__general__'?'General':rolVal) + '" a ' + nom + '?\n'
-    + 'Entrada: ' + (horRol.horaEntrada||'—') + ' · Salida: ' + (horRol.horaSalida||'—'))) return;
+  paConfirm('¿Aplicar horario "' + (rolVal==='__general__'?'General':rolVal) + '" a ' + nom + '?\n'
+    + 'Entrada: ' + (horRol.horaEntrada||'—') + ' · Salida: ' + (horRol.horaSalida||'—'), function() {
   var horEmp = PA.horariosEmp || {};
   horEmp[empId] = Object.assign({}, horRol);
   PA.horariosEmp = horEmp;
@@ -7693,11 +7953,12 @@ function paAplicarHorarioRol(empId, rolVal, empNombre, btn) {
       // Refresh dirigido a la tarjeta del empleado (sin saltar de pestaña)
       _paPostApproval(btn||null, 'emps');
     }).catch(function(e){ paToast('Error: ' + e.message, true); });
+  });
 }
 
 function paBorrarHorarioEmp(empId, empNombre, btn) {
   var nom = empNombre || empId;
-  if (!confirm('¿Quitar el horario individual de ' + nom + '?\nVolverá a usar el horario de su cargo.')) return;
+  paConfirm('¿Quitar el horario individual de ' + nom + '?\nVolverá a usar el horario de su cargo.', function() {
   var horEmp = PA.horariosEmp || {};
   delete horEmp[empId];
   PA.horariosEmp = horEmp;
@@ -7706,6 +7967,7 @@ function paBorrarHorarioEmp(empId, empNombre, btn) {
       paToast('\u2705 Horario individual eliminado — ' + nom + ' usa horario de cargo');
       _paPostApproval(btn||null, 'emps');
     }).catch(function(e){ paToast('Error: ' + e.message, true); });
+  });
 }
 
 function paBorrarHorEmp(empId) {
@@ -8150,7 +8412,7 @@ function paForzarUpdateTodos() {
     return !pd2 || !pd2.lastVersion || pd2.lastVersion !== PA_VERSION;
   });
   if (!desact.length) { paToast('✅ Todos ya tienen la versión actual'); return; }
-  if (!confirm('¿Forzar actualización a ' + desact.length + ' empleado(s) desactualizados? Se actualizarán en su próximo login.')) return;
+  paConfirm('¿Forzar actualización a ' + desact.length + ' empleado(s) desactualizados? Se actualizarán en su próximo login.', function() {
 
   var promises = desact.map(function(e) {
     var docId = PA._pinsDocMap && PA._pinsDocMap[e.id];
@@ -8164,6 +8426,7 @@ function paForzarUpdateTodos() {
     paToast('✅ Actualización forzada para ' + desact.length + ' empleado(s). Se actualizarán en su próximo login.');
     paAdminTab('emps');
   }).catch(function(e){ paToast('Error: ' + e.message, true); });
+  });
 }
 
 
@@ -9159,7 +9422,7 @@ function paExportarExcel() {
 
 // ── Gestión compensatorios de turno ────────────────────────────
 function paAprobarCompensatorioTurno(docId, empNombre, btn) {
-  if (!confirm('¿Aprobar compensatorio para ' + (empNombre||'empleado') + '?')) return;
+  paConfirm('¿Aprobar compensatorio para ' + (empNombre||'empleado') + '?', function() {
   if (btn) btn.disabled = true;
   paDb.collection('paCanjes').doc(docId).update({
     estado: 'asignado', aprobadoTs: Date.now()
@@ -9167,6 +9430,7 @@ function paAprobarCompensatorioTurno(docId, empNombre, btn) {
     paToast('✅ Compensatorio aprobado — 1 día libre acreditado');
     _paPostApproval(btn, 'emps');
   }).catch(function(e){ paToast('Error: '+e.message,true); if(btn)btn.disabled=false; });
+  });
 }
 
 function paRechazarCompensatorioTurno(docId, btn) {
@@ -9199,7 +9463,7 @@ function paRechazarHEBtn(btn) {
 }
 
 function paAprobarHorasExtra(docId, empId, horas, btn) {
-  if (!confirm('¿Aprobar ' + horas + ' horas extra?')) return;
+  paConfirm('¿Aprobar ' + horas + ' horas extra?', function() {
   paDb.collection('paHorasExtra').doc(docId).update({ estado: 'aprobado' })
     .then(function() {
       // Add to employee's accumulated hours in paPins
@@ -9217,6 +9481,7 @@ function paAprobarHorasExtra(docId, empId, horas, btn) {
       paToast('✅ Horas extra aprobadas');
       _paPostApproval(btn||null, PA.adminTab);
     }).catch(function(e){ paToast('Error: '+e.message, true); });
+  });
 }
 
 function paRechazarHorasExtra(docId, btn) {
@@ -9277,7 +9542,7 @@ function paEditarEmp(empId) {
   
   var updates = { empresa: PA.empresa, empleadoId: empId };
   if (newPin && newPin.length >= 4) updates.pin = String(newPin);
-  if (newDias !== null && !isNaN(parseInt(newDias))) updates.diasVacDisp = parseInt(newDias);
+  if (newDias !== null && !isNaN(parseInt(newDias, 10))) updates.diasVacDisp = parseInt(newDias, 10);
   if (newHoras !== null && !isNaN(parseFloat(newHoras))) updates.horasExtraAcum = parseFloat(newHoras);
   
   var existingDocId = PA._pinsDocMap && PA._pinsDocMap[empId];
@@ -9294,7 +9559,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-04-D';
+var PA_VERSION = 'v2026-07-04-P';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -9308,25 +9573,52 @@ var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window._paVersionCheckedAtLogin = false; // reset en cada carga
 
   function _limpiarCacheYRecargar() {
-    // window.location.replace(window.location.pathname+'?nocache='+Date.now()) está DEPRECADO en browsers modernos y no bypassa CDN cache
-    // Usamos location.replace con URL única → fuerza petición nueva al CDN
     var freshUrl = window.location.pathname + '?nocache=' + Date.now();
     function _irFresh() { window.location.replace(freshUrl); }
+
+    function _clearCachesAndReload() {
+      try {
+        if (window.caches) {
+          caches.keys()
+            .then(function(keys){
+              return Promise.all(keys.map(function(k){ return caches.delete(k); }));
+            })
+            .then(_irFresh)
+            .catch(_irFresh);
+        } else { _irFresh(); }
+      } catch(e) { _irFresh(); }
+    }
+
+    // Paso 1: pedir al SW que descargue la nueva versión antes de recargar
+    // Esto garantiza que el SW no sirva la versión vieja desde su cache
     try {
-      if (window.caches) {
-        caches.keys()
-          .then(function(keys){
-            return Promise.all(keys.map(function(k){ return caches.delete(k); }));
-          })
-          .then(_irFresh)
-          .catch(_irFresh);
-      } else { _irFresh(); }
-    } catch(e) { _irFresh(); }
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistration().then(function(reg) {
+          if (reg) {
+            reg.update()
+              .then(_clearCachesAndReload)
+              .catch(_clearCachesAndReload);
+          } else {
+            _clearCachesAndReload();
+          }
+        }).catch(_clearCachesAndReload);
+      } else {
+        _clearCachesAndReload();
+      }
+    } catch(e) { _clearCachesAndReload(); }
   }
 
   function _mostrarOverlayActualizar() {
     if (_overlayShown) return;
     _overlayShown = true;
+    // Iniciar SW update inmediatamente para que esté listo cuando el usuario recargue
+    try {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistration().then(function(reg) {
+          if (reg) reg.update().catch(function(){});
+        }).catch(function(){});
+      }
+    } catch(e) {}
     var old = document.getElementById('paUpdateBanner');
     if (old) old.remove();
     var ov = document.createElement('div');
