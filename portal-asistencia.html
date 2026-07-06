@@ -3789,7 +3789,10 @@ function paMostrarWarningTardanzas(tard) {
         // Filtro cliente: empleado + tipo + quincena
         var yaExiste = snap.docs.some(function(d){
           var r=d.data();
-          return r.empleadoId===PA.empleado.id && r.tipo==='TARDANZAS' && r.quincenaDesde===q.desde;
+          // Buscar el tipo actual (DESCUENTO_DIA_SEPTIMO) — no el tipo obsoleto (TARDANZAS)
+          return r.empleadoId===PA.empleado.id
+            && (r.tipo==='DESCUENTO_DIA_SEPTIMO' || r.tipo==='TARDANZAS')
+            && r.quincenaDesde===q.desde;
         });
         if (!yaExiste) {
           paDb.collection('paAccionesPersonal').add({
@@ -9790,7 +9793,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-04-Z';
+var PA_VERSION = 'v2026-07-05-A';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
