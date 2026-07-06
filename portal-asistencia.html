@@ -6417,17 +6417,17 @@ function paImprimirAP(apId) {
 // ── Generar APs históricas de tardanzas (últimos 30 días) ────
 function paGenerarAPsHistoricas() {
 
-  paConfirm('¿Generar APs de tardanzas para los últimos 30 días?\nSolo crea APs para empleados con 4+ tardanzas que aún no tengan AP en ese período.', function(){
+  paConfirm('¿Generar APs de tardanzas para el período ' + _quincenaActual().desde + ' al ' + _quincenaActual().hasta + '?\nSolo crea APs para empleados con 4+ tardanzas sin AP en ese período.', function(){
 
 
   paToast('Procesando... puede tardar unos segundos');
   var hoy = paHoy();
-  var hace30 = (function(){
-    var d = new Date(); d.setDate(d.getDate()-30);
-    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-  })();
+  // Usar PA.periodoHE si configurado; sino últimos 30 días como fallback
+  var _qHist = _quincenaActual();
+  var periodoDesde = _qHist.desde;
+  hoy        = _qHist.hasta;
 
-  // Cargar todas las marcaciones de los últimos 30 días
+  // Cargar marcaciones del período configurado (PA.periodoHE o quincena calendario)
   Promise.all([
     paDb.collection('paMarcaciones').where('empresa','==',PA.empresa).get(),
     paDb.collection('paAccionesPersonal').where('empresa','==',PA.empresa).limit(500).get()
@@ -6442,7 +6442,7 @@ function paGenerarAPsHistoricas() {
     var porEmp = {};
     snapM.forEach(function(d){
       var r=d.data();
-      if (!r.fecha || r.fecha < hace30) return;
+      if (!r.fecha || r.fecha < periodoDesde) return;
       if (r.tipo !== 'entrada') return;
       if (r.ts && typeof r.ts==='object' && r.ts.toMillis) r.ts=r.ts.toMillis();
       else if (r.ts && r.ts.seconds) r.ts=r.ts.seconds*1000;
@@ -8336,8 +8336,11 @@ function _paCargarPanelEmp(empId) {
     // ── Gestión canjes y Historial
     // Historial con date range picker y tabla completa
     var hoy7  = paHoy();
-    var hace7 = new Date(); hace7.setDate(hace7.getDate()-6);
-    var d7    = hace7.getFullYear()+"-"+String(hace7.getMonth()+1).padStart(2,"0")+"-"+String(hace7.getDate()).padStart(2,"0");
+    // Usar PA.periodoHE si está configurado, sino últimos 7 días
+    var _pHEp = PA.periodoHE || {};
+    var _qEmp = _quincenaActual();
+    var d7    = _qEmp.desde;   // inicio del período configurado
+    hoy7      = _qEmp.hasta;   // fin del período configurado
 
     html += "<div style=\"margin-top:8px;border:1.5px solid #C4956A;border-radius:10px;overflow:hidden\">";
     html += "<button onclick=\"paTogSection('psHIST"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(180,83,9,.06);border:none;cursor:pointer;font-family:inherit\">";
@@ -8472,18 +8475,11 @@ function paDesvinculDispositivo(empId) {
 
 function paAdminReporte(content) {
   var hoy  = paHoy();
-  // Default: quincena actual (1-15 o 16-fin del mes)
-  var dia  = new Date().getDate();
-  var defDesde, defHast
-  html += '</div>';
-  if (dia <= 15) {
-    defDesde = hoy.slice(0,8) + '01';
-    defHasta = hoy.slice(0,8) + '15';
-  } else {
-    var ultimoDia = new Date(new Date().getFullYear(), new Date().getMonth()+1, 0).getDate();
-    defDesde = hoy.slice(0,8) + '16';
-    defHasta = hoy.slice(0,8) + (ultimoDia < 10 ? '0'+ultimoDia : ultimoDia);
-  }
+  // Default: usar PA.periodoHE si está configurado, sino quincena calendario
+  var _pHE = PA.periodoHE || {};
+  var _q   = _quincenaActual(); // ya usa PA.periodoHE internamente
+  var defDesde = _q.desde;
+  var defHasta = _q.hasta;
   var html = '<div class="info-box">Reporte de horas extra aprobadas por período. Puedes definir cualquier rango de fechas — quincenal, semanal, mensual, etc.</div>';
     html += '<div style="position:sticky;top:0;z-index:10;background:var(--bg);padding-bottom:10px;border-bottom:1px solid var(--border)">'
     +'<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px">'
@@ -9559,7 +9555,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-04-P';
+var PA_VERSION = 'v2026-07-04-S';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
