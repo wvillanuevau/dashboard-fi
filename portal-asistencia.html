@@ -3895,6 +3895,8 @@ function paGoMarcar(tipo) {
   
   paShow('scMarcar');
   paGetLocation();
+  // Opción B: iniciar watchPosition desde el login
+  setTimeout(function(){ _paIniciarWatchGPS(); paGetLocation(); }, 800);
   paUpdateMarcarHora();
 }
 
@@ -4048,35 +4050,135 @@ function paRetake() {
 }
 
 function paGetLocation() {
-  var nameEl = document.getElementById('locName');
+  var nameEl   = document.getElementById('locName');
   var coordsEl = document.getElementById('locCoords');
   var statusEl = document.getElementById('locStatus');
-  
+  var warnEl   = document.getElementById('gpsWarning');
+
   if (!navigator.geolocation) {
-    if (statusEl) { statusEl.textContent = '⚠ GPS no disponible'; statusEl.className = 'loc-status error'; }
+    if (statusEl) { statusEl.textContent = '⚠ GPS no disponible en este dispositivo'; statusEl.className = 'loc-status error'; }
     return;
   }
-  
+
+  // ── A. Verificar caché (< 5 min) ─────────────────────────────
+  var _cacheMs = 5 * 60 * 1000;
+  if (PA.location && PA.location.lat && PA._locationTs && (Date.now() - PA._locationTs) < _cacheMs) {
+    if (nameEl) nameEl.textContent = 'Ubicación en caché (±' + PA.location.acc + 'm)';
+    if (coordsEl) coordsEl.textContent = PA.location.lat.toFixed(5) + ', ' + PA.location.lng.toFixed(5);
+    if (statusEl) { statusEl.textContent = '✅ GPS listo (caché)'; statusEl.className = 'loc-status ok'; }
+    if (warnEl) warnEl.style.display = 'none';
+    return; // ya tenemos GPS reciente — sin necesidad de esperar
+  }
+
+  if (statusEl) { statusEl.textContent = '⏳ Obteniendo ubicación...'; statusEl.className = 'loc-status'; }
+  PA._gpsRetries = PA._gpsRetries || 0;
+
+  // ── Actualizar UI con posición ────────────────────────────────
+  function _saveLocation(pos, isLow) {
+    var newAcc = Math.round(pos.coords.accuracy);
+    // Mantener la mejor precisión: solo actualiza si mejora
+    if (PA.location && PA.location.acc && newAcc > PA.location.acc && !isLow) return;
+    PA.location    = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: newAcc };
+    PA._locationTs = Date.now();
+    PA._gpsRetries = 0;
+    if (nameEl) nameEl.textContent = 'Ubicación' + (isLow ? ' aprox.' : '') + ' (±' + newAcc + 'm)';
+    if (coordsEl) coordsEl.textContent = PA.location.lat.toFixed(5) + ', ' + PA.location.lng.toFixed(5);
+    if (statusEl) {
+      statusEl.textContent = isLow ? '⏳ GPS preciso en camino...' : '✅ GPS listo';
+      statusEl.className   = 'loc-status ' + (isLow ? '' : 'ok');
+    }
+    if (warnEl) warnEl.style.display = 'none';
+  }
+
+  // ── C. Puente de baja precisión (WiFi/red) ───────────────────
+  // Obtiene ubicación rápida (~1-2s) mientras espera el GPS preciso
   navigator.geolocation.getCurrentPosition(
+    function(pos){ _saveLocation(pos, true); },
+    function(){},  // silencioso si falla — el high-accuracy maneja el error
+    { enableHighAccuracy: false, timeout: 3000, maximumAge: 60000 }
+  );
+
+  // ── Alta precisión (GPS chip) ─────────────────────────────────
+  function _tryHighAccuracy() {
+    navigator.geolocation.getCurrentPosition(
+      function(pos){ _saveLocation(pos, false); },
+      function(err) {
+        // ── D. Botón Reintentar (máx 3 intentos) ─────────────
+        PA._gpsRetries = (PA._gpsRetries || 0) + 1;
+        if (PA._gpsRetries < 3) {
+          if (statusEl) { statusEl.textContent = '⚠ GPS lento — intento ' + PA._gpsRetries + '/3'; statusEl.className = 'loc-status error'; }
+          if (warnEl) {
+            warnEl.style.display = 'block';
+            warnEl.innerHTML = '⚠ GPS no obtenido (intento ' + PA._gpsRetries + '/3) — '
+              + '<button onclick="PA._gpsRetries=' + (PA._gpsRetries) + ';paGetLocation()" '
+              + 'style="background:rgba(56,139,253,.2);border:1px solid #58a6ff;color:#58a6ff;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;margin-left:6px">'
+              + '🔄 Reintentar</button>';
+          }
+        } else {
+          // Agotados los 3 intentos
+          if (err.code === 1) {
+            if (statusEl) { statusEl.textContent = '⛔ Permiso GPS denegado'; statusEl.className = 'loc-status error'; }
+            if (warnEl) { warnEl.style.display = 'block'; warnEl.textContent = '⛔ Activa el permiso de ubicación en Ajustes → Apps → Navegador → Permisos.'; }
+          } else {
+            if (statusEl) { statusEl.textContent = '⛔ Sin GPS después de 3 intentos'; statusEl.className = 'loc-status error'; }
+            if (warnEl) {
+              warnEl.style.display = 'block';
+              warnEl.innerHTML = '⛔ No se pudo obtener GPS. Sal al exterior o cerca de una ventana y '
+                + '<button onclick="PA._gpsRetries=0;paGetLocation()" '
+                + 'style="background:rgba(56,139,253,.2);border:1px solid #58a6ff;color:#58a6ff;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;margin-left:6px">'
+                + '🔄 Intentar de nuevo</button>';
+            }
+          }
+          // Limpiar watchPosition si existe (evitar consumo de batería)
+          if (PA._gpsWatcher != null) {
+            navigator.geolocation.clearWatch(PA._gpsWatcher);
+            PA._gpsWatcher = null;
+          }
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  }
+  _tryHighAccuracy();
+}
+
+// ── B. watchPosition — GPS activo desde que el empleado se autentica ──
+// Se inicia en paAfterAuth (ya con el empleado logueado)
+// y actualiza PA.location continuamente en background
+function _paIniciarWatchGPS() {
+  if (!navigator.geolocation) return;
+  if (PA._gpsWatcher != null) return; // ya activo
+  PA._gpsWatcher = navigator.geolocation.watchPosition(
     function(pos) {
-      PA.location = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: Math.round(pos.coords.accuracy) };
-      if (nameEl) nameEl.textContent = 'Ubicación obtenida';
-      if (coordsEl) coordsEl.textContent = PA.location.lat.toFixed(5) + ', ' + PA.location.lng.toFixed(5);
-      if (statusEl) { statusEl.textContent = '✓ Precisión: ±' + PA.location.acc + 'm'; statusEl.className = 'loc-status ok'; }
-      // Quitar advertencia si ya había aparecido
-      var w = document.getElementById('gpsWarning'); if (w) w.style.display = 'none';
+      var newAcc = Math.round(pos.coords.accuracy);
+      // Solo actualizar si la nueva lectura es mejor o si no había posición
+      if (!PA.location || !PA.location.acc || newAcc <= PA.location.acc) {
+        PA.location    = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: newAcc };
+        PA._locationTs = Date.now();
+        // Actualizar UI si el panel de marcación está abierto
+        var nameEl   = document.getElementById('locName');
+        var coordsEl = document.getElementById('locCoords');
+        var statusEl = document.getElementById('locStatus');
+        var warnEl   = document.getElementById('gpsWarning');
+        if (nameEl) nameEl.textContent = 'Ubicación (±' + newAcc + 'm)';
+        if (coordsEl) coordsEl.textContent = PA.location.lat.toFixed(5) + ', ' + PA.location.lng.toFixed(5);
+        if (statusEl) { statusEl.textContent = '✅ GPS activo'; statusEl.className = 'loc-status ok'; }
+        if (warnEl) warnEl.style.display = 'none';
+      }
     },
-    function(err) {
-      if (nameEl) nameEl.textContent = 'Ubicación no disponible';
-      if (statusEl) { statusEl.textContent = '⚠ ' + err.message; statusEl.className = 'loc-status error'; }
-      PA.location = null;
-      // Mostrar advertencia visible
-      var w = document.getElementById('gpsWarning');
-      if (w) { w.style.display = 'block'; w.textContent = '⚠ GPS no obtenido — la foto es obligatoria para continuar.'; }
-    },
-    { enableHighAccuracy: true, timeout: 12000 }
+    function(err) { console.warn('[GPS watch]', err.message); },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
   );
 }
+
+function _paDetenerWatchGPS() {
+  if (PA._gpsWatcher != null) {
+    navigator.geolocation.clearWatch(PA._gpsWatcher);
+    PA._gpsWatcher = null;
+  }
+}
+
+
 
 function paConfirmarMarca() {
   // Guard: empleado debe estar autenticado
@@ -4094,10 +4196,15 @@ function paConfirmarMarca() {
     if (errEl) { errEl.textContent = '📸 Debes tomar una foto antes de confirmar el registro.'; errEl.style.display = 'block'; }
     return;
   }
-  // GPS obligatorio siempre
+  // GPS obligatorio — el empleado no puede marcar sin ubicación
   if (!tieneGPS) {
-    if (errEl) { errEl.textContent = '⚠ Ubicación GPS obligatoria. Activa el GPS y espera a que se obtenga la ubicación antes de continuar.'; errEl.style.display = 'block'; }
-    return;
+    if (errEl) {
+      errEl.textContent = '📍 Ubicación GPS requerida. Espera unos segundos o usa el botón Reintentar.';
+      errEl.style.display = 'block';
+    }
+    // Disparar paGetLocation automáticamente si aún no hay GPS
+    paGetLocation();
+    return; // bloquear hasta tener GPS
   }
 
   if (errEl) errEl.style.display = 'none';
@@ -4152,6 +4259,7 @@ function paConfirmarMarca() {
       hora: (function(){ var h=_hmsDesdeMedianocheES(now); return String(h.horas).padStart(2,'0')+':'+String(h.minutos).padStart(2,'0'); })(),
       fotoRef: fotoRef || null,  // path en Storage — NUNCA base64 en Firestore
       ubicacion: PA.location || null,
+      // sinGPS solo se guarda si no hay GPS — obligatorio así que normalmente nunca llega aquí
       centroId: centroId,
       centroNombre: centro ? centro.nombre : '',
       observacion: obs,
@@ -5180,7 +5288,8 @@ function _paAdminHoyRender(snap, snapInc, content, hoy) {
         var hora = r.ts ? paFmtHora(r.ts) : '—';
         var hasFoto = !!r.foto;
         var hasLoc  = !!(r.ubicacion && r.ubicacion.lat);
-        var badges  = (hasFoto ? '📸' : '') + (hasLoc ? '📍' : '');
+        var hasSinGPS = r.sinGPS === true;
+          var badges  = (hasFoto ? '📸' : '') + (hasLoc ? '📍' : '') + (hasSinGPS && !hasLoc ? ' <span style="font-size:9px;color:#e8a020" title="Sin GPS">⚠️</span>' : '');
         html += '<button onclick="paVerMarcacion(\''+r._id+'\')" '
           +'style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:8px 12px;cursor:pointer;text-align:left;color:var(--text);font-family:inherit">'
           +'<div style="font-size:11px;font-weight:700;color:var(--accent2)">'+(tiposLabel[r.tipo]||r.tipo)+'</div>'
@@ -9889,7 +9998,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-05-G';
+var PA_VERSION = 'v2026-07-05-L';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
