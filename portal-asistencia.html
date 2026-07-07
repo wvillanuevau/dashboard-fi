@@ -1882,7 +1882,7 @@ function paRenderEmpList(emps) {
       + '<div class="emp-avatar">'+initials+'</div>'
       + '<div><div class="emp-name">'+esc(e.nombre)+'</div>'
       + '<div class="emp-cargo">'+(e.cargo||'—')+(e.ruta?' · '+e.ruta:'')+'</div></div>'
-      + '<div style="color:var(--muted);font-size:20px">›</div>'
+      + '<div style="color:var(--text);font-size:22px;padding:6px 14px;background:var(--surface2);border-radius:8px;min-width:44px;text-align:center;line-height:1">›</div>'
       + '</div>';
   });
 }
@@ -3658,9 +3658,10 @@ function paTardanzasEmp(empId, marcaciones, horaEntradaStr) {
                : _toleranciaDeEmp(_empObj, _diaES);
 
     if (minsTarde > tolMin) {
-      var descHrs = _tardDescuentoHrs(minsTarde);
+      var minsNetos = minsTarde - tolMin; // neto: desde que vence la tolerancia
+      var descHrs = _tardDescuentoHrs(minsNetos);
       var horaRealStr = String(_hmsES.horas).padStart(2,'0') + ':' + String(_hmsES.minutos).padStart(2,'0');
-      result.dias.push({ fecha:fecha, minsTarde:minsTarde, descHrs:descHrs, horaReal:horaRealStr });
+      result.dias.push({ fecha:fecha, minsTarde:minsNetos, descHrs:descHrs, horaReal:horaRealStr });
       result.totalTard++;
       result.totalDescHrs += descHrs;
     }
@@ -4234,7 +4235,9 @@ function paConfirmarMarca() {
       var _actualMs = _hmsDesdeMedianocheES(now).totalMs;
       var _tolMs    = _toleranciaDeEmp(PA.empleado, _diaSemana) * 60000;
       if (_actualMs > _espMs + _tolMs) {
-        minutosRetraso    = Math.round((_actualMs - _espMs) / 60000);
+        // minutosRetraso NETO: desde que vence la tolerancia (no desde la hora exacta)
+        // Ej: 8:15 - 8:00 schedule - 10min tolerancia = 5 min tarde
+        minutosRetraso    = Math.round((_actualMs - _espMs - _tolMs) / 60000);
         estadoPuntualidad = 'tarde';
       }
     }
@@ -5276,13 +5279,17 @@ function _paAdminHoyRender(snap, snapInc, content, hoy) {
       })
       .forEach(function(empId) {
       var emp = marcs[empId];
+      var _tardAcumHoy = (PA._ausPeriodo && PA._ausPeriodo[empId + '_t']) || 0;
+      var _tardCountBadge = _tardAcumHoy > 0
+        ? ' <span style="background:rgba(232,160,32,.2);color:#e8a020;font-size:10px;padding:1px 5px;border-radius:4px;font-weight:700" title="Tardanzas en el período">'+_tardAcumHoy+'★</span>'
+        : '';
       var tardeBadge = emp.sinHorario
         ? ' <span style="color:var(--muted);font-size:10px" title="Configura el horario de este empleado en el panel de empleados">⚙ Sin horario</span>'
         : emp.tarde > 0
         ? ' <span style="color:var(--warn);font-size:10px">⚠ +'+emp.tarde+'min tarde</span>'
         : '';
       html += '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:8px">'
-        +'<div style="font-weight:700;margin-bottom:8px">'+esc(emp.nombre)+tardeBadge+'</div>'
+        +'<div style="font-weight:700;margin-bottom:8px">'+esc(emp.nombre)+_tardCountBadge+tardeBadge+'</div>'
         +'<div style="display:flex;flex-wrap:wrap;gap:8px">';
       emp.registros.sort(function(a,b){ return (a.ts||0)-(b.ts||0); }).forEach(function(r) {
         var hora = r.ts ? paFmtHora(r.ts) : '—';
@@ -7219,6 +7226,11 @@ function _paCargarAusenciasPeriodo() {
           if (!(marcoEntrada[emp.id] && marcoEntrada[emp.id][dia.fecha])) ausencias++;
         });
         if (ausencias > 0) ausPeriodo[emp.id] = ausencias;
+
+      });
+      // Merging tardanzas count into ausPeriodo
+      Object.keys(tardanzasPeriodo).forEach(function(id) {
+        ausPeriodo[id + '_t'] = tardanzasPeriodo[id];
       });
       PA._ausPeriodo = ausPeriodo;
     }).catch(function(e){ console.warn('[AusPeriodo]', e.message); });
@@ -8018,7 +8030,12 @@ function paAdminConfig(content) {
             +'border-radius:6px;color:var(--text);font-size:11px;opacity:'+opac+'">'
             +'</div>';
           // Tolerancia y almuerzo ocultos en mobile (se muestran en tipo)
-          html += '<input type="hidden" id="'+tid+'_tol" value="'+tol+'">';
+          html += '<div style="display:flex;align-items:center;gap:3px;font-size:10px;color:var(--muted)" title="Minutos de tolerancia">'
+            +'<span>±</span>'
+            +'<input type="number" id="'+tid+'_tol" value="'+tol+'" min="0" max="60" '+dis
+            +'style="width:36px;padding:3px 4px;background:var(--surface);border:1.5px solid var(--border);'
+            +'border-radius:6px;color:var(--text);font-size:11px;text-align:center;opacity:'+opac+'" title="Tolerancia en minutos">'
+            +'<span>min</span></div>';
           html += '<input type="hidden" id="'+tid+'_alm" value="'+alm+'">';
           var tipoConf = conf.tipo || 'normal';
           var tipoColor = tipoConf==='turno-viernes'?'#B45309':tipoConf==='turno-libre'?'#006B3F':'var(--muted)';
@@ -9998,7 +10015,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-05-L';
+var PA_VERSION = 'v2026-07-05-O';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
