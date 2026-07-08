@@ -1804,6 +1804,21 @@ function _paBadgeTardanzas(count) {
   return ' <span style="background:'+bg+';color:'+color+';font-size:10px;padding:1px 5px;border-radius:4px;font-weight:700" title="Tardanzas en el período">⏰ '+count+'</span>';
 }
 
+// ── Helper: badge de ausencias del período, mismo estilo semáforo ──
+// 1-2 ausencias: verde · 3: amarillo · 4+: rojo (coincide con el
+// umbral donde una ausencia recurrente amerita seguimiento).
+function _paBadgeAusencias(count) {
+  if (!count || count <= 0) return '';
+  var color = count >= 4 ? '#f85149' : count === 3 ? '#e8a020' : '#3fb950';
+  var bg    = count >= 4 ? 'rgba(248,81,73,.15)' : count === 3 ? 'rgba(232,160,32,.15)' : 'rgba(63,185,80,.15)';
+  return ' <span style="background:'+bg+';color:'+color+';font-size:10px;padding:1px 5px;border-radius:4px;font-weight:700" title="Ausencias en el período">📅 '+count+'</span>';
+}
+
+// ── Helper: pill genérico para dar forma consistente a badges ──────
+function _paPill(text, bg, color) {
+  return '<span style="display:inline-flex;align-items:center;gap:3px;background:'+bg+';color:'+color+';font-size:10.5px;font-weight:600;padding:4px 9px;border-radius:7px;white-space:nowrap">'+text+'</span>';
+}
+
 // ── Helper: tiempo desde medianoche El Salvador ──────────────────
 // Siempre usa UTC-6 (America/El_Salvador, sin DST), ignorando
 // el timezone del dispositivo del empleado.
@@ -5358,36 +5373,6 @@ function _paAdminHoyRender(snap, snapInc, content, hoy) {
       html += '</div>';
     }
 
-    // ── Ausencias recurrentes en el período ──────────────────
-    var _qHoy = _quincenaActual();
-    if (PA._ausPeriodo && Object.keys(PA._ausPeriodo).length > 0) {
-      var _recE = Object.keys(PA._ausPeriodo)
-        .filter(function(id){ return id.slice(-2) !== '_t' && (PA._ausPeriodo[id]||0) >= 2; })
-        .map(function(id){
-          var emp2 = (PA.empleados||[]).find(function(x){ return x.id===id; })||{nombre:id,cargo:''};
-          return { id:id, nombre:emp2.nombre, cargo:emp2.cargo||'', count:PA._ausPeriodo[id] };
-        }).sort(function(a,b){ return b.count-a.count; });
-      if (_recE.length > 0) {
-        var _c4=_recE.filter(function(x){return x.count>=4;}).length;
-        var _c3=_recE.filter(function(x){return x.count===3;}).length;
-        var _c2=_recE.filter(function(x){return x.count===2;}).length;
-        html += '<div style="background:rgba(232,160,32,.08);border:1.5px solid rgba(232,160,32,.25);border-radius:12px;padding:10px 12px;margin-bottom:10px">';
-        html += '<div style="font-weight:700;font-size:12px;color:#e8a020;margin-bottom:6px">📅 Ausencias en período ' + _qHoy.desde + ' — ' + _qHoy.hasta;
-        if(_c4>0)html+=' <span style="background:#f85149;color:#fff;font-size:9px;padding:1px 5px;border-radius:3px">'+_c4+'×4+</span>';
-        if(_c3>0)html+=' <span style="background:#e8a020;color:#000;font-size:9px;padding:1px 5px;border-radius:3px">'+_c3+'×3</span>';
-        if(_c2>0)html+=' <span style="background:rgba(232,160,32,.3);color:var(--text);font-size:9px;padding:1px 5px;border-radius:3px">'+_c2+'×2</span>';
-        html += '</div>';
-        _recE.forEach(function(s) {
-          var _col2=s.count>=4?'#f85149':s.count===3?'#e8a020':'var(--text)';
-          html+='<div style="font-size:12px;padding:2px 0;border-bottom:1px solid rgba(232,160,32,.1);display:flex;justify-content:space-between">';
-          html+='<span>'+esc(s.nombre)+' <span style="color:var(--muted);font-size:10px">'+esc(s.cargo)+'</span></span>';
-          html+='<span style="font-weight:700;color:'+_col2+'">'+s.count+' aus.</span>';
-          html+='</div>';
-        });
-        html += '</div>';
-      }
-    }
-
     // Ordenar alfabéticamente por nombre del empleado
     Object.keys(marcs)
       .sort(function(a,b){
@@ -8672,15 +8657,30 @@ function _paAdminEmpsRender(content) {
     // Header — toggle on click via class + data-*
     html += '<div class="_emp-toggle" data-eid="' + eid + '" style="padding:12px 14px;cursor:pointer">';
     html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
-    html += '<div style="flex:1">';
+    html += '<div style="flex:1;min-width:0">';
     var _empActivo = emp.activo !== false;
-    var _inactivoBadge = _empActivo ? '' : ' <span style="font-size:10px;background:#f85149;color:#fff;padding:1px 6px;border-radius:4px;font-weight:700">INACTIVO</span>';
     var _tardAcumEmp = (PA._ausPeriodo && PA._ausPeriodo[eid + '_t']) || 0;
-    var _tardBadgeEmp = _paBadgeTardanzas(_tardAcumEmp);
-    html += '<div class="report-emp" style="opacity:' + (_empActivo?'1':'.5') + '">' + enom + _inactivoBadge + _tardBadgeEmp + (pendCount>0&&_empActivo ? ' <span style="font-size:10px;font-weight:700;color:#f85149">⚠ ' + pendCount + ' pendiente(s)</span>' : '') + '</div>';
-    html += '<div class="report-detail">' + (emp.cargo||'—') + ' · ' + (emp.pin?'🔒 PIN asignado':'⚠ Sin PIN') + ' · ' + devStatus + '</div>';
-    html += '<div class="report-detail">🏖️ ' + (emp.diasVacacionesDisponibles||15) + ' días vac.</div>';
-    html += '<div class="report-detail" style="font-size:10px">' + verBadge + '</div>';
+    var _ausAcumEmp  = (PA._ausPeriodo && PA._ausPeriodo[eid]) || 0;
+
+    // Línea 1 — nombre, limpio
+    html += '<div class="report-emp" style="opacity:' + (_empActivo?'1':'.5') + '">' + enom + '</div>';
+
+    // Línea 2 — identidad: rol, PIN, dispositivo
+    html += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">';
+    html += _paPill(emp.cargo||'—', 'var(--surface2)', 'var(--muted)');
+    html += _paPill(emp.pin?'🔒 PIN asignado':'⚠ Sin PIN', emp.pin?'rgba(63,185,80,.13)':'rgba(232,160,32,.15)', emp.pin?'#2f9e52':'#B45309');
+    html += _paPill(devStatus, 'var(--surface2)', 'var(--muted)');
+    html += '</div>';
+
+    // Línea 3 — estado del período + alertas
+    var _badgesEstado = _paBadgeTardanzas(_tardAcumEmp) + _paBadgeAusencias(_ausAcumEmp);
+    if (pendCount>0 && _empActivo) _badgesEstado += ' ' + _paPill('⚠ ' + pendCount + ' pendiente(s)', 'rgba(248,81,73,.13)', '#f85149');
+    if (!_empActivo) _badgesEstado += ' ' + _paPill('INACTIVO', '#f85149', '#fff');
+    _badgesEstado += ' ' + _paPill('🏖️ ' + (emp.diasVacacionesDisponibles||15) + ' días vac.', 'var(--surface2)', 'var(--muted)');
+    if (_badgesEstado.trim()) html += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:5px">' + _badgesEstado + '</div>';
+
+    // Línea 4 — versión del dispositivo (discreto)
+    html += '<div style="font-size:9.5px;color:var(--muted);margin-top:6px">' + verBadge + '</div>';
     html += '</div>';
     html += '<span id="empArr_' + eid + '" style="font-size:18px;color:var(--muted);flex-shrink:0;transition:transform .2s">▶</span>';
     html += '</div></div>';
@@ -10175,7 +10175,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-06-D';
+var PA_VERSION = 'v2026-07-06-E';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
