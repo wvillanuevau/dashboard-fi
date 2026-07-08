@@ -1688,6 +1688,20 @@ function paEmpNombre() {
 }
 
 
+// ── Helper: orden lógico fijo de marcaciones (NO cronológico) ────
+// Siempre: entrada, sal.almuerzo, reg.almuerzo, salida, entrada
+// adicional (inicio HE), sal.cena, reg.cena, salida adicional (fin HE).
+// El timestamp real puede desordenarse por ediciones/GPS tardío;
+// esta es la referencia única para renderizar marcaciones de un día.
+var PA_ORDEN_TIPOS_MARCA = ['entrada','almuerzo_salida','almuerzo_regreso','salida','entrada_adicional','cena_salida','cena_regreso','salida_adicional'];
+function _paOrdenTipoMarca(tipo) {
+  var i = PA_ORDEN_TIPOS_MARCA.indexOf(tipo);
+  return i === -1 ? 999 : i;
+}
+function _paCompararMarcas(a, b) {
+  return _paOrdenTipoMarca(a.tipo) - _paOrdenTipoMarca(b.tipo) || (a.ts||0) - (b.ts||0);
+}
+
 // ── Helper: tiempo desde medianoche El Salvador ──────────────────
 // Siempre usa UTC-6 (America/El_Salvador, sin DST), ignorando
 // el timezone del dispositivo del empleado.
@@ -5291,7 +5305,7 @@ function _paAdminHoyRender(snap, snapInc, content, hoy) {
       html += '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:8px">'
         +'<div style="font-weight:700;margin-bottom:8px">'+esc(emp.nombre)+_tardCountBadge+tardeBadge+'</div>'
         +'<div style="display:flex;flex-wrap:wrap;gap:8px">';
-      emp.registros.sort(function(a,b){ return (a.ts||0)-(b.ts||0); }).forEach(function(r) {
+      emp.registros.sort(_paCompararMarcas).forEach(function(r) {
         var hora = r.ts ? paFmtHora(r.ts) : '—';
         var hasFoto = !!r.foto;
         var hasLoc  = !!(r.ubicacion && r.ubicacion.lat);
@@ -7673,7 +7687,7 @@ function _paBuscarHistEmp(empId) {
       var rango = all.filter(function(m){ return m.fecha >= desde && m.fecha <= hasta; });
       rango.sort(function(a,b){
         var fd = (b.fecha||"").localeCompare(a.fecha||"");
-        return fd || (b.ts||0)-(a.ts||0);
+        return fd || _paCompararMarcas(a,b);
       });
       if (!rango.length) {
         panel.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">Sin marcaciones en ese período</div>';
@@ -8457,6 +8471,8 @@ function paOpenPinModal() {
 
 function paAdminEmps(content) {
   content.innerHTML = '<div class="spinner"></div>';
+  // Cargar tardanzas/ausencias del período (badge ★) — re-renderiza al completar
+  _paCargarAusenciasPeriodo(function(){ _paAdminEmpsRender(content); });
   // Refrescar paPins desde Firestore para ver versiones actualizadas
   paDb.collection('paPins').where('empresa','==',PA.empresa).limit(300).get()
     .then(function(snap){
@@ -8529,7 +8545,11 @@ function _paAdminEmpsRender(content) {
     html += '<div style="flex:1">';
     var _empActivo = emp.activo !== false;
     var _inactivoBadge = _empActivo ? '' : ' <span style="font-size:10px;background:#f85149;color:#fff;padding:1px 6px;border-radius:4px;font-weight:700">INACTIVO</span>';
-    html += '<div class="report-emp" style="opacity:' + (_empActivo?'1':'.5') + '">' + enom + _inactivoBadge + (pendCount>0&&_empActivo ? ' <span style="font-size:10px;font-weight:700;color:#f85149">⚠ ' + pendCount + ' pendiente(s)</span>' : '') + '</div>';
+    var _tardAcumEmp = (PA._ausPeriodo && PA._ausPeriodo[eid + '_t']) || 0;
+    var _tardBadgeEmp = _tardAcumEmp > 0
+      ? ' <span style="background:rgba(232,160,32,.2);color:#e8a020;font-size:10px;padding:1px 5px;border-radius:4px;font-weight:700" title="Tardanzas en el período">'+_tardAcumEmp+'★</span>'
+      : '';
+    html += '<div class="report-emp" style="opacity:' + (_empActivo?'1':'.5') + '">' + enom + _inactivoBadge + _tardBadgeEmp + (pendCount>0&&_empActivo ? ' <span style="font-size:10px;font-weight:700;color:#f85149">⚠ ' + pendCount + ' pendiente(s)</span>' : '') + '</div>';
     html += '<div class="report-detail">' + (emp.cargo||'—') + ' · ' + (emp.pin?'🔒 PIN asignado':'⚠ Sin PIN') + ' · ' + devStatus + '</div>';
     html += '<div class="report-detail">🏖️ ' + (emp.diasVacacionesDisponibles||15) + ' días vac.</div>';
     html += '<div class="report-detail" style="font-size:10px">' + verBadge + '</div>';
@@ -8611,7 +8631,10 @@ function _paCargarPanelEmp(empId) {
     var heDiurNeto = Math.max(0, heDiur - canjesDiurUsados);
     var heNoctNeto = Math.max(0, heNoct - canjesNocUsados);
     var incPend  = incaps.filter(function(i){ return i.estado==="pendiente"; });
-    marcs.sort(function(a,b){ return (b.fecha||"").localeCompare(a.fecha||""); });
+    marcs.sort(function(a,b){
+      var fd = (b.fecha||"").localeCompare(a.fecha||"");
+      return fd || _paCompararMarcas(a,b);
+    });
     var marcsRecent = marcs.slice(0,10);
 
     var BS = "flex:1;padding:9px 8px;border-radius:9px;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit;border:none;";
@@ -10024,7 +10047,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-05-S';
+var PA_VERSION = 'v2026-07-05-U';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
