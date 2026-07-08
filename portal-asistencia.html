@@ -8069,33 +8069,33 @@ function paAdminConfig(content) {
 
   function _horCard(titulo, prefix, src) {
     return '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px">'
-      +'<div style="font-size:12px;font-weight:700;color:#388bfd;text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">'+titulo+'</div>'
+      +'<div style="font-size:12px;font-weight:700;color:#388bfd;text-transform:uppercase;letter-spacing:.6px;margin-bottom:14px">'+titulo+'</div>'
       // Lunes-viernes
-      +'<div style="font-size:11px;color:var(--text);margin-bottom:6px;font-weight:700">📅 LUNES – VIERNES</div>'
-      +'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">'
-      +'<div style="flex:1;min-width:100px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">ENTRADA</label>'
-      +'<input type="time" id="'+prefix+'_entrada" value="'+(src.horaEntrada||'07:00')+'" style="width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box"></div>'
-      +'<div style="flex:1;min-width:100px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">SALIDA</label>'
-      +'<input type="time" id="'+prefix+'_salida" value="'+(src.horaSalida||'17:00')+'" style="width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box"></div>'
-      +'<div style="flex:1;min-width:80px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">TOLERANCIA (min)</label>'
-      +'<input type="number" id="'+prefix+'_tol" value="'+(src.minutosTolerancia||10)+'" min="0" max="60" style="width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box"></div>'
-      +'<div style="flex:1;min-width:80px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">ALMUERZO (min)</label>'
-      +'<input type="number" id="'+prefix+'_alm" value="'+(src.minutosAlmuerzo||60)+'" min="0" max="120" style="width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box"></div>'
+      +'<div style="font-size:11px;color:var(--text);margin-bottom:10px;font-weight:700">📅 LUNES – VIERNES</div>'
+      +'<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:24px">'
+      +'<div style="flex:1;min-width:90px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:5px">ENTRADA</label>'
+      +'<input type="time" id="'+prefix+'_entrada" value="'+(src.horaEntrada||'07:00')+'" style="width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box;height:44px"></div>'
+      +'<div style="flex:1;min-width:90px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:5px">SALIDA</label>'
+      +'<input type="time" id="'+prefix+'_salida" value="'+(src.horaSalida||'17:00')+'" style="width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box;height:44px"></div>'
+      +'<div style="flex:1;min-width:70px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:5px">TOLERANCIA (min)</label>'
+      +'<input type="number" id="'+prefix+'_tol" value="'+(src.minutosTolerancia||10)+'" min="0" max="60" style="width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box;height:44px"></div>'
+      +'<div style="flex:1;min-width:70px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:5px">ALMUERZO (min)</label>'
+      +'<input type="number" id="'+prefix+'_alm" value="'+(src.minutosAlmuerzo||60)+'" min="0" max="120" style="width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box;height:44px"></div>'
       +'</div>'
       // Sábado
-      +'<div style="font-size:11px;color:#e8a020;margin-bottom:6px;font-weight:600">📅 SÁBADO</div>'
-      +'<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:8px">'
-      +'<div style="flex:1;min-width:100px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">ENTRADA</label>'
-      +'<input type="time" id="'+prefix+'_sabEntrada" value="'+(src.sabadoEntrada||'08:00')+'" style="width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box"></div>'
-      +'<div style="flex:1;min-width:100px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">SALIDA</label>'
-      +'<input type="time" id="'+prefix+'_sabSalida" value="'+(src.sabadoSalida||'12:00')+'" style="width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box"></div>'
-      +'<div style="flex:1;min-width:80px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">TOLERANCIA (min)</label>'
-      +'<input type="number" id="'+prefix+'_sabTol" value="'+(src.sabadoTolerancia||10)+'" min="0" max="60" style="width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box"></div>'
-      +'<div style="flex:0 0 auto"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer;padding-bottom:8px">'
+      +'<div style="font-size:11px;color:#e8a020;margin-bottom:10px;font-weight:600">📅 SÁBADO</div>'
+      +'<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:20px">'
+      +'<div style="flex:1;min-width:90px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:5px">ENTRADA</label>'
+      +'<input type="time" id="'+prefix+'_sabEntrada" value="'+(src.sabadoEntrada||'08:00')+'" style="width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box;height:44px"></div>'
+      +'<div style="flex:1;min-width:90px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:5px">SALIDA</label>'
+      +'<input type="time" id="'+prefix+'_sabSalida" value="'+(src.sabadoSalida||'12:00')+'" style="width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box;height:44px"></div>'
+      +'<div style="flex:1;min-width:70px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:5px">TOLERANCIA (min)</label>'
+      +'<input type="number" id="'+prefix+'_sabTol" value="'+(src.sabadoTolerancia||10)+'" min="0" max="60" style="width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box;height:44px"></div>'
+      +'<div style="flex:0 0 auto"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer;padding-bottom:12px">'
       +'<input type="checkbox" id="'+prefix+'_trabSab" '+(src.trabajaSabado?'checked':'')+' style="width:15px;height:15px"> Labora</label></div>'
       +'</div>'
       // Domingo
-      +'<div style="margin-bottom:4px"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer">'
+      +'<div style="margin-bottom:4px;margin-top:6px"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer">'
       +'<input type="checkbox" id="'+prefix+'_trabDom" '+(src.trabajaDomingo?'checked':'')+' style="width:15px;height:15px"> Trabaja domingo (genera compensatorio)</label></div>'
       +'</div>';
   }
@@ -8119,7 +8119,7 @@ function paAdminConfig(content) {
       type=type||'time'; min=min||''; max=max||'';
       return '<input type="'+type+'" id="hemp_'+emp.id+'_'+id+'" value="'+(val||'')+'" placeholder="'+ph+'" '
         +(min?'min="'+min+'" ':'' )+(max?'max="'+max+'" ':'')
-        +'style="width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">';
+        +'style="width:100%;padding:8px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;box-sizing:border-box;height:44px">';
     };
 
     horEmpHtml += '<div style="border:1.5px solid var(--border);border-radius:10px;margin-bottom:8px;overflow:hidden">'
@@ -8166,37 +8166,41 @@ function paAdminConfig(content) {
           var tol = conf.tolerancia !== undefined ? conf.tolerancia : defTol;
           var alm = conf.almuerzo   !== undefined ? conf.almuerzo   : defAlm;
           var tid = 'hd_'+emp.id+'_'+d;
-          html += '<div style="display:flex;flex-wrap:nowrap;align-items:center;gap:4px;padding:6px 0;border-bottom:1px solid var(--border)">';
-          html += '<span style="font-size:12px;font-weight:700;color:var(--text)">'+nm+'</span>';
+          html += '<div style="padding:6px 0;border-bottom:1px solid var(--border)">';
+          html += '<div style="display:flex;flex-wrap:nowrap;align-items:center;gap:4px">';
+          html += '<span style="font-size:12px;font-weight:700;color:var(--text);width:26px;flex-shrink:0">'+nm+'</span>';
           html += '<div style="width:30px;flex-shrink:0;text-align:center"><input type="checkbox" id="'+tid+'_trab" '+(defTrab?'checked':'')+' onchange="_paTogHorDia(\''+emp.id+'\','+d+')" style="width:16px;height:16px;cursor:pointer"></div>';
           var dis = defTrab ? '' : 'disabled ';
           var opac = defTrab ? '1' : '0.4';
           // Entrada/Salida en sub-div para ahorrar espacio
-          html += '<div style="flex:1;display:flex;gap:4px">'
+          html += '<div style="flex:1;display:flex;gap:4px;min-width:0">'
             +'<input type="time" id="'+tid+'_ent" value="'+ent+'" '+dis
             +'style="flex:1;min-width:0;padding:4px 5px;background:var(--surface);border:1.5px solid var(--border);'
-            +'border-radius:6px;color:var(--text);font-size:11px;opacity:'+opac+'">'
+            +'border-radius:6px;color:var(--text);font-size:11px;box-sizing:border-box;height:30px;opacity:'+opac+'">'
             +'<input type="time" id="'+tid+'_sal" value="'+sal+'" '+dis
             +'style="flex:1;min-width:0;padding:4px 5px;background:var(--surface);border:1.5px solid var(--border);'
-            +'border-radius:6px;color:var(--text);font-size:11px;opacity:'+opac+'">'
+            +'border-radius:6px;color:var(--text);font-size:11px;box-sizing:border-box;height:30px;opacity:'+opac+'">'
             +'</div>';
-          // Tolerancia y almuerzo ocultos en mobile (se muestran en tipo)
+          html += '</div>';
+          // Segunda línea: tolerancia + tipo — separada para que nunca se desborde
+          html += '<div style="display:flex;flex-wrap:nowrap;align-items:center;gap:6px;margin-top:5px;padding-left:60px">';
           html += '<div style="display:flex;align-items:center;gap:3px;font-size:10px;color:var(--muted)" title="Minutos de tolerancia">'
             +'<span>±</span>'
             +'<input type="number" id="'+tid+'_tol" value="'+tol+'" min="0" max="60" '+dis
             +'style="width:36px;padding:3px 4px;background:var(--surface);border:1.5px solid var(--border);'
-            +'border-radius:6px;color:var(--text);font-size:11px;text-align:center;opacity:'+opac+'" title="Tolerancia en minutos">'
+            +'border-radius:6px;color:var(--text);font-size:11px;box-sizing:border-box;height:30px;text-align:center;opacity:'+opac+'" title="Tolerancia en minutos">'
             +'<span>min</span></div>';
           html += '<input type="hidden" id="'+tid+'_alm" value="'+alm+'">';
           var tipoConf = conf.tipo || 'normal';
           var tipoColor = tipoConf==='turno-viernes'?'#B45309':tipoConf==='turno-libre'?'#006B3F':'var(--muted)';
           html += '<select id="'+tid+'_tipo" '+(defTrab?'':'disabled ')+'onchange="" '
-            +'style="width:80px;flex-shrink:0;padding:4px 2px;border:1.5px solid '+tipoColor+'40;border-radius:6px;'
-            +'font-size:9px;color:'+tipoColor+';background:var(--surface);font-family:inherit;font-weight:600;opacity:'+(defTrab?1:0.4)+'">'
+            +'style="flex:1;min-width:0;max-width:110px;padding:4px 2px;border:1.5px solid '+tipoColor+'40;border-radius:6px;'
+            +'font-size:9px;color:'+tipoColor+';background:var(--surface);font-family:inherit;font-weight:600;box-sizing:border-box;height:30px;opacity:'+(defTrab?1:0.4)+'">'
             +'<option value="normal"'+(tipoConf==='normal'?' selected':'')+'>Normal</option>'
             +'<option value="turno-viernes"'+(tipoConf==='turno-viernes'?' selected':'')+'>→ Viernes</option>'
             +'<option value="turno-libre"'+(tipoConf==='turno-libre'?' selected':'')+'>→ Día libre</option>'
             +'</select>';
+          html += '</div>';
           html += '</div>';
         });
         html += '</div>';
@@ -8270,11 +8274,11 @@ function paAdminConfig(content) {
     +'<div id="cfgPHE" style="display:none;padding:14px 16px">'
     +'<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Las HE se contabilizan solo dentro del período activo. Cambia cada quincena.</div>'
     +(phDesde?'<div style="background:rgba(180,83,9,.08);border:1.5px solid rgba(180,83,9,.25);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12px">📌 Período actual: <strong>'+phDesde+'</strong> al <strong>'+phHasta+'</strong></div>':'')
-    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">'
-    +'<div style="flex:1;min-width:110px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:4px">DESDE</label>'
-    +'<input type="date" id="periodoHEDesde" value="'+(phDesde||defDesde)+'" style="width:100%;padding:8px;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit"></div>'
-    +'<div style="flex:1;min-width:110px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:4px">HASTA</label>'
-    +'<input type="date" id="periodoHEHasta" value="'+(phHasta||defHasta)+'" style="width:100%;padding:8px;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit"></div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px">'
+    +'<div style="flex:1;min-width:110px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:5px">DESDE</label>'
+    +'<input type="date" id="periodoHEDesde" value="'+(phDesde||defDesde)+'" style="width:100%;padding:8px;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box;height:44px"></div>'
+    +'<div style="flex:1;min-width:110px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:5px">HASTA</label>'
+    +'<input type="date" id="periodoHEHasta" value="'+(phHasta||defHasta)+'" style="width:100%;padding:8px;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box;height:44px"></div>'
     +'</div>'
     +'<div style="display:flex;gap:8px">'
     +'<button onclick="paGuardarPeriodoHE()" style="flex:2;padding:11px;background:#B45309;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">💾 Guardar período</button>'
@@ -10189,7 +10193,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-06-L';
+var PA_VERSION = 'v2026-07-06-N';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
