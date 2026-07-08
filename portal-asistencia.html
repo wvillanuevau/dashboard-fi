@@ -7198,11 +7198,17 @@ function _paCargarAusenciasPeriodo() {
     .then(function(snap) {
       // Construir set de días que cada empleado marcó entrada
       var marcoEntrada = {}; // empId → Set de fechas
+      // Construir estructura empId → fecha → [marcaciones] para calcular tardanzas
+      var marcacionesPorEmp = {};
       snap.forEach(function(d) {
         var r = d.data();
-        if (r.tipo !== 'entrada') return;
-        if (!marcoEntrada[r.empleadoId]) marcoEntrada[r.empleadoId] = {};
-        marcoEntrada[r.empleadoId][r.fecha] = true;
+        if (r.tipo === 'entrada') {
+          if (!marcoEntrada[r.empleadoId]) marcoEntrada[r.empleadoId] = {};
+          marcoEntrada[r.empleadoId][r.fecha] = true;
+        }
+        if (!marcacionesPorEmp[r.empleadoId]) marcacionesPorEmp[r.empleadoId] = {};
+        if (!marcacionesPorEmp[r.empleadoId][r.fecha]) marcacionesPorEmp[r.empleadoId][r.fecha] = [];
+        marcacionesPorEmp[r.empleadoId][r.fecha].push(r);
       });
 
       // Generar lista de días laborables en el período
@@ -7227,10 +7233,9 @@ function _paCargarAusenciasPeriodo() {
         });
         if (ausencias > 0) ausPeriodo[emp.id] = ausencias;
 
-      });
-      // Merging tardanzas count into ausPeriodo
-      Object.keys(tardanzasPeriodo).forEach(function(id) {
-        ausPeriodo[id + '_t'] = tardanzasPeriodo[id];
+        // Tardanzas acumuladas del mismo período, reutilizando paTardanzasEmp
+        var _tRes = paTardanzasEmp(emp.id, marcacionesPorEmp);
+        if (_tRes.totalTard > 0) ausPeriodo[emp.id + '_t'] = _tRes.totalTard;
       });
       PA._ausPeriodo = ausPeriodo;
     }).catch(function(e){ console.warn('[AusPeriodo]', e.message); });
@@ -8068,13 +8073,13 @@ function paAdminConfig(content) {
       +'<div style="flex:1;min-width:80px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">TOLERANCIA (min)</label>'+INPUT('sabTol', empHor.sabadoTolerancia,'10','number','0','60')+'</div>'
       +'</div>'
       +'<div style="margin-bottom:12px">'
-      +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:#e6edf3">'
+      +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text)">'
       +'<input type="checkbox" id="hemp_'+emp.id+'_trabSabado" '+(empHor.trabajaSabado?'checked':'')+' style="width:16px;height:16px;cursor:pointer"> Trabaja sábado'
       +'</label></div>'
 
       // ── Domingo ───────────────────────────────────────────────
       +'<div style="margin-bottom:14px">'
-      +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:#e6edf3">'
+      +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text)">'
       +'<input type="checkbox" id="hemp_'+emp.id+'_trabDomingo" '+(empHor.trabajaDomingo?'checked':'')+' style="width:16px;height:16px;cursor:pointer"> Trabaja domingo (genera compensatorio)'
       +'</label></div>'
 
@@ -10015,7 +10020,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-05-O';
+var PA_VERSION = 'v2026-07-05-P';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
