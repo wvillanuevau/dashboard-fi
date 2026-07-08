@@ -3154,7 +3154,7 @@ function _heMinsNocturna(desdeMin, hastaMin) {
   return mins;
 }
 
-function paCalcularHorasExtra(entradaTs, salidaTs, fecha) {
+function paCalcularHorasExtra(entradaTs, salidaTs, fecha, refOverride) {
   // Domingo trabajado en TURNO no genera HE — se compensa con día libre
   function toMin(ts) {
     // Usar El Salvador timezone (no del dispositivo)
@@ -3205,8 +3205,11 @@ function paCalcularHorasExtra(entradaTs, salidaTs, fecha) {
   }
   var ini, fin;
   if (esSabado) {
-    var hSabIni = _hor.sabadoEntrada || _hor.horaEntrada || null; if (!hSabIni) return {diurna:0,nocturna:0,total:0,esSabado:true,esDomingo:false,esTurno:false,minutosRetraso:0,descuentoDiaCompleto:false,descuentoJornada:false};
-    var hSabFin = _hor.sabadoSalida  || _hor.horaSalida  || null; if (!hSabFin) return {diurna:0,nocturna:0,total:0,esSabado:true,esDomingo:false,esTurno:false,minutosRetraso:0,descuentoDiaCompleto:false,descuentoJornada:false};
+    // Turno confirmado (sábado+domingo trabajados): el sábado se trata
+    // como si fuera un día normal de semana (ej. 8-5), no con el horario
+    // corto de sábado — así lo que caiga dentro de ese horario no genera HE.
+    var hSabIni = (refOverride && refOverride.horaEntrada) || _hor.sabadoEntrada || _hor.horaEntrada || null; if (!hSabIni) return {diurna:0,nocturna:0,total:0,esSabado:true,esDomingo:false,esTurno:false,minutosRetraso:0,descuentoDiaCompleto:false,descuentoJornada:false};
+    var hSabFin = (refOverride && refOverride.horaSalida)  || _hor.sabadoSalida  || _hor.horaSalida  || null; if (!hSabFin) return {diurna:0,nocturna:0,total:0,esSabado:true,esDomingo:false,esTurno:false,minutosRetraso:0,descuentoDiaCompleto:false,descuentoJornada:false};
     ini = parseInt(hSabIni.split(':')[0]) * 60 + parseInt(hSabIni.split(':')[1] || 0);
     fin = parseInt(hSabFin.split(':')[0]) * 60 + parseInt(hSabFin.split(':')[1] || 0);
   } else {
@@ -3275,7 +3278,7 @@ function paCalcularHorasExtra(entradaTs, salidaTs, fecha) {
     total:    Math.round((horasDiurna + horasNocturna) * 100) / 100,
     esSabado:  esSabado,
     esDomingo: false,
-    esTurno:   false,
+    esTurno:   !!refOverride,
     minutosRetraso:     minutosRetraso,
     descuentoDiaCompleto: false,
     descuentoJornada:     false
@@ -7406,8 +7409,13 @@ function _paCheckCompensatorioFDS() {
     + String(_domDate.getMonth()+1).padStart(2,'0') + '-'
     + String(_domDate.getDate()).padStart(2,'0');
 
-  // No preguntar por el fin de semana actual si hoy es sábado o domingo
-  if (_diaSem === 0 || _diaSem === 6) return;
+  // El sábado el fin de semana sigue en curso — no evaluar todavía.
+  // El domingo tampoco, hasta las 7:00pm (el día aún no ha terminado).
+  if (_diaSem === 6) return;
+  if (_diaSem === 0) {
+    var _horaAhoraFDS = _hmsDesdeMedianocheES(Date.now()).horas;
+    if (_horaAhoraFDS < 19) return;
+  }
 
   var _semKey = 'compFDS_' + lastSatStr;
 
@@ -7524,9 +7532,9 @@ function _paMostrarModalCompFDS(empleados, semKey, lastSat, lastSun, nextFri, ne
 
     // Calcular qué días compensatorios corresponden
     var compDias = [];
-    if (e.trabajoSat && e.trabajoDom) { compDias.push('Viernes '+nextFri); compDias.push('Sábado mañana '+nextSat); }
+    if (e.trabajoSat && e.trabajoDom) { compDias.push('Viernes '+nextFri); compDias.push('Sábado '+nextSat); }
     else if (e.trabajoDom)  { compDias.push('Viernes '+nextFri); }
-    else if (e.trabajoSat)  { compDias.push('Sábado mañana '+nextSat); }
+    else if (e.trabajoSat)  { compDias.push('Sábado '+nextSat); }
 
     return '<div style="padding:12px;background:var(--surface2);border-radius:10px;margin-bottom:8px">'
       + '<label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">'
@@ -7553,7 +7561,7 @@ function _paMostrarModalCompFDS(empleados, semKey, lastSat, lastSun, nextFri, ne
     + 'Fin de semana: <strong>'+lastSat+' — '+lastSun+'</strong></div>'
     + '<div style="font-size:12px;color:var(--muted);margin-bottom:14px">'
     + 'Los siguientes empleados trabajaron fuera de su horario regular.<br>'
-    + 'Confirma si descansarán el próximo viernes y/o sábado por la mañana.</div>'
+    + 'Confirma si descansarán el próximo viernes y/o sábado.</div>'
     + itemsHtml
     + '<div style="font-size:11px;color:var(--muted);margin:12px 0 16px">'
     + 'Desmarca los empleados que NO tomarán compensatorio esta semana.</div>'
@@ -7572,6 +7580,7 @@ function _paConfirmarCompFDS(semKey) {
   var cbs = Array.from(document.querySelectorAll('.comp-fds-cb:checked'));
   var batch = paDb.batch();
   var count = 0;
+  var _turnoCompletoIds = []; // empId de quienes hicieron turno completo (sáb+dom) — para corregir HE del sábado
 
   cbs.forEach(function(cb) {
     var empId    = cb.dataset.empid;
@@ -7581,6 +7590,8 @@ function _paConfirmarCompFDS(semKey) {
     var dom      = cb.dataset.trabajodom === '1';
     var nextFri  = cb.dataset.nextfri;
     var nextSat  = cb.dataset.nextsat;
+
+    if (sat && dom) _turnoCompletoIds.push(empId);
 
     // Crear registro de compensatorio para viernes
     if (dom || (sat && dom)) {
@@ -7597,14 +7608,14 @@ function _paConfirmarCompFDS(semKey) {
       count++;
     }
 
-    // Crear registro de compensatorio para sábado por la mañana
+    // Crear registro de compensatorio para sábado completo
     if (sat || (sat && dom)) {
       var docSab = paDb.collection('paCanjes').doc();
       batch.set(docSab, {
         empresa: PA.empresa, empleadoId: empId, empleadoNombre: nombre, cargo: cargo,
-        esCompensatorio: true, esAutoTurno: true, tipoComp: 'sabado_manana',
-        fechaLibre: nextSat, diasLibres: 0.5, horasLibres: 4,
-        motivo: 'Compensatorio por trabajo sábado tarde — descanso sábado mañana '+nextSat,
+        esCompensatorio: true, esAutoTurno: true, tipoComp: 'sabado_completo',
+        fechaLibre: nextSat, diasLibres: 1, horasLibres: 8,
+        motivo: 'Compensatorio por trabajo sábado tarde — descanso sábado completo '+nextSat,
         estado: 'asignado', aprobadoTs: Date.now(),
         semanaOrigen: semKey, ts: Date.now(),
         folio: 'COMP-SAB-'+paGenId().toUpperCase()
@@ -7627,7 +7638,76 @@ function _paConfirmarCompFDS(semKey) {
       paToast('✅ '+count+' compensatorio(s) asignados correctamente');
     else
       paToast('Sin compensatorios asignados — marcado como revisado');
+    // Corregir HE del sábado para quienes hicieron turno completo (sáb+dom):
+    // se recalculan con el horario normal de semana en vez del de sábado.
+    var _lastSatFDS = semKey.replace('compFDS_', '');
+    _turnoCompletoIds.forEach(function(empId) {
+      _paCorregirHEsabadoTurno(empId, _lastSatFDS);
+    });
   }).catch(function(e){ paToast('Error: '+e.message, true); });
+}
+
+// ── Corrige la HE ya auto-generada del sábado cuando se confirma turno
+// completo (sábado+domingo): usa el horario normal de semana como
+// referencia en vez del horario corto de sábado. No toca HE ya
+// aprobada — solo la pendiente/auto-generada. No es retroactivo a
+// semanas anteriores, solo corre para el sábado recién confirmado.
+function _paCorregirHEsabadoTurno(empId, lastSat) {
+  if (!paDb || !PA.empresa || !empId || !lastSat) return;
+  var empObj = (PA.empleados||[]).find(function(e){ return e.id === empId; });
+  if (!empObj) return;
+  // Horario normal de semana del empleado (lunes como día representativo)
+  var _horSemana = _horarioDeEmp(empObj, 1);
+  if (!_horSemana || !_horSemana.horaEntrada || !_horSemana.horaSalida) return;
+
+  Promise.all([
+    paDb.collection('paMarcaciones').where('empresa','==',PA.empresa).where('empleadoId','==',empId).get(),
+    paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).where('empleadoId','==',empId).get()
+  ]).then(function(res) {
+    var marcSat = res[0].docs.map(function(d){ return d.data(); }).filter(function(r){ return r.fecha === lastSat; });
+    var entradaR = marcSat.find(function(r){ return r.tipo === 'entrada'; });
+    var salidaR  = marcSat.slice().reverse().find(function(r){ return r.tipo === 'salida' || r.tipo === 'salida_adicional'; });
+    if (!entradaR || !salidaR) return; // sin marcaciones completas ese sábado, nada que corregir
+
+    var calcCorregido = paCalcularHorasExtra(
+      _paToMs(entradaR.ts), _paToMs(salidaR.ts), lastSat,
+      { horaEntrada: _horSemana.horaEntrada, horaSalida: _horSemana.horaSalida }
+    );
+
+    var heDelSabado = res[1].docs.filter(function(d) {
+      var r = d.data();
+      return r.fecha === lastSat && r.origen === 'auto';
+    });
+    var heAprobadas  = heDelSabado.filter(function(d){ return d.data().estado === 'aprobado'; });
+    var hePendientes = heDelSabado.filter(function(d){ return d.data().estado !== 'aprobado'; });
+
+    if (heAprobadas.length > 0) {
+      console.warn('[CompFDS] HE del sábado '+lastSat+' de '+empId+' ya aprobada(s) — no se corrige automáticamente, requiere ajuste manual.');
+    }
+
+    var batch2 = paDb.batch();
+    hePendientes.forEach(function(d){ batch2.delete(d.ref); });
+
+    if (calcCorregido.diurna > 0) {
+      batch2.set(paDb.collection('paHorasExtra').doc(), {
+        empresa: PA.empresa, empleadoId: empId, empleadoNombre: empObj.nombre,
+        fecha: lastSat, tipo: 'diurna', horas: calcCorregido.diurna,
+        descripcion: 'Auto-corregido por turno de fin de semana (horario normal) — '+lastSat,
+        ts: Date.now(), estado: 'pendiente', origen: 'auto', folio: 'HE-AUTO-'+paGenId().toUpperCase()
+      });
+    }
+    if (calcCorregido.nocturna > 0) {
+      batch2.set(paDb.collection('paHorasExtra').doc(), {
+        empresa: PA.empresa, empleadoId: empId, empleadoNombre: empObj.nombre,
+        fecha: lastSat, tipo: 'nocturna', horas: calcCorregido.nocturna,
+        descripcion: 'Auto-corregido por turno de fin de semana (horario normal) — '+lastSat,
+        ts: Date.now(), estado: 'pendiente', origen: 'auto', folio: 'HE-AUTO-'+paGenId().toUpperCase()
+      });
+    }
+    if (hePendientes.length > 0 || calcCorregido.diurna > 0 || calcCorregido.nocturna > 0) {
+      batch2.commit().catch(function(e){ console.warn('[CompFDS] Error corrigiendo HE del sábado:', e.message); });
+    }
+  }).catch(function(e){ console.warn('[CompFDS] Error buscando datos para corrección:', e.message); });
 }
 
 function _paSkipCompFDS() {
@@ -10193,7 +10273,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-06-R';
+var PA_VERSION = 'v2026-07-06-S';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
