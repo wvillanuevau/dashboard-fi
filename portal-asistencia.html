@@ -8217,10 +8217,10 @@ function paAdminConfig(content) {
 
       // ── Sábado ────────────────────────────────────────────────
       +'<div style="font-size:11px;font-weight:700;color:#e8a020;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">📅 Sábado</div>'
-      +'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">'
-      +'<div style="flex:1;min-width:100px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">ENTRADA</label>'+INPUT('sabEntrada', empHor.sabadoEntrada,'08:00')+'</div>'
-      +'<div style="flex:1;min-width:100px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">SALIDA</label>'+INPUT('sabSalida', empHor.sabadoSalida,'12:00')+'</div>'
-      +'<div style="flex:1;min-width:80px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">TOLERANCIA (min)</label>'+INPUT('sabTol', empHor.sabadoTolerancia,'10','number','0','60')+'</div>'
+      +'<div style="display:flex;flex-wrap:wrap;gap:16px 10px;margin-bottom:12px">'
+      +'<div style="flex:1;min-width:80px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">ENTRADA</label>'+INPUT('sabEntrada', empHor.sabadoEntrada,'08:00')+'</div>'
+      +'<div style="flex:1;min-width:80px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">SALIDA</label>'+INPUT('sabSalida', empHor.sabadoSalida,'12:00')+'</div>'
+      +'<div style="flex:none;width:56px"><label style="font-size:9px;color:var(--text);font-weight:700;display:block;margin-bottom:4px;white-space:nowrap">TOL.</label>'+INPUT('sabTol', empHor.sabadoTolerancia,'10','number','0','60')+'</div>'
       +'</div>'
       +'<div style="margin-bottom:12px">'
       +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text)">'
@@ -10193,7 +10193,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-06-P';
+var PA_VERSION = 'v2026-07-06-Q';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
