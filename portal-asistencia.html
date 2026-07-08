@@ -457,6 +457,65 @@ input, select, textarea {
   }
 }
 
+/* ══════════════════════════════════════════════════════════
+   NEUMORFISMO — relieve/profundidad en toda la interfaz.
+   Se agrega como capa final para no tocar cientos de puntos
+   donde el HTML se genera por JS: cubre <button> reales y
+   tarjetas con el borde estándar var(--border) vía selector
+   de atributo, más las clases nombradas de componentes.
+   ══════════════════════════════════════════════════════════ */
+:root{
+  --neu-light:rgba(255,255,255,.85);
+  --neu-dark:rgba(180,127,74,.30);
+  --neu-out-sm:3px 3px 7px var(--neu-dark),-3px -3px 7px var(--neu-light);
+  --neu-out:6px 6px 13px var(--neu-dark),-6px -6px 13px var(--neu-light);
+  --neu-out-lg:10px 10px 22px var(--neu-dark),-8px -8px 18px var(--neu-light);
+  --neu-in-sm:inset 2px 2px 5px var(--neu-dark),inset -2px -2px 5px var(--neu-light);
+  --neu-in:inset 4px 4px 9px var(--neu-dark),inset -4px -4px 9px var(--neu-light);
+}
+
+/* Todo <button> real de la app (incluye los generados por JS en el
+   panel admin) recibe relieve, y se "hunde" al presionarlo. */
+button{ box-shadow:var(--neu-out-sm); }
+button:active{ box-shadow:var(--neu-in-sm); }
+.pin-key.empty{ box-shadow:none; }
+
+/* Tarjetas/contenedores generados dinámicamente con el borde estándar */
+[style*="border:1.5px solid var(--border)"],
+[style*="border:1px solid var(--border)"]{
+  box-shadow:var(--neu-out-sm);
+}
+
+/* Componentes con clase propia */
+.feat-card,.emp-item,.hist-item,.stat-card,.report-row,.loc-card,
+.dash-status,.ot-type-btn,.emp-avatar,#paToast{
+  box-shadow:var(--neu-out-sm);
+}
+.ot-type-btn.selected{ box-shadow:var(--neu-in-sm); }
+.landing-logo{ box-shadow:0 0 0 6px rgba(204,0,0,.07),var(--neu-out-lg); }
+.landing-btn{ box-shadow:var(--neu-out); }
+.landing-btn:active{ box-shadow:var(--neu-in); }
+.big-btn{ box-shadow:var(--neu-out); }
+.big-btn:active{ box-shadow:var(--neu-in); }
+.action-btn{ box-shadow:var(--neu-out-sm); }
+.action-btn:active{ box-shadow:var(--neu-in-sm); }
+.pin-key{ box-shadow:var(--neu-out-sm); }
+.pin-key:active{ box-shadow:var(--neu-in-sm); }
+.pin-dot,.step-dot{ box-shadow:var(--neu-out-sm); }
+.fg input,.fg select,.fg textarea,.emp-search{
+  box-shadow:var(--neu-in-sm);
+  border-color:transparent;
+}
+.fg input:focus,.fg select:focus,.emp-search:focus{
+  box-shadow:var(--neu-in-sm),0 0 0 2px var(--accent2);
+}
+.tab-bar{ box-shadow:var(--neu-in-sm); }
+.tab-btn.active{ box-shadow:var(--neu-out-sm); border-radius:10px; background:var(--bg); }
+.pa-modal-box{ box-shadow:0 -10px 30px rgba(122,99,85,.35),var(--neu-out-lg); }
+.success-folio{ box-shadow:var(--neu-in-sm); }
+.capture-btn{ box-shadow:var(--neu-out),0 4px 20px rgba(46,160,67,.4); }
+.portal-header{ box-shadow:0 4px 16px rgba(204,0,0,.28),inset 0 1px 0 rgba(255,255,255,.25); }
+
 </style>
 </head>
 <body>
@@ -1700,6 +1759,15 @@ function _paOrdenTipoMarca(tipo) {
 }
 function _paCompararMarcas(a, b) {
   return _paOrdenTipoMarca(a.tipo) - _paOrdenTipoMarca(b.tipo) || (a.ts||0) - (b.ts||0);
+}
+// ── Helper: badge de tardanzas del período, estilo semáforo ──────
+// 1-2 tardanzas: verde · 3: amarillo · 4+: rojo (coincide con el
+// umbral de AMONESTACION_TARDANZA en la 4ª tardanza del período).
+function _paBadgeTardanzas(count) {
+  if (!count || count <= 0) return '';
+  var color = count >= 4 ? '#f85149' : count === 3 ? '#e8a020' : '#3fb950';
+  var bg    = count >= 4 ? 'rgba(248,81,73,.15)' : count === 3 ? 'rgba(232,160,32,.15)' : 'rgba(63,185,80,.15)';
+  return ' <span style="background:'+bg+';color:'+color+';font-size:10px;padding:1px 5px;border-radius:4px;font-weight:700" title="Tardanzas en el período">⏰ '+count+'</span>';
 }
 
 // ── Helper: tiempo desde medianoche El Salvador ──────────────────
@@ -5294,9 +5362,7 @@ function _paAdminHoyRender(snap, snapInc, content, hoy) {
       .forEach(function(empId) {
       var emp = marcs[empId];
       var _tardAcumHoy = (PA._ausPeriodo && PA._ausPeriodo[empId + '_t']) || 0;
-      var _tardCountBadge = _tardAcumHoy > 0
-        ? ' <span style="background:rgba(232,160,32,.2);color:#e8a020;font-size:10px;padding:1px 5px;border-radius:4px;font-weight:700" title="Tardanzas en el período">'+_tardAcumHoy+'★</span>'
-        : '';
+      var _tardCountBadge = _paBadgeTardanzas(_tardAcumHoy);
       var tardeBadge = emp.sinHorario
         ? ' <span style="color:var(--muted);font-size:10px" title="Configura el horario de este empleado en el panel de empleados">⚙ Sin horario</span>'
         : emp.tarde > 0
@@ -7206,6 +7272,14 @@ function _paResolverNotif(notifId, btn) {
 function _paCargarAusenciasPeriodo(cb) {
   if (!paDb || !PA.empresa) return;
   var _q = _quincenaActual();
+  var _cacheKey = _q.desde + '_' + _q.hasta;
+  // Cache de 3 min — evita repetir la consulta pesada del período completo
+  // cada vez que se cambia de pestaña (Hoy ⇄ Empleados), que era la causa
+  // principal de la lentitud al abrir Hoy.
+  if (PA._ausPeriodo && PA._ausPeriodoKey === _cacheKey && PA._ausPeriodoTs && (Date.now() - PA._ausPeriodoTs) < 180000) {
+    if (cb) cb();
+    return;
+  }
   // Cargar todas las marcaciones del período para contar ausencias por empleado
   paDb.collection('paMarcaciones')
     .where('empresa', '==', PA.empresa)
@@ -7255,6 +7329,8 @@ function _paCargarAusenciasPeriodo(cb) {
         if (_tRes.totalTard > 0) ausPeriodo[emp.id + '_t'] = _tRes.totalTard;
       });
       PA._ausPeriodo = ausPeriodo;
+      PA._ausPeriodoKey = _cacheKey;
+      PA._ausPeriodoTs = Date.now();
       if (cb) cb();
     }).catch(function(e){ console.warn('[AusPeriodo]', e.message); if (cb) cb(); });
 }
@@ -8546,9 +8622,7 @@ function _paAdminEmpsRender(content) {
     var _empActivo = emp.activo !== false;
     var _inactivoBadge = _empActivo ? '' : ' <span style="font-size:10px;background:#f85149;color:#fff;padding:1px 6px;border-radius:4px;font-weight:700">INACTIVO</span>';
     var _tardAcumEmp = (PA._ausPeriodo && PA._ausPeriodo[eid + '_t']) || 0;
-    var _tardBadgeEmp = _tardAcumEmp > 0
-      ? ' <span style="background:rgba(232,160,32,.2);color:#e8a020;font-size:10px;padding:1px 5px;border-radius:4px;font-weight:700" title="Tardanzas en el período">'+_tardAcumEmp+'★</span>'
-      : '';
+    var _tardBadgeEmp = _paBadgeTardanzas(_tardAcumEmp);
     html += '<div class="report-emp" style="opacity:' + (_empActivo?'1':'.5') + '">' + enom + _inactivoBadge + _tardBadgeEmp + (pendCount>0&&_empActivo ? ' <span style="font-size:10px;font-weight:700;color:#f85149">⚠ ' + pendCount + ' pendiente(s)</span>' : '') + '</div>';
     html += '<div class="report-detail">' + (emp.cargo||'—') + ' · ' + (emp.pin?'🔒 PIN asignado':'⚠ Sin PIN') + ' · ' + devStatus + '</div>';
     html += '<div class="report-detail">🏖️ ' + (emp.diasVacacionesDisponibles||15) + ' días vac.</div>';
@@ -10047,7 +10121,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-05-U';
+var PA_VERSION = 'v2026-07-05-W';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);

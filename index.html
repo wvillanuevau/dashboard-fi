@@ -493,30 +493,35 @@ _fbAuth.onAuthStateChanged(user=>{
   --bg:#080807;--surface:#111009;--surface2:#191714;--border:#252320;
   --text:#e4e2dd;--muted:#666;--card-shadow:0 1px 10px rgba(0,0,0,.5);
   --accent:#e8a020;
+  --nf-light:rgba(255,255,255,.045);--nf-dark:rgba(0,0,0,.65);
 }
 /* ── TEMA 2: MIDNIGHT BLUE ── */
 [data-theme="midnight"]{
   --bg:#060c14;--surface:#0d1520;--surface2:#142030;--border:#1e3048;
   --text:#c8d8ec;--muted:#5a7896;--card-shadow:0 1px 10px rgba(0,0,0,.5);
   --accent:#38bdf8;
+  --nf-light:rgba(255,255,255,.05);--nf-dark:rgba(0,0,0,.65);
 }
 /* ── TEMA 3: FOREST ── */
 [data-theme="forest"]{
   --bg:#060d09;--surface:#0c1610;--surface2:#121e16;--border:#1a3020;
   --text:#c0d8c4;--muted:#4a7a58;--card-shadow:0 1px 10px rgba(0,0,0,.5);
   --accent:#2db87a;
+  --nf-light:rgba(255,255,255,.05);--nf-dark:rgba(0,0,0,.6);
 }
 /* ── TEMA 4: CARBON ── */
 [data-theme="carbon"]{
   --bg:#141414;--surface:#1c1c1c;--surface2:#242424;--border:#2e2e2e;
   --text:#e0e0e0;--muted:#6a6a6a;--card-shadow:0 1px 10px rgba(0,0,0,.4);
   --accent:#a78bfa;
+  --nf-light:rgba(255,255,255,.06);--nf-dark:rgba(0,0,0,.55);
 }
 /* ── TEMA 5: LIGHT ── */
 [data-theme="light"]{
   --bg:#f0f2f7;--surface:#ffffff;--surface2:#f5f7fa;--border:#dde3ec;
   --text:#1a2030;--muted:#6b7a8d;--card-shadow:0 1px 8px rgba(0,0,0,.06);
   --accent:#e8a020;
+  --nf-light:rgba(255,255,255,.9);--nf-dark:rgba(163,177,198,.45);
 }
 
 /* ── AJUSTES MODO CLARO ── */
@@ -1172,6 +1177,65 @@ button:focus:not(:focus-visible),input:focus:not(:focus-visible){
 /* iOS: prevenir auto-zoom en inputs */
 input,select,textarea{font-size:16px}
 @media(min-width:600px){input,select,textarea{font-size:14px}}
+/* ══════════════════════════════════════════════════════════
+   NEUMORFISMO — relieve/profundidad en toda la interfaz.
+   Tokens --nf-light/--nf-dark definidos por tema arriba, para
+   que el relieve se vea correcto en los 5 esquemas de color.
+   Se agrega como capa final para no tocar los cientos de puntos
+   donde el HTML se genera por JS: cubre <button> reales y
+   tarjetas con el borde estándar var(--border) vía selector
+   de atributo, más las clases nombradas de componentes.
+   Los modos de fondo "glass" y "deep" ya definen su propio
+   box-shadow con mayor especificidad, así que no se ven afectados.
+   ══════════════════════════════════════════════════════════ */
+:root{
+  --nf-out-sm:3px 3px 7px var(--nf-dark),-3px -3px 7px var(--nf-light);
+  --nf-out:6px 6px 14px var(--nf-dark),-6px -6px 14px var(--nf-light);
+  --nf-out-lg:10px 10px 24px var(--nf-dark),-8px -8px 20px var(--nf-light);
+  --nf-in-sm:inset 2px 2px 5px var(--nf-dark),inset -2px -2px 5px var(--nf-light);
+  --nf-in:inset 4px 4px 10px var(--nf-dark),inset -4px -4px 10px var(--nf-light);
+}
+
+/* Todo <button> real (incluye los cientos generados por JS) recibe
+   relieve, y se "hunde" al presionarlo — botón físico. */
+button{ box-shadow:var(--nf-out-sm); }
+button:active{ box-shadow:var(--nf-in-sm); }
+
+/* Tarjetas/contenedores generados dinámicamente con borde estándar */
+[style*="border:1px solid var(--border)"]{
+  box-shadow:var(--nf-out-sm);
+}
+
+/* Componentes con clase propia */
+.card,.kpi,.report-builder,.report-output,.modal-box,.toast,
+.info-box,.sb-logo-img{
+  box-shadow:var(--nf-out-sm);
+}
+.card{ box-shadow:var(--nf-out); }
+.modal-box{ box-shadow:var(--nf-out-lg); }
+.btn{ box-shadow:var(--nf-out-sm); }
+.btn:active{ box-shadow:var(--nf-in-sm); }
+.btn-primary{ box-shadow:var(--nf-out-sm); }
+input,select,textarea{
+  box-shadow:var(--nf-in-sm);
+  border-color:transparent;
+}
+input:focus,select:focus,textarea:focus{
+  box-shadow:var(--nf-in-sm),0 0 0 2px var(--accent);
+}
+input[type=checkbox],input[type=range]{ box-shadow:none; }
+.tbl-wrap{ box-shadow:var(--nf-in-sm); }
+th{ box-shadow:var(--nf-in-sm); }
+.tab.active{ box-shadow:var(--nf-out-sm); border-radius:8px 8px 0 0; background:var(--surface); }
+.sidebar{ box-shadow:var(--nf-out-lg); }
+.topbar{ box-shadow:0 1px 0 var(--border),var(--nf-in-sm); }
+.hamburger{ box-shadow:var(--nf-out-sm); }
+.badge{ box-shadow:var(--nf-out-sm); }
+.prog{ box-shadow:var(--nf-in-sm); }
+
+/* Los modos glass/deep ya traen su propio box-shadow con mayor
+   especificidad (2 selectores) — se mantienen intactos. */
+
 </style>
 </head>
 <body>
@@ -1449,7 +1513,7 @@ input,select,textarea{font-size:16px}
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-07-01-C'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-07-07-A'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
