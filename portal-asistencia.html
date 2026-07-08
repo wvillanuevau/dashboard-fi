@@ -7314,13 +7314,17 @@ function _paCargarAusenciasPeriodo(cb) {
     if (cb) cb();
     return;
   }
-  // Cargar todas las marcaciones del período para contar ausencias por empleado
-  // Solo 2 .where() para evitar el índice compuesto (empresa+fecha>=+fecha<=
-  // requiere uno que no existe en este proyecto) — el límite superior se
-  // filtra en cliente, mismo patrón ya usado en _paVerificarFaltasAutomaticas.
+  // Cargar marcaciones para contar ausencias/tardanzas por empleado.
+  // Firestore SIEMPRE exige índice compuesto al combinar una igualdad
+  // (empresa==) con un rango (fecha>=/<=), sin importar cuántas condiciones
+  // sean — no existe ese índice en este proyecto. Única forma de evitarlo
+  // sin crear el índice: dejar SOLO la igualdad en la consulta (auto-indexada
+  // siempre) y filtrar TODO el rango de fechas en cliente. Nota: esto trae
+  // el historial completo de paMarcaciones de la empresa, no solo el
+  // período — si la colección crece mucho con los años, considerar crear
+  // el índice compuesto en su lugar (más eficiente).
   paDb.collection('paMarcaciones')
     .where('empresa', '==', PA.empresa)
-    .where('fecha', '>=', _q.desde)
     .get()
     .then(function(snap) {
       // Construir set de días que cada empleado marcó entrada
@@ -7329,7 +7333,7 @@ function _paCargarAusenciasPeriodo(cb) {
       var marcacionesPorEmp = {};
       snap.forEach(function(d) {
         var r = d.data();
-        if (r.fecha > _q.hasta) return; // filtro client-side del límite superior
+        if (r.fecha < _q.desde || r.fecha > _q.hasta) return; // filtro client-side del rango completo
         if (r.tipo === 'entrada') {
           if (!marcoEntrada[r.empleadoId]) marcoEntrada[r.empleadoId] = {};
           marcoEntrada[r.empleadoId][r.fecha] = true;
@@ -10171,7 +10175,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-06-B';
+var PA_VERSION = 'v2026-07-06-C';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
