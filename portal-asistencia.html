@@ -493,17 +493,29 @@ button:active{
 }
 .pin-key.empty{ box-shadow:none; transform:none!important; }
 
-/* Tarjetas/contenedores generados dinámicamente con el borde estándar */
-[style*="border:1.5px solid var(--border)"],
-[style*="border:1px solid var(--border)"]{
+/* Tarjetas/contenedores generados dinámicamente con el borde estándar.
+   Restringido a <div> — los <input>/<select> con este mismo borde
+   inline (muy comunes en Config: fechas, horas, tolerancia, etc.)
+   quedan excluidos abajo para que no "sobresalgan" con sombra elevada
+   sobre filas de formulario muy pegadas entre sí. */
+div[style*="border:1.5px solid var(--border)"],
+div[style*="border:1px solid var(--border)"]{
   box-shadow:var(--neu-out-sm);
   transition:box-shadow .18s ease,transform .12s ease;
 }
 @media(hover:hover) and (pointer:fine){
-  [style*="border:1.5px solid var(--border)"]:hover,
-  [style*="border:1px solid var(--border)"]:hover{
+  div[style*="border:1.5px solid var(--border)"]:hover,
+  div[style*="border:1px solid var(--border)"]:hover{
     box-shadow:var(--neu-out); transform:translateY(-3px);
   }
+}
+/* Inputs/selects con el mismo borde: relieve "hundido" contenido
+   dentro de la caja — nunca se desborda sobre filas vecinas. */
+input[style*="border:1.5px solid var(--border)"],
+input[style*="border:1px solid var(--border)"],
+select[style*="border:1.5px solid var(--border)"],
+select[style*="border:1px solid var(--border)"]{
+  box-shadow:var(--neu-in-sm);
 }
 
 /* Componentes con clase propia */
@@ -10177,7 +10189,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-06-K';
+var PA_VERSION = 'v2026-07-06-L';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
