@@ -458,49 +458,74 @@ input, select, textarea {
 }
 
 /* ══════════════════════════════════════════════════════════
-   NEUMORFISMO — relieve/profundidad en toda la interfaz.
-   Se agrega como capa final para no tocar cientos de puntos
-   donde el HTML se genera por JS: cubre <button> reales y
-   tarjetas con el borde estándar var(--border) vía selector
-   de atributo, más las clases nombradas de componentes.
+   NEUMORFISMO — relieve/profundidad + movimiento en toda la
+   interfaz. Se agrega como capa final para no tocar cientos
+   de puntos donde el HTML se genera por JS: cubre <button>
+   reales y tarjetas con el borde estándar var(--border) vía
+   selector de atributo, más las clases nombradas.
    ══════════════════════════════════════════════════════════ */
 :root{
-  --neu-light:rgba(255,255,255,.85);
-  --neu-dark:rgba(180,127,74,.30);
-  --neu-out-sm:3px 3px 7px var(--neu-dark),-3px -3px 7px var(--neu-light);
-  --neu-out:6px 6px 13px var(--neu-dark),-6px -6px 13px var(--neu-light);
-  --neu-out-lg:10px 10px 22px var(--neu-dark),-8px -8px 18px var(--neu-light);
-  --neu-in-sm:inset 2px 2px 5px var(--neu-dark),inset -2px -2px 5px var(--neu-light);
-  --neu-in:inset 4px 4px 9px var(--neu-dark),inset -4px -4px 9px var(--neu-light);
+  --neu-light:rgba(255,255,255,.95);
+  --neu-dark:rgba(150,100,55,.42);
+  --neu-out-sm:4px 4px 9px var(--neu-dark),-4px -4px 9px var(--neu-light);
+  --neu-out:8px 8px 18px var(--neu-dark),-7px -7px 16px var(--neu-light);
+  --neu-out-lg:14px 14px 30px var(--neu-dark),-10px -10px 22px var(--neu-light);
+  --neu-in-sm:inset 3px 3px 6px var(--neu-dark),inset -3px -3px 6px var(--neu-light);
+  --neu-in:inset 5px 5px 11px var(--neu-dark),inset -5px -5px 11px var(--neu-light);
 }
 
 /* Todo <button> real de la app (incluye los generados por JS en el
-   panel admin) recibe relieve, y se "hunde" al presionarlo. */
-button{ box-shadow:var(--neu-out-sm); }
-button:active{ box-shadow:var(--neu-in-sm); }
-.pin-key.empty{ box-shadow:none; }
+   panel admin) recibe relieve marcado, se ELEVA al pasar el cursor
+   (desktop) y se HUNDE físicamente al presionarlo (transform+shadow). */
+button{
+  box-shadow:var(--neu-out-sm);
+  transition:box-shadow .18s ease,transform .12s ease;
+  transform:translateY(0);
+}
+@media(hover:hover) and (pointer:fine){
+  button:hover{ box-shadow:var(--neu-out); transform:translateY(-2px); }
+}
+button:active{
+  box-shadow:var(--neu-in-sm)!important;
+  transform:translateY(2px) scale(.97)!important;
+  transition:box-shadow .06s ease,transform .06s ease;
+}
+.pin-key.empty{ box-shadow:none; transform:none!important; }
 
 /* Tarjetas/contenedores generados dinámicamente con el borde estándar */
 [style*="border:1.5px solid var(--border)"],
 [style*="border:1px solid var(--border)"]{
   box-shadow:var(--neu-out-sm);
+  transition:box-shadow .18s ease,transform .12s ease;
+}
+@media(hover:hover) and (pointer:fine){
+  [style*="border:1.5px solid var(--border)"]:hover,
+  [style*="border:1px solid var(--border)"]:hover{
+    box-shadow:var(--neu-out); transform:translateY(-2px);
+  }
 }
 
 /* Componentes con clase propia */
 .feat-card,.emp-item,.hist-item,.stat-card,.report-row,.loc-card,
 .dash-status,.ot-type-btn,.emp-avatar,#paToast{
   box-shadow:var(--neu-out-sm);
+  transition:box-shadow .18s ease,transform .12s ease;
 }
-.ot-type-btn.selected{ box-shadow:var(--neu-in-sm); }
+@media(hover:hover) and (pointer:fine){
+  .emp-item:hover,.hist-item:hover,.stat-card:hover,.report-row:hover{
+    box-shadow:var(--neu-out); transform:translateY(-2px);
+  }
+}
+.ot-type-btn.selected{ box-shadow:var(--neu-in-sm)!important; transform:translateY(1px)!important; }
 .landing-logo{ box-shadow:0 0 0 6px rgba(204,0,0,.07),var(--neu-out-lg); }
-.landing-btn{ box-shadow:var(--neu-out); }
-.landing-btn:active{ box-shadow:var(--neu-in); }
-.big-btn{ box-shadow:var(--neu-out); }
-.big-btn:active{ box-shadow:var(--neu-in); }
-.action-btn{ box-shadow:var(--neu-out-sm); }
-.action-btn:active{ box-shadow:var(--neu-in-sm); }
-.pin-key{ box-shadow:var(--neu-out-sm); }
-.pin-key:active{ box-shadow:var(--neu-in-sm); }
+.landing-btn{ box-shadow:var(--neu-out); transition:box-shadow .18s ease,transform .12s ease; }
+.landing-btn:active{ box-shadow:var(--neu-in)!important; transform:translateY(3px) scale(.96)!important; }
+.big-btn{ box-shadow:var(--neu-out); transition:box-shadow .18s ease,transform .12s ease; }
+.big-btn:active{ box-shadow:var(--neu-in)!important; transform:translateY(3px) scale(.96)!important; }
+.action-btn{ box-shadow:var(--neu-out-sm); transition:box-shadow .18s ease,transform .12s ease; }
+.action-btn:active{ box-shadow:var(--neu-in-sm)!important; transform:translateY(2px) scale(.97)!important; }
+.pin-key{ box-shadow:var(--neu-out-sm); transition:box-shadow .1s ease,transform .1s ease; }
+.pin-key:active{ box-shadow:var(--neu-in-sm)!important; transform:translateY(2px) scale(.95)!important; }
 .pin-dot,.step-dot{ box-shadow:var(--neu-out-sm); }
 .fg input,.fg select,.fg textarea,.emp-search{
   box-shadow:var(--neu-in-sm);
@@ -510,11 +535,12 @@ button:active{ box-shadow:var(--neu-in-sm); }
   box-shadow:var(--neu-in-sm),0 0 0 2px var(--accent2);
 }
 .tab-bar{ box-shadow:var(--neu-in-sm); }
-.tab-btn.active{ box-shadow:var(--neu-out-sm); border-radius:10px; background:var(--bg); }
-.pa-modal-box{ box-shadow:0 -10px 30px rgba(122,99,85,.35),var(--neu-out-lg); }
+.tab-btn{ transition:box-shadow .15s ease,transform .12s ease; }
+.tab-btn.active{ box-shadow:var(--neu-out-sm); border-radius:10px; background:var(--bg); transform:translateY(-1px); }
+.pa-modal-box{ box-shadow:0 -12px 34px rgba(122,99,85,.4),var(--neu-out-lg); }
 .success-folio{ box-shadow:var(--neu-in-sm); }
 .capture-btn{ box-shadow:var(--neu-out),0 4px 20px rgba(46,160,67,.4); }
-.portal-header{ box-shadow:0 4px 16px rgba(204,0,0,.28),inset 0 1px 0 rgba(255,255,255,.25); }
+.portal-header{ box-shadow:0 5px 18px rgba(204,0,0,.32),inset 0 1px 0 rgba(255,255,255,.25); }
 
 </style>
 </head>
@@ -7331,8 +7357,15 @@ function _paCargarAusenciasPeriodo(cb) {
       PA._ausPeriodo = ausPeriodo;
       PA._ausPeriodoKey = _cacheKey;
       PA._ausPeriodoTs = Date.now();
+      // DIAGNÓSTICO TEMPORAL — quitar una vez resuelto el problema del contador
+      paToast('🔍 Ausencias/tardanzas cargadas: ' + Object.keys(ausPeriodo).length + ' registros (período ' + _q.desde + ' a ' + _q.hasta + ', ' + snap.size + ' marcaciones leídas)', false);
       if (cb) cb();
-    }).catch(function(e){ console.warn('[AusPeriodo]', e.message); if (cb) cb(); });
+    }).catch(function(e){
+      console.warn('[AusPeriodo]', e.message);
+      // DIAGNÓSTICO TEMPORAL — quitar una vez resuelto el problema del contador
+      paToast('⚠ Error cargando tardanzas: ' + e.message, true);
+      if (cb) cb();
+    });
 }
 
 function _paCheckCompensatorioFDS() {
@@ -10121,7 +10154,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-05-W';
+var PA_VERSION = 'v2026-07-05-Y';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
