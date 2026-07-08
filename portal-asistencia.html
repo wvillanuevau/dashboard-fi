@@ -5388,6 +5388,9 @@ function paAdminHoy(content) {
     });
   }
 
+  // Cargar tardanzas/ausencias del período (badge ★) — re-renderiza al completar
+  _paCargarAusenciasPeriodo(_tryRender);
+
   var _u1 = paDb.collection('paMarcaciones')
     .where('fecha', '==', hoy)
     .onSnapshot(
@@ -7186,7 +7189,7 @@ function _paResolverNotif(notifId, btn) {
     .catch(function(e){ paToast('Error: '+e.message, true); });
 }
 
-function _paCargarAusenciasPeriodo() {
+function _paCargarAusenciasPeriodo(cb) {
   if (!paDb || !PA.empresa) return;
   var _q = _quincenaActual();
   // Cargar todas las marcaciones del período para contar ausencias por empleado
@@ -7238,7 +7241,8 @@ function _paCargarAusenciasPeriodo() {
         if (_tRes.totalTard > 0) ausPeriodo[emp.id + '_t'] = _tRes.totalTard;
       });
       PA._ausPeriodo = ausPeriodo;
-    }).catch(function(e){ console.warn('[AusPeriodo]', e.message); });
+      if (cb) cb();
+    }).catch(function(e){ console.warn('[AusPeriodo]', e.message); if (cb) cb(); });
 }
 
 function _paCheckCompensatorioFDS() {
@@ -8527,7 +8531,7 @@ function _paAdminEmpsRender(content) {
     var _inactivoBadge = _empActivo ? '' : ' <span style="font-size:10px;background:#f85149;color:#fff;padding:1px 6px;border-radius:4px;font-weight:700">INACTIVO</span>';
     html += '<div class="report-emp" style="opacity:' + (_empActivo?'1':'.5') + '">' + enom + _inactivoBadge + (pendCount>0&&_empActivo ? ' <span style="font-size:10px;font-weight:700;color:#f85149">⚠ ' + pendCount + ' pendiente(s)</span>' : '') + '</div>';
     html += '<div class="report-detail">' + (emp.cargo||'—') + ' · ' + (emp.pin?'🔒 PIN asignado':'⚠ Sin PIN') + ' · ' + devStatus + '</div>';
-    html += '<div class="report-detail">☀️ ' + heDiurna.toFixed(1) + 'h · 🌙 ' + heNoc.toFixed(1) + 'h extra · 🏖️ ' + (emp.diasVacacionesDisponibles||15) + ' días vac.</div>';
+    html += '<div class="report-detail">🏖️ ' + (emp.diasVacacionesDisponibles||15) + ' días vac.</div>';
     html += '<div class="report-detail" style="font-size:10px">' + verBadge + '</div>';
     html += '</div>';
     html += '<span id="empArr_' + eid + '" style="font-size:18px;color:var(--muted);flex-shrink:0;transition:transform .2s">▶</span>';
@@ -10020,7 +10024,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-05-Q';
+var PA_VERSION = 'v2026-07-05-S';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
