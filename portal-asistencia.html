@@ -8301,22 +8301,12 @@ function paAdminConfig(content) {
     +'<div style="font-size:13px;font-weight:700;color:var(--text)">👤 Horario individual por empleado</div>'
     +'<span id="cfgHorEmp_ico" style="font-size:14px;color:var(--muted)">▶</span></button>'
     +'<div id="cfgHorEmp" style="display:none;padding:14px 16px">'
-    +'<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Sobreescribe el horario del rol para empleados específicos.</div'
-    +'>'
+    +'<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Sobreescribe el horario del rol para empleados específicos.</div>'
     +horEmpHtml
-
-    // ── 3. (old inline);color:var(--text);margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border)">👤 Horario individual por empleado</div>'
-    +'<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Sobreescribe el horario del rol para ese empleado específico.</div>'
-    // (horEmpHtml incluido arriba)
-
     +'</div></div>'
-    // ── 3. CONTRASEÑA ADMIN ──────────────────────────────────────
-    +'<div style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);border-radius:12px;padding:14px;margin-top:20px;margin-bottom:12px">'
-    +'<div style="font-size:11px;font-weight:700;color:#f85149;text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">🔐 Contraseña de administrador</div>'
-    +'<input type="password" id="cfgAdminPin" placeholder="Nueva contraseña (8+ chars, mayúsculas, números, 2+ símbolos)" style="width:100%;padding:12px;background:var(--surface);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px;outline:none">'
-    +'<div style="font-size:11px;color:#7d8590;margin-top:6px">Dejar vacío para no cambiar.</div>'
-    +'</div>'
-    +'<button onclick="paGuardarHorario()" style="width:100%;padding:12px;background:#2ea043;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:20px">💾 Guardar contraseña de administrador</button>'
+    // ── 3. CONTRASEÑA ADMIN — movida al final, junto a Datos del
+    // sistema y Herramientas (ver más abajo), por ser configuración
+    // de seguridad, no de horarios.
 
     // ── 4. FERIADOS ──────────────────────────────────────────────
     +'<div style="background:var(--surface);border:2px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:12px">'
@@ -8337,6 +8327,17 @@ function paAdminConfig(content) {
     +'<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">📋 Datos del sistema</div>'
     +'<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)"><span style="color:#7d8590;font-size:13px">Centros de costo</span><span style="color:#2ea043;font-size:13px">'+PA.centros.length+' cargados ✓</span></div>'
     +'<div style="display:flex;justify-content:space-between;padding:8px 0"><span style="color:#7d8590;font-size:13px">Empleados</span><span style="color:#2ea043;font-size:13px">'+PA.empleados.length+' cargados ✓</span></div>'
+
+    // ── CONTRASEÑA ADMIN (colapsable, junto a Datos del sistema) ───
+    +'<div style="background:var(--surface);border:2px solid rgba(248,81,73,.3);border-radius:14px;overflow:hidden;margin-top:16px;margin-bottom:12px">'
+    +'<button onclick="paTogSection(\'cfgPin\')" style="width:100%;display:flex;justify-content:space-between;align-items:center;padding:14px 16px;background:rgba(248,81,73,.06);border:none;cursor:pointer;font-family:inherit">'
+    +'<div style="font-size:13px;font-weight:700;color:#f85149">🔐 Contraseña de administrador</div>'
+    +'<span id="cfgPin_ico" style="font-size:14px;color:var(--muted)">▶</span></button>'
+    +'<div id="cfgPin" style="display:none;padding:14px 16px">'
+    +'<input type="password" id="cfgAdminPin" placeholder="Nueva contraseña (8+ chars, mayúsculas, números, 2+ símbolos)" style="width:100%;padding:12px;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px;outline:none">'
+    +'<div style="font-size:11px;color:var(--muted);margin-top:6px;margin-bottom:12px">Dejar vacío para no cambiar.</div>'
+    +'<button onclick="paGuardarAdminPin()" style="width:100%;padding:12px;background:#2ea043;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">💾 Guardar contraseña</button>'
+    +'</div></div>'
 
     // ── HERRAMIENTA DE MIGRACIÓN RETROACTIVA ──────────────────────
     +'<div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">'
@@ -9117,7 +9118,7 @@ function paTogSection(id) {
   if (icon) icon.textContent = open ? '▶' : '▼';
 }
 
-function paGuardarHorario() {
+function paGuardarAdminPin() {
   // Esta función solo guarda la contraseña admin — el horario se gestiona
   // por rol/empleado en las secciones de arriba.
   var newPwd = (document.getElementById('cfgAdminPin') || {}).value || '';
@@ -10175,7 +10176,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-06-E';
+var PA_VERSION = 'v2026-07-06-F';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
