@@ -229,6 +229,7 @@ button:active{opacity:.8;transform:scale(.95)}
 .action-btn.warn{background:rgba(210,153,34,.15);border:1.5px solid rgba(210,153,34,.3);color:var(--warn)}
 .action-btn.blue{background:rgba(56,139,253,.15);border:1.5px solid rgba(56,139,253,.3);color:var(--accent2)}
 .action-btn.purple{background:rgba(188,140,255,.15);border:1.5px solid rgba(188,140,255,.3);color:var(--purple)}
+.action-btn.green{background:rgba(0,107,63,.1);border:1.5px solid rgba(0,107,63,.25);color:var(--accent2)}
 .action-btn.disabled{opacity:.4;pointer-events:none}
 .action-icon{font-size:22px;flex-shrink:0}
 .action-info{flex:1}
@@ -466,12 +467,12 @@ input, select, textarea {
    ══════════════════════════════════════════════════════════ */
 :root{
   --neu-light:rgba(255,255,255,1);
-  --neu-dark:rgba(110,66,28,.55);
-  --neu-out-sm:0 2px 2px var(--neu-dark),0 6px 12px -3px var(--neu-dark),inset 0 1px 0 var(--neu-light);
-  --neu-out:0 4px 5px var(--neu-dark),0 12px 24px -6px var(--neu-dark),inset 0 1px 0 var(--neu-light);
-  --neu-out-lg:0 10px 14px var(--neu-dark),0 24px 48px -10px var(--neu-dark),inset 0 1px 0 var(--neu-light);
-  --neu-in-sm:inset 0 2px 6px var(--neu-dark),inset 0 -1px 0 var(--neu-light);
-  --neu-in:inset 0 4px 10px var(--neu-dark),inset 0 -1px 0 var(--neu-light);
+  --neu-dark:rgba(95,55,22,.68);
+  --neu-out-sm:0 3px 3px var(--neu-dark),0 9px 18px -4px var(--neu-dark),inset 0 1px 0 var(--neu-light);
+  --neu-out:0 6px 8px var(--neu-dark),0 18px 34px -8px var(--neu-dark),inset 0 1px 0 var(--neu-light);
+  --neu-out-lg:0 14px 20px var(--neu-dark),0 32px 64px -12px var(--neu-dark),inset 0 1px 0 var(--neu-light);
+  --neu-in-sm:inset 0 3px 8px var(--neu-dark),inset 0 -1px 0 var(--neu-light);
+  --neu-in:inset 0 6px 14px var(--neu-dark),inset 0 -1px 0 var(--neu-light);
 }
 
 /* Todo <button> real de la app (incluye los generados por JS en el
@@ -483,11 +484,11 @@ button{
   transform:translateY(0);
 }
 @media(hover:hover) and (pointer:fine){
-  button:hover{ box-shadow:var(--neu-out); transform:translateY(-2px); }
+  button:hover{ box-shadow:var(--neu-out); transform:translateY(-3px); }
 }
 button:active{
   box-shadow:var(--neu-in-sm)!important;
-  transform:translateY(2px) scale(.97)!important;
+  transform:translateY(3px) scale(.96)!important;
   transition:box-shadow .06s ease,transform .06s ease;
 }
 .pin-key.empty{ box-shadow:none; transform:none!important; }
@@ -501,7 +502,7 @@ button:active{
 @media(hover:hover) and (pointer:fine){
   [style*="border:1.5px solid var(--border)"]:hover,
   [style*="border:1px solid var(--border)"]:hover{
-    box-shadow:var(--neu-out); transform:translateY(-2px);
+    box-shadow:var(--neu-out); transform:translateY(-3px);
   }
 }
 
@@ -513,19 +514,19 @@ button:active{
 }
 @media(hover:hover) and (pointer:fine){
   .emp-item:hover,.hist-item:hover,.stat-card:hover,.report-row:hover{
-    box-shadow:var(--neu-out); transform:translateY(-2px);
+    box-shadow:var(--neu-out); transform:translateY(-3px);
   }
 }
-.ot-type-btn.selected{ box-shadow:var(--neu-in-sm)!important; transform:translateY(1px)!important; }
+.ot-type-btn.selected{ box-shadow:var(--neu-in-sm)!important; transform:translateY(2px)!important; }
 .landing-logo{ box-shadow:0 0 0 6px rgba(204,0,0,.07),var(--neu-out-lg); }
 .landing-btn{ box-shadow:var(--neu-out); transition:box-shadow .18s ease,transform .12s ease; }
-.landing-btn:active{ box-shadow:var(--neu-in)!important; transform:translateY(3px) scale(.96)!important; }
+.landing-btn:active{ box-shadow:var(--neu-in)!important; transform:translateY(4px) scale(.95)!important; }
 .big-btn{ box-shadow:var(--neu-out); transition:box-shadow .18s ease,transform .12s ease; }
-.big-btn:active{ box-shadow:var(--neu-in)!important; transform:translateY(3px) scale(.96)!important; }
+.big-btn:active{ box-shadow:var(--neu-in)!important; transform:translateY(4px) scale(.95)!important; }
 .action-btn{ box-shadow:var(--neu-out-sm); transition:box-shadow .18s ease,transform .12s ease; }
-.action-btn:active{ box-shadow:var(--neu-in-sm)!important; transform:translateY(2px) scale(.97)!important; }
+.action-btn:active{ box-shadow:var(--neu-in-sm)!important; transform:translateY(3px) scale(.96)!important; }
 .pin-key{ box-shadow:var(--neu-out-sm); transition:box-shadow .1s ease,transform .1s ease; }
-.pin-key:active{ box-shadow:var(--neu-in-sm)!important; transform:translateY(2px) scale(.95)!important; }
+.pin-key:active{ box-shadow:var(--neu-in-sm)!important; transform:translateY(3px) scale(.94)!important; }
 .pin-dot,.step-dot{ box-shadow:var(--neu-out-sm); }
 .fg input,.fg select,.fg textarea,.emp-search{
   box-shadow:var(--neu-in-sm);
@@ -536,11 +537,11 @@ button:active{
 }
 .tab-bar{ box-shadow:var(--neu-in-sm); }
 .tab-btn{ transition:box-shadow .15s ease,transform .12s ease; }
-.tab-btn.active{ box-shadow:var(--neu-out-sm); border-radius:10px; background:var(--bg); transform:translateY(-1px); }
+.tab-btn.active{ box-shadow:var(--neu-out-sm); border-radius:10px; background:var(--bg); transform:translateY(-2px); }
 .pa-modal-box{ box-shadow:0 -12px 34px rgba(122,99,85,.4),var(--neu-out-lg); }
 .success-folio{ box-shadow:var(--neu-in-sm); }
 .capture-btn{ box-shadow:var(--neu-out),0 4px 20px rgba(46,160,67,.4); }
-.portal-header{ box-shadow:0 5px 18px rgba(204,0,0,.32),inset 0 1px 0 rgba(255,255,255,.25); }
+.portal-header{ box-shadow:0 6px 22px rgba(204,0,0,.4),inset 0 1px 0 rgba(255,255,255,.25); }
 
 </style>
 </head>
@@ -728,29 +729,29 @@ button:active{
       </button>
       <div class="section-title" style="margin-top:16px">Solicitudes</div>
 
-      <button type="button" class="action-btn" style="background:rgba(248,81,73,.08);border-color:rgba(248,81,73,.2)" onclick="paGoIncapacidad()">
+      <button type="button" class="action-btn green" onclick="paGoIncapacidad()">
         <span class="action-icon">🏥</span>
         <div class="action-info"><div class="action-title">Reportar Incapacidad</div><div class="action-sub" id="incapacidadDesc">Adjuntar constancia médica</div></div>
         <span class="action-arrow">›</span>
       </button>
-      <button type="button" class="action-btn blue" onclick="paGoCanje()">
+      <button type="button" class="action-btn green" onclick="paGoCanje()">
         <span class="action-icon">🔄</span>
         <div class="action-info"><div class="action-title">Canje de Horas</div><div class="action-sub">Cambiar horas extra por tiempo libre</div></div>
         <span class="action-arrow">›</span>
       </button>
-      <button type="button" class="action-btn blue" onclick="paGoVacaciones()">
+      <button type="button" class="action-btn green" onclick="paGoVacaciones()">
         <span class="action-icon">🏖️</span>
         <div class="action-info"><div class="action-title">Solicitar Vacaciones</div><div class="action-sub" id="diasVacDesc">—</div></div>
         <span class="action-arrow">›</span>
       </button>
       <!-- hidden spans for JS updates -->
       <span id="horasExtraAcum" style="display:none"></span>
-      <button type="button" class="action-btn" style="background:rgba(188,140,255,.08);border-color:rgba(188,140,255,.2)" onclick="paGoHistorial()">
+      <button type="button" class="action-btn green" onclick="paGoHistorial()">
         <span class="action-icon">📋</span>
         <div class="action-info"><div class="action-title">Mi Historial</div><div class="action-sub">Ver mis marcaciones y horas extra</div></div>
         <span class="action-arrow">›</span>
       </button>
-      <button type="button" class="action-btn secondary" id="btnTestNotif" onclick="paTestNotificacion()">
+      <button type="button" class="action-btn green" id="btnTestNotif" onclick="paTestNotificacion()">
         <span class="action-icon">🔔</span>
         <div class="action-info"><div class="action-title">Probar notificación</div><div class="action-sub" id="notifStatus">Toca para probar</div></div>
         <span class="action-arrow">›</span>
@@ -10176,7 +10177,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-06-F';
+var PA_VERSION = 'v2026-07-06-H';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
