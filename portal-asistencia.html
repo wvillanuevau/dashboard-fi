@@ -5362,7 +5362,7 @@ function _paAdminHoyRender(snap, snapInc, content, hoy) {
     var _qHoy = _quincenaActual();
     if (PA._ausPeriodo && Object.keys(PA._ausPeriodo).length > 0) {
       var _recE = Object.keys(PA._ausPeriodo)
-        .filter(function(id){ return (PA._ausPeriodo[id]||0) >= 2; })
+        .filter(function(id){ return id.slice(-2) !== '_t' && (PA._ausPeriodo[id]||0) >= 2; })
         .map(function(id){
           var emp2 = (PA.empleados||[]).find(function(x){ return x.id===id; })||{nombre:id,cargo:''};
           return { id:id, nombre:emp2.nombre, cargo:emp2.cargo||'', count:PA._ausPeriodo[id] };
@@ -10175,7 +10175,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-06-C';
+var PA_VERSION = 'v2026-07-06-D';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
