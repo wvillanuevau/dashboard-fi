@@ -7352,25 +7352,35 @@ function _paCargarAusenciasPeriodo(cb) {
 
       // Para cada empleado activo, contar ausencias (días sin entrada)
       var ausPeriodo = {};
+      var _errsEmp = [];
       (PA.empleados||[]).filter(function(e){ return e.activo !== false; }).forEach(function(emp) {
-        var ausencias = 0;
-        diasLaborables.forEach(function(dia) {
-          var _hor = _horarioDeEmp(emp, dia.diaSem);
-          if (!_hor || !_hor.horaEntrada || _hor.trabaja === false) return; // no laborable para él
-          if (!(marcoEntrada[emp.id] && marcoEntrada[emp.id][dia.fecha])) ausencias++;
-        });
-        if (ausencias > 0) ausPeriodo[emp.id] = ausencias;
+        try {
+          var ausencias = 0;
+          diasLaborables.forEach(function(dia) {
+            var _hor = _horarioDeEmp(emp, dia.diaSem);
+            if (!_hor || !_hor.horaEntrada || _hor.trabaja === false) return; // no laborable para él
+            if (!(marcoEntrada[emp.id] && marcoEntrada[emp.id][dia.fecha])) ausencias++;
+          });
+          if (ausencias > 0) ausPeriodo[emp.id] = ausencias;
 
-        // Tardanzas acumuladas del mismo período, reutilizando paTardanzasEmp
-        var _tRes = paTardanzasEmp(emp.id, marcacionesPorEmp);
-        if (_tRes.totalTard > 0) ausPeriodo[emp.id + '_t'] = _tRes.totalTard;
+          // Tardanzas acumuladas del mismo período, reutilizando paTardanzasEmp
+          var _tRes = paTardanzasEmp(emp.id, marcacionesPorEmp);
+          if (_tRes.totalTard > 0) ausPeriodo[emp.id + '_t'] = _tRes.totalTard;
+        } catch(eEmp) {
+          // Un empleado con datos incompletos (horario mal configurado, etc.)
+          // no debe tumbar el cálculo de TODOS los demás.
+          _errsEmp.push((emp.nombre||emp.id) + ': ' + eEmp.message);
+          console.warn('[AusPeriodo] empleado', emp.id, eEmp);
+        }
       });
+      if (_errsEmp.length) paToast('⚠ ' + _errsEmp.length + ' empleado(s) con error al calcular tardanzas — revisa consola', true);
       PA._ausPeriodo = ausPeriodo;
       PA._ausPeriodoKey = _cacheKey;
       PA._ausPeriodoTs = Date.now();
       if (cb) cb();
     }).catch(function(e){
       console.warn('[AusPeriodo]', e.message);
+      paToast('⚠ Error cargando tardanzas del período: ' + e.message, true);
       if (cb) cb();
     });
 }
@@ -10161,7 +10171,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-06-A';
+var PA_VERSION = 'v2026-07-06-B';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
