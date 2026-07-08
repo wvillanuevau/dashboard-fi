@@ -465,13 +465,13 @@ input, select, textarea {
    selector de atributo, más las clases nombradas.
    ══════════════════════════════════════════════════════════ */
 :root{
-  --neu-light:rgba(255,255,255,.95);
-  --neu-dark:rgba(150,100,55,.42);
-  --neu-out-sm:4px 4px 9px var(--neu-dark),-4px -4px 9px var(--neu-light);
-  --neu-out:8px 8px 18px var(--neu-dark),-7px -7px 16px var(--neu-light);
-  --neu-out-lg:14px 14px 30px var(--neu-dark),-10px -10px 22px var(--neu-light);
-  --neu-in-sm:inset 3px 3px 6px var(--neu-dark),inset -3px -3px 6px var(--neu-light);
-  --neu-in:inset 5px 5px 11px var(--neu-dark),inset -5px -5px 11px var(--neu-light);
+  --neu-light:rgba(255,255,255,1);
+  --neu-dark:rgba(110,66,28,.55);
+  --neu-out-sm:0 2px 2px var(--neu-dark),0 6px 12px -3px var(--neu-dark),inset 0 1px 0 var(--neu-light);
+  --neu-out:0 4px 5px var(--neu-dark),0 12px 24px -6px var(--neu-dark),inset 0 1px 0 var(--neu-light);
+  --neu-out-lg:0 10px 14px var(--neu-dark),0 24px 48px -10px var(--neu-dark),inset 0 1px 0 var(--neu-light);
+  --neu-in-sm:inset 0 2px 6px var(--neu-dark),inset 0 -1px 0 var(--neu-light);
+  --neu-in:inset 0 4px 10px var(--neu-dark),inset 0 -1px 0 var(--neu-light);
 }
 
 /* Todo <button> real de la app (incluye los generados por JS en el
@@ -1060,6 +1060,14 @@ button:active{
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"></script>
 <script>
+// ══════════════════════════════════════════════════════
+// FIX MÓVIL: habilitar :active en toque real (iOS/Android)
+// Sin un listener de touch en el documento, Safari/Chrome móvil
+// NUNCA aplican :active al tocar — por eso el "hundido" de
+// botones/tarjetas (neumorfismo) no se sentía en el teléfono.
+// ══════════════════════════════════════════════════════
+document.addEventListener('touchstart', function(){}, {passive:true});
+
 // ══════════════════════════════════════════════════════
 // FIREBASE INIT — con manejo de error y app duplicada
 // ══════════════════════════════════════════════════════
@@ -7307,10 +7315,12 @@ function _paCargarAusenciasPeriodo(cb) {
     return;
   }
   // Cargar todas las marcaciones del período para contar ausencias por empleado
+  // Solo 2 .where() para evitar el índice compuesto (empresa+fecha>=+fecha<=
+  // requiere uno que no existe en este proyecto) — el límite superior se
+  // filtra en cliente, mismo patrón ya usado en _paVerificarFaltasAutomaticas.
   paDb.collection('paMarcaciones')
     .where('empresa', '==', PA.empresa)
     .where('fecha', '>=', _q.desde)
-    .where('fecha', '<=', _q.hasta)
     .get()
     .then(function(snap) {
       // Construir set de días que cada empleado marcó entrada
@@ -7319,6 +7329,7 @@ function _paCargarAusenciasPeriodo(cb) {
       var marcacionesPorEmp = {};
       snap.forEach(function(d) {
         var r = d.data();
+        if (r.fecha > _q.hasta) return; // filtro client-side del límite superior
         if (r.tipo === 'entrada') {
           if (!marcoEntrada[r.empleadoId]) marcoEntrada[r.empleadoId] = {};
           marcoEntrada[r.empleadoId][r.fecha] = true;
@@ -7357,13 +7368,9 @@ function _paCargarAusenciasPeriodo(cb) {
       PA._ausPeriodo = ausPeriodo;
       PA._ausPeriodoKey = _cacheKey;
       PA._ausPeriodoTs = Date.now();
-      // DIAGNÓSTICO TEMPORAL — quitar una vez resuelto el problema del contador
-      paToast('🔍 Ausencias/tardanzas cargadas: ' + Object.keys(ausPeriodo).length + ' registros (período ' + _q.desde + ' a ' + _q.hasta + ', ' + snap.size + ' marcaciones leídas)', false);
       if (cb) cb();
     }).catch(function(e){
       console.warn('[AusPeriodo]', e.message);
-      // DIAGNÓSTICO TEMPORAL — quitar una vez resuelto el problema del contador
-      paToast('⚠ Error cargando tardanzas: ' + e.message, true);
       if (cb) cb();
     });
 }
@@ -10154,7 +10161,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-05-Y';
+var PA_VERSION = 'v2026-07-06-A';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
