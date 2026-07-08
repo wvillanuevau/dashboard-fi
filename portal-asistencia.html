@@ -5195,7 +5195,7 @@ function _paAdminHoyRender(snap, snapInc, content, hoy) {
           var _hms   = _hmsDesdeMedianocheES(_mts);
           var _tolMs = _toleranciaDeEmp(_empObj, _diaES) * 60000;
           if (_hms.totalMs > _espMs + _tolMs) {
-            marcs[empId].tarde = Math.round((_hms.totalMs - _espMs) / 60000);
+            marcs[empId].tarde = Math.round((_hms.totalMs - _espMs - _tolMs) / 60000);
           }
         } else if (!_horEmp) {
           // Sin horario configurado — marcar para que el admin lo sepa
@@ -10020,7 +10020,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-05-P';
+var PA_VERSION = 'v2026-07-05-Q';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
