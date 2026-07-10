@@ -2881,19 +2881,27 @@ function paGoIncapacidad() {
   overlay.innerHTML =
     '<div style="background:var(--surface);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0">'
     +'<button onclick="document.getElementById(\'incapacidadOverlay\').remove()" style="background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1">←</button>'
-    +'<div style="font-weight:700;font-size:16px;color:var(--text)">🏥 Reportar Incapacidad</div>'
+    +'<div style="font-weight:700;font-size:16px;color:var(--text)">🏥 Reportar Incapacidad / Permiso Especial</div>'
     +'</div>'
     +'<div style="padding:20px 18px;max-width:480px;width:100%;margin:0 auto">'
-    +'<div style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);border-radius:12px;padding:12px;font-size:13px;color:var(--muted);margin-bottom:18px">'
+    +'<div id="incBanner" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);border-radius:12px;padding:12px;font-size:13px;color:var(--muted);margin-bottom:18px">'
     +'Durante los días de incapacidad <strong style="color:var(--text)">no podrás registrar marcaciones</strong>. El admin podrá ver y aprobar tu constancia.'
     +'</div>'
 
+    // Tipo
+    +'<div style="margin-bottom:14px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:5px">TIPO *</label>'
+    +'<select id="incTipo" onchange="incToggleTipo()" style="width:100%;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit">'
+    +'<option value="completa">Incapacidad — día(s) completo(s)</option>'
+    +'<option value="entrada_tardia">Permiso especial — entrada tardía</option>'
+    +'<option value="salida_temprana">Permiso especial — salida temprano</option>'
+    +'</select></div>'
+
     // Fecha inicio
-    +'<div style="margin-bottom:14px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:5px">FECHA DE INICIO *</label>'
+    +'<div style="margin-bottom:14px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:5px" id="incFechaLabel">FECHA DE INICIO *</label>'
     +'<input type="date" id="incFechaInicio" value="'+hoy+'" style="width:100%;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit" onchange="incCalcFechaFin()"></div>'
 
-    // Cantidad de días
-    +'<div style="margin-bottom:14px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:5px">DÍAS DE INCAPACIDAD *</label>'
+    // Cantidad de días (solo para incapacidad completa)
+    +'<div id="incDiasWrap" style="margin-bottom:14px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:5px">DÍAS DE INCAPACIDAD *</label>'
     +'<input type="number" id="incDias" value="1" min="1" max="365" style="width:100%;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit" oninput="incCalcFechaFin()">'
     +'<div id="incFechaFinLabel" style="font-size:12px;color:var(--accent2);margin-top:5px">Hasta: '+hoy+'</div></div>'
 
@@ -2902,10 +2910,16 @@ function paGoIncapacidad() {
     +'<textarea id="incMotivo" rows="3" placeholder="Ej: Gripe, dolor abdominal, fractura de muñeca..." style="width:100%;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;resize:vertical"></textarea></div>'
 
     // Foto de la constancia
-    +'<div style="margin-bottom:20px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:5px">📎 FOTO O PDF DE LA CONSTANCIA MÉDICA *</label>'
+    +'<div style="margin-bottom:10px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:5px" id="incFotoLabel">📎 FOTO O PDF DE LA CONSTANCIA MÉDICA *</label>'
     +'<input type="file" id="incFoto" accept="image/*,application/pdf" onchange="incPreviewFoto(this)" style="display:none">'
     +'<button onclick="document.getElementById(\'incFoto\').click()" style="width:100%;padding:14px;background:var(--surface2);border:2px dashed var(--border);border-radius:10px;color:var(--muted);font-size:14px;cursor:pointer;font-family:inherit">📷 Foto / 📄 PDF de constancia</button>'
     +'<div id="incFotoPreview" style="margin-top:8px"></div></div>'
+
+    // Constancia pendiente (solo para permisos especiales)
+    +'<div id="incSinFotoWrap" style="display:none;margin-bottom:20px">'
+    +'<label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);cursor:pointer">'
+    +'<input type="checkbox" id="incSinFoto" onchange="incToggleSinFoto()" style="width:16px;height:16px"> Todavía no tengo la constancia — la subiré después</label>'
+    +'</div>'
 
     +'<div id="incError" style="color:#f85149;font-size:13px;margin-bottom:10px;display:none;padding:8px;background:rgba(248,81,73,.08);border-radius:8px;text-align:center"></div>'
     +'<button id="incBtnGuardar" onclick="paGuardarIncapacidad()" style="width:100%;padding:14px;background:#f85149;color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit">🏥 Enviar incapacidad</button>'
@@ -2936,6 +2950,29 @@ function incCalcFechaFin() {
   label.setAttribute('data-fechafin', ff);
 }
 
+function incToggleTipo() {
+  var tipo = (document.getElementById('incTipo')||{}).value || 'completa';
+  var esParcial = tipo === 'entrada_tardia' || tipo === 'salida_temprana';
+  var diasWrap = document.getElementById('incDiasWrap');
+  var fechaLabel = document.getElementById('incFechaLabel');
+  var fotoLabel = document.getElementById('incFotoLabel');
+  var sinFotoWrap = document.getElementById('incSinFotoWrap');
+  var banner = document.getElementById('incBanner');
+  if (diasWrap) diasWrap.style.display = esParcial ? 'none' : '';
+  if (fechaLabel) fechaLabel.textContent = esParcial ? 'FECHA *' : 'FECHA DE INICIO *';
+  if (fotoLabel) fotoLabel.textContent = esParcial
+    ? '📎 FOTO O PDF DE LA CONSTANCIA MÉDICA' + (document.getElementById('incSinFoto')&&document.getElementById('incSinFoto').checked ? '' : ' *')
+    : '📎 FOTO O PDF DE LA CONSTANCIA MÉDICA *';
+  if (sinFotoWrap) sinFotoWrap.style.display = esParcial ? '' : 'none';
+  if (banner) banner.innerHTML = esParcial
+    ? 'Este permiso <strong style="color:var(--text)">no descuenta nada</strong> — solo justifica tu entrada tardía o salida temprano ese día. Necesita <strong style="color:var(--text)">aprobación del administrador</strong>. Puedes pedirlo antes o después de que ocurra.'
+    : 'Durante los días de incapacidad <strong style="color:var(--text)">no podrás registrar marcaciones</strong>. El admin podrá ver y aprobar tu constancia.';
+}
+
+function incToggleSinFoto() {
+  incToggleTipo(); // recalcula el asterisco de la etiqueta de foto
+}
+
 function incPreviewFoto(input) {
   var preview = document.getElementById('incFotoPreview');
   if (!preview || !input.files || !input.files[0]) return;
@@ -2949,40 +2986,45 @@ function incPreviewFoto(input) {
   }
 }
 
-function _paSubirIncapacidad(b64, tipoArchivo, fileName, btn, fechaInicio, fechaFin, dias, motivo) {
+function _paSubirIncapacidad(b64, tipoArchivo, fileName, btn, fechaInicio, fechaFin, dias, motivo, tipoIncapacidad, sinFoto) {
+  tipoIncapacidad = tipoIncapacidad || 'completa';
   var folio = 'INC-'+paGenId().toUpperCase();
   var docData = {
-    empresa:        PA.empresa,
-    empleadoId:     PA.empleado.id,
-    empleadoNombre: PA.empleado.nombre,
-    motivo:         motivo,
-    dias:           dias,
-    fechaInicio:    fechaInicio,
-    fechaFin:       fechaFin,
-    foto:           b64,
-    tipoArchivo:    tipoArchivo,
-    fileName:       fileName || '',
-    ts:             Date.now(),
-    estado:         'pendiente',
-    folio:          folio
+    empresa:          PA.empresa,
+    empleadoId:       PA.empleado.id,
+    empleadoNombre:   PA.empleado.nombre,
+    tipoIncapacidad:  tipoIncapacidad,
+    motivo:           motivo,
+    dias:             dias,
+    fechaInicio:      fechaInicio,
+    fechaFin:         fechaFin,
+    foto:             b64 || null,
+    tipoArchivo:      tipoArchivo || null,
+    fileName:         fileName || '',
+    constanciaPendiente: !!sinFoto,
+    ts:               Date.now(),
+    estado:           'pendiente',
+    folio:            folio
   };
   paDb.collection('paIncapacidades').add(docData).then(function() {
-    // AP por incapacidad
+    // AP por incapacidad (informativa, no disciplinaria)
     if (PA.empleado) {
       paDb.collection('paAccionesPersonal').add({
         empresa: PA.empresa, empleadoId: PA.empleado.id,
         empleadoNombre: PA.empleado.nombre, cargo: PA.empleado.cargo||'',
-        tipo: 'INCAPACIDAD', fechaInicio: docData.fechaInicio,
+        tipo: tipoIncapacidad === 'completa' ? 'INCAPACIDAD' : 'PERMISO_ESPECIAL',
+        tipoIncapacidad: tipoIncapacidad,
+        fechaInicio: docData.fechaInicio,
         fechaFin: docData.fechaFin, dias: docData.dias,
         motivo: docData.motivo||'', tipoArchivo: tipoArchivo,
-        foto: b64.slice(0,100), // referencia truncada para consultas
+        foto: b64 ? b64.slice(0,100) : '', // referencia truncada para consultas
         estado: 'emitida', fechaEmision: paHoy(), ts: Date.now()
       }).catch(function(e){ console.warn('[AP Inc]', e.message); });
     }
     PA._incapacidades = PA._incapacidades || [];
     PA._incapacidades.push({ fechaInicio:fechaInicio, fechaFin:fechaFin, estado:'pendiente' });
     var ov = document.getElementById('incapacidadOverlay'); if(ov) ov.remove();
-    paToast('✅ Incapacidad registrada correctamente');
+    paToast(tipoIncapacidad==='completa' ? '✅ Incapacidad registrada correctamente' : '✅ Permiso especial enviado — pendiente de aprobación');
     if (btn) { btn.disabled = false; btn.textContent = 'Guardar incapacidad'; }
   }).catch(function(e) {
     paToast('Error al guardar: '+e.message, true);
@@ -2992,23 +3034,33 @@ function _paSubirIncapacidad(b64, tipoArchivo, fileName, btn, fechaInicio, fecha
 
 
 function paGuardarIncapacidad() {
+  var tipo        = (document.getElementById('incTipo')||{}).value || 'completa';
+  var esParcial   = tipo === 'entrada_tardia' || tipo === 'salida_temprana';
   var fechaInicio = (document.getElementById('incFechaInicio')||{}).value||'';
-  var dias        = parseInt((document.getElementById('incDias')||{}).value)||0;
+  var dias        = esParcial ? 1 : (parseInt((document.getElementById('incDias')||{}).value)||0);
   var motivo      = ((document.getElementById('incMotivo')||{}).value||'').trim();
   var fotoInput   = document.getElementById('incFoto');
+  var sinFotoChk  = document.getElementById('incSinFoto');
+  var sinFoto     = esParcial && sinFotoChk && sinFotoChk.checked;
   var label       = document.getElementById('incFechaFinLabel');
   var errEl       = document.getElementById('incError');
   var btn         = document.getElementById('incBtnGuardar');
-  var fechaFin    = label ? label.getAttribute('data-fechafin') : fechaInicio;
+  var fechaFin    = esParcial ? fechaInicio : (label ? label.getAttribute('data-fechafin') : fechaInicio);
 
   if (errEl) errEl.style.display = 'none';
 
-  if (!fechaInicio) { if(errEl){errEl.textContent='Selecciona la fecha de inicio';errEl.style.display='block';} return; }
-  if (!dias || dias < 1) { if(errEl){errEl.textContent='Ingresa la cantidad de días';errEl.style.display='block';} return; }
-  if (!motivo) { if(errEl){errEl.textContent='Describe el motivo de la incapacidad';errEl.style.display='block';} return; }
-  if (!fotoInput || !fotoInput.files || !fotoInput.files[0]) { if(errEl){errEl.textContent='Adjunta la foto de la constancia médica';errEl.style.display='block';} return; }
+  if (!fechaInicio) { if(errEl){errEl.textContent='Selecciona la fecha';errEl.style.display='block';} return; }
+  if (!esParcial && (!dias || dias < 1)) { if(errEl){errEl.textContent='Ingresa la cantidad de días';errEl.style.display='block';} return; }
+  if (!motivo) { if(errEl){errEl.textContent='Describe el motivo';errEl.style.display='block';} return; }
+  if (!sinFoto && (!fotoInput || !fotoInput.files || !fotoInput.files[0])) { if(errEl){errEl.textContent='Adjunta la foto de la constancia médica, o marca que la subirás después';errEl.style.display='block';} return; }
 
   if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+
+  // Permiso especial sin constancia todavía — se guarda directo, sin archivo
+  if (sinFoto) {
+    _paSubirIncapacidad(null, null, '', btn, fechaInicio, fechaFin, dias, motivo, tipo, true);
+    return;
+  }
 
   var file = fotoInput.files[0];
 
@@ -3017,7 +3069,7 @@ function paGuardarIncapacidad() {
     var pdfReader = new FileReader();
     pdfReader.onload = function(e) {
       var pdfB64 = e.target.result; // data:application/pdf;base64,...
-      _paSubirIncapacidad(pdfB64, 'pdf', file.name, btn, fechaInicio, fechaFin, dias, motivo);
+      _paSubirIncapacidad(pdfB64, 'pdf', file.name, btn, fechaInicio, fechaFin, dias, motivo, tipo, false);
     };
     pdfReader.onerror = function() {
       paToast('Error al leer el PDF', true);
@@ -3046,46 +3098,7 @@ function paGuardarIncapacidad() {
       URL.revokeObjectURL(url);
       canvas.width = 1; canvas.height = 1;
 
-      var folio = 'INC-'+paGenId().toUpperCase();
-      var docData = {
-        empresa:       PA.empresa,
-        empleadoId:    PA.empleado.id,
-        empleadoNombre:PA.empleado.nombre,
-        motivo:        motivo,
-        dias:          dias,
-        fechaInicio:   fechaInicio,
-        fechaFin:      fechaFin,
-        foto:          b64,
-        tipoArchivo:   'imagen',
-        ts:            Date.now(),
-        estado:        'pendiente',
-        folio:         folio
-      };
-
-      paDb.collection('paIncapacidades').add(docData).then(function() {
-        // Guardar AP por incapacidad
-        if (PA.empleado) {
-          paDb.collection('paAccionesPersonal').add({
-            empresa: PA.empresa, empleadoId: PA.empleado.id,
-            empleadoNombre: PA.empleado.nombre, cargo: PA.empleado.cargo||'',
-            tipo: 'INCAPACIDAD', fechaInicio: docData.fechaInicio,
-            fechaFin: docData.fechaFin, dias: docData.dias,
-            motivo: docData.motivo||'', estado: 'emitida',
-            fechaEmision: paHoy(), ts: Date.now()
-          }).catch(function(e){ console.warn('[AP Inc]', e.message); });
-        }
-        // Agregar a cache local para bloqueo inmediato
-        // AP por incapacidad guardada arriba ↑
-        PA._incapacidades = PA._incapacidades || [];
-        PA._incapacidades.push(Object.assign({ id: folio }, docData));
-        var ov = document.getElementById('incapacidadOverlay');
-        if (ov) ov.remove();
-        paToast('✅ Incapacidad reportada — '+dias+' día(s) desde '+fechaInicio);
-        paUpdateDash();
-      }).catch(function(e) {
-        if (btn) { btn.disabled = false; btn.textContent = '🏥 Enviar incapacidad'; }
-        if (errEl) { errEl.textContent = 'Error: '+e.message; errEl.style.display = 'block'; }
-      });
+      _paSubirIncapacidad(b64, 'imagen', file.name, btn, fechaInicio, fechaFin, dias, motivo, tipo, false);
     } catch(ex) {
       URL.revokeObjectURL(url);
       if (btn) { btn.disabled = false; btn.textContent = '🏥 Enviar incapacidad'; }
@@ -3761,8 +3774,30 @@ function _quincenaActual() {
 
 // Calcula tardanzas de un empleado en un rango de fechas
 // Retorna: { dias: [{fecha, minsTarde, descHrs}], totalTard: N, totalDescHrs: N }
-function paTardanzasEmp(empId, marcaciones, horaEntradaStr) {
+// ── Permiso Especial: fechas con entrada tardía justificada (aprobada) ──
+// Reutiliza paIncapacidades con tipoIncapacidad:'entrada_tardia'.
+function _paObtenerPermisosJustificados(empId, callback) {
+  if (!paDb || !PA.empresa || !empId) { callback({}); return; }
+  paDb.collection('paIncapacidades')
+    .where('empresa','==',PA.empresa)
+    .where('empleadoId','==',empId)
+    .get()
+    .then(function(snap){
+      var out = {};
+      snap.forEach(function(d){
+        var r = d.data();
+        if (r.estado === 'aprobada' && r.tipoIncapacidad === 'entrada_tardia' && r.fechaInicio) {
+          out[r.fechaInicio] = true;
+        }
+      });
+      callback(out);
+    }).catch(function(){ callback({}); });
+}
+
+function paTardanzasEmp(empId, marcaciones, horaEntradaStr, permisosJustificados) {
   // horaEntradaStr ahora es opcional — se calcula por día si no se pasa
+  // permisosJustificados (opcional): { 'YYYY-MM-DD': true } — fechas con
+  // Permiso Especial de entrada tardía aprobado — no cuentan como tardanza.
   if (!marcaciones) return { dias:[], totalTard:0, totalDescHrs:0 };
 
   var empMarcs = marcaciones[empId] || {};
@@ -3770,6 +3805,7 @@ function paTardanzasEmp(empId, marcaciones, horaEntradaStr) {
   var result   = { dias:[], totalTard:0, totalDescHrs:0 };
 
   Object.keys(empMarcs).sort().forEach(function(fecha) {
+    if (permisosJustificados && permisosJustificados[fecha]) return; // permiso especial aprobado ese día
     var diaMarcas = empMarcs[fecha] || [];
     var mEntrada = diaMarcas.find(function(m){ return m.tipo==='entrada'; });
     if (!mEntrada || !mEntrada.ts) return;
@@ -3836,9 +3872,11 @@ function paCargarTardanzasEmpActual(callback) {
       });
       var _hor = _horarioDeEmp(PA.empleado);
       var _horaEntradaTard = (_hor && _hor.horaEntrada) ? _hor.horaEntrada : null;
-      PA.tardanzas = paTardanzasEmp(PA.empleado.id, marcaciones, _horaEntradaTard);
-      PA.tardanzas.quincena = q;
-      if (callback) callback();
+      _paObtenerPermisosJustificados(PA.empleado.id, function(permisosJust){
+        PA.tardanzas = paTardanzasEmp(PA.empleado.id, marcaciones, _horaEntradaTard, permisosJust);
+        PA.tardanzas.quincena = q;
+        if (callback) callback();
+      });
     })
     .catch(function(e) {
       console.warn('[Tardanzas]', e.message);
@@ -5793,10 +5831,52 @@ function paAprobarInc(incId, btn) {
   paConfirm('¿Aprobar esta incapacidad?', function(){
 
   if (btn) btn.disabled = true;
-  paDb.collection('paIncapacidades').doc(incId).update({ estado: 'aprobada' })
-    .then(function() { paToast('✅ Incapacidad aprobada'); _paPostApproval(btn, 'hoy'); })
-    .catch(function(e) { paToast('Error: '+e.message,true); if(btn)btn.disabled=false; });
+  paDb.collection('paIncapacidades').doc(incId).get().then(function(d){
+    var r = d.exists ? d.data() : {};
+    return paDb.collection('paIncapacidades').doc(incId).update({ estado: 'aprobada' }).then(function(){ return r; });
+  }).then(function(r) {
+    paToast('✅ Incapacidad aprobada');
+    // Permiso especial (entrada tardía / salida temprano) — marcar para
+    // revisión cualquier AP relacionada, en vez de borrarla automáticamente.
+    if (r.tipoIncapacidad && r.tipoIncapacidad !== 'completa' && r.empleadoId && r.fechaInicio) {
+      _paFlagAPsPorPermisoRetro(r.empleadoId, r.empleadoNombre||'', r.fechaInicio, r.tipoIncapacidad);
+    }
+    _paPostApproval(btn, 'hoy');
+  }).catch(function(e) { paToast('Error: '+e.message,true); if(btn)btn.disabled=false; });
   });
+}
+
+// ── Marca (no borra) APs que podrían quedar injustificadas tras
+// aprobar un Permiso Especial retroactivo — el admin las revisa y
+// elimina manualmente desde "Auditar APs" si corresponde.
+function _paFlagAPsPorPermisoRetro(empId, empNombre, fechaJustificada, tipoJust) {
+  if (!paDb || !PA.empresa || !empId || !fechaJustificada) return;
+  paDb.collection('paAccionesPersonal')
+    .where('empresa','==',PA.empresa)
+    .where('empleadoId','==',empId)
+    .get()
+    .then(function(snap){
+      var batch = paDb.batch();
+      var n = 0;
+      snap.forEach(function(d){
+        var r = d.data();
+        var esCandidata =
+          (r.tipo === 'FALTA_INJUSTIFICADA' && r.fecha === fechaJustificada) ||
+          ((r.tipo === 'AMONESTACION_TARDANZA' || r.tipo === 'DESCUENTO_DIA_SEPTIMO') && r.fechaEmision >= fechaJustificada);
+        if (esCandidata && !r.revisionPermisoEspecial) {
+          batch.update(d.ref, {
+            revisionPermisoEspecial: true,
+            notaRevision: 'Posible ajuste: Permiso Especial (' + tipoJust + ') aprobado para ' + fechaJustificada + ' — verificar en Auditar APs si esta acción debe corregirse o eliminarse.'
+          });
+          n++;
+        }
+      });
+      if (n > 0) {
+        batch.commit()
+          .then(function(){ paToast('⚠️ ' + n + ' acción(es) de personal marcada(s) para revisión en Auditar APs'); })
+          .catch(function(e){ console.warn('[PermisoRetro]', e.message); });
+      }
+    }).catch(function(e){ console.warn('[PermisoRetro]', e.message); });
 }
 
 function paRechazarInc(incId, btn) {
@@ -7148,7 +7228,15 @@ function paAuditarAPs() {
           razones.push('Descuento Día y Séptimo sin quincena asignada (criterio viejo)');
         }
 
-        if (razones.length) inconsistentes.push({ ap: ap, razones: razones });
+        // Permiso Especial aprobado retroactivamente — requiere revisión humana,
+        // no es un error estructural, así que no viene marcada por defecto.
+        var _esRevisionPermiso = false;
+        if (ap.revisionPermisoEspecial) {
+          razones.push(ap.notaRevision || 'Permiso Especial aprobado — revisar si esta AP sigue aplicando');
+          _esRevisionPermiso = true;
+        }
+
+        if (razones.length) inconsistentes.push({ ap: ap, razones: razones, sinMarcar: _esRevisionPermiso });
       });
 
       if (!inconsistentes.length) {
@@ -7164,7 +7252,8 @@ function paAuditarAPs() {
       var itemsHtml = inconsistentes.map(function(it) {
         var ap = it.ap;
         var _nom = ap.empleadoNombre || ap.nombre || '(sin nombre)';
-        return '<div style="padding:10px;background:var(--surface2);border-radius:8px;margin-bottom:6px">'          +'<label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">'          +'<input type="checkbox" class="ap-audit-cb" data-apid="'+ap._id+'" checked '          +'style="accent-color:#f85149;width:16px;height:16px;margin-top:2px;flex-shrink:0">'          +'<div>'          +'<div style="font-weight:700;font-size:12px">'+esc(_nom)+'</div>'          +'<div style="font-size:10px;color:var(--muted)">'+esc(ap.tipo||'?')+' · '+(ap.fechaEmision||ap.fecha||'?')+'</div>'          +'<div style="font-size:10px;color:#f85149;margin-top:2px">⚠ ' + it.razones.join(' · ') + '</div>'          +'</div>'          +'</label>'          +'</div>';
+        var _chk = it.sinMarcar ? '' : 'checked ';
+        return '<div style="padding:10px;background:var(--surface2);border-radius:8px;margin-bottom:6px">'          +'<label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">'          +'<input type="checkbox" class="ap-audit-cb" data-apid="'+ap._id+'" '+_chk          +'style="accent-color:#f85149;width:16px;height:16px;margin-top:2px;flex-shrink:0">'          +'<div>'          +'<div style="font-weight:700;font-size:12px">'+esc(_nom)+'</div>'          +'<div style="font-size:10px;color:var(--muted)">'+esc(ap.tipo||'?')+' · '+(ap.fechaEmision||ap.fecha||'?')+'</div>'          +'<div style="font-size:10px;color:#f85149;margin-top:2px">⚠ ' + it.razones.join(' · ') + '</div>'          +'</div>'          +'</label>'          +'</div>';
       }).join('');
 
       ov.innerHTML = '<div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;padding:20px 16px 36px;max-height:88vh;overflow-y:auto">'        +'<span style="display:block;width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px"></span>'        +'<div style="font-size:16px;font-weight:700;margin-bottom:4px">🔍 Auditoría de APs</div>'        +'<div style="font-size:13px;color:var(--muted);margin-bottom:14px">'          + inconsistentes.length + ' AP(s) inconsistentes con los criterios actuales.'          +'<br><small>Desmarca las que no quieras eliminar.</small></div>'        + itemsHtml        +'<div style="display:flex;gap:10px;margin-top:16px">'        +'<button onclick="document.getElementById(\'apAuditOv\').remove()" '        +'style="flex:1;padding:12px;background:transparent;border:1px solid var(--border);border-radius:12px;color:var(--muted);font-family:inherit;font-size:13px">Cancelar</button>'        +'<button onclick="paEliminarAuditadas()" '        +'style="flex:2;padding:12px;background:#f85149;color:#fff;border:none;border-radius:12px;font-weight:700;font-size:14px;font-family:inherit">🗑 Eliminar marcadas</button>'        +'</div>'        +'</div>';
@@ -7328,6 +7417,24 @@ function _paCargarAusenciasPeriodo(cb) {
     .where('empresa', '==', PA.empresa)
     .get()
     .then(function(snap) {
+      // Permisos especiales de entrada tardía aprobados — un solo fetch
+      // para toda la empresa, en vez de uno por empleado.
+      return paDb.collection('paIncapacidades').where('empresa','==',PA.empresa).get()
+        .then(function(incSnap){ return { snap: snap, incSnap: incSnap }; })
+        .catch(function(){ return { snap: snap, incSnap: null }; });
+    })
+    .then(function(res) {
+      var snap = res.snap;
+      var permisosPorEmp = {}; // empId → { 'YYYY-MM-DD': true }
+      if (res.incSnap) {
+        res.incSnap.forEach(function(d){
+          var r = d.data();
+          if (r.estado === 'aprobada' && r.tipoIncapacidad === 'entrada_tardia' && r.fechaInicio && r.empleadoId) {
+            if (!permisosPorEmp[r.empleadoId]) permisosPorEmp[r.empleadoId] = {};
+            permisosPorEmp[r.empleadoId][r.fechaInicio] = true;
+          }
+        });
+      }
       // Construir set de días que cada empleado marcó entrada
       var marcoEntrada = {}; // empId → Set de fechas
       // Construir estructura empId → fecha → [marcaciones] para calcular tardanzas
@@ -7369,7 +7476,7 @@ function _paCargarAusenciasPeriodo(cb) {
           if (ausencias > 0) ausPeriodo[emp.id] = ausencias;
 
           // Tardanzas acumuladas del mismo período, reutilizando paTardanzasEmp
-          var _tRes = paTardanzasEmp(emp.id, marcacionesPorEmp);
+          var _tRes = paTardanzasEmp(emp.id, marcacionesPorEmp, null, permisosPorEmp[emp.id]);
           if (_tRes.totalTard > 0) ausPeriodo[emp.id + '_t'] = _tRes.totalTard;
         } catch(eEmp) {
           // Un empleado con datos incompletos (horario mal configurado, etc.)
@@ -8959,6 +9066,22 @@ function _paCargarPanelEmp(empId) {
       html += "</div></div>";
     }
 
+    // Asignar compensatorio manual (Viernes / Sábado completos)
+    html += "<div style=\"margin-bottom:8px;border:1.5px solid rgba(31,111,67,.3);border-radius:10px;overflow:hidden\">";
+    html += "<button onclick=\"paTogSection('psCompM"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(31,111,67,.07);border:none;cursor:pointer;font-family:inherit\">";
+    html += "<span style=\"font-size:12px;font-weight:700;color:#006B3F\">🗓️ Asignar día compensatorio</span>";
+    html += "<span id=\"psCompM"+empId+"_ico\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
+    html += "<div id=\"psCompM"+empId+"\" style=\"display:none;padding:10px 12px\">";
+    html += "<div style=\"font-size:11px;color:var(--muted);margin-bottom:10px\">Asigna manualmente días libres compensatorios (viernes y/o sábado completos). Puedes llenar uno o ambos.</div>";
+    html += "<label style=\"font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px\">VIERNES LIBRE</label>";
+    html += "<input type=\"date\" id=\"compManVie_"+empId+"\" style=\"width:100%;padding:9px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;box-sizing:border-box;margin-bottom:10px\">";
+    html += "<label style=\"font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px\">SÁBADO LIBRE</label>";
+    html += "<input type=\"date\" id=\"compManSab_"+empId+"\" style=\"width:100%;padding:9px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;box-sizing:border-box;margin-bottom:10px\">";
+    html += "<label style=\"font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px\">MOTIVO</label>";
+    html += "<input type=\"text\" id=\"compManMotivo_"+empId+"\" placeholder=\"Ej: turno de fin de semana\" style=\"width:100%;padding:9px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;box-sizing:border-box;margin-bottom:10px\">";
+    html += "<button class=\"_btn-asignar-comp-manual\" data-eid=\""+empId+"\" data-nom=\""+esc(emp.nombre||"")+"\" data-cargo=\""+esc(emp.cargo||"")+"\" style=\"width:100%;padding:10px;background:#006B3F;color:#fff;border:none;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit\">💾 Asignar</button>";
+    html += "</div></div>";
+
     // Incapacidades
     if (incPend.length) {
       html += "<div style=\"margin-bottom:8px;border:1.5px solid rgba(9,105,218,.35);border-radius:10px;overflow:hidden\">";
@@ -8967,9 +9090,14 @@ function _paCargarPanelEmp(empId) {
       html += "<span id=\"psINC"+empId+"_ico\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
       html += "<div id=\"psINC"+empId+"\" style=\"display:none;padding:10px 12px\">";
       incPend.forEach(function(inc){
+        var _tipoLbl = inc.tipoIncapacidad === 'entrada_tardia' ? '🕐 Entrada tardía'
+                     : inc.tipoIncapacidad === 'salida_temprana' ? '🕐 Salida temprano'
+                     : '🏥 Incapacidad';
         html += "<div style=\"background:var(--surface);border:1.5px solid var(--border);border-radius:10px;padding:10px;margin-bottom:7px\">";
-        html += "<div style=\"font-size:12px;color:var(--muted);margin-bottom:7px\">" + (inc.fechaInicio||"—") + " al " + (inc.fechaFin||"—") + " · " + (inc.dias||"?") + " días</div>";
+        html += "<div style=\"font-size:11px;font-weight:700;color:var(--text);margin-bottom:3px\">" + _tipoLbl + "</div>";
+        html += "<div style=\"font-size:12px;color:var(--muted);margin-bottom:7px\">" + (inc.fechaInicio||"—") + (inc.tipoIncapacidad && inc.tipoIncapacidad!=='completa' ? "" : (" al " + (inc.fechaFin||"—") + " · " + (inc.dias||"?") + " días")) + (inc.constanciaPendiente ? " · <span style=\"color:#e8a020\">⚠ sin constancia todavía</span>" : "") + "</div>";
         html += "<div style=\"display:flex;gap:6px\">";
+        if (inc.foto) html += "<button onclick=\"paVerFotoInc('" + inc.id + "')\" style=\"" + BS + "background:var(--surface2);color:var(--text)\">📷 Ver</button>";
         html += "<button class=\"_btn-aprob-inc\" data-iid=\"" + inc.id + "\" style=\"" + BS + "background:#006B3F;color:#fff\">✓ Aprobar</button>";
         html += "<button class=\"_btn-rechaz-inc\" data-iid=\"" + inc.id + "\" style=\"" + BS + "background:transparent;color:var(--red);border:2px solid var(--red)\">✗ Rechazar</button>";
         html += "</div></div>";
@@ -10161,6 +10289,61 @@ function paRechazarCompensatorioTurno(docId, btn) {
   });
 }
 
+// ── Asignación manual de días compensatorios (viernes y/o sábado
+// completos) — para casos que la detección automática de turno de
+// fin de semana no capturó, o ajustes puntuales del admin.
+function paAsignarCompensatorioManual(empId, empNombre, cargo, btn) {
+  var vieInput = document.getElementById('compManVie_'+empId);
+  var sabInput = document.getElementById('compManSab_'+empId);
+  var motInput = document.getElementById('compManMotivo_'+empId);
+  var fechaVie = vieInput ? vieInput.value : '';
+  var fechaSab = sabInput ? sabInput.value : '';
+  var motivo   = (motInput ? motInput.value : '').trim() || 'Asignado manualmente por admin';
+
+  if (!fechaVie && !fechaSab) {
+    paToast('Selecciona al menos una fecha (viernes o sábado)', true);
+    return;
+  }
+
+  paConfirm('¿Asignar día(s) compensatorio(s) a ' + (empNombre||'este empleado') + '?', function() {
+    if (btn) { btn.disabled = true; btn.textContent = 'Asignando...'; }
+    var batch = paDb.batch();
+    var n = 0;
+
+    if (fechaVie) {
+      batch.set(paDb.collection('paCanjes').doc(), {
+        empresa: PA.empresa, empleadoId: empId, empleadoNombre: empNombre, cargo: cargo,
+        esCompensatorio: true, esAutoTurno: false, esManual: true, tipoComp: 'viernes',
+        fechaLibre: fechaVie, diasLibres: 1, horasLibres: 8,
+        motivo: motivo, estado: 'asignado', aprobadoTs: Date.now(),
+        ts: Date.now(), folio: 'COMP-MAN-'+paGenId().toUpperCase()
+      });
+      n++;
+    }
+    if (fechaSab) {
+      batch.set(paDb.collection('paCanjes').doc(), {
+        empresa: PA.empresa, empleadoId: empId, empleadoNombre: empNombre, cargo: cargo,
+        esCompensatorio: true, esAutoTurno: false, esManual: true, tipoComp: 'sabado_completo',
+        fechaLibre: fechaSab, diasLibres: 1, horasLibres: 8,
+        motivo: motivo, estado: 'asignado', aprobadoTs: Date.now(),
+        ts: Date.now(), folio: 'COMP-MAN-'+paGenId().toUpperCase()
+      });
+      n++;
+    }
+
+    batch.commit().then(function() {
+      paToast('✅ ' + n + ' día(s) compensatorio(s) asignado(s) a ' + (empNombre||'el empleado'));
+      if (vieInput) vieInput.value = '';
+      if (sabInput) sabInput.value = '';
+      if (motInput) motInput.value = '';
+      _paPostApproval(btn, 'emps');
+    }).catch(function(e) {
+      paToast('Error: '+e.message, true);
+      if (btn) { btn.disabled = false; btn.textContent = '💾 Asignar'; }
+    });
+  });
+}
+
 function paGoSolicitarComp() {
   paShow('scCanje');
   // Marcar que está en modo compensatorio
@@ -10273,7 +10456,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-06-S';
+var PA_VERSION = 'v2026-07-07-B';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -10492,6 +10675,7 @@ window.addEventListener('DOMContentLoaded', function() {
     else if ((b=ev.target.closest('._btn-rechaz-he')))   { paRechazarHorasExtra(b.getAttribute('data-hid')||'', b); }
     else if ((b=ev.target.closest('._btn-aprob-comp')))  { paAprobarCompensatorioTurno(b.getAttribute('data-cid')||'', b.getAttribute('data-nom')||'', b); }
     else if ((b=ev.target.closest('._btn-rechaz-comp'))) { paRechazarCompensatorioTurno(b.getAttribute('data-cid')||'', b); }
+    else if ((b=ev.target.closest('._btn-asignar-comp-manual'))) { paAsignarCompensatorioManual(b.getAttribute('data-eid')||'', b.getAttribute('data-nom')||'', b.getAttribute('data-cargo')||'', b); }
     else if ((b=ev.target.closest('._btn-aprob-canje'))) { paAprobarFechaCanje(b.getAttribute('data-cid')||'', b.getAttribute('data-fecha')||'', b); }
     else if ((b=ev.target.closest('._btn-rechaz-canje')))  { paRechazarCanje(b.getAttribute('data-cid')||'', b); }
     else if ((b=ev.target.closest('._btn-aprob-inc')))   { paAprobarInc(b.getAttribute('data-iid')||'', b); }
