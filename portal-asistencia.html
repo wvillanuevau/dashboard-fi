@@ -3023,6 +3023,12 @@ function _paSubirIncapacidad(b64, tipoArchivo, fileName, btn, fechaInicio, fecha
         foto: b64 ? b64.slice(0,100) : '', // referencia truncada para consultas
         estado: 'emitida', fechaEmision: paHoy(), ts: Date.now()
       }).catch(function(e){ console.warn('[AP Inc]', e.message); });
+    } else if (PA.empleado && tipoIncapacidad !== 'completa') {
+      // Permiso Especial parcial: marcar de inmediato (no esperar a que
+      // el admin apruebe) cualquier Falta Injustificada que ya exista
+      // para esa fecha — la condición de carrera del corte de 7pm puede
+      // generar la falta justo antes de que el empleado envíe el permiso.
+      _paFlagAPsPorPermisoRetro(PA.empleado.id, PA.empleado.nombre, fechaInicio, tipoIncapacidad);
     }
     PA._incapacidades = PA._incapacidades || [];
     PA._incapacidades.push({ fechaInicio:fechaInicio, fechaFin:fechaFin, estado:'pendiente' });
@@ -10530,7 +10536,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-07-I';
+var PA_VERSION = 'v2026-07-07-J';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
