@@ -193,29 +193,30 @@ button:active{opacity:.8;transform:scale(.95)}
 .dash-greeting h2{font-size:22px;font-weight:700;letter-spacing:-.3px}
 .dash-greeting p{font-size:13px;color:var(--muted);margin-top:4px}
 .dash-status{
-  width:100%;max-width:480px;margin:16px 18px;
+  width:auto;max-width:480px;margin:16px 18px;
   background:var(--surface);border:1.5px solid var(--border);border-radius:16px;
-  padding:16px;
+  padding:16px;box-sizing:border-box;
 }
 .dash-status-label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px}
-.status-timeline{display:flex;gap:0;align-items:center}
+:root{ --step-dot-size: clamp(46px, 17vw, 84px); }
+.status-timeline{display:flex;gap:0;align-items:flex-start;width:100%}
 .status-step{
-  flex:1;display:flex;flex-direction:column;align-items:center;gap:10px;position:relative
+  flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:8px;position:relative
 }
 .status-step:not(:last-child)::after{
-  content:'';position:absolute;top:42px;left:50%;right:-50%;
+  content:'';position:absolute;top:calc(var(--step-dot-size)/2);left:50%;right:-50%;
   height:3px;background:var(--border);z-index:0;
 }
 .status-step.done::after{background:var(--accent)}
 .step-dot{
-  width:84px;height:84px;border-radius:50%;background:var(--surface2);
-  border:4px solid var(--border);display:flex;align-items:center;justify-content:center;
-  font-size:36px;z-index:1;position:relative;
+  width:var(--step-dot-size);height:var(--step-dot-size);border-radius:50%;background:var(--surface2);
+  border:calc(var(--step-dot-size) * 0.048) solid var(--border);display:flex;align-items:center;justify-content:center;
+  font-size:calc(var(--step-dot-size) * 0.43);z-index:1;position:relative;flex-shrink:0;box-sizing:border-box;
 }
 .status-step.done .step-dot{background:var(--accent);border-color:var(--accent);color:#000}
 .status-step.active .step-dot{background:var(--accent2);border-color:var(--accent2);color:#fff;animation:bioPulse 1.5s infinite}
-.step-label{font-size:14px;color:var(--muted);text-align:center;font-weight:500}
-.step-time{font-size:12px;color:var(--accent);font-family:'JetBrains Mono',monospace}
+.step-label{font-size:clamp(9px,2.8vw,14px);color:var(--muted);text-align:center;font-weight:500;padding:0 2px;line-height:1.25}
+.step-time{font-size:clamp(8px,2.4vw,12px);color:var(--accent);font-family:'JetBrains Mono',monospace}
 
 .dash-actions{width:100%;max-width:480px;padding:0 18px;display:flex;flex-direction:column;gap:10px}
 .action-btn{
@@ -3007,12 +3008,14 @@ function _paSubirIncapacidad(b64, tipoArchivo, fileName, btn, fechaInicio, fecha
     folio:            folio
   };
   paDb.collection('paIncapacidades').add(docData).then(function() {
-    // AP por incapacidad (informativa, no disciplinaria)
-    if (PA.empleado) {
+    // AP por incapacidad (informativa, no disciplinaria) — SOLO para
+    // incapacidad de día(s) completo(s). Permiso Especial (entrada
+    // tardía/salida temprana) nunca genera AP, es un permiso normal.
+    if (PA.empleado && tipoIncapacidad === 'completa') {
       paDb.collection('paAccionesPersonal').add({
         empresa: PA.empresa, empleadoId: PA.empleado.id,
         empleadoNombre: PA.empleado.nombre, cargo: PA.empleado.cargo||'',
-        tipo: tipoIncapacidad === 'completa' ? 'INCAPACIDAD' : 'PERMISO_ESPECIAL',
+        tipo: 'INCAPACIDAD',
         tipoIncapacidad: tipoIncapacidad,
         fechaInicio: docData.fechaInicio,
         fechaFin: docData.fechaFin, dias: docData.dias,
@@ -3542,6 +3545,9 @@ function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
     // La llegada tarde siempre cuenta, sin exención por horas extra.
     // La HE neta se reduce (el tiempo de retraso no cuenta como extra),
     // pero la sanción aplica siempre.
+    // Unificado con paTardanzasEmp() — recalcula de cero con la tolerancia
+    // vigente en vez de confiar en minutosRetraso ya guardado en cada
+    // marcación (que puede venir de datos históricos mal calculados).
     if (calc.minutosRetraso > 0 && paDb && PA.empresa) {
       var _q = _quincenaActual();
       Promise.all([
@@ -3555,17 +3561,19 @@ function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
           .where('tipo',      '==', 'AMONESTACION_TARDANZA')
           .get()
       ]).then(function(res) {
-        // Todas las tardanzas de la quincena actual
-        var _tardsQ = [];
+        // Construir estructura empId → fecha → [marcaciones] solo del período,
+        // igual que paCargarTardanzasEmpActual, para reusar paTardanzasEmp().
+        var marcacionesQ = {}; marcacionesQ[empId] = {};
         res[0].forEach(function(d) {
           var r = d.data();
-          if (r.tipo === 'entrada'
-              && (r.minutosRetraso||0) > 0
-              && (r.fecha||'') >= _q.desde
-              && (r.fecha||'') <= _q.hasta) {
-            _tardsQ.push({ fecha: r.fecha, mins: r.minutosRetraso });
-          }
+          if (r.fecha < _q.desde || r.fecha > _q.hasta) return;
+          if (r.ts && typeof r.ts==='object' && r.ts.toMillis) r.ts = r.ts.toMillis();
+          else if (r.ts && r.ts.seconds) r.ts = r.ts.seconds*1000 + Math.round((r.ts.nanoseconds||0)/1e6);
+          if (!marcacionesQ[empId][r.fecha]) marcacionesQ[empId][r.fecha] = [];
+          marcacionesQ[empId][r.fecha].push(r);
         });
+        var _tRes = paTardanzasEmp(empId, marcacionesQ);
+        var _tardsQ = _tRes.dias.map(function(d){ return { fecha: d.fecha, mins: d.minsTarde }; });
         _tardsQ.sort(function(a,b){ return a.fecha<b.fecha?-1:1; });
 
         // AP ya generada esta quincena → no duplicar
@@ -6888,15 +6896,31 @@ function paGenerarAPsHistoricas() {
         }
       });
 
-      // Agrupar marcaciones de entrada por empleado
-      var porEmp = {}; // empId → [{ fecha, ts, minutosRetraso }]
+      // Construir estructura empId → fecha → [marcaciones] para reusar
+      // paTardanzasEmp() — recalcula con la tolerancia vigente en vez de
+      // confiar en minutosRetraso ya guardado (puede venir de datos
+      // históricos mal calculados).
+      var marcacionesQ = {};
       snapM.forEach(function(d) {
         var r = d.data();
         if (r.empresa !== PA.empresa) return; // filtrar empresa client-side
-        if (r.tipo !== 'entrada') return;
-        if ((r.minutosRetraso || 0) <= 0) return; // solo tardanzas
-        if (!porEmp[r.empleadoId]) porEmp[r.empleadoId] = { nombre: r.empleadoNombre||'', cargo: r.cargo||'', tardanzas: [] };
-        porEmp[r.empleadoId].tardanzas.push({ fecha: r.fecha, mins: r.minutosRetraso||0 });
+        if (r.ts && typeof r.ts==='object' && r.ts.toMillis) r.ts = r.ts.toMillis();
+        else if (r.ts && r.ts.seconds) r.ts = r.ts.seconds*1000 + Math.round((r.ts.nanoseconds||0)/1e6);
+        if (!marcacionesQ[r.empleadoId]) marcacionesQ[r.empleadoId] = {};
+        if (!marcacionesQ[r.empleadoId][r.fecha]) marcacionesQ[r.empleadoId][r.fecha] = [];
+        marcacionesQ[r.empleadoId][r.fecha].push(r);
+      });
+
+      var porEmp = {}; // empId → { nombre, cargo, tardanzas:[{fecha,mins}] }
+      Object.keys(marcacionesQ).forEach(function(empId) {
+        var empObj = (PA.empleados||[]).find(function(e){ return e.id === empId; });
+        if (!empObj || empObj.activo === false) return;
+        var _tRes = paTardanzasEmp(empId, marcacionesQ);
+        if (!_tRes.dias.length) return;
+        porEmp[empId] = {
+          nombre: empObj.nombre || '', cargo: empObj.cargo || '',
+          tardanzas: _tRes.dias.map(function(d){ return { fecha: d.fecha, mins: d.minsTarde }; })
+        };
       });
 
       var writes = [];
@@ -7011,13 +7035,13 @@ function paCargarAPs(tipo) {
       }
 
       var TIPO_LABEL = {
-        FALTA_INJUSTIFICADA: { icon:'🚫', label:'Falta Injustificada',              color:'#f85149' },
-        AMONESTACION_TARDANZA:  { icon:'⚠️', label:'Amonestación por tardanza',         color:'#e8a020' },
-        TARDANZAS:              { icon:'⏰', label:'Tardanzas (Desc. Día y Séptimo)',   color:'#e8a020' },
-        DESCUENTO_DIA_SEPTIMO:  { icon:'📉', label:'Descuento Día y Séptimo (Falta)',  color:'#e8a020' },
-        INCAPACIDAD:         { icon:'🏥', label:'Incapacidad',                      color:'#388bfd' },
-        INCAPACIDAD:         { icon:'🏥', label:'Incapacidad',                      color:'#388bfd' },
-        INCAPACIDAD:         { icon:'🏥', label:'Incapacidad',                      color:'#388bfd' },
+        FALTA_INJUSTIFICADA:    { icon:'🚫', label:'Falta Injustificada',              color:'#f85149', cat:'Sanción' },
+        AMONESTACION_TARDANZA:  { icon:'⚠️', label:'Amonestación por tardanza',         color:'#e8a020', cat:'Sanción' },
+        TARDANZAS:              { icon:'⏰', label:'Tardanzas (Desc. Día y Séptimo)',   color:'#e8a020', cat:'Sanción' },
+        DESCUENTO_DIA_SEPTIMO:  { icon:'📉', label:'Descuento Día y Séptimo (Falta)',  color:'#e8a020', cat:'Sanción' },
+        INCAPACIDAD:            { icon:'🏥', label:'Incapacidad',                      color:'#388bfd', cat:'Informativa' },
+        PERMISO_ESPECIAL:       { icon:'🕐', label:'Permiso Especial',                 color:'#388bfd', cat:'Informativa' },
+        VACACIONES:             { icon:'🏖️', label:'Vacaciones',                       color:'#2ea043', cat:'Informativa' },
       };
 
       // ── Barra de selección múltiple ─────────────────────────────
@@ -7058,7 +7082,7 @@ function paCargarAPs(tipo) {
           + '<span style="font-weight:700;font-size:13px">'+esc(_nom)+_badge+'</span>'
           + '<span style="font-size:11px;color:var(--muted)">'+esc(ap.cargo||'')+'</span>'
           + '</div>'
-          + '<div style="font-size:12px;color:'+ti.color+';font-weight:600">'+ti.label+'</div>'
+          + '<div style="font-size:12px;color:'+ti.color+';font-weight:600">'+ti.label+' <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;'+(ti.cat==='Sanción'?'background:rgba(248,81,73,.15);color:#f85149':'background:rgba(56,139,253,.15);color:#388bfd')+'">'+(ti.cat||'')+'</span></div>'
           + '<div style="font-size:10px;color:var(--muted);margin-top:1px">Acción: '+(ap.fecha||ap.fechaEmision||'—')+' · '+esc(_con.substring(0,70))+(_con.length>70?'…':'')+'</div>'
           + detalleHtml
           + '</div>'
@@ -7137,23 +7161,32 @@ function paToggleActivoEmp(empId) {
   var emp = PA.empleados.find(function(e){ return e.id === empId; });
   if (!emp) return;
   var nuevoActivo = emp.activo === false; // toggle
-  var docId = PA._pinsDocMap && PA._pinsDocMap[empId];
   var label = nuevoActivo ? 'activar' : 'desactivar';
   paConfirm('¿' + label.charAt(0).toUpperCase() + label.slice(1) + ' a ' + emp.nombre + '?' +
     (nuevoActivo ? '' : '\nNo aparecerá en el portal ni en reportes.'), function() {
-    var promise;
-    if (docId) {
-      promise = paDb.collection('paPins').doc(docId).update({ activo: nuevoActivo });
-    } else {
-      promise = paDb.collection('paPins').add({
-        empresa: PA.empresa, empleadoId: empId, activo: nuevoActivo
-      });
-    }
-    promise.then(function() {
-      emp.activo = nuevoActivo;
-      paToast(nuevoActivo ? '✅ Empleado activado' : '⛔ Empleado desactivado');
-      paAdminTab('emps');
-    }).catch(function(e){ paToast('Error: ' + e.message, true); });
+    // Consultar Firestore en vivo — no confiar solo en PA._pinsDocMap, que
+    // puede no tener entrada para empleados sin PIN asignado todavía.
+    // Si hay más de un documento paPins para este empleado (dato viejo
+    // duplicado), se actualizan TODOS para que no queden en desacuerdo.
+    paDb.collection('paPins').where('empresa','==',PA.empresa).where('empleadoId','==',empId).get()
+      .then(function(snap) {
+        if (snap.empty) {
+          return paDb.collection('paPins').add({
+            empresa: PA.empresa, empleadoId: empId, activo: nuevoActivo
+          });
+        }
+        var batch = paDb.batch();
+        snap.forEach(function(d) {
+          batch.update(d.ref, { activo: nuevoActivo });
+          PA._pinsDocMap = PA._pinsDocMap || {};
+          PA._pinsDocMap[empId] = d.id; // queda mapeado el último visto
+        });
+        return batch.commit();
+      }).then(function() {
+        emp.activo = nuevoActivo;
+        paToast(nuevoActivo ? '✅ Empleado activado' : '⛔ Empleado desactivado');
+        paAdminTab('emps');
+      }).catch(function(e){ paToast('Error: ' + e.message, true); });
   });
 }
 
@@ -7226,6 +7259,12 @@ function paAuditarAPs() {
         // DESCUENTO_DIA_SEPTIMO sin quincenaDesde
         if (ap.tipo === 'DESCUENTO_DIA_SEPTIMO' && !ap.quincenaDesde) {
           razones.push('Descuento Día y Séptimo sin quincena asignada (criterio viejo)');
+        }
+
+        // PERMISO_ESPECIAL nunca debió generar AP — corregido, esta es
+        // una AP generada por una versión anterior con el bug.
+        if (ap.tipo === 'PERMISO_ESPECIAL') {
+          razones.push('Permiso Especial no debe generar AP (corregido) — segura de eliminar');
         }
 
         // Permiso Especial aprobado retroactivamente — requiere revisión humana,
@@ -8354,20 +8393,20 @@ function paAdminConfig(content) {
           var alm = conf.almuerzo   !== undefined ? conf.almuerzo   : defAlm;
           var tid = 'hd_'+emp.id+'_'+d;
           html += '<div style="padding:6px 0;border-bottom:1px solid var(--border)">';
-          html += '<div style="display:flex;flex-wrap:nowrap;align-items:center;gap:4px">';
+          html += '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px">';
           html += '<span style="font-size:12px;font-weight:700;color:var(--text);width:26px;flex-shrink:0">'+nm+'</span>';
           html += '<div style="width:30px;flex-shrink:0;text-align:center"><input type="checkbox" id="'+tid+'_trab" '+(defTrab?'checked':'')+' onchange="_paTogHorDia(\''+emp.id+'\','+d+')" style="width:16px;height:16px;cursor:pointer"></div>';
           var dis = defTrab ? '' : 'disabled ';
           var opac = defTrab ? '1' : '0.4';
-          // Entrada/Salida en sub-div para ahorrar espacio
-          html += '<div style="flex:1;display:flex;gap:4px;min-width:0">'
-            +'<input type="time" id="'+tid+'_ent" value="'+ent+'" '+dis
-            +'style="flex:1;min-width:0;padding:4px 5px;background:var(--surface);border:1.5px solid var(--border);'
+          // Entrada/Salida con ancho fijo — type="time" en móvil tiene un
+          // ancho mínimo nativo que ignora flex:1/min-width:0, así que un
+          // ancho fijo adecuado es más confiable que dejarlo "flexible".
+          html += '<input type="time" id="'+tid+'_ent" value="'+ent+'" '+dis
+            +'style="flex:none;width:76px;padding:4px 3px;background:var(--surface);border:1.5px solid var(--border);'
             +'border-radius:6px;color:var(--text);font-size:11px;box-sizing:border-box;opacity:'+opac+'">'
             +'<input type="time" id="'+tid+'_sal" value="'+sal+'" '+dis
-            +'style="flex:1;min-width:0;padding:4px 5px;background:var(--surface);border:1.5px solid var(--border);'
-            +'border-radius:6px;color:var(--text);font-size:11px;box-sizing:border-box;opacity:'+opac+'">'
-            +'</div>';
+            +'style="flex:none;width:76px;padding:4px 3px;background:var(--surface);border:1.5px solid var(--border);'
+            +'border-radius:6px;color:var(--text);font-size:11px;box-sizing:border-box;opacity:'+opac+'">';
           html += '</div>';
           // Segunda línea: tolerancia + tipo — separada para que nunca se desborde
           html += '<div style="display:flex;flex-wrap:nowrap;align-items:center;gap:6px;margin-top:5px;padding-left:60px">';
@@ -8997,7 +9036,7 @@ function _paCargarPanelEmp(empId) {
 
 
     // Asignación manual
-    html += "<div style=\"margin-top:10px;padding:10px 12px;background:var(--doughDk);border:1.5px solid var(--border);border-radius:10px\">";
+    html += "<div style=\"margin-top:10px;margin-bottom:14px;padding:10px 12px;background:var(--doughDk);border:1.5px solid var(--border);border-radius:10px\">";
     html += "<div style=\"font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:8px\">✋ Asignación manual</div>";
     html += "<div style=\"display:flex;gap:8px;flex-wrap:wrap\">";
     html += "<button class=\"_btn-asign-he\" data-eid=\"" + empId + "\" data-nom=\"" + esc(emp.nombre||"") + "\" data-diurna=\"" + heDiurNeto.toFixed(2) + "\" data-nocturna=\"" + heNoctNeto.toFixed(2) + "\" style=\"flex:1;min-width:120px;padding:9px;background:rgba(0,107,63,.1);border:1.5px solid rgba(0,107,63,.25);border-radius:9px;color:#006B3F;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit\">🔄 Canjear HE</button>";
@@ -9005,7 +9044,7 @@ function _paCargarPanelEmp(empId) {
     html += "</div></div>";
 
     // ── Acciones de Personal ──────────────────────────────────────
-    html += "<div style=\"margin-bottom:8px;border:1.5px solid rgba(248,81,73,.35);border-radius:10px;overflow:hidden\">";
+    html += "<div style=\"margin-bottom:10px;border:1.5px solid rgba(248,81,73,.35);border-radius:10px;overflow:hidden\">";
     html += "<button onclick=\"paTogSection('psAP"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(248,81,73,.07);border:none;cursor:pointer;font-family:inherit\">";
     html += "<span style=\"font-size:12px;font-weight:700;color:#f85149\">📋 Acciones de Personal</span>";
     html += "<span id=\"psAP"+empId+"_ico\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
@@ -9025,7 +9064,7 @@ function _paCargarPanelEmp(empId) {
 
     // HE Pendientes
     if (hePend.length) {
-      html += "<div style=\"margin-bottom:8px;border:1.5px solid rgba(232,160,32,.35);border-radius:10px;overflow:hidden\">";
+      html += "<div style=\"margin-bottom:10px;border:1.5px solid rgba(232,160,32,.35);border-radius:10px;overflow:hidden\">";
       html += "<button onclick=\"paTogSection('psHEP"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(232,160,32,.08);border:none;cursor:pointer;font-family:inherit\">";
       html += "<span style=\"font-size:12px;font-weight:700;color:#B45309\">⏳ HE pendientes (" + hePend.length + ")</span>";
       html += "<span id=\"psHEP"+empId+"_ico\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
@@ -9044,7 +9083,7 @@ function _paCargarPanelEmp(empId) {
 
     // Canjes Pendientes
     if (canjePend.length) {
-      html += "<div style=\"margin-bottom:8px;border:1.5px solid rgba(130,80,223,.35);border-radius:10px;overflow:hidden\">";
+      html += "<div style=\"margin-bottom:10px;border:1.5px solid rgba(130,80,223,.35);border-radius:10px;overflow:hidden\">";
       html += "<button onclick=\"paTogSection('psCP"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(130,80,223,.07);border:none;cursor:pointer;font-family:inherit\">";
       html += "<span style=\"font-size:12px;font-weight:700;color:#8250DF\">🔄 Canjes pendientes (" + canjePend.length + ")</span>";
       html += "<span id=\"psCP"+empId+"_ico\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
@@ -9067,7 +9106,7 @@ function _paCargarPanelEmp(empId) {
     }
 
     // Asignar compensatorio manual (Viernes / Sábado completos)
-    html += "<div style=\"margin-bottom:8px;border:1.5px solid rgba(31,111,67,.3);border-radius:10px;overflow:hidden\">";
+    html += "<div style=\"margin-bottom:10px;border:1.5px solid rgba(31,111,67,.3);border-radius:10px;overflow:hidden\">";
     html += "<button onclick=\"paTogSection('psCompM"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(31,111,67,.07);border:none;cursor:pointer;font-family:inherit\">";
     html += "<span style=\"font-size:12px;font-weight:700;color:#006B3F\">🗓️ Asignar día compensatorio</span>";
     html += "<span id=\"psCompM"+empId+"_ico\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
@@ -9084,7 +9123,7 @@ function _paCargarPanelEmp(empId) {
 
     // Incapacidades
     if (incPend.length) {
-      html += "<div style=\"margin-bottom:8px;border:1.5px solid rgba(9,105,218,.35);border-radius:10px;overflow:hidden\">";
+      html += "<div style=\"margin-bottom:10px;border:1.5px solid rgba(9,105,218,.35);border-radius:10px;overflow:hidden\">";
       html += "<button onclick=\"paTogSection('psINC"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(9,105,218,.07);border:none;cursor:pointer;font-family:inherit\">";
       html += "<span style=\"font-size:12px;font-weight:700;color:#0969DA\">🏥 Incapacidades pendientes (" + incPend.length + ")</span>";
       html += "<span id=\"psINC"+empId+"_ico\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
@@ -9110,7 +9149,7 @@ function _paCargarPanelEmp(empId) {
     var horCargo  = (PA.horariosRol || {})[emp.cargo] || PA.horario;
     var horActual = horEmpAct || horCargo;
     var rolesDisponibles = Object.keys(PA.horariosRol || {});
-    html += "<div style=\"margin-bottom:8px;border:1.5px solid rgba(56,139,253,.35);border-radius:10px;overflow:hidden\">";
+    html += "<div style=\"margin-bottom:10px;border:1.5px solid rgba(56,139,253,.35);border-radius:10px;overflow:hidden\">";
     html += "<button onclick=\"paTogSection('psSCH"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(56,139,253,.07);border:none;cursor:pointer;font-family:inherit\">";
     html += "<span style=\"font-size:12px;font-weight:700;color:#388bfd\">📋 Horario asignado · " + (horActual?(horActual.horaEntrada||'—')+'–'+(horActual.horaSalida||'—'):'Sin horario') + "</span>";
     html += "<span id=\"psSCH"+empId+"_ico\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
@@ -9214,7 +9253,7 @@ function _paCargarPanelEmp(empId) {
 
     // HE histórico aprobado (fusión del tab HE)
     if (heApprob.length) {
-      html += "<div style=\"margin-bottom:8px;border:1.5px solid rgba(0,107,63,.3);border-radius:10px;overflow:hidden\">";
+      html += "<div style=\"margin-bottom:10px;border:1.5px solid rgba(0,107,63,.3);border-radius:10px;overflow:hidden\">";
       html += "<button onclick=\"paTogSection('psHEA"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(0,107,63,.07);border:none;cursor:pointer;font-family:inherit\">";
       html += "<span style=\"font-size:12px;font-weight:700;color:#006B3F\">⏰ HE aprobadas en período (" + heApprob.length + ")</span>";
       html += "<span id=\"psHEA"+empId+"_ico\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
@@ -10456,7 +10495,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-07-B';
+var PA_VERSION = 'v2026-07-07-H';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
