@@ -1966,7 +1966,6 @@ function paLoadEmpleados(callback) {
       });
 
       PA.empleados = tecnicos
-        .filter(function(t){ return t.activo !== false; })
         .map(function(t){
           return {
             id:    t.id,
@@ -1976,6 +1975,7 @@ function paLoadEmpleados(callback) {
             pin:    pins[t.id]  || '',
             credId: creds[t.id] || null,
             deviceId: (PA._deviceMap && PA._deviceMap[t.id]) || null,
+            activo: t.activo !== false,
             diasVacacionesDisponibles: (PA._horasMap[t.id] && PA._horasMap[t.id].diasVacDisp)   || 15,
             horasExtraAcum:            (PA._horasMap[t.id] && PA._horasMap[t.id].horasExtraAcum) || 0,
             fechaContratacion:         (PA._horasMap[t.id] && PA._horasMap[t.id].fechaContratacion) || '',
@@ -1992,10 +1992,9 @@ function paLoadEmpleados(callback) {
       // Error en paConfig o paPins — continuar sin ellos
       console.warn('[Portal] config/pins error:', e.message);
       PA.empleados = tecnicos
-        .filter(function(t){ return t.activo !== false; })
         .map(function(t){
           return {id:t.id, nombre:t.nombre||'—', cargo:t.cargo||'—',
-                  ruta:t.ruta||'', pin:'', credId:null,
+                  ruta:t.ruta||'', pin:'', credId:null, activo: t.activo !== false,
                   diasVacacionesDisponibles:15, horasExtraAcum:0};
         });
       PA.empleados.sort(function(a,b){ return (a.nombre||'').localeCompare(b.nombre||''); });
@@ -7180,29 +7179,36 @@ function paToggleActivoEmp(empId) {
   var label = nuevoActivo ? 'activar' : 'desactivar';
   paConfirm('¿' + label.charAt(0).toUpperCase() + label.slice(1) + ' a ' + emp.nombre + '?' +
     (nuevoActivo ? '' : '\nNo aparecerá en el portal ni en reportes.'), function() {
-    // Consultar Firestore en vivo — no confiar solo en PA._pinsDocMap, que
-    // puede no tener entrada para empleados sin PIN asignado todavía.
-    // Si hay más de un documento paPins para este empleado (dato viejo
-    // duplicado), se actualizan TODOS para que no queden en desacuerdo.
-    paDb.collection('paPins').where('empresa','==',PA.empresa).where('empleadoId','==',empId).get()
-      .then(function(snap) {
-        if (snap.empty) {
-          return paDb.collection('paPins').add({
-            empresa: PA.empresa, empleadoId: empId, activo: nuevoActivo
-          });
-        }
-        var batch = paDb.batch();
-        snap.forEach(function(d) {
-          batch.update(d.ref, { activo: nuevoActivo });
-          PA._pinsDocMap = PA._pinsDocMap || {};
-          PA._pinsDocMap[empId] = d.id; // queda mapeado el último visto
+    // La fuente real de "activo" es el arreglo tecnicos[] dentro de
+    // portalesPublicos/{empresa} — NO paPins. Antes esta función solo
+    // escribía en paPins, que nadie lee para decidir si un empleado está
+    // activo, así que "Desactivar" nunca tenía efecto real.
+    var pubRef = paDb.collection('portalesPublicos').doc(PA.empresa);
+    pubRef.get().then(function(doc) {
+      if (!doc.exists) throw new Error('No se encontró portalesPublicos/' + PA.empresa);
+      var data = doc.data();
+      var tecnicos = (data.tecnicos || []).slice();
+      var idx = tecnicos.findIndex(function(t){ return t.id === empId; });
+      if (idx === -1) throw new Error('Empleado no encontrado en la lista de técnicos');
+      tecnicos[idx] = Object.assign({}, tecnicos[idx], { activo: nuevoActivo });
+      return pubRef.update({ tecnicos: tecnicos });
+    }).then(function() {
+      // Mantener paPins sincronizado también, por si algo más lo consulta
+      // — consulta en vivo, no confía en PA._pinsDocMap, y actualiza
+      // TODOS los documentos que encuentre para ese empleado (evita que
+      // queden dos documentos en desacuerdo entre sí).
+      return paDb.collection('paPins').where('empresa','==',PA.empresa).where('empleadoId','==',empId).get()
+        .then(function(snap) {
+          if (snap.empty) return;
+          var batch = paDb.batch();
+          snap.forEach(function(d) { batch.update(d.ref, { activo: nuevoActivo }); });
+          return batch.commit();
         });
-        return batch.commit();
-      }).then(function() {
-        emp.activo = nuevoActivo;
-        paToast(nuevoActivo ? '✅ Empleado activado' : '⛔ Empleado desactivado');
-        paAdminTab('emps');
-      }).catch(function(e){ paToast('Error: ' + e.message, true); });
+    }).then(function() {
+      emp.activo = nuevoActivo;
+      paToast(nuevoActivo ? '✅ Empleado activado' : '⛔ Empleado desactivado');
+      paAdminTab('emps');
+    }).catch(function(e){ paToast('Error: ' + e.message, true); });
   });
 }
 
@@ -7247,11 +7253,25 @@ function paEliminarAPsSeleccionadas() {
 // ── Auditoría de APs: identifica las inconsistentes con criterios actuales ──
 function paAuditarAPs() {
   paToast('Auditando Acciones de Personal...');
-  paDb.collection('paAccionesPersonal')
-    .where('empresa', '==', PA.empresa)
-    .get()
-    .then(function(snap) {
+  Promise.all([
+    paDb.collection('paAccionesPersonal').where('empresa', '==', PA.empresa).get(),
+    paDb.collection('paIncapacidades').where('empresa', '==', PA.empresa).where('estado','==','aprobada').get()
+  ])
+    .then(function(results) {
+      var snap = results[0];
       var inconsistentes = [];
+
+      // Permisos especiales aprobados — se calcula EN VIVO cada vez que
+      // se audita, sin depender de una marca que se haya guardado en el
+      // pasado (una falta ya existente antes de que existiera el marcado
+      // automático nunca la habría recibido).
+      var permisosAprobados = {}; // 'empleadoId|fecha' → tipoIncapacidad
+      results[1].forEach(function(d){
+        var r = d.data();
+        if (r.tipoIncapacidad && r.tipoIncapacidad !== 'completa' && r.fechaInicio && r.empleadoId) {
+          permisosAprobados[r.empleadoId + '|' + r.fechaInicio] = r.tipoIncapacidad;
+        }
+      });
 
       // Pre-pass: detectar duplicados exactos (mismo empleado + fecha +
       // tipo) — causados por condiciones de carrera cuando varios
@@ -7310,9 +7330,15 @@ function paAuditarAPs() {
 
         // Permiso Especial aprobado retroactivamente — requiere revisión humana,
         // no es un error estructural, así que no viene marcada por defecto.
+        // Se revisa tanto la marca guardada (si se puso en su momento) como
+        // el cálculo en vivo (por si la falta es de antes de que existiera
+        // el marcado automático).
         var _esRevisionPermiso = false;
         if (ap.revisionPermisoEspecial) {
           razones.push(ap.notaRevision || 'Permiso Especial aprobado — revisar si esta AP sigue aplicando');
+          _esRevisionPermiso = true;
+        } else if (ap.tipo === 'FALTA_INJUSTIFICADA' && permisosAprobados[(ap.empleadoId||'') + '|' + (ap.fecha||'')]) {
+          razones.push('Hay un Permiso Especial (' + permisosAprobados[(ap.empleadoId||'') + '|' + (ap.fecha||'')] + ') aprobado para esta misma fecha — revisar si esta falta sigue aplicando');
           _esRevisionPermiso = true;
         }
 
@@ -9257,7 +9283,7 @@ function _paCargarPanelEmp(empId) {
     var d7    = _qEmp.desde;   // inicio del período configurado
     hoy7      = _qEmp.hasta;   // fin del período configurado
 
-    html += "<div style=\"margin-top:8px;margin-bottom:10px;border:1.5px solid #C4956A;border-radius:10px;overflow:hidden\">";
+    html += "<div style=\"margin-top:8px;margin-bottom:16px;border:1.5px solid #C4956A;border-radius:10px;overflow:hidden\">";
     html += "<button onclick=\"paTogSection('psHIST"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(180,83,9,.06);border:none;cursor:pointer;font-family:inherit\">";
     html += "<span style=\"font-size:12px;font-weight:700;color:#B45309\">📋 Historial de Marcaciones (" + marcs.length + ")</span>";
     html += "<span id=\"psHIST"+empId+"_ico\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
@@ -10536,7 +10562,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-07-J';
+var PA_VERSION = 'v2026-07-07-L';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
