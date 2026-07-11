@@ -5094,11 +5094,23 @@ function _paVerificarFaltasAutomaticas() {
   if (_horaES.horas < 19) return; // aún no es el corte de las 7:00 PM
 
   var hoy = paHoy();
+  var cfgRef = paDb.collection('paConfig').doc(PA.empresa);
 
-  // Evitar correr más de una vez el mismo día (cualquier dispositivo)
-  paDb.collection('paConfig').doc(PA.empresa).get().then(function(cfgDoc) {
-    var cfg = cfgDoc.exists ? cfgDoc.data() : {};
-    if (cfg.ultimaVerifFaltas === hoy) return; // ya se corrió hoy
+  // Reclamar atómicamente la ejecución de hoy vía transacción — si varios
+  // dispositivos abren la app casi al mismo tiempo después de las 7pm,
+  // solo el primero en llegar aquí continúa; el resto se detiene de
+  // inmediato. Antes esto se hacía con una simple lectura+comparación,
+  // lo que permitía que varios dispositivos pasaran el check a la vez
+  // (condición de carrera) y generaran faltas duplicadas.
+  paDb.runTransaction(function(tx) {
+    return tx.get(cfgRef).then(function(cfgDoc) {
+      var cfg = cfgDoc.exists ? cfgDoc.data() : {};
+      if (cfg.ultimaVerifFaltas === hoy) return false; // ya reclamado por otro dispositivo
+      tx.set(cfgRef, { ultimaVerifFaltas: hoy }, { merge: true });
+      return true;
+    });
+  }).then(function(gano) {
+    if (!gano) return; // otro dispositivo ya está (o ya terminó) generando las faltas de hoy
 
     var diaSemana = _diaSemanaES(ahora.getTime()); // día en El Salvador, no del dispositivo // 0=domingo ... 6=sábado
 
@@ -5162,8 +5174,6 @@ function _paVerificarFaltasAutomaticas() {
       });
 
       Promise.all(pendientesEscritura).then(function() {
-        // Marcar que ya se corrió hoy, para no repetir
-        paDb.collection('paConfig').doc(PA.empresa).set({ ultimaVerifFaltas: hoy }, { merge:true });
         if (generadas > 0) {
           console.log('[FaltasAuto] ' + generadas + ' falta(s) injustificada(s) generada(s) automáticamente para ' + hoy);
           if (typeof _paCargarPendientesGlobal === 'function') _paCargarPendientesGlobal();
@@ -5171,7 +5181,7 @@ function _paVerificarFaltasAutomaticas() {
         }
       }).catch(function(e){ console.warn('[FaltasAuto]', e.message); });
     }).catch(function(e){ console.warn('[FaltasAuto]', e.message); });
-  }).catch(function(e){ console.warn('[FaltasAuto]', e.message); });
+  }).catch(function(e){ console.warn('[FaltasAuto] transaction', e.message); });
 }
 
 function _paCargarPendientesGlobal(callback) {
@@ -7236,9 +7246,34 @@ function paAuditarAPs() {
     .get()
     .then(function(snap) {
       var inconsistentes = [];
+
+      // Pre-pass: detectar duplicados exactos (mismo empleado + fecha +
+      // tipo) — causados por condiciones de carrera cuando varios
+      // dispositivos generan la misma AP automática casi al mismo tiempo.
+      var porClave = {};
+      snap.forEach(function(d) {
+        var r = d.data();
+        var clave = (r.empleadoId||'') + '|' + (r.fecha||r.fechaEmision||'') + '|' + (r.tipo||'');
+        if (!porClave[clave]) porClave[clave] = [];
+        porClave[clave].push({ id: d.id, ts: r.ts||0 });
+      });
+      var duplicadosAMarcar = {}; // docId → true (todas menos la más antigua de cada grupo)
+      Object.keys(porClave).forEach(function(clave) {
+        var grupo = porClave[clave];
+        if (grupo.length < 2) return;
+        grupo.sort(function(a,b){ return a.ts - b.ts; });
+        grupo.slice(1).forEach(function(g){ duplicadosAMarcar[g.id] = true; }); // todas menos la primera
+      });
+
       snap.forEach(function(d) {
         var ap = Object.assign({ _id: d.id }, d.data());
         var razones = [];
+
+        // Duplicado exacto — mismo empleado, fecha y tipo. Se pre-marca
+        // para eliminar porque no requiere juicio humano, es un dato
+        // repetido por error técnico, no una decisión de negocio.
+        var _esDuplicado = !!duplicadosAMarcar[ap._id];
+        if (_esDuplicado) razones.push('duplicado exacto (misma AP generada más de una vez)');
 
         // Sin nombre de empleado
         if (!ap.empleadoNombre && !ap.nombre) razones.push('sin nombre de empleado');
@@ -9216,7 +9251,7 @@ function _paCargarPanelEmp(empId) {
     var d7    = _qEmp.desde;   // inicio del período configurado
     hoy7      = _qEmp.hasta;   // fin del período configurado
 
-    html += "<div style=\"margin-top:8px;border:1.5px solid #C4956A;border-radius:10px;overflow:hidden\">";
+    html += "<div style=\"margin-top:8px;margin-bottom:10px;border:1.5px solid #C4956A;border-radius:10px;overflow:hidden\">";
     html += "<button onclick=\"paTogSection('psHIST"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(180,83,9,.06);border:none;cursor:pointer;font-family:inherit\">";
     html += "<span style=\"font-size:12px;font-weight:700;color:#B45309\">📋 Historial de Marcaciones (" + marcs.length + ")</span>";
     html += "<span id=\"psHIST"+empId+"_ico\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
@@ -10495,7 +10530,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-07-H';
+var PA_VERSION = 'v2026-07-07-I';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
