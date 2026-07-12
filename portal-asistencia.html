@@ -9619,8 +9619,18 @@ function _paCargarPanelEmp(empId) {
     // tarjeta de Saldo HE — no hace falta un colapsible aparte con la lista)
 
     html += '</div></div>';
-    contentEl.innerHTML = html;
-    _paForzarRepintado(contentEl);
+    // En vez de solo mutar innerHTML (lo que en algunos casos de WebKit
+    // se queda sin repintar tras un display:none/block previo), se
+    // reemplaza el elemento completo por uno nuevo — un nodo recién
+    // insertado siempre se pinta, no depende de un repintado sobre
+    // algo que ya existía con contenido viejo.
+    var nuevoContentEl = contentEl.cloneNode(false);
+    nuevoContentEl.innerHTML = html;
+    if (contentEl.parentNode) {
+      contentEl.parentNode.replaceChild(nuevoContentEl, contentEl);
+    } else {
+      contentEl.innerHTML = html; // fallback si por algo no tiene padre
+    }
   }).catch(function(e) {
     _resuelto = true; clearTimeout(_timeoutId);
     if (contentEl) contentEl.innerHTML = "<div style=\"color:var(--red);padding:12px\">Error: " + e.message + "<br><button onclick=\"_paCargarPanelEmp('"+empId+"')\" style=\"margin-top:8px;padding:8px 16px;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:inherit\">🔄 Reintentar</button></div>";
@@ -10867,7 +10877,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-08-B';
+var PA_VERSION = 'v2026-07-08-C';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
