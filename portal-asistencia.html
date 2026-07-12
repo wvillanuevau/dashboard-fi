@@ -3555,9 +3555,11 @@ function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
   }
   var hoy = salidaDocData.fecha;
   var empId = salidaDocData.empleadoId;
-  // Omitir empleados inactivos
+  // Omitir empleados inactivos — pero SIEMPRE llamar al callback, o la
+  // pantalla de marcar salida se queda trabada esperando una respuesta
+  // que nunca llega (esto causaba el bucle "guardando foto" reportado).
   var _empAR = (PA.empleados||[]).find(function(e){ return e.id === empId; });
-  if (_empAR && _empAR.activo === false) return;
+  if (_empAR && _empAR.activo === false) { if (typeof callback === 'function') callback(null); return; }
 
   // Buscar en marcaciones locales primero
   var mEntrada = PA.marcacionesHoy.find(function(m){ return m.tipo === entradaTipo && m.fecha === hoy; });
@@ -9294,6 +9296,7 @@ function _paTogEmpPanel(empId) {
   } else {
     panel.style.display = '';
     if (arrow) arrow.style.transform = 'rotate(90deg)';
+    _paForzarRepintado(panel);
     if (content && content.innerHTML.indexOf('spinner') >= 0) {
       _paCargarPanelEmp(empId);
     }
@@ -9305,12 +9308,26 @@ function _paCargarPanelEmp(empId) {
   var emp = PA.empleados.find(function(e){ return e.id === empId; });
   if (!contentEl || !emp) return;
   var empresa = PA.empresa;
+  var _resuelto = false;
+  // Salvaguarda: si por cualquier motivo la consulta nunca resuelve
+  // (red, índice faltante, etc.), no dejar el spinner girando para
+  // siempre — mostrar un mensaje con botón de reintentar a los 12s.
+  var _timeoutId = setTimeout(function(){
+    if (_resuelto) return;
+    if (contentEl) {
+      contentEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">'
+        + 'Esto está tardando más de lo normal.<br>'
+        + '<button onclick="_paCargarPanelEmp(\''+empId+'\')" style="margin-top:10px;padding:8px 16px;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:inherit">🔄 Reintentar</button>'
+        + '</div>';
+    }
+  }, 12000);
   Promise.all([
     paDb.collection("paHorasExtra").where("empresa","==",empresa).where("empleadoId","==",empId).get(),
     paDb.collection("paCanjes").where("empresa","==",empresa).where("empleadoId","==",empId).get(),
     paDb.collection("paIncapacidades").where("empresa","==",empresa).where("empleadoId","==",empId).get(),
     paDb.collection("paMarcaciones").where("empresa","==",empresa).where("empleadoId","==",empId).get()
   ]).then(function(res) {
+    _resuelto = true; clearTimeout(_timeoutId);
     var heAll  = []; res[0].forEach(function(d){ heAll.push(Object.assign({id:d.id},d.data())); });
     var canjes = []; res[1].forEach(function(d){ canjes.push(Object.assign({id:d.id},d.data())); });
     var incaps = []; res[2].forEach(function(d){ incaps.push(Object.assign({id:d.id},d.data())); });
@@ -9603,8 +9620,10 @@ function _paCargarPanelEmp(empId) {
 
     html += '</div></div>';
     contentEl.innerHTML = html;
+    _paForzarRepintado(contentEl);
   }).catch(function(e) {
-    if (contentEl) contentEl.innerHTML = "<div style=\"color:var(--red);padding:12px\">Error: " + e.message + "</div>";
+    _resuelto = true; clearTimeout(_timeoutId);
+    if (contentEl) contentEl.innerHTML = "<div style=\"color:var(--red);padding:12px\">Error: " + e.message + "<br><button onclick=\"_paCargarPanelEmp('"+empId+"')\" style=\"margin-top:8px;padding:8px 16px;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:inherit\">🔄 Reintentar</button></div>";
     console.error("[PanelEmp]", e);
   });
 }
@@ -10848,7 +10867,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-07-Y';
+var PA_VERSION = 'v2026-07-08-B';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
