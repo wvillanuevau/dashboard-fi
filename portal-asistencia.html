@@ -8809,6 +8809,79 @@ function _leerHorForm(prefix) {
   };
 }
 
+// ── Recalcula las Horas Extra PENDIENTES (no las ya aprobadas — para
+// no tocar saldos ya otorgados) usando el horario vigente al momento
+// del recálculo. Se llama automáticamente cada vez que se guarda un
+// cambio de horario (general o individual) para que las HE reflejen
+// siempre la referencia correcta.
+function _paRecalcularHEPendientes(empIds, callback) {
+  if (!paDb || !empIds || !empIds.length) { if (callback) callback(0); return; }
+  paDb.collection('paHorasExtra')
+    .where('empresa','==',PA.empresa)
+    .where('estado','==','pendiente')
+    .get()
+    .then(function(snapHE) {
+      var docsRelevantes = [];
+      snapHE.forEach(function(d){
+        var r = d.data();
+        if (empIds.indexOf(r.empleadoId) !== -1) docsRelevantes.push({ ref: d.ref, data: r });
+      });
+      if (!docsRelevantes.length) { if (callback) callback(0); return; }
+
+      paDb.collection('paMarcaciones').where('empresa','==',PA.empresa).get()
+        .then(function(snapM) {
+          var porEmpFecha = {}; // empId → fecha → {entrada:ts, salida:ts}
+          snapM.forEach(function(d) {
+            var r = d.data();
+            if (empIds.indexOf(r.empleadoId) === -1) return;
+            if (r.ts && typeof r.ts==='object' && r.ts.toMillis) r.ts = r.ts.toMillis();
+            else if (r.ts && r.ts.seconds) r.ts = r.ts.seconds*1000 + Math.round((r.ts.nanoseconds||0)/1e6);
+            if (!porEmpFecha[r.empleadoId]) porEmpFecha[r.empleadoId] = {};
+            if (!porEmpFecha[r.empleadoId][r.fecha]) porEmpFecha[r.empleadoId][r.fecha] = {};
+            porEmpFecha[r.empleadoId][r.fecha][r.tipo] = r.ts;
+          });
+
+          var _empleadoOriginal = PA.empleado; // paCalcularHorasExtra usa PA.empleado internamente — respaldar sesión
+          var batch = paDb.batch();
+          var n = 0;
+
+          docsRelevantes.forEach(function(item) {
+            var he = item.data;
+            var empObj = (PA.empleados||[]).find(function(e){ return e.id === he.empleadoId; });
+            if (!empObj) return;
+            var marcs = porEmpFecha[he.empleadoId] && porEmpFecha[he.empleadoId][he.fecha];
+            if (!marcs || !marcs.entrada || !marcs.salida) return; // sin datos suficientes, no tocar
+
+            PA.empleado = empObj;
+            var calc = paCalcularHorasExtra(marcs.entrada, marcs.salida, he.fecha);
+            var nuevoTotal = Math.round((calc.total||0) * 100) / 100;
+
+            if (Math.abs(nuevoTotal - (he.horas||0)) < 0.01) return; // sin cambio real
+
+            if (nuevoTotal <= 0) {
+              batch.delete(item.ref); // ya no genera horas extra con el horario corregido
+            } else {
+              var nuevoTipo = he.tipo;
+              if (calc.diurna > 0 && calc.nocturna <= 0) nuevoTipo = 'diurna';
+              else if (calc.nocturna > 0 && calc.diurna <= 0) nuevoTipo = 'nocturna';
+              else if (calc.diurna > 0 && calc.nocturna > 0) nuevoTipo = calc.diurna >= calc.nocturna ? 'diurna' : 'nocturna';
+              batch.update(item.ref, { horas: nuevoTotal, tipo: nuevoTipo, recalculadoPorCambioHorario: true, recalculadoTs: Date.now() });
+            }
+            n++;
+          });
+
+          PA.empleado = _empleadoOriginal; // restaurar sesión del admin
+
+          if (n > 0) {
+            batch.commit().then(function(){
+              paToast('🔄 ' + n + ' hora(s) extra pendiente(s) recalculada(s) con el horario actualizado');
+              if (callback) callback(n);
+            }).catch(function(e){ console.warn('[RecalcHE]', e.message); if (callback) callback(0); });
+          } else if (callback) callback(0);
+        }).catch(function(e){ console.warn('[RecalcHE marc]', e.message); if (callback) callback(0); });
+    }).catch(function(e){ console.warn('[RecalcHE]', e.message); if (callback) callback(0); });
+}
+
 function paGuardarHorarioGeneral() {
   var general = _leerHorForm('hor_general');
   if (general) {
@@ -8827,6 +8900,13 @@ function paGuardarHorarioGeneral() {
     horario: PA.horario
   }, { merge: true }).then(function(){
     paToast('✅ Horario general guardado');
+    // Recalcular HE pendientes de todos los que usan el horario general
+    // (los que NO tienen horario individual propio)
+    var _afectados = (PA.empleados||[]).filter(function(e){
+      var propio = PA.horariosEmp && PA.horariosEmp[e.id];
+      return !(propio && propio.horaEntrada);
+    }).map(function(e){ return e.id; });
+    _paRecalcularHEPendientes(_afectados);
   }).catch(function(e){ paToast('Error: '+e.message, true); });
 }
 
@@ -8872,7 +8952,10 @@ function paGuardarHorDias(empId, empNombre) {
   PA.horariosEmp = horEmp;
   paDb.collection('paConfig').doc(PA.empresa)
     .set({ horariosEmp: horEmp }, { merge: true })
-    .then(function(){ paToast('Horario por dia guardado para '+empNombre+' ✅'); })
+    .then(function(){
+      paToast('Horario por dia guardado para '+empNombre+' ✅');
+      _paRecalcularHEPendientes([empId]);
+    })
     .catch(function(e){ paToast('Error: '+e.message, true); });
 }
 
@@ -8917,7 +9000,10 @@ function paGuardarHorEmp(empId, empNombre) {
   };
   PA.horariosEmp = horEmp;
   paDb.collection('paConfig').doc(PA.empresa).set({ horariosEmp: horEmp }, { merge: true })
-    .then(function(){ paToast('✅ Horario guardado para '+empNombre); })
+    .then(function(){
+      paToast('✅ Horario guardado para '+empNombre);
+      _paRecalcularHEPendientes([empId]);
+    })
     .catch(function(e){ paToast('Error: '+e.message, true); });
 }
 
@@ -8935,6 +9021,7 @@ function paAplicarHorarioRol(empId, rolVal, empNombre, btn) {
   paDb.collection('paConfig').doc(PA.empresa).set({ horariosEmp: horEmp }, { merge: true })
     .then(function() {
       paToast('\u2705 Horario aplicado a ' + nom);
+      _paRecalcularHEPendientes([empId]);
       // Refresh dirigido a la tarjeta del empleado (sin saltar de pestaña)
       _paPostApproval(btn||null, 'emps');
     }).catch(function(e){ paToast('Error: ' + e.message, true); });
@@ -8943,13 +9030,14 @@ function paAplicarHorarioRol(empId, rolVal, empNombre, btn) {
 
 function paBorrarHorarioEmp(empId, empNombre, btn) {
   var nom = empNombre || empId;
-  paConfirm('¿Quitar el horario individual de ' + nom + '?\nVolverá a usar el horario de su cargo.', function() {
+  paConfirm('¿Quitar el horario individual de ' + nom + '?\nVolverá a usar el horario general.', function() {
   var horEmp = PA.horariosEmp || {};
   delete horEmp[empId];
   PA.horariosEmp = horEmp;
   paDb.collection('paConfig').doc(PA.empresa).set({ horariosEmp: horEmp }, { merge: true })
     .then(function() {
-      paToast('\u2705 Horario individual eliminado — ' + nom + ' usa horario de cargo');
+      paToast('\u2705 Horario individual eliminado — ' + nom + ' usa el horario general');
+      _paRecalcularHEPendientes([empId]);
       _paPostApproval(btn||null, 'emps');
     }).catch(function(e){ paToast('Error: ' + e.message, true); });
   });
@@ -8960,7 +9048,7 @@ function paBorrarHorEmp(empId) {
   delete horEmp[empId];
   PA.horariosEmp = horEmp;
   paDb.collection('paConfig').doc(PA.empresa).set({ horariosEmp: horEmp }, { merge: true })
-    .then(function(){ paToast('Horario individual eliminado'); paAdminTab('config'); })
+    .then(function(){ paToast('Horario individual eliminado'); _paRecalcularHEPendientes([empId]); paAdminTab('config'); })
     .catch(function(e){ paToast('Error: '+e.message, true); });
 }
 
@@ -10665,7 +10753,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-07-S';
+var PA_VERSION = 'v2026-07-07-T';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
