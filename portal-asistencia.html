@@ -5495,23 +5495,23 @@ function _paAdminHoyRender(snap, snapInc, content, hoy) {
     });
   }
 
-  // Pending extra hours
-  paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).get()
+  // Contador liviano de horas extra APROBADAS del período — sin lista,
+  // sin desglose por empleado. Página Hoy debe quedar ligera.
+  paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).where('estado','==','aprobado').get()
     .then(function(snapH) {
-      var docsHEPend = [];
-      snapH.forEach(function(d){ var r=d.data(); if(r.estado==='pendiente') docsHEPend.push({id:d.id,h:r}); });
-      if (docsHEPend.length > 0) {
-        html += '<div class="section-title" style="margin-top:20px">⏳ Horas extra pendientes ('+docsHEPend.length+')</div>';
-        html += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Solo se pueden aprobar o rechazar desde la tarjeta de cada empleado, en la pestaña Empleados.</div>';
-        docsHEPend.forEach(function(entry) {
-          var h = entry.h;
-          var tipos = { diurna:'☀️', nocturna:'🌙', feriado:'🎉', finde:'📅' };
-          html += '<div class="report-row">'
-            + '<div><div class="report-emp">'+h.empleadoNombre+'</div>'
-            + '<div class="report-detail">'+h.fecha+' · '+(tipos[h.tipo]||'')+' '+h.horas+' hrs · '+h.descripcion.slice(0,40)+'</div></div>'
-            + '</div>';
-        });
-      }
+      var _qHoyHE = _quincenaActual();
+      var diurnaTot = 0, nocturnaTot = 0;
+      snapH.forEach(function(d){
+        var r = d.data();
+        if (!r.fecha || r.fecha < _qHoyHE.desde || r.fecha > _qHoyHE.hasta) return;
+        if (r.tipo === 'diurna') diurnaTot += (r.horas||0);
+        else if (r.tipo === 'nocturna') nocturnaTot += (r.horas||0);
+      });
+      html += '<div class="section-title" style="margin-top:20px">⏰ Horas extra aprobadas del período</div>';
+      html += '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:14px;display:flex;justify-content:space-around;text-align:center;margin-bottom:8px">'
+        + '<div><div style="font-size:20px;font-weight:700;color:var(--accent2)">☀️ '+diurnaTot.toFixed(2)+'h</div><div style="font-size:11px;color:var(--muted)">Diurna</div></div>'
+        + '<div><div style="font-size:20px;font-weight:700;color:#8250DF">🌙 '+nocturnaTot.toFixed(2)+'h</div><div style="font-size:11px;color:var(--muted)">Nocturna</div></div>'
+        + '</div>';
       // ── Incapacidades activas hoy ───────────────────────────
       var incsHoy = [];
       snapInc.forEach(function(d) {
@@ -9058,7 +9058,7 @@ function _paAdminEmpsRender(content) {
 
     // Línea 3 — estado del período + alertas
     var _badgesEstado = _paBadgeTardanzas(_tardAcumEmp) + _paBadgeAusencias(_ausAcumEmp);
-    if (pendCount>0 && _empActivo) _badgesEstado += ' ' + _paPill('⚠ ' + pendCount + ' pendiente(s)', 'rgba(248,81,73,.13)', '#f85149');
+    if (pendCount>0 && _empActivo) _badgesEstado += ' <span id="pendBadge'+empId+'">' + _paPill('⚠ ' + pendCount + ' pendiente(s)', 'rgba(248,81,73,.13)', '#f85149') + '</span>';
     if (!_empActivo) _badgesEstado += ' ' + _paPill('INACTIVO', '#f85149', '#fff');
     _badgesEstado += ' ' + _paPill('🏖️ ' + (emp.diasVacacionesDisponibles||15) + ' días vac.', 'var(--surface2)', 'var(--muted)');
     if (_badgesEstado.trim()) html += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:5px">' + _badgesEstado + '</div>';
@@ -9206,16 +9206,16 @@ function _paCargarPanelEmp(empId) {
     if (hePend.length) {
       html += "<div style=\"margin-bottom:10px;border:1.5px solid rgba(232,160,32,.35);border-radius:10px;overflow:hidden\">";
       html += "<button onclick=\"paTogSection('psHEP"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(232,160,32,.08);border:none;cursor:pointer;font-family:inherit\">";
-      html += "<span style=\"font-size:12px;font-weight:700;color:#B45309\">⏳ HE pendientes (" + hePend.length + ")</span>";
+      html += "<span style=\"font-size:12px;font-weight:700;color:#B45309\">⏳ HE pendientes (<span id=\"psHEPcount"+empId+"\">" + hePend.length + "</span>)</span>";
       html += "<span id=\"psHEP"+empId+"_ico\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
       html += "<div id=\"psHEP"+empId+"\" style=\"display:none;padding:10px 12px\">";
       hePend.forEach(function(h){
         var tp = {diurna:"☀️",nocturna:"🌙",feriado:"🎉"};
-        html += "<div style=\"background:var(--surface);border:1.5px solid var(--border);border-radius:10px;padding:10px;margin-bottom:7px\">";
+        html += "<div data-he-card=\"" + h.id + "\" style=\"background:var(--surface);border:1.5px solid var(--border);border-radius:10px;padding:10px;margin-bottom:7px\">";
         html += "<div style=\"font-size:12px;color:var(--muted);margin-bottom:7px\">" + (tp[h.tipo]||"⏰") + " " + h.fecha + " · <strong>" + h.horas + "h</strong>" + (h.descripcion ? " · " + h.descripcion.slice(0,40) : "") + "</div>";
         html += "<div style=\"display:flex;gap:6px;flex-wrap:wrap\">";
         html += "<button class=\"_btn-aprob-he\" data-hid=\"" + h.id + "\" data-eid=\"" + empId + "\" data-h=\"" + h.horas + "\" style=\"" + BS + "background:#006B3F;color:#fff\">✓ Aprobar</button>";
-        html += "<button class=\"_btn-rechaz-he\" data-hid=\"" + h.id + "\" style=\"" + BS + "background:transparent;color:var(--red);border:2px solid var(--red)\">✗ Rechazar</button>";
+        html += "<button class=\"_btn-rechaz-he\" data-hid=\"" + h.id + "\" data-eid=\"" + empId + "\" style=\"" + BS + "background:transparent;color:var(--red);border:2px solid var(--red)\">✗ Rechazar</button>";
         html += "<button class=\"_btn-evid-he\" data-eid=\"" + empId + "\" data-fecha=\"" + h.fecha + "\" style=\"" + BS + "flex:none;padding:9px 12px;background:var(--surface2);color:var(--text);border:1.5px solid var(--border)\">📷 Ver evidencia</button>";
         html += "</div></div>";
       });
@@ -10553,19 +10553,42 @@ function paAprobarHorasExtra(docId, empId, horas, btn) {
     })
     .then(function() {
       paToast('✅ Horas extra aprobadas — saldo actualizado');
-      _paPostApproval(btn||null, PA.adminTab);
+      _paQuitarTarjetaHE(btn, empId);
     }).catch(function(e){ paToast('Error: '+e.message, true); });
   });
 }
 
-function paRechazarHorasExtra(docId, btn) {
+function paRechazarHorasExtra(docId, btn, empId) {
 
   paConfirm('¿Rechazar esta solicitud?', function(){
 
   paDb.collection('paHorasExtra').doc(docId).update({ estado: 'rechazado' })
-    .then(function() { paToast('Horas extra rechazadas'); _paPostApproval(btn||null, PA.adminTab||'emps'); })
+    .then(function() { paToast('Horas extra rechazadas'); _paQuitarTarjetaHE(btn, empId); })
     .catch(function(e){ paToast('Error: '+e.message, true); });
   });
+}
+
+// ── Quita solo la tarjeta de HE aprobada/rechazada del DOM, sin volver
+// a cargar todo el panel del empleado — evita el parpadeo/reinicio de
+// los colapsibles. Actualiza el contador "HE pendientes (N)" en el acto.
+function _paQuitarTarjetaHE(btn, empId) {
+  var card = btn ? btn.closest('div[data-he-card]') : null;
+  if (card) card.remove();
+  if (empId) {
+    var countEl = document.getElementById('psHEPcount' + empId);
+    if (countEl) {
+      var n = Math.max(0, (parseInt(countEl.textContent, 10) || 1) - 1);
+      countEl.textContent = n;
+    }
+    var badgeWrap = document.getElementById('pendBadge' + empId);
+    if (badgeWrap) {
+      var m = badgeWrap.textContent.match(/(\d+)/);
+      var cur = m ? Math.max(0, parseInt(m[1],10) - 1) : 0;
+      if (cur <= 0) { badgeWrap.remove(); }
+      else { badgeWrap.innerHTML = badgeWrap.innerHTML.replace(/\d+/, cur); }
+    }
+  }
+  _paCargarPendientesGlobal(); // solo actualiza badges/contadores globales, no re-renderiza el panel
 }
 
 function paCrearEmpleado() {
@@ -10633,7 +10656,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-07-O';
+var PA_VERSION = 'v2026-07-07-P';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -10849,7 +10872,7 @@ window.addEventListener('DOMContentLoaded', function() {
     else if ((b=ev.target.closest('._btn-desvincul')))   { paDesvinculDispositivo(b.getAttribute('data-empid')||'', b.getAttribute('data-nom')||''); }
     else if ((b=ev.target.closest('._btn-edit-emp')))    { paEditarEmp(b.getAttribute('data-eid')||''); }
     else if ((b=ev.target.closest('._btn-aprob-he')))    { paAprobarHorasExtra(b.getAttribute('data-hid')||'', b.getAttribute('data-eid')||'', parseFloat(b.getAttribute('data-h')||0), b); }
-    else if ((b=ev.target.closest('._btn-rechaz-he')))   { paRechazarHorasExtra(b.getAttribute('data-hid')||'', b); }
+    else if ((b=ev.target.closest('._btn-rechaz-he')))   { paRechazarHorasExtra(b.getAttribute('data-hid')||'', b, b.getAttribute('data-eid')||''); }
     else if ((b=ev.target.closest('._btn-evid-he')))     { paVerEvidenciaHE(b.getAttribute('data-eid')||'', b.getAttribute('data-fecha')||''); }
     else if ((b=ev.target.closest('._btn-aprob-comp')))  { paAprobarCompensatorioTurno(b.getAttribute('data-cid')||'', b.getAttribute('data-nom')||'', b); }
     else if ((b=ev.target.closest('._btn-rechaz-comp'))) { paRechazarCompensatorioTurno(b.getAttribute('data-cid')||'', b); }
