@@ -5123,7 +5123,8 @@ function _paVerificarFaltasAutomaticas() {
       // Solo 2 filtros para evitar requerir índice compuesto — tipo se filtra client-side
       paDb.collection('paMarcaciones').where('empresa','==',PA.empresa).where('fecha','==',hoy).get(),
       paDb.collection('paIncapacidades').where('empresa','==',PA.empresa).limit(500).get(),
-      paDb.collection('paAccionesPersonal').where('empresa','==',PA.empresa).where('tipo','==','FALTA_INJUSTIFICADA').where('fecha','==',hoy).get()
+      paDb.collection('paAccionesPersonal').where('empresa','==',PA.empresa).where('tipo','==','FALTA_INJUSTIFICADA').where('fecha','==',hoy).get(),
+      paDb.collection('paCanjes').where('empresa','==',PA.empresa).where('esCompensatorio','==',true).get()
     ]).then(function(res) {
       var marcaronHoy = {};
       res[0].forEach(function(d) {
@@ -5144,12 +5145,22 @@ function _paVerificarFaltasAutomaticas() {
       var yaGeneradaHoy = {};
       res[2].forEach(function(d){ yaGeneradaHoy[d.data().empleadoId] = true; });
 
+      // Días compensatorios asignados/aprobados para hoy — el empleado
+      // tiene el día libre legítimamente, no debe generarse falta.
+      var compensatorioHoy = {};
+      res[3].forEach(function(d){
+        var r = d.data();
+        if (r.estado !== 'asignado' && r.estado !== 'aprobado') return;
+        if (r.fechaLibre === hoy) compensatorioHoy[r.empleadoId] = true;
+      });
+
       var generadas = 0;
       var pendientesEscritura = [];
 
       (PA.empleados || []).filter(function(e){ return e.activo !== false; }).forEach(function(emp) {
         if (marcaronHoy[emp.id]) return;          // sí marcó
         if (incapacitadosHoy[emp.id]) return;      // tiene incapacidad
+        if (compensatorioHoy[emp.id]) return;      // tiene día compensatorio asignado hoy
         if (yaGeneradaHoy[emp.id]) return;         // ya se generó
 
         // Verificar si hoy es día laboral para este empleado
@@ -7255,7 +7266,8 @@ function paAuditarAPs() {
   paToast('Auditando Acciones de Personal...');
   Promise.all([
     paDb.collection('paAccionesPersonal').where('empresa', '==', PA.empresa).get(),
-    paDb.collection('paIncapacidades').where('empresa', '==', PA.empresa).where('estado','==','aprobada').get()
+    paDb.collection('paIncapacidades').where('empresa', '==', PA.empresa).where('estado','==','aprobada').get(),
+    paDb.collection('paCanjes').where('empresa', '==', PA.empresa).where('esCompensatorio','==',true).get()
   ])
     .then(function(results) {
       var snap = results[0];
@@ -7270,6 +7282,16 @@ function paAuditarAPs() {
         var r = d.data();
         if (r.tipoIncapacidad && r.tipoIncapacidad !== 'completa' && r.fechaInicio && r.empleadoId) {
           permisosAprobados[r.empleadoId + '|' + r.fechaInicio] = r.tipoIncapacidad;
+        }
+      });
+
+      // Días compensatorios asignados/aprobados — mismo motivo: calculado
+      // en vivo, no depende de que la falta se haya marcado en su momento.
+      var compensatorios = {}; // 'empleadoId|fecha' → true
+      results[2].forEach(function(d){
+        var r = d.data();
+        if ((r.estado === 'asignado' || r.estado === 'aprobado') && r.fechaLibre && r.empleadoId) {
+          compensatorios[r.empleadoId + '|' + r.fechaLibre] = true;
         }
       });
 
@@ -7340,6 +7362,11 @@ function paAuditarAPs() {
         } else if (ap.tipo === 'FALTA_INJUSTIFICADA' && permisosAprobados[(ap.empleadoId||'') + '|' + (ap.fecha||'')]) {
           razones.push('Hay un Permiso Especial (' + permisosAprobados[(ap.empleadoId||'') + '|' + (ap.fecha||'')] + ') aprobado para esta misma fecha — revisar si esta falta sigue aplicando');
           _esRevisionPermiso = true;
+        } else if (ap.tipo === 'FALTA_INJUSTIFICADA' && compensatorios[(ap.empleadoId||'') + '|' + (ap.fecha||'')]) {
+          // Esto no es un caso de juicio humano — un día compensatorio
+          // asignado es una ausencia justificada por definición, así que
+          // sí viene marcada por defecto para eliminar.
+          razones.push('Tenía un día compensatorio asignado para esta fecha — falta inválida, segura de eliminar');
         }
 
         if (razones.length) inconsistentes.push({ ap: ap, razones: razones, sinMarcar: _esRevisionPermiso });
@@ -10562,7 +10589,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-07-L';
+var PA_VERSION = 'v2026-07-07-M';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
