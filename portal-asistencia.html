@@ -5331,9 +5331,15 @@ function paAdminTab(tab) {
     if (t === tab) {
       el.style.color = '#388bfd';
       el.style.borderBottomColor = '#388bfd';
+      el.style.background = 'rgba(56,139,253,.12)';
+      el.style.boxShadow = 'inset 0 -2px 6px rgba(56,139,253,.15)';
+      el.style.fontWeight = '800';
     } else {
       el.style.color = '#7d8590';
       el.style.borderBottomColor = 'transparent';
+      el.style.background = 'none';
+      el.style.boxShadow = 'none';
+      el.style.fontWeight = '600';
     }
   });
 
@@ -5378,7 +5384,7 @@ function paAdminTab(tab) {
 }
 
 // ── Render de paAdminHoy — llamado por cada onSnapshot ────────
-function _paAdminHoyRender(snap, snapInc, content, hoy) {
+function _paAdminHoyRender(snap, snapInc, content, hoy, snapCanjes, snapHE) {
   if (!content || !document.body.contains(content)) return;
   // Filtrar por empresa en cliente
   var marcs = {};
@@ -5434,6 +5440,21 @@ function _paAdminHoyRender(snap, snapInc, content, hoy) {
     +'<div class="stat-card"><div class="stat-val" style="color:var(--warn)">'+conSalida+'</div><div class="stat-lbl">Con salida hoy</div></div>'
     +'</div>';
 
+  // ── Horas extra aprobadas del período — tarjeta liviana, sin lista ──
+  var _qHoyHE = _quincenaActual();
+  var diurnaTot = 0, nocturnaTot = 0;
+  (snapHE || {forEach:function(){}}).forEach(function(d){
+    var r = d.data();
+    if (!r.fecha || r.fecha < _qHoyHE.desde || r.fecha > _qHoyHE.hasta) return;
+    if (r.tipo === 'diurna') diurnaTot += (r.horas||0);
+    else if (r.tipo === 'nocturna') nocturnaTot += (r.horas||0);
+  });
+  html += '<div class="section-title" style="margin-top:14px">⏰ Horas extra aprobadas del período</div>';
+  html += '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:14px;display:flex;justify-content:space-around;text-align:center;margin-bottom:4px">'
+    + '<div><div style="font-size:20px;font-weight:700;color:var(--accent2)">☀️ '+diurnaTot.toFixed(2)+'h</div><div style="font-size:11px;color:var(--muted)">Diurna</div></div>'
+    + '<div><div style="font-size:20px;font-weight:700;color:#8250DF">🌙 '+nocturnaTot.toFixed(2)+'h</div><div style="font-size:11px;color:var(--muted)">Nocturna</div></div>'
+    + '</div>';
+
   html += '<div class="section-title">Marcaciones de hoy — clic para ver foto y ubicación</div>';
 
   var tiposLabel = { entrada:'🏢 Entrada', almuerzo_salida:'🍽️ Sal. almuerzo', almuerzo_regreso:'↩️ Reg. almuerzo', cena_salida:'🌙 Sal. cena', cena_regreso:'🌙 Reg. cena', salida:'🏠 Salida', entrada_adicional:'⚡ Entrada adicional', salida_adicional:'⚡ Sal. adicional' };
@@ -5441,7 +5462,7 @@ function _paAdminHoyRender(snap, snapInc, content, hoy) {
   if (!Object.keys(marcs).length) {
     html += '<div style="text-align:center;padding:32px;color:var(--muted)">Sin marcaciones hoy.</div>';
   } else {
-    // ── Sin marcación de entrada hoy ──────────────────────
+    // ── Empleados sin marcación hoy — clasificados por su estado real ──
     var _hoyDiaSem = new Date(hoy+'T12:00:00').getDay();
     var _sinMarcHoy = (PA.empleados||[]).filter(function(emp) {
       if (emp.activo === false) return false;
@@ -5450,15 +5471,57 @@ function _paAdminHoyRender(snap, snapInc, content, hoy) {
       return _hor && _hor.horaEntrada && _hor.trabaja !== false;
     });
     if (_sinMarcHoy.length > 0) {
-      html += '<div style="background:rgba(248,81,73,.08);border:1.5px solid rgba(248,81,73,.25);border-radius:12px;padding:10px 12px;margin-bottom:10px">';
-      html += '<div style="font-weight:700;font-size:12px;color:#f85149;margin-bottom:6px">⚠ Sin marcación de entrada hoy (' + _sinMarcHoy.length + ')</div>';
+      // Compensatorios asignados/aprobados para hoy
+      var _compHoyPorEmp = {};
+      (snapCanjes || {forEach:function(){}}).forEach(function(d){
+        var r = d.data();
+        if ((r.estado === 'asignado' || r.estado === 'aprobado') && r.fechaLibre === hoy) {
+          _compHoyPorEmp[r.empleadoId] = true;
+        }
+      });
+      // Incapacidades y permisos especiales — activos o para hoy
+      var _incapPorEmp = {}, _permisoPorEmp = {};
+      snapInc.forEach(function(d){
+        var r = d.data();
+        if (r.estado === 'rechazada') return;
+        var esCompleta = !r.tipoIncapacidad || r.tipoIncapacidad === 'completa';
+        if (esCompleta && r.fechaInicio && r.fechaFin && hoy >= r.fechaInicio && hoy <= r.fechaFin) {
+          var _finD = new Date(r.fechaFin+'T12:00:00');
+          var _hoyD = new Date(hoy+'T12:00:00');
+          var _diasFaltan = Math.round((_finD - _hoyD) / 86400000);
+          _incapPorEmp[r.empleadoId] = _diasFaltan;
+        } else if (!esCompleta && r.fechaInicio === hoy) {
+          _permisoPorEmp[r.empleadoId] = r.tipoIncapacidad;
+        }
+      });
+
+      html += '<div class="section-title" style="margin-top:8px">👥 Sin marcación hoy (' + _sinMarcHoy.length + ')</div>';
+      _sinMarcHoy.sort(function(a,b){ return (a.nombre||'').localeCompare(b.nombre||'','es',{sensitivity:'base'}); });
       _sinMarcHoy.forEach(function(emp) {
-        html += '<div style="font-size:12px;color:var(--text);padding:3px 0;border-bottom:1px solid rgba(248,81,73,.1);display:flex;justify-content:space-between">';
-        html += '<span>' + esc(emp.nombre) + '</span>';
+        var estadoHtml, borderColor, bgColor;
+        if (_compHoyPorEmp[emp.id]) {
+          estadoHtml = '🗓️ Libre por compensatorio de turno pasado';
+          borderColor = 'rgba(31,111,67,.3)'; bgColor = 'rgba(31,111,67,.06)';
+        } else if (_incapPorEmp[emp.id] !== undefined) {
+          var _df = _incapPorEmp[emp.id];
+          estadoHtml = '🏥 Incapacidad activa — ' + (_df <= 0 ? 'regresa hoy o ya venció' : 'regresa en ' + _df + ' día(s)');
+          borderColor = 'rgba(56,139,253,.3)'; bgColor = 'rgba(56,139,253,.06)';
+        } else if (_permisoPorEmp[emp.id]) {
+          var _tp = _permisoPorEmp[emp.id] === 'entrada_tardia' ? 'entrada tardía' : 'salida temprano';
+          estadoHtml = '🕐 Permiso especial (' + _tp + ') para hoy';
+          borderColor = 'rgba(130,80,223,.3)'; bgColor = 'rgba(130,80,223,.06)';
+        } else {
+          estadoHtml = '🚫 Sin registro de entrada — sin justificación';
+          borderColor = 'rgba(248,81,73,.3)'; bgColor = 'rgba(248,81,73,.06)';
+        }
+        html += '<div style="background:'+bgColor+';border:1.5px solid '+borderColor+';border-radius:10px;padding:9px 12px;margin-bottom:6px">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center">';
+        html += '<span style="font-size:12px;font-weight:700;color:var(--text)">' + esc(emp.nombre) + '</span>';
         html += '<span style="color:var(--muted);font-size:10px">' + esc(emp.cargo||'') + '</span>';
         html += '</div>';
+        html += '<div style="font-size:11px;color:var(--text);margin-top:3px">' + estadoHtml + '</div>';
+        html += '</div>';
       });
-      html += '</div>';
     }
 
     // Ordenar alfabéticamente por nombre del empleado
@@ -5495,53 +5558,33 @@ function _paAdminHoyRender(snap, snapInc, content, hoy) {
     });
   }
 
-  // Contador liviano de horas extra APROBADAS del período — sin lista,
-  // sin desglose por empleado. Página Hoy debe quedar ligera.
-  paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).where('estado','==','aprobado').get()
-    .then(function(snapH) {
-      var _qHoyHE = _quincenaActual();
-      var diurnaTot = 0, nocturnaTot = 0;
-      snapH.forEach(function(d){
-        var r = d.data();
-        if (!r.fecha || r.fecha < _qHoyHE.desde || r.fecha > _qHoyHE.hasta) return;
-        if (r.tipo === 'diurna') diurnaTot += (r.horas||0);
-        else if (r.tipo === 'nocturna') nocturnaTot += (r.horas||0);
-      });
-      html += '<div class="section-title" style="margin-top:20px">⏰ Horas extra aprobadas del período</div>';
-      html += '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:14px;display:flex;justify-content:space-around;text-align:center;margin-bottom:8px">'
-        + '<div><div style="font-size:20px;font-weight:700;color:var(--accent2)">☀️ '+diurnaTot.toFixed(2)+'h</div><div style="font-size:11px;color:var(--muted)">Diurna</div></div>'
-        + '<div><div style="font-size:20px;font-weight:700;color:#8250DF">🌙 '+nocturnaTot.toFixed(2)+'h</div><div style="font-size:11px;color:var(--muted)">Nocturna</div></div>'
-        + '</div>';
-      // ── Incapacidades activas hoy ───────────────────────────
-      var incsHoy = [];
-      snapInc.forEach(function(d) {
-        var inc = Object.assign({ id: d.id }, d.data());
-        if (inc.fechaFin < hoy) return; // filtro cliente — reemplaza where fechaFin>=hoy
-        if (inc.fechaInicio <= hoy && inc.fechaFin >= hoy) incsHoy.push(inc);
-      });
-      if (incsHoy.length) {
-        html += '<div class="section-title" style="margin-top:16px">🏥 Incapacidades activas hoy ('+incsHoy.length+')</div>';
-        // Ordenar incapacidades alfabéticamente por nombre
-        incsHoy.sort(function(a,b){ return (a.empleadoNombre||'').localeCompare(b.empleadoNombre||'','es',{sensitivity:'base'}); });
-        incsHoy.forEach(function(inc) {
-          html += '<div class="report-row">'
-            +'<div style="flex:1">'
-            +'<div class="report-emp">'+inc.empleadoNombre+'</div>'
-            +'<div class="report-detail">'+inc.motivo+'</div>'
-            +'<div class="report-detail" style="color:var(--muted)">'+inc.fechaInicio+' → '+inc.fechaFin+' · '+inc.dias+' día(s) · Estado: <strong>'+inc.estado+'</strong></div>'
-            +'</div>'
-            +'<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">'
-            +(inc.foto?'<button onclick="paVerFotoInc(\''+inc.id+'\')" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;color:var(--text)">📷 Ver</button>':'')
-            +(inc.estado==='pendiente'?'<button onclick="paAprobarInc(\''+inc.id+'\')" style="background:#006B3F;color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer">✓ Aprobar</button>':'')
-            +(inc.estado==='pendiente'?'<button onclick="paRechazarInc(\''+inc.id+'\')" style="background:var(--red);color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer">✗</button>':'')
-            +'</div></div>';
-        });
-      }
-
-      console.log('[Admin] paAdminHoy renderizando HTML, longitud:', html.length, '| adminContent.clientHeight:', content.clientHeight);
-      content.innerHTML = html;
-      console.log('[Admin] paAdminHoy HTML renderizado OK | adminContent.scrollHeight:', content.scrollHeight);
+  // ── Incapacidades activas hoy ───────────────────────────
+  var incsHoy = [];
+  snapInc.forEach(function(d) {
+    var inc = Object.assign({ id: d.id }, d.data());
+    if (inc.fechaFin < hoy) return; // filtro cliente — reemplaza where fechaFin>=hoy
+    if (inc.fechaInicio <= hoy && inc.fechaFin >= hoy) incsHoy.push(inc);
+  });
+  if (incsHoy.length) {
+    html += '<div class="section-title" style="margin-top:16px">🏥 Incapacidades activas hoy ('+incsHoy.length+')</div>';
+    // Ordenar incapacidades alfabéticamente por nombre
+    incsHoy.sort(function(a,b){ return (a.empleadoNombre||'').localeCompare(b.empleadoNombre||'','es',{sensitivity:'base'}); });
+    incsHoy.forEach(function(inc) {
+      html += '<div class="report-row">'
+        +'<div style="flex:1">'
+        +'<div class="report-emp">'+inc.empleadoNombre+'</div>'
+        +'<div class="report-detail">'+inc.motivo+'</div>'
+        +'<div class="report-detail" style="color:var(--muted)">'+inc.fechaInicio+' → '+inc.fechaFin+' · '+inc.dias+' día(s) · Estado: <strong>'+inc.estado+'</strong></div>'
+        +'</div>'
+        +'<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">'
+        +(inc.foto?'<button onclick="paVerFotoInc(\''+inc.id+'\')" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;color:var(--text)">📷 Ver</button>':'')
+        +(inc.estado==='pendiente'?'<button onclick="paAprobarInc(\''+inc.id+'\')" style="background:#006B3F;color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer">✓ Aprobar</button>':'')
+        +(inc.estado==='pendiente'?'<button onclick="paRechazarInc(\''+inc.id+'\')" style="background:var(--red);color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer">✗</button>':'')
+        +'</div></div>';
     });
+  }
+
+  content.innerHTML = html;
 }
 
 // ── Cancelar listeners de la pestaña Hoy ────────────────────
@@ -5561,15 +5604,15 @@ function paAdminHoy(content) {
   content.innerHTML = '<div class="spinner"></div>';
   _paUnsubscribeHoy();
 
-  var _latestMarc = null, _latestInc = null, _pending = false;
+  var _latestMarc = null, _latestInc = null, _latestCanjes = null, _latestHE = null, _pending = false;
 
   function _tryRender() {
-    if (!_latestMarc || !_latestInc) return;
+    if (!_latestMarc || !_latestInc || !_latestCanjes || !_latestHE) return;
     if (_pending) return;
     _pending = true;
     requestAnimationFrame(function() {
       _pending = false;
-      _paAdminHoyRender(_latestMarc, _latestInc, content, hoy);
+      _paAdminHoyRender(_latestMarc, _latestInc, content, hoy, _latestCanjes, _latestHE);
     });
   }
 
@@ -5596,7 +5639,31 @@ function paAdminHoy(content) {
       }
     );
 
-  PA._hoyUnsubs = [_u1, _u2];
+  var _u3 = paDb.collection('paCanjes')
+    .where('empresa', '==', PA.empresa)
+    .where('esCompensatorio', '==', true)
+    .onSnapshot(
+      function(snapC) { _latestCanjes = snapC; _tryRender(); },
+      function(err) {
+        console.warn('[Hoy/canjes]', err.message);
+        if (!_latestCanjes) _latestCanjes = { forEach: function(){}, docs: [], size: 0 };
+        _tryRender();
+      }
+    );
+
+  var _u4 = paDb.collection('paHorasExtra')
+    .where('empresa', '==', PA.empresa)
+    .where('estado', '==', 'aprobado')
+    .onSnapshot(
+      function(snapHE) { _latestHE = snapHE; _tryRender(); },
+      function(err) {
+        console.warn('[Hoy/he]', err.message);
+        if (!_latestHE) _latestHE = { forEach: function(){}, docs: [], size: 0 };
+        _tryRender();
+      }
+    );
+
+  PA._hoyUnsubs = [_u1, _u2, _u3, _u4];
 }
 
 
@@ -9058,7 +9125,7 @@ function _paAdminEmpsRender(content) {
 
     // Línea 3 — estado del período + alertas
     var _badgesEstado = _paBadgeTardanzas(_tardAcumEmp) + _paBadgeAusencias(_ausAcumEmp);
-    if (pendCount>0 && _empActivo) _badgesEstado += ' <span id="pendBadge'+empId+'">' + _paPill('⚠ ' + pendCount + ' pendiente(s)', 'rgba(248,81,73,.13)', '#f85149') + '</span>';
+    if (pendCount>0 && _empActivo) _badgesEstado += ' <span id="pendBadge'+eid+'">' + _paPill('⚠ ' + pendCount + ' pendiente(s)', 'rgba(248,81,73,.13)', '#f85149') + '</span>';
     if (!_empActivo) _badgesEstado += ' ' + _paPill('INACTIVO', '#f85149', '#fff');
     _badgesEstado += ' ' + _paPill('🏖️ ' + (emp.diasVacacionesDisponibles||15) + ' días vac.', 'var(--surface2)', 'var(--muted)');
     if (_badgesEstado.trim()) html += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:5px">' + _badgesEstado + '</div>';
@@ -10656,7 +10723,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-07-P';
+var PA_VERSION = 'v2026-07-07-Q';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
