@@ -1898,6 +1898,26 @@ function paHoy() {
   }
 }
 
+// ── Formatea una fecha 'YYYY-MM-DD' como texto legible en español ──
+// Ej: '2026-07-06' → 'lunes 06 julio 2026'
+// Si el string no es una fecha válida, lo devuelve tal cual (seguro
+// para usar sobre cualquier campo sin romper si viniera vacío/raro).
+var _PA_DIAS_LARGO  = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+var _PA_MESES_LARGO = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+function paFechaLarga(fechaStr) {
+  if (!fechaStr || typeof fechaStr !== 'string' || fechaStr.length < 10) return fechaStr || '';
+  var d = new Date(fechaStr.slice(0,10) + 'T12:00:00');
+  if (isNaN(d.getTime())) return fechaStr;
+  return _PA_DIAS_LARGO[d.getDay()] + ' ' + String(d.getDate()).padStart(2,'0') + ' ' + _PA_MESES_LARGO[d.getMonth()] + ' ' + d.getFullYear();
+}
+// Versión corta para espacios reducidos: 'lun 06 jul 2026'
+function paFechaCorta(fechaStr) {
+  if (!fechaStr || typeof fechaStr !== 'string' || fechaStr.length < 10) return fechaStr || '';
+  var d = new Date(fechaStr.slice(0,10) + 'T12:00:00');
+  if (isNaN(d.getTime())) return fechaStr;
+  return _PA_DIAS_LARGO[d.getDay()].slice(0,3) + ' ' + String(d.getDate()).padStart(2,'0') + ' ' + _PA_MESES_LARGO[d.getMonth()].slice(0,3) + ' ' + d.getFullYear();
+}
+
 // ══════════════════════════════════════════════════════
 // LOAD EMPLEADOS
 // ══════════════════════════════════════════════════════
@@ -5589,7 +5609,7 @@ function _paAdminHoyRender(snap, snapInc, content, hoy, snapCanjes, snapHE) {
         +'<div style="flex:1">'
         +'<div class="report-emp">'+inc.empleadoNombre+'</div>'
         +'<div class="report-detail">'+inc.motivo+'</div>'
-        +'<div class="report-detail" style="color:var(--muted)">'+inc.fechaInicio+' → '+inc.fechaFin+' · '+inc.dias+' día(s) · Estado: <strong>'+inc.estado+'</strong></div>'
+        +'<div class="report-detail" style="color:var(--muted)">'+paFechaCorta(inc.fechaInicio)+' → '+paFechaCorta(inc.fechaFin)+' · '+inc.dias+' día(s) · Estado: <strong>'+inc.estado+'</strong></div>'
         +'</div>'
         +'<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">'
         +(inc.foto?'<button onclick="paVerFotoInc(\''+inc.id+'\')" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;color:var(--text)">📷 Ver</button>':'')
@@ -6218,7 +6238,7 @@ function paAccionPersonalTardanza(empId, empNombre, empCargo) {
   // Usar el mismo período que el sistema automático: PA.periodoHE si está configurado,
   // de lo contrario la quincena calendario actual
   var _q = _quincenaActual();
-  var periodoLabel = _q.desde + ' al ' + _q.hasta;
+  var periodoLabel = paFechaCorta(_q.desde) + ' al ' + paFechaCorta(_q.hasta);
 
   paToast('Calculando tardanzas de la quincena ' + periodoLabel + '...');
 
@@ -7229,18 +7249,18 @@ function paCargarAPs(tipo) {
         var _inc = !ap.empleadoNombre || (!ap.concepto && !ap.justificacion && !ap.motivo);
         var _badge = _inc ? ' <span style="font-size:9px;background:#f85149;color:#fff;padding:1px 5px;border-radius:3px">⚠ incompleta</span>' : '';
         var detalleHtml = '';
-        if (ap.quincenaDesde) detalleHtml += '<div style="font-size:10px;color:var(--muted);margin-top:2px">Quincena: '+ap.quincenaDesde+' al '+(ap.quincenaHasta||'?')+(ap.totalTardanzas?' · '+ap.totalTardanzas+' tard.':'')+(ap.horasDescuento?' · −'+ap.horasDescuento+'h':'')+'</div>';
+        if (ap.quincenaDesde) detalleHtml += '<div style="font-size:10px;color:var(--muted);margin-top:2px">Quincena: '+paFechaCorta(ap.quincenaDesde)+' al '+(ap.quincenaHasta?paFechaCorta(ap.quincenaHasta):'?')+(ap.totalTardanzas?' · '+ap.totalTardanzas+' tard.':'')+(ap.horasDescuento?' · −'+ap.horasDescuento+'h':'')+'</div>';
         if ((ap.tipo==='TARDANZAS'||ap.tipo==='AMONESTACION_TARDANZA'||ap.tipo==='DESCUENTO_DIA_SEPTIMO') && ap.diasDetalle && ap.diasDetalle.length) {
           detalleHtml += '<div style="font-size:10px;color:var(--muted);margin-top:4px">';
-          ap.diasDetalle.slice(0,4).forEach(function(d){ detalleHtml+='<span style="margin-right:6px">'+d.fecha+' (+'+(d.minsTarde||d.mins||'?')+'min)</span>'; });
+          ap.diasDetalle.slice(0,4).forEach(function(d){ detalleHtml+='<span style="margin-right:6px">'+paFechaCorta(d.fecha)+' (+'+(d.minsTarde||d.mins||'?')+'min)</span>'; });
           if (ap.diasDetalle.length>4) detalleHtml+='<span>+'+(ap.diasDetalle.length-4)+' más</span>';
           detalleHtml += '</div>';
         }
-        if (ap.tipo==='FALTA_INJUSTIFICADA') detalleHtml += '<div style="margin-top:4px;font-size:11px;color:var(--muted)">Fecha: '+(ap.fecha||'—')+'</div>';
+        if (ap.tipo==='FALTA_INJUSTIFICADA') detalleHtml += '<div style="margin-top:4px;font-size:11px;color:var(--muted)">Fecha: '+(ap.fecha?paFechaCorta(ap.fecha):'—')+'</div>';
         if (ap.tipo==='INCAPACIDAD') {
           var _apFotoB64=ap.foto||'', _apTipo=ap.tipoArchivo||'imagen', _verBtn='';
           if (_apFotoB64 && _apFotoB64.length>100) { window._paAPMap[ap._id]=window._paAPMap[ap._id]||ap; window._paAPMap[ap._id]._fotoB64=_apFotoB64; _verBtn='<br><button data-apid="'+ap._id+'" onclick="paVerArchivoIncapacidad(this.dataset.apid)" style="margin-top:4px;background:rgba(56,139,253,.12);border:1px solid rgba(0,107,63,.3);color:#006B3F;border-radius:8px;padding:3px 8px;cursor:pointer;font-size:10px">'+(_apTipo==='pdf'?'📄 PDF':'🖼️ Ver')+'</button>'; }
-          detalleHtml+='<div style="margin-top:4px;font-size:11px;color:var(--muted)">'+(ap.fechaInicio||'?')+' al '+(ap.fechaFin||'?')+' · '+(ap.dias||'?')+' día(s)'+_verBtn+'</div>';
+          detalleHtml+='<div style="margin-top:4px;font-size:11px;color:var(--muted)">'+(ap.fechaInicio?paFechaCorta(ap.fechaInicio):'?')+' al '+(ap.fechaFin?paFechaCorta(ap.fechaFin):'?')+' · '+(ap.dias||'?')+' día(s)'+_verBtn+'</div>';
         }
         html += '<div class="report-row" style="border-left:3px solid '+ti.color+';align-items:flex-start;gap:10px">'
           + '<input type="checkbox" class="ap-sel-cb" data-apid="'+ap._id+'" onchange="paActualizarSelAP()" style="accent-color:var(--accent);width:18px;height:18px;margin-top:3px;flex-shrink:0">'
@@ -7251,7 +7271,7 @@ function paCargarAPs(tipo) {
           + '<span style="font-size:11px;color:var(--muted)">'+esc(ap.cargo||'')+'</span>'
           + '</div>'
           + '<div style="font-size:12px;color:'+ti.color+';font-weight:600">'+ti.label+' <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;'+(ti.cat==='Sanción'?'background:rgba(248,81,73,.15);color:#f85149':'background:rgba(56,139,253,.15);color:#388bfd')+'">'+(ti.cat||'')+'</span></div>'
-          + '<div style="font-size:10px;color:var(--muted);margin-top:1px">Acción: '+(ap.fecha||ap.fechaEmision||'—')+' · '+esc(_con.substring(0,70))+(_con.length>70?'…':'')+'</div>'
+          + '<div style="font-size:10px;color:var(--muted);margin-top:1px">Acción: '+paFechaCorta(ap.fecha||ap.fechaEmision||'')+' · '+esc(_con.substring(0,70))+(_con.length>70?'…':'')+'</div>'
           + detalleHtml
           + '</div>'
           + '<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex-shrink:0">'
@@ -7528,7 +7548,7 @@ function paAuditarAPs() {
         var ap = it.ap;
         var _nom = ap.empleadoNombre || ap.nombre || '(sin nombre)';
         var _chk = it.sinMarcar ? '' : 'checked ';
-        return '<div style="padding:10px;background:var(--surface2);border-radius:8px;margin-bottom:6px">'          +'<label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">'          +'<input type="checkbox" class="ap-audit-cb" data-apid="'+ap._id+'" '+_chk          +'style="accent-color:#f85149;width:16px;height:16px;margin-top:2px;flex-shrink:0">'          +'<div>'          +'<div style="font-weight:700;font-size:12px">'+esc(_nom)+'</div>'          +'<div style="font-size:10px;color:var(--muted)">'+esc(ap.tipo||'?')+' · '+(ap.fechaEmision||ap.fecha||'?')+'</div>'          +'<div style="font-size:10px;color:#f85149;margin-top:2px">⚠ ' + it.razones.join(' · ') + '</div>'          +'</div>'          +'</label>'          +'</div>';
+        return '<div style="padding:10px;background:var(--surface2);border-radius:8px;margin-bottom:6px">'          +'<label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">'          +'<input type="checkbox" class="ap-audit-cb" data-apid="'+ap._id+'" '+_chk          +'style="accent-color:#f85149;width:16px;height:16px;margin-top:2px;flex-shrink:0">'          +'<div>'          +'<div style="font-weight:700;font-size:12px">'+esc(_nom)+'</div>'          +'<div style="font-size:10px;color:var(--muted)">'+esc(ap.tipo||'?')+' · '+paFechaCorta(ap.fechaEmision||ap.fecha||'')+'</div>'          +'<div style="font-size:10px;color:#f85149;margin-top:2px">⚠ ' + it.razones.join(' · ') + '</div>'          +'</div>'          +'</label>'          +'</div>';
       }).join('');
 
       ov.innerHTML = '<div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;padding:20px 16px 36px;max-height:88vh;overflow-y:auto">'        +'<span style="display:block;width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px"></span>'        +'<div style="font-size:16px;font-weight:700;margin-bottom:4px">🔍 Auditoría de APs</div>'        +'<div style="font-size:13px;color:var(--muted);margin-bottom:14px">'          + inconsistentes.length + ' AP(s) inconsistentes con los criterios actuales.'          +'<br><small>Desmarca las que no quieras eliminar.</small></div>'        + itemsHtml        +'<div style="display:flex;gap:10px;margin-top:16px">'        +'<button onclick="document.getElementById(\'apAuditOv\').remove()" '        +'style="flex:1;padding:12px;background:transparent;border:1px solid var(--border);border-radius:12px;color:var(--muted);font-family:inherit;font-size:13px">Cancelar</button>'        +'<button onclick="paEliminarAuditadas()" '        +'style="flex:2;padding:12px;background:#f85149;color:#fff;border:none;border-radius:12px;font-weight:700;font-size:14px;font-family:inherit">🗑 Eliminar marcadas</button>'        +'</div>'        +'</div>';
@@ -8240,7 +8260,7 @@ function _paRenderMarcRow(r) {
 // ── Render helper: tabla de marcaciones de un día ────────────────
 function _paRenderDiaTable(fecha, registros, empId, empNombre) {
   var html = '<div style="margin-bottom:10px">';
-  html += '<div style="font-size:11px;font-weight:700;color:var(--muted);padding:4px 0;margin-bottom:4px;border-bottom:2px solid var(--border)">📅 ' + fecha + '</div>';
+  html += '<div style="font-size:11px;font-weight:700;color:var(--muted);padding:4px 0;margin-bottom:4px;border-bottom:2px solid var(--border)">📅 ' + paFechaLarga(fecha) + '</div>';
   html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
   html += '<thead><tr style="font-size:10px;color:var(--muted)">'
     + '<th style="text-align:left;padding:3px 4px">TIPO</th>'
@@ -9318,7 +9338,7 @@ function _paCargarPanelEmp(empId) {
     // HE Saldo
     html += "<div style=\"background:rgba(0,107,63,.10);border:2px solid rgba(0,107,63,.40);border-radius:10px;padding:10px 12px;margin-bottom:10px\">";
     var pHE2 = PA.periodoHE || {};
-    var periodoLabel = pHE2.desde ? pHE2.desde + ' al ' + pHE2.hasta : 'Todas las fechas';
+    var periodoLabel = pHE2.desde ? paFechaCorta(pHE2.desde) + ' al ' + paFechaCorta(pHE2.hasta) : 'Todas las fechas';
     html += "<div style=\"font-size:10px;font-weight:700;color:#006B3F;text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px\">⏰ Saldo HE</div>";
     html += "<div style=\"font-size:10px;color:var(--muted);margin-bottom:6px\">📅 Período: " + periodoLabel + "</div>";
     html += "<div style=\"display:flex;gap:14px;font-size:13px;margin-bottom:4px\">";
@@ -9327,6 +9347,7 @@ function _paCargarPanelEmp(empId) {
     html += "<div style=\"display:flex;gap:14px;font-size:13px\">";
     html += "<span>🌙 Nocturna: <strong>" + heNoctNeto.toFixed(2) + "h</strong><span style=\"font-size:10px;color:var(--muted)\"> × 2.25 = " + (heNoctNeto*2.25).toFixed(1) + "h libres</span></span>";
     html += "</div>";
+    html += "<div style=\"margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,107,63,.25);font-size:13px;font-weight:700;color:#006B3F\">Σ Total aprobado: " + (heDiurNeto+heNoctNeto).toFixed(2) + "h</div>";
     if (heDiurNeto===0 && heNoctNeto===0 && hePend.length>0) {
       var hPendTotal = hePend.reduce(function(s,h){return s+(parseFloat(h.horas)||0);},0);
       html += "<div style=\"margin-top:8px;padding:8px 10px;background:rgba(232,160,32,.12);border:1px solid rgba(232,160,32,.35);border-radius:8px;font-size:11px;color:#B45309\">";
@@ -9375,7 +9396,7 @@ function _paCargarPanelEmp(empId) {
       hePend.forEach(function(h){
         var tp = {diurna:"☀️",nocturna:"🌙",feriado:"🎉"};
         html += "<div data-he-card=\"" + h.id + "\" style=\"background:var(--surface);border:1.5px solid var(--border);border-radius:10px;padding:10px;margin-bottom:7px\">";
-        html += "<div style=\"font-size:12px;color:var(--muted);margin-bottom:7px\">" + (tp[h.tipo]||"⏰") + " " + h.fecha + " · <strong>" + h.horas + "h</strong>" + (h.descripcion ? " · " + h.descripcion.slice(0,40) : "") + "</div>";
+        html += "<div style=\"font-size:12px;color:var(--muted);margin-bottom:7px\">" + (tp[h.tipo]||"⏰") + " " + paFechaCorta(h.fecha) + " · <strong>" + h.horas + "h</strong>" + (h.descripcion ? " · " + h.descripcion.slice(0,40) : "") + "</div>";
         html += "<div style=\"display:flex;gap:6px;flex-wrap:wrap\">";
         html += "<button class=\"_btn-aprob-he\" data-hid=\"" + h.id + "\" data-eid=\"" + empId + "\" data-h=\"" + h.horas + "\" style=\"" + BS + "background:#006B3F;color:#fff\">✓ Aprobar</button>";
         html += "<button class=\"_btn-rechaz-he\" data-hid=\"" + h.id + "\" data-eid=\"" + empId + "\" style=\"" + BS + "background:transparent;color:var(--red);border:2px solid var(--red)\">✗ Rechazar</button>";
@@ -9395,7 +9416,7 @@ function _paCargarPanelEmp(empId) {
       canjePend.forEach(function(c){
         var cfecha = c.fechaLibre||c.fechaOrigen||c.fecha||paHoy();
         html += "<div style=\"background:var(--surface);border:1.5px solid var(--border);border-radius:10px;padding:10px;margin-bottom:7px\">";
-        html += "<div style=\"font-size:12px;color:var(--muted);margin-bottom:7px\">" + (c.esAutoTurno?"🗓️ Compensatorio":"🔄 Canje") + " · " + cfecha + "</div>";
+        html += "<div style=\"font-size:12px;color:var(--muted);margin-bottom:7px\">" + (c.esAutoTurno?"🗓️ Compensatorio":"🔄 Canje") + " · " + paFechaCorta(cfecha) + "</div>";
         html += "<div style=\"display:flex;gap:6px\">";
         if (c.esAutoTurno) {
           html += "<button class=\"_btn-aprob-comp\" data-cid=\"" + c.id + "\" data-nom=\"" + esc(emp.nombre||"") + "\" style=\"" + BS + "background:#006B3F;color:#fff\">✓ Aprobar</button>";
@@ -9438,7 +9459,7 @@ function _paCargarPanelEmp(empId) {
                      : '🏥 Incapacidad';
         html += "<div style=\"background:var(--surface);border:1.5px solid var(--border);border-radius:10px;padding:10px;margin-bottom:7px\">";
         html += "<div style=\"font-size:11px;font-weight:700;color:var(--text);margin-bottom:3px\">" + _tipoLbl + "</div>";
-        html += "<div style=\"font-size:12px;color:var(--muted);margin-bottom:7px\">" + (inc.fechaInicio||"—") + (inc.tipoIncapacidad && inc.tipoIncapacidad!=='completa' ? "" : (" al " + (inc.fechaFin||"—") + " · " + (inc.dias||"?") + " días")) + (inc.constanciaPendiente ? " · <span style=\"color:#e8a020\">⚠ sin constancia todavía</span>" : "") + "</div>";
+        html += "<div style=\"font-size:12px;color:var(--muted);margin-bottom:7px\">" + (inc.fechaInicio?paFechaCorta(inc.fechaInicio):"—") + (inc.tipoIncapacidad && inc.tipoIncapacidad!=='completa' ? "" : (" al " + (inc.fechaFin?paFechaCorta(inc.fechaFin):"—") + " · " + (inc.dias||"?") + " días")) + (inc.constanciaPendiente ? " · <span style=\"color:#e8a020\">⚠ sin constancia todavía</span>" : "") + "</div>";
         html += "<div style=\"display:flex;gap:6px\">";
         if (inc.foto) html += "<button onclick=\"paVerFotoInc('" + inc.id + "')\" style=\"" + BS + "background:var(--surface2);color:var(--text)\">📷 Ver</button>";
         html += "<button class=\"_btn-aprob-inc\" data-iid=\"" + inc.id + "\" style=\"" + BS + "background:#006B3F;color:#fff\">✓ Aprobar</button>";
@@ -9547,23 +9568,8 @@ function _paCargarPanelEmp(empId) {
     }
     html += "</div></div>";
 
-    // HE histórico aprobado (fusión del tab HE)
-    if (heApprob.length) {
-      html += "<div style=\"margin-bottom:10px;border:1.5px solid rgba(0,107,63,.3);border-radius:10px;overflow:hidden\">";
-      html += "<button onclick=\"paTogSection('psHEA"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(0,107,63,.07);border:none;cursor:pointer;font-family:inherit\">";
-      html += "<span style=\"font-size:12px;font-weight:700;color:#006B3F\">⏰ HE aprobadas en período (" + heApprob.length + ")</span>";
-      html += "<span id=\"psHEA"+empId+"_ico\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
-      html += "<div id=\"psHEA"+empId+"\" style=\"display:none;padding:10px 12px\">";
-      heApprob.slice(0,8).forEach(function(h){
-        var tp = {diurna:"☀️",nocturna:"🌙",feriado:"🎉"};
-        html += "<div style=\"display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)\">";
-        html += "<span style=\"font-size:12px\">" + (tp[h.tipo]||"⏰") + " " + h.fecha + "</span>";
-        html += "<span style=\"font-size:12px;font-weight:700;color:#006B3F\">+" + h.horas + "h</span>";
-        html += "</div>";
-      });
-      if (heApprob.length > 8) html += "<div style=\"font-size:10px;color:var(--muted);text-align:center;padding:4px\">+ " + (heApprob.length-8) + " más...</div>";
-      html += "</div>";
-    }
+    // (HE aprobadas en período: el total ya se muestra arriba en la
+    // tarjeta de Saldo HE — no hace falta un colapsible aparte con la lista)
 
     html += '</div></div>';
     contentEl.innerHTML = html;
@@ -10811,7 +10817,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-07-V';
+var PA_VERSION = 'v2026-07-07-W';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
