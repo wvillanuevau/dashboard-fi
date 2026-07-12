@@ -1939,7 +1939,6 @@ function paLoadEmpleados(callback) {
         if (cfg.horariosEmp)  PA.horariosEmp  = cfg.horariosEmp;
         if (cfg.horariosEmp || cfg.horariosRol) PA._configCargado = true;
         if (cfg.periodoHE)    PA.periodoHE    = cfg.periodoHE;
-        if (cfg.horariosRol)  PA.horariosRol  = cfg.horariosRol;
       }
       if (!PA.feriados.length) {
         var yr = new Date().getFullYear();
@@ -3685,7 +3684,7 @@ var paStream = null;
 // Descuento en horas según minutos de retraso (no hay horas parciales)
 // Retorna el horario efectivo del empleado: individual > rol > global
 function _horarioDeEmp(emp, dayOfWeek) {
-  // Jerarquía: individual → rol → general (solo si config cargada de Firebase)
+  // Jerarquía: individual → general (solo si config cargada de Firebase)
   // Devuelve null si no hay horario configurado para evitar usar defaults hardcodeados
 
   var empHorObj = emp && PA.horariosEmp && PA.horariosEmp[emp.id];
@@ -3713,11 +3712,7 @@ function _horarioDeEmp(emp, dayOfWeek) {
   // ── Prioridad 2: horario plano individual ───────────────────────
   if (empHorObj && empHorObj.horaEntrada) return empHorObj;
 
-  // ── Prioridad 3: horario del rol ────────────────────────────────
-  var rolHor = PA.horariosRol && PA.horariosRol[emp && emp.cargo];
-  if (rolHor && rolHor.horaEntrada) return rolHor;
-
-  // ── Prioridad 4: horario general (solo si cargado de Firebase) ──
+  // ── Prioridad 3: horario general (solo si cargado de Firebase) ──
   // NO se usa PA.horario si _configCargado=false para evitar defaults hardcodeados
   if (PA._configCargado && PA.horario && PA.horario.horaEntrada) return PA.horario;
 
@@ -3727,7 +3722,7 @@ function _horarioDeEmp(emp, dayOfWeek) {
 
 // ── Tolerancia de llegada del empleado ──────────────────────────
 // Usa la misma jerarquía que _horarioDeEmp para la horaEntrada:
-// individual → rol → general → 10 min por defecto
+// individual → general → 0 min por defecto
 function _toleranciaDeEmp(emp, dayOfWeek) {
   // Lee la tolerancia del mismo horario que _horarioDeEmp devuelve (ya normalizado y mergeado).
   // Si no hay tolerancia configurada en ningún nivel → 0 minutos
@@ -3738,10 +3733,6 @@ function _toleranciaDeEmp(emp, dayOfWeek) {
   // Si el horario por día no tiene tolerancia propia, buscar en el plano individual
   var empHorObj = emp && PA.horariosEmp && PA.horariosEmp[emp.id];
   if (empHorObj && empHorObj.minutosTolerancia != null) return Number(empHorObj.minutosTolerancia);
-
-  // Horario del rol
-  var rolHor = emp && PA.horariosRol && PA.horariosRol[emp && emp.cargo];
-  if (rolHor && rolHor.minutosTolerancia != null) return Number(rolHor.minutosTolerancia);
 
   // Horario general (solo si cargado de Firebase)
   if (PA._configCargado && PA.horario && PA.horario.minutosTolerancia != null)
@@ -8496,9 +8487,7 @@ function paAdminConfig(content) {
     PA.feriados = PA_FERIADOS_SV.map(function(md){ return yr+'-'+md; });
   }
 
-  // Horarios por rol actuales
-  var horRoles = PA.horariosRol || {};
-  var roles = ['admin','supervisor','empleado','motorista','tecnico','vigilante','cocinero','limpieza','otro'];
+  // (Horarios por rol eliminados — solo existe horario general + individual)
 
   function _horCard(titulo, prefix, src) {
     return '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px">'
@@ -8507,7 +8496,7 @@ function paAdminConfig(content) {
       +'<div style="font-size:11px;color:var(--text);margin-bottom:6px;font-weight:700">📅 LUNES – VIERNES</div>'
       +'<div style="display:flex;flex-wrap:wrap;gap:16px 10px;margin-bottom:12px">'
       +'<div style="flex:none;width:100px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">ENTRADA</label>'
-      +'<input type="time" id="'+prefix+'_entrada" value="'+(src.horaEntrada||'07:00')+'" style="width:100px;padding:8px 4px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;box-sizing:border-box"></div>'
+      +'<input type="time" id="'+prefix+'_entrada" value="'+(src.horaEntrada||'08:00')+'" style="width:100px;padding:8px 4px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;box-sizing:border-box"></div>'
       +'<div style="flex:none;width:100px"><label style="font-size:10px;color:var(--text);font-weight:700;display:block;margin-bottom:4px">SALIDA</label>'
       +'<input type="time" id="'+prefix+'_salida" value="'+(src.horaSalida||'17:00')+'" style="width:100px;padding:8px 4px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;box-sizing:border-box"></div>'
       +'<div style="flex:none;width:52px"><label style="font-size:9px;color:var(--text);font-weight:700;display:block;margin-bottom:4px;white-space:nowrap">TOL.</label>'
@@ -8538,15 +8527,15 @@ function paAdminConfig(content) {
   PA.empleados.forEach(function(emp) {
     var empHor = (PA.horariosEmp || {})[emp.id] || {};
     var hasCustom = Object.keys(empHor).length > 0;
-    // Determinar qué horario de rol aplica
-    var rolHor = (PA.horariosRol || {})[emp.cargo] || PA.horario;
+    // Horario aplicable si no tiene uno propio: el general de la empresa
+    var rolHor = PA.horario || {};
     var rolLabel = emp.cargo || 'general';
     var badgeStyle = hasCustom
       ? 'background:rgba(46,160,67,.15);color:#2ea043;border:1px solid rgba(46,160,67,.3)'
       : 'background:var(--surface2);color:var(--muted);border:1.5px solid var(--border)';
     var rolInfo = hasCustom
       ? 'Horario propio'
-      : 'Rol: '+rolLabel+' ('+( rolHor.horaEntrada||'07:00')+' – '+(rolHor.horaSalida||'17:00')+')';
+      : 'General ('+( rolHor.horaEntrada||'07:00')+' – '+(rolHor.horaSalida||'17:00')+')';
 
     var INPUT = function(id, val, ph, type, min, max){
       type=type||'time'; min=min||''; max=max||'';
@@ -8568,7 +8557,7 @@ function paAdminConfig(content) {
       +'</div></div>'
       // Cuerpo expandible
       +'<div id="hor_'+emp.id+'" style="display:none;padding:12px 14px;background:var(--surface2);border-top:1px solid var(--border)">'
-      +'<div style="font-size:11px;color:#7d8590;margin-bottom:12px">Sobreescribe el horario del rol <strong>'+rolLabel+'</strong>. Deja vacío para usar el del rol.</div>'
+      +'<div style="font-size:11px;color:#7d8590;margin-bottom:12px">Sobreescribe el horario general de la empresa. Deja vacío para usar el general.</div>'
 
       // ── Horario por día ──────────────────────────────────────────
       +(function(){
@@ -8718,31 +8707,15 @@ function paAdminConfig(content) {
     +'<button onclick="paQuincenaSig()" style="flex:1;padding:11px;background:rgba(180,83,9,.1);border:1.5px solid rgba(180,83,9,.3);color:#B45309;border-radius:10px;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit">⏭ Sig.</button>'
     +'</div></div></div>';
 
-    // ── 1. HORARIO POR ROL ──────────────────────────────────────
+    // ── 1. HORARIO GENERAL ──────────────────────────────────────
   html += '<div style="background:var(--surface);border:2px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:12px">'
     +'<button onclick="paTogSection(\'cfgHorRol\')" style="width:100%;display:flex;justify-content:space-between;align-items:center;padding:14px 16px;background:var(--surface2);border:none;cursor:pointer;font-family:inherit">'
-    +'<div style="font-size:13px;font-weight:700;color:var(--text)">🕐 Horarios por Rol</div>'
+    +'<div style="font-size:13px;font-weight:700;color:var(--text)">🕐 Horario General</div>'
     +'<span id="cfgHorRol_ico" style="font-size:14px;color:var(--muted)">▶</span></button>'
     +'<div id="cfgHorRol" style="display:none;padding:14px 16px">'
-    +'<div style="font-size:11px;color:var(--muted);margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border)">⏰ Horarios por Rol</div>'
-    +'<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Cada rol puede tener su propio horario de entrada y tolerancia.</div>'
-    +_horCard('🏢 Horario General (predeterminado)', 'hor_general', h)
-    +'<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">'
-    + roles.map(function(rol){
-        var src = horRoles[rol] || {};
-        var hasConf = Object.keys(src).length > 0;
-        var horInfo = hasConf ? ' ('+( src.horaEntrada||'?')+'-'+(src.horaSalida||'?')+')' : ' (sin configurar)';
-        return '<button onclick="paToglHorRol(\'hor_rol_'+rol+'\')" style="display:flex;justify-content:space-between;align-items:center;width:100%;padding:10px 14px;background:var(--surface);border:1.5px solid '+(hasConf?'#006B3F':'var(--border)')+';border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;color:var(--text);font-family:inherit;text-align:left">'
-          +'<span>'+rol.charAt(0).toUpperCase()+rol.slice(1)+'<span style="font-weight:400;color:var(--muted);font-size:11px">'+horInfo+'</span></span>'
-          +'<span id="hor_rol_'+rol+'_ico" style="color:var(--muted);font-size:12px">▶</span>'
-          +'</button>';
-      }).join('')
-    +'</div>'
-    + roles.map(function(rol){
-        var src = horRoles[rol] || {};
-        return '<div id="hor_rol_'+rol+'" style="display:none">'+_horCard('Horario: '+rol, 'hrol_'+rol, src)+'</div>';
-      }).join('')
-    +'<button onclick="paGuardarHorariosRol()" style="width:100%;padding:12px;background:#CC0000;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:20px">💾 Guardar horarios por rol</button>'
+    +'<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Este es el horario por defecto de toda la empresa. Cada empleado puede tener su propio horario individual que lo sobreescribe (ver abajo).</div>'
+    +_horCard('🏢 Horario General', 'hor_general', h)
+    +'<button onclick="paGuardarHorarioGeneral()" style="width:100%;padding:12px;background:#CC0000;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:20px">💾 Guardar horario general</button>'
 
     +'</div></div>'
     // ── 2. HORARIO POR EMPLEADO ──────────────────────────────────
@@ -8751,7 +8724,7 @@ function paAdminConfig(content) {
     +'<div style="font-size:13px;font-weight:700;color:var(--text)">👤 Horario individual por empleado</div>'
     +'<span id="cfgHorEmp_ico" style="font-size:14px;color:var(--muted)">▶</span></button>'
     +'<div id="cfgHorEmp" style="display:none;padding:14px 16px">'
-    +'<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Sobreescribe el horario del rol para empleados específicos.</div>'
+    +'<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Sobreescribe el horario general para empleados específicos.</div>'
     +horEmpHtml
     +'</div></div>'
     // ── 3. CONTRASEÑA ADMIN — movida al final, junto a Datos del
@@ -8810,23 +8783,6 @@ function paAdminConfig(content) {
 
 }
 
-function paToglHorRol(id) {
-  // Cierra todos los otros roles (accordion)
-  var allRols = ['admin','supervisor','empleado','motorista','tecnico','vigilante','cocinero','limpieza','otro'];
-  allRols.forEach(function(rol) {
-    var panel = document.getElementById('hor_rol_' + rol);
-    var ico   = document.getElementById('hor_rol_' + rol + '_ico');
-    if (panel && 'hor_rol_' + rol !== id) { panel.style.display = 'none'; if(ico) ico.textContent='▶'; }
-  });
-  // Abrir/cerrar el seleccionado
-  var body = document.getElementById(id);
-  var ico2 = document.getElementById(id + '_ico');
-  if (!body) return;
-  var open = body.style.display !== 'none';
-  body.style.display = open ? 'none' : '';
-  if (ico2) ico2.textContent = open ? '▶' : '▼';
-}
-
 function paToglHorEmp(id) {
   var el = document.getElementById(id);
   if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
@@ -8853,29 +8809,24 @@ function _leerHorForm(prefix) {
   };
 }
 
-function paGuardarHorariosRol() {
-  var horRoles = {};
-  var roles = ['admin','supervisor','empleado','motorista','tecnico','vigilante','cocinero','limpieza','otro'];
-  roles.forEach(function(rol){
-    var src = _leerHorForm('hrol_'+rol);
-    if (src) horRoles[rol] = src;
-  });
-  // Horario general
+function paGuardarHorarioGeneral() {
   var general = _leerHorForm('hor_general');
   if (general) {
     PA.horario.horaEntrada = general.horaEntrada;
     PA.horario.horaSalida  = general.horaSalida;
     PA.horario.minutosTolerancia = general.minutosTolerancia;
     PA.horario.minutosAlmuerzo   = general.minutosAlmuerzo;
+    PA.horario.sabadoEntrada   = general.sabadoEntrada;
+    PA.horario.sabadoSalida    = general.sabadoSalida;
+    PA.horario.sabadoTolerancia = general.sabadoTolerancia;
+    PA.horario.trabajaSabado   = general.trabajaSabado;
+    PA.horario.trabajaDomingo  = general.trabajaDomingo;
   }
-  PA.horariosRol = horRoles;
-  // Guardar en paConfig
   PA._configCargado = true; // la config acaba de guardarse — está válida
   paDb.collection('paConfig').doc(PA.empresa).set({
-    horario: PA.horario,
-    horariosRol: horRoles
+    horario: PA.horario
   }, { merge: true }).then(function(){
-    paToast('✅ Horarios por rol guardados');
+    paToast('✅ Horario general guardado');
   }).catch(function(e){ paToast('Error: '+e.message, true); });
 }
 
@@ -8971,13 +8922,12 @@ function paGuardarHorEmp(empId, empNombre) {
 }
 
 
-// ── Asignar horario de rol a empleado específico ────────────────
+// ── Asignar horario general a empleado específico ────────────────
 function paAplicarHorarioRol(empId, rolVal, empNombre, btn) {
-  if (!rolVal) { paToast('Selecciona un rol o "General"', true); return; }
-  var horRol = rolVal === '__general__' ? PA.horario : (PA.horariosRol || {})[rolVal];
-  if (!horRol) { paToast('Sin horario para: ' + rolVal, true); return; }
+  var horRol = PA.horario;
+  if (!horRol || !horRol.horaEntrada) { paToast('El horario general no está configurado todavía', true); return; }
   var nom = empNombre || empId;
-  paConfirm('¿Aplicar horario "' + (rolVal==='__general__'?'General':rolVal) + '" a ' + nom + '?\n'
+  paConfirm('¿Aplicar el horario general a ' + nom + '?\n'
     + 'Entrada: ' + (horRol.horaEntrada||'—') + ' · Salida: ' + (horRol.horaSalida||'—'), function() {
   var horEmp = PA.horariosEmp || {};
   horEmp[empId] = Object.assign({}, horRol);
@@ -9354,9 +9304,7 @@ function _paCargarPanelEmp(empId) {
 
     // Horario del empleado
     var horEmpAct = (PA.horariosEmp || {})[empId];
-    var horCargo  = (PA.horariosRol || {})[emp.cargo] || PA.horario;
-    var horActual = horEmpAct || horCargo;
-    var rolesDisponibles = Object.keys(PA.horariosRol || {});
+    var horActual = horEmpAct || PA.horario;
     html += "<div style=\"margin-bottom:10px;border:1.5px solid rgba(56,139,253,.35);border-radius:10px;overflow:hidden\">";
     html += "<button onclick=\"paTogSection('psSCH"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(56,139,253,.07);border:none;cursor:pointer;font-family:inherit\">";
     html += "<span style=\"font-size:12px;font-weight:700;color:#388bfd\">📋 Horario asignado · " + (horActual?(horActual.horaEntrada||'—')+'–'+(horActual.horaSalida||'—'):'Sin horario') + "</span>";
@@ -9364,17 +9312,11 @@ function _paCargarPanelEmp(empId) {
     html += "<div id=\"psSCH"+empId+"\" style=\"display:none;padding:10px 12px\">";
     // Indicador de qué horario usa actualmente
     html += "<div style=\"font-size:11px;color:var(--muted);margin-bottom:8px\">";
-    html += horEmpAct ? "✏️ Horario individual asignado" : "📌 Usando horario del cargo <strong>" + (emp.cargo||'general') + "</strong>";
+    html += horEmpAct ? "✏️ Horario individual asignado" : "📌 Usando el horario general de la empresa";
     html += "</div>";
-    // Selector de rol (cualquier rol disponible)
     html += "<label style=\"font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:4px\">APLICAR HORARIO</label>";
     html += "<select id=\"horSelEmp_"+empId+"\" style=\"width:100%;padding:8px;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;margin-bottom:8px\">";
-    html += "<option value=\"\">── Seleccionar plantilla ──</option>";
-    rolesDisponibles.forEach(function(rol){
-      var rh = PA.horariosRol[rol];
-      var sel = (horEmpAct && horEmpAct === PA.horariosRol[rol]) ? ' selected' : '';
-      html += "<option value=\""+rol+"\">"+rol.charAt(0).toUpperCase()+rol.slice(1)+" ("+( rh.horaEntrada||'?')+"-"+(rh.horaSalida||'?')+")</option>";
-    });
+    html += "<option value=\"\">── Seleccionar ──</option>";
     html += "<option value=\"__general__\">General ("+( PA.horario.horaEntrada||'?')+"-"+(PA.horario.horaSalida||'?')+")</option>";
     if (horEmpAct) html += "<option value=\"__quitar__\">✕ Quitar horario individual</option>";
     html += "</select>";
@@ -10723,7 +10665,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-07-R';
+var PA_VERSION = 'v2026-07-07-S';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -11064,7 +11006,6 @@ window.addEventListener('DOMContentLoaded', function() {
         if (cfg.horario)  PA.horario  = Object.assign(PA.horario, cfg.horario);
         if (cfg.horario) PA._configCargado = true;
         if (cfg.feriados && cfg.feriados.length) PA.feriados = cfg.feriados;
-        if (cfg.horariosRol) PA.horariosRol = cfg.horariosRol;
         if (cfg.horariosEmp) PA.horariosEmp = cfg.horariosEmp;
         if (cfg.horariosEmp || cfg.horariosRol) PA._configCargado = true;
       }
