@@ -5420,6 +5420,10 @@ function paAdminTab(tab) {
 
 // ── Render de paAdminHoy — llamado por cada onSnapshot ────────
 function _paAdminHoyRender(snap, snapInc, content, hoy, snapCanjes, snapHE) {
+  // Los listeners en tiempo real de Hoy pueden disparar esta función
+  // después de que el usuario ya cambió de pestaña — si ya no estamos
+  // en Hoy, no pintar este contenido encima de la pestaña actual.
+  if (PA.adminTab !== 'hoy') return;
   if (!content || !document.body.contains(content)) return;
   // Filtrar por empresa en cliente
   var marcs = {};
@@ -6041,8 +6045,13 @@ function paVerEvidenciaHE(empId, fecha) {
       });
       if (!marcs.length) { paToast('No se encontraron marcaciones ese día', true); return; }
       marcs.sort(_paCompararMarcas);
-      if (marcs.length === 1) { _paShowMarcModal(marcs[0]); return; }
-      _paMostrarSelectorEvidencia(marcs);
+      // setTimeout(...,0) saca la creación del modal de la cola de
+      // microtasks de la promesa y la mueve a una macrotask nueva —
+      // ayuda a que WebKit programe el repintado correctamente.
+      setTimeout(function(){
+        if (marcs.length === 1) { _paShowMarcModal(marcs[0]); return; }
+        _paMostrarSelectorEvidencia(marcs);
+      }, 0);
     }).catch(function(e){ paToast('Error: '+e.message, true); });
 }
 
@@ -6054,8 +6063,21 @@ function paVerEvidenciaHE(empId, fecha) {
 // Leer offsetHeight fuerza al navegador a calcular el layout ya
 // mismo, lo que dispara el repintado correspondiente.
 function _paForzarRepintado(el) {
-  if (el) { void el.offsetHeight; }
-  requestAnimationFrame(function(){ if (el) void el.offsetHeight; });
+  if (!el) return;
+  // La lectura de offsetHeight sola no siempre basta — a veces WebKit
+  // calcula el layout pero no llega a componer/pintar. Alternar una
+  // propiedad que sí dispara composición (transform) es más confiable.
+  void el.offsetHeight;
+  el.style.transform = 'translateZ(0)';
+  requestAnimationFrame(function(){
+    void el.offsetHeight;
+    requestAnimationFrame(function(){
+      el.style.transform = '';
+      void el.offsetHeight;
+    });
+  });
+  // Red de seguridad adicional por si los rAF no alcanzan a tiempo
+  setTimeout(function(){ if (el && el.isConnected) { el.style.opacity = '0.999'; void el.offsetHeight; el.style.opacity = ''; } }, 50);
 }
 
 function _paMostrarSelectorEvidencia(marcs) {
@@ -6918,6 +6940,7 @@ function paAgregarMarcacion(empId, empNom, fecha) {
 }
 
 function paAdminAcciones(content) {
+  if (PA.adminTab !== 'acciones') return;
   content.innerHTML = '<div class="spinner"></div>';
   var hoy = paHoy();
   // Rango default: mes actual
@@ -8539,6 +8562,7 @@ function paMigrarTimezonesRetroactivo() {
 }
 
 function paAdminConfig(content) {
+  if (PA.adminTab !== 'config') return;
   var h = PA.horario;
   if (!PA.feriados.length) {
     var yr = new Date().getFullYear();
@@ -9156,6 +9180,10 @@ function paAdminEmps(content) {
 }
 
 function _paAdminEmpsRender(content) {
+  // Esta función puede llegar aquí después de una consulta async (Firestore,
+  // pendientes globales, etc.) — si el usuario ya cambió de pestaña mientras
+  // tanto, no se debe pintar este contenido encima de la pestaña actual.
+  if (PA.adminTab !== 'emps') return;
   // Si aún no se han cargado los pendientes globales, cargarlos y re-renderizar
   if (!PA._pendPorEmp) {
     _paCargarPendientesGlobal(function(){ _paAdminEmpsRender(content); });
@@ -9650,6 +9678,7 @@ function paDesvinculDispositivo(empId) {
 
 
 function paAdminReporte(content) {
+  if (PA.adminTab !== 'reporte') return;
   var hoy  = paHoy();
   // Default: usar PA.periodoHE si está configurado, sino quincena calendario
   var _pHE = PA.periodoHE || {};
@@ -10817,7 +10846,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-07-W';
+var PA_VERSION = 'v2026-07-07-X';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
