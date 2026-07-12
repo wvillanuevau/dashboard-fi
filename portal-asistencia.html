@@ -5924,6 +5924,54 @@ function paRechazarInc(incId, btn) {
   });
 }
 
+// ── Ver evidencia (foto + ubicación) de las marcaciones del día de una
+// HE pendiente — para que el admin pueda verificar antes de aprobar.
+function paVerEvidenciaHE(empId, fecha) {
+  if (!empId || !fecha || !paDb) { paToast('Faltan datos para buscar la evidencia', true); return; }
+  paToast('Buscando marcaciones de ese día...');
+  paDb.collection('paMarcaciones')
+    .where('empresa','==',PA.empresa).where('empleadoId','==',empId).where('fecha','==',fecha)
+    .get()
+    .then(function(snap){
+      var marcs = [];
+      snap.forEach(function(d){
+        var r = Object.assign({ id:d.id, _id:d.id }, d.data());
+        if (r.ts && typeof r.ts==='object' && r.ts.toMillis) r.ts = r.ts.toMillis();
+        marcs.push(r);
+      });
+      if (!marcs.length) { paToast('No se encontraron marcaciones ese día', true); return; }
+      marcs.sort(_paCompararMarcas);
+      if (marcs.length === 1) { _paShowMarcModal(marcs[0]); return; }
+      _paMostrarSelectorEvidencia(marcs);
+    }).catch(function(e){ paToast('Error: '+e.message, true); });
+}
+
+function _paMostrarSelectorEvidencia(marcs) {
+  var tiposLabel = { entrada:'🏢 Entrada', almuerzo_salida:'🍽️ Salida almuerzo', almuerzo_regreso:'↩️ Regreso almuerzo', cena_salida:'🌙 Salida cena', cena_regreso:'🌙 Regreso cena', salida:'🏠 Salida', entrada_adicional:'⚡ Entrada adicional', salida_adicional:'⚡ Salida adicional' };
+  var old = document.getElementById('selEvidenciaOv'); if (old) old.remove();
+  var ov = document.createElement('div');
+  ov.id = 'selEvidenciaOv';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:490;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px';
+  var itemsHtml = marcs.map(function(m, i){
+    var hora = m.ts ? new Date(m.ts).toLocaleTimeString('es-SV',{hour:'2-digit',minute:'2-digit',hour12:true}) : '—';
+    return '<button onclick="_paAbrirEvidenciaIdx(' + i + ')" style="width:100%;padding:12px;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-size:13px;text-align:left;cursor:pointer;font-family:inherit;margin-bottom:8px">'
+      + (tiposLabel[m.tipo]||m.tipo||'?') + ' — ' + hora + '</button>';
+  }).join('');
+  ov.innerHTML = '<div style="background:var(--surface);border-radius:16px;padding:20px;width:100%;max-width:340px;box-sizing:border-box">'
+    + '<div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:12px">📷 Elige qué marcación ver</div>'
+    + itemsHtml
+    + '<button onclick="document.getElementById(\'selEvidenciaOv\').remove()" style="width:100%;padding:10px;background:transparent;border:none;color:var(--muted);font-size:13px;cursor:pointer;font-family:inherit">Cancelar</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+  window._paEvidenciaTmp = marcs;
+}
+
+function _paAbrirEvidenciaIdx(i) {
+  var ov = document.getElementById('selEvidenciaOv'); if (ov) ov.remove();
+  var m = window._paEvidenciaTmp && window._paEvidenciaTmp[i];
+  if (m) _paShowMarcModal(m);
+}
+
 function paVerMarcacion(marcId) {
   if (!marcId) { paToast('ID de registro vacío', true); return; }
   // Buscar en caché local primero
@@ -9167,9 +9215,10 @@ function _paCargarPanelEmp(empId) {
         var tp = {diurna:"☀️",nocturna:"🌙",feriado:"🎉"};
         html += "<div style=\"background:var(--surface);border:1.5px solid var(--border);border-radius:10px;padding:10px;margin-bottom:7px\">";
         html += "<div style=\"font-size:12px;color:var(--muted);margin-bottom:7px\">" + (tp[h.tipo]||"⏰") + " " + h.fecha + " · <strong>" + h.horas + "h</strong>" + (h.descripcion ? " · " + h.descripcion.slice(0,40) : "") + "</div>";
-        html += "<div style=\"display:flex;gap:6px\">";
+        html += "<div style=\"display:flex;gap:6px;flex-wrap:wrap\">";
         html += "<button class=\"_btn-aprob-he\" data-hid=\"" + h.id + "\" data-eid=\"" + empId + "\" data-h=\"" + h.horas + "\" style=\"" + BS + "background:#006B3F;color:#fff\">✓ Aprobar</button>";
         html += "<button class=\"_btn-rechaz-he\" data-hid=\"" + h.id + "\" style=\"" + BS + "background:transparent;color:var(--red);border:2px solid var(--red)\">✗ Rechazar</button>";
+        html += "<button class=\"_btn-evid-he\" data-eid=\"" + empId + "\" data-fecha=\"" + h.fecha + "\" style=\"" + BS + "flex:none;padding:9px 12px;background:var(--surface2);color:var(--text);border:1.5px solid var(--border)\">📷 Ver evidencia</button>";
         html += "</div></div>";
       });
       html += "</div></div>";
@@ -9310,7 +9359,7 @@ function _paCargarPanelEmp(empId) {
     var d7    = _qEmp.desde;   // inicio del período configurado
     hoy7      = _qEmp.hasta;   // fin del período configurado
 
-    html += "<div style=\"margin-top:8px;margin-bottom:16px;border:1.5px solid #C4956A;border-radius:10px;overflow:hidden\">";
+    html += "<div style=\"margin-top:8px;margin-bottom:28px;border:1.5px solid #C4956A;border-radius:10px;overflow:hidden\">";
     html += "<button onclick=\"paTogSection('psHIST"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(180,83,9,.06);border:none;cursor:pointer;font-family:inherit\">";
     html += "<span style=\"font-size:12px;font-weight:700;color:#B45309\">📋 Historial de Marcaciones (" + marcs.length + ")</span>";
     html += "<span id=\"psHIST"+empId+"_ico\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
@@ -10589,7 +10638,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-07-M';
+var PA_VERSION = 'v2026-07-07-N';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -10806,6 +10855,7 @@ window.addEventListener('DOMContentLoaded', function() {
     else if ((b=ev.target.closest('._btn-edit-emp')))    { paEditarEmp(b.getAttribute('data-eid')||''); }
     else if ((b=ev.target.closest('._btn-aprob-he')))    { paAprobarHorasExtra(b.getAttribute('data-hid')||'', b.getAttribute('data-eid')||'', parseFloat(b.getAttribute('data-h')||0), b); }
     else if ((b=ev.target.closest('._btn-rechaz-he')))   { paRechazarHorasExtra(b.getAttribute('data-hid')||'', b); }
+    else if ((b=ev.target.closest('._btn-evid-he')))     { paVerEvidenciaHE(b.getAttribute('data-eid')||'', b.getAttribute('data-fecha')||''); }
     else if ((b=ev.target.closest('._btn-aprob-comp')))  { paAprobarCompensatorioTurno(b.getAttribute('data-cid')||'', b.getAttribute('data-nom')||'', b); }
     else if ((b=ev.target.closest('._btn-rechaz-comp'))) { paRechazarCompensatorioTurno(b.getAttribute('data-cid')||'', b); }
     else if ((b=ev.target.closest('._btn-asignar-comp-manual'))) { paAsignarCompensatorioManual(b.getAttribute('data-eid')||'', b.getAttribute('data-nom')||'', b.getAttribute('data-cargo')||'', b); }
