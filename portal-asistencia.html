@@ -6026,6 +6026,18 @@ function paVerEvidenciaHE(empId, fecha) {
     }).catch(function(e){ paToast('Error: '+e.message, true); });
 }
 
+// ── Fuerza un repintado inmediato ──────────────────────────────
+// WebKit/Safari a veces no repinta la pantalla cuando un elemento se
+// agrega al DOM dentro de un callback asíncrono (ej. después de un
+// .then() de Firestore) — se queda invisible hasta que algo más
+// provoque un reflow (cambiar de pestaña, hacer scroll, etc.).
+// Leer offsetHeight fuerza al navegador a calcular el layout ya
+// mismo, lo que dispara el repintado correspondiente.
+function _paForzarRepintado(el) {
+  if (el) { void el.offsetHeight; }
+  requestAnimationFrame(function(){ if (el) void el.offsetHeight; });
+}
+
 function _paMostrarSelectorEvidencia(marcs) {
   var tiposLabel = { entrada:'🏢 Entrada', almuerzo_salida:'🍽️ Salida almuerzo', almuerzo_regreso:'↩️ Regreso almuerzo', cena_salida:'🌙 Salida cena', cena_regreso:'🌙 Regreso cena', salida:'🏠 Salida', entrada_adicional:'⚡ Entrada adicional', salida_adicional:'⚡ Salida adicional' };
   var old = document.getElementById('selEvidenciaOv'); if (old) old.remove();
@@ -6044,6 +6056,7 @@ function _paMostrarSelectorEvidencia(marcs) {
     + '</div>';
   document.body.appendChild(ov);
   window._paEvidenciaTmp = marcs;
+  _paForzarRepintado(ov);
 }
 
 function _paAbrirEvidenciaIdx(i) {
@@ -6158,6 +6171,7 @@ function _paShowMarcModal(m) {
     +'</div>';
 
   document.body.appendChild(div);
+  _paForzarRepintado(div);
 }
 // ══════════════════════════════════════════════════════
 // ACCIÓN DE PERSONAL — FALTA INJUSTIFICADA
@@ -10797,7 +10811,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-07-U';
+var PA_VERSION = 'v2026-07-07-V';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
