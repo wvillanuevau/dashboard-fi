@@ -5502,16 +5502,14 @@ function _paAdminHoyRender(snap, snapInc, content, hoy) {
       snapH.forEach(function(d){ var r=d.data(); if(r.estado==='pendiente') docsHEPend.push({id:d.id,h:r}); });
       if (docsHEPend.length > 0) {
         html += '<div class="section-title" style="margin-top:20px">⏳ Horas extra pendientes ('+docsHEPend.length+')</div>';
+        html += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Solo se pueden aprobar o rechazar desde la tarjeta de cada empleado, en la pestaña Empleados.</div>';
         docsHEPend.forEach(function(entry) {
           var h = entry.h;
           var tipos = { diurna:'☀️', nocturna:'🌙', feriado:'🎉', finde:'📅' };
           html += '<div class="report-row">'
             + '<div><div class="report-emp">'+h.empleadoNombre+'</div>'
             + '<div class="report-detail">'+h.fecha+' · '+(tipos[h.tipo]||'')+' '+h.horas+' hrs · '+h.descripcion.slice(0,40)+'</div></div>'
-            + '<div style="display:flex;gap:6px">'
-      +'<button onclick="paAprobarHEBtn(this)" data-id="'+entry.id+'" data-emp="'+h.empleadoId+'" data-h="'+h.horas+'" style="background:#006B3F;color:#fff;border:none;border-radius:8px;padding:6px 10px;font-weight:700;font-size:11px">✓ Aprobar</button>'
-            + '<button style="background:var(--red);color:#fff;border:none;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:11px" onclick="paRechazarHorasExtra(\''+entry.id+'\')">✗</button>'
-            + '</div></div>';
+            + '</div>';
         });
       }
       // ── Incapacidades activas hoy ───────────────────────────
@@ -10533,31 +10531,28 @@ function paGoSolicitarComp() {
   setTimeout(paInitCanje, 100);
 }
 
-function paAprobarHEBtn(btn) {
-  paAprobarHorasExtra(btn.getAttribute('data-id'), btn.getAttribute('data-emp'), parseFloat(btn.getAttribute('data-h')), btn);
-}
-
-function paRechazarHEBtn(btn) {
-  paRechazarHorasExtra(btn.getAttribute('data-id'), btn);
-}
-
 function paAprobarHorasExtra(docId, empId, horas, btn) {
   paConfirm('¿Aprobar ' + horas + ' horas extra?', function() {
   paDb.collection('paHorasExtra').doc(docId).update({ estado: 'aprobado' })
     .then(function() {
-      // Add to employee's accumulated hours in paPins
-      var existingDocId = PA._pinsDocMap && PA._pinsDocMap[empId];
-      if (existingDocId) {
-        paDb.collection('paPins').doc(existingDocId).get().then(function(doc) {
-          var current = doc.exists ? parseFloat(doc.data().horasExtraAcum || 0) : 0;
-          paDb.collection('paPins').doc(existingDocId).update({ horasExtraAcum: current + horas })
-            .catch(function(e){ console.warn('[AprobarHE] error actualizando saldo:',e.message); });
-        }).catch(function(e){ console.warn('[AprobarHE] error leyendo pin:',e.message); });
-      } else {
-        paDb.collection('paPins').add({ empresa: PA.empresa, empleadoId: empId, horasExtraAcum: horas })
-          .catch(function(e){ console.warn('[AprobarHE] error creando pin:',e.message); });
-      }
-      paToast('✅ Horas extra aprobadas');
+      // Sumar al saldo acumulado del empleado — consulta en vivo, no
+      // confía en PA._pinsDocMap (puede faltar si el empleado no tiene
+      // PIN asignado todavía). Si hay más de un documento paPins para
+      // este empleado, se suma solo al primero para no duplicar el saldo.
+      return paDb.collection('paPins').where('empresa','==',PA.empresa).where('empleadoId','==',empId).get()
+        .then(function(snap) {
+          if (snap.empty) {
+            return paDb.collection('paPins').add({
+              empresa: PA.empresa, empleadoId: empId, horasExtraAcum: horas
+            });
+          }
+          var doc = snap.docs[0];
+          var current = parseFloat(doc.data().horasExtraAcum || 0);
+          return doc.ref.update({ horasExtraAcum: current + horas });
+        });
+    })
+    .then(function() {
+      paToast('✅ Horas extra aprobadas — saldo actualizado');
       _paPostApproval(btn||null, PA.adminTab);
     }).catch(function(e){ paToast('Error: '+e.message, true); });
   });
@@ -10638,7 +10633,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-07-N';
+var PA_VERSION = 'v2026-07-07-O';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
