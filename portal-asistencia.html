@@ -3640,11 +3640,35 @@ function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
       });
     }
 
-    // Guardar en Firestore
-    var promises = registros.map(function(r) {
-      return paDb.collection('paHorasExtra').add(r);
-    });
-    Promise.all(promises).then(function() {
+    // Evitar duplicados: si esta función corre más de una vez para el
+    // mismo evento de salida (doble tap, reintento de red, etc.), no
+    // debe crear una segunda HE pendiente idéntica para el mismo día.
+    // En vez de crear a ciegas, se verifica primero qué ya existe
+    // (pendiente, origen:'auto') para ese empleado+fecha, y se
+    // actualiza si coincide el tipo, o se crea solo lo que falte.
+    paDb.collection('paHorasExtra')
+      .where('empresa','==',PA.empresa)
+      .where('empleadoId','==',empId)
+      .where('fecha','==',hoy)
+      .where('estado','==','pendiente')
+      .get()
+      .then(function(snapExist) {
+        var existentesPorTipo = {}; // tipo → docRef
+        snapExist.forEach(function(d){
+          var r = d.data();
+          if (r.origen === 'auto') existentesPorTipo[r.tipo] = d.ref;
+        });
+
+        var writes = registros.map(function(r) {
+          if (existentesPorTipo[r.tipo]) {
+            // Ya existe una pendiente auto para ese día+tipo — actualizar
+            // en vez de duplicar.
+            return existentesPorTipo[r.tipo].update({ horas: r.horas, descripcion: r.descripcion, ts: r.ts });
+          }
+          return paDb.collection('paHorasExtra').add(r);
+        });
+        return Promise.all(writes);
+      }).then(function() {
       if (callback) callback(calc);
     }).catch(function(e) {
       console.warn('[HE Auto]', e.message);
@@ -9229,6 +9253,26 @@ function _paCargarPanelEmp(empId) {
     var marcs  = []; res[3].forEach(function(d){ marcs.push(Object.assign({id:d.id},d.data())); });
 
     var hePend   = heAll.filter(function(h){ return h.estado==="pendiente"; });
+
+    // Limpieza de duplicados exactos ya existentes (mismo día+tipo+horas,
+    // de antes de que existiera la verificación al crearlas). Se conserva
+    // solo la primera de cada grupo y se borran las demás en silencio —
+    // no es un caso de juicio humano, es el mismo evento repetido.
+    (function(){
+      var vistos = {};
+      var aBorrar = [];
+      hePend.forEach(function(h){
+        var clave = h.fecha + '|' + h.tipo + '|' + h.horas;
+        if (vistos[clave]) { aBorrar.push(h.id); }
+        else { vistos[clave] = true; }
+      });
+      if (aBorrar.length) {
+        hePend = hePend.filter(function(h){ return aBorrar.indexOf(h.id) === -1; });
+        var batchDup = paDb.batch();
+        aBorrar.forEach(function(id){ batchDup.delete(paDb.collection('paHorasExtra').doc(id)); });
+        batchDup.commit().catch(function(e){ console.warn('[HE dedup]', e.message); });
+      }
+    })();
     // Filtrar HE aprobadas por el período activo definido en config
     var pHE = PA.periodoHE || {};
     var heApprob = heAll.filter(function(h) {
@@ -10753,7 +10797,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-07-T';
+var PA_VERSION = 'v2026-07-07-U';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
