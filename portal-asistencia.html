@@ -5241,7 +5241,7 @@ function _paCargarPendientesGlobal(callback) {
     paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get(),
     paDb.collection('paCanjes').where('empresa','==',PA.empresa).get(),
     paDb.collection('paIncapacidades').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get(),
-    paDb.collection('paAccionesPersonal').where('empresa','==',PA.empresa).where('tipo','==','SOLICITUD_DESVINCULACION').get()
+    paDb.collection('paNotificaciones').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get()
   ]).then(function(res) {
     var pendPorEmp = {};
     var addPend = function(empId) { if (!empId) return; pendPorEmp[empId] = (pendPorEmp[empId]||0) + 1; };
@@ -5253,13 +5253,15 @@ function _paCargarPendientesGlobal(callback) {
     });
     res[2].forEach(function(d){ addPend(d.data().empleadoId); });
 
-    var desvincPend = 0;
-    res[3].forEach(function(d){ if (d.data().estado==='pendiente') desvincPend++; });
+    var desvincPend = res[3].size || 0;
 
-    var totalEmps = Object.keys(pendPorEmp).reduce(function(s,k){ return s + pendPorEmp[k]; }, 0);
+    // Badge de Empleados = cuántos EMPLEADOS tienen algo pendiente
+    // (no la suma de todos los pendientes juntos — un empleado con 3
+    // cosas pendientes cuenta como 1, no como 3).
+    var empsConPend = Object.keys(pendPorEmp).length;
 
     PA._pendPorEmp = pendPorEmp;
-    PA._pendTotalEmps = totalEmps;
+    PA._pendTotalEmps = empsConPend;
     PA._pendDesvinculacion = desvincPend;
 
     _paRenderTabBadges();
@@ -10846,7 +10848,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-07-X';
+var PA_VERSION = 'v2026-07-07-Y';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
