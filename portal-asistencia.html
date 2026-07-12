@@ -9161,8 +9161,22 @@ function paOpenPinModal() {
 
 function paAdminEmps(content) {
   content.innerHTML = '<div class="spinner"></div>';
-  // Cargar tardanzas/ausencias del período (badge ★) — re-renderiza al completar
-  _paCargarAusenciasPeriodo(function(){ _paAdminEmpsRender(content); });
+  if (PA.adminTab !== 'emps') return;
+
+  // Antes, tres cadenas asíncronas independientes (ausencias, paPins,
+  // pendientes globales) cada una redibujaba la lista COMPLETA al
+  // terminar — si el usuario abría una tarjeta justo cuando una de
+  // ellas terminaba tarde, la lista se reconstruía desde cero y le
+  // borraba el panel recién abierto. Ahora se espera a que las tres
+  // terminen y se dibuja UNA sola vez.
+  var _ausenciasListas = false, _pinsListos = false, _pendGlobalListo = false;
+  function _tryRenderOnce() {
+    if (!_ausenciasListas || !_pinsListos || !_pendGlobalListo) return;
+    _paAdminEmpsRender(content);
+  }
+
+  _paCargarAusenciasPeriodo(function(){ _ausenciasListas = true; _tryRenderOnce(); });
+
   // Refrescar paPins desde Firestore para ver versiones actualizadas
   paDb.collection('paPins').where('empresa','==',PA.empresa).limit(300).get()
     .then(function(snap){
@@ -9178,9 +9192,15 @@ function paAdminEmps(content) {
         PA._pinsByDevice = PA._pinsByDevice || {};
         if (pd.deviceId) PA._pinsByDevice[pd.deviceId] = { docId: d.id, data: pd };
       });
-      _paAdminEmpsRender(content);
+      _pinsListos = true; _tryRenderOnce();
     })
-    .catch(function(){ _paAdminEmpsRender(content); }); // fallback si falla Firestore
+    .catch(function(){ _pinsListos = true; _tryRenderOnce(); }); // fallback si falla Firestore
+
+  if (PA._pendPorEmp) {
+    _pendGlobalListo = true; _tryRenderOnce();
+  } else {
+    _paCargarPendientesGlobal(function(){ _pendGlobalListo = true; _tryRenderOnce(); });
+  }
 }
 
 function _paAdminEmpsRender(content) {
@@ -9188,10 +9208,6 @@ function _paAdminEmpsRender(content) {
   // pendientes globales, etc.) — si el usuario ya cambió de pestaña mientras
   // tanto, no se debe pintar este contenido encima de la pestaña actual.
   if (PA.adminTab !== 'emps') return;
-  // Si aún no se han cargado los pendientes globales, cargarlos y re-renderizar
-  if (!PA._pendPorEmp) {
-    _paCargarPendientesGlobal(function(){ _paAdminEmpsRender(content); });
-  }
   var desactCount = PA.empleados.filter(function(e){
     var pd2 = PA._horasMap && PA._horasMap[e.id];
     return !pd2 || !pd2.lastVersion || pd2.lastVersion !== PA_VERSION;
@@ -10877,7 +10893,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-08-C';
+var PA_VERSION = 'v2026-07-08-D';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
