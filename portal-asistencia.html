@@ -1019,11 +1019,11 @@ select[style*="border:1px solid var(--border)"]{
     <div class="header-badge" id="adminEmpBadge">—</div>
   </div>
   <div class="tab-bar">
-    <button type="button" class="tab-btn active" id="atab_hoy" onclick="paAdminTab('hoy')"><span class="ti">📅</span><span class="tl">Hoy</span></button>
-    <button type="button" class="tab-btn" id="atab_emps" onclick="paAdminTab('emps')"><span class="ti">👥</span><span class="tl">Empleados</span></button>
-    <button type="button" class="tab-btn" id="atab_reporte" onclick="paAdminTab('reporte')"><span class="ti">📊</span><span class="tl">Reporte</span></button>
-    <button type="button" class="tab-btn" id="atab_acciones" onclick="paAdminTab('acciones')"><span class="ti">📋</span><span class="tl">APs</span></button>
-    <button type="button" class="tab-btn" id="atab_config" onclick="paAdminTab('config')"><span class="ti">⚙️</span><span class="tl">Config</span></button>
+    <button type="button" class="tab-btn active" onclick="paAdminTab('hoy')"><span class="ti">📅</span><span class="tl">Hoy</span></button>
+    <button type="button" class="tab-btn" onclick="paAdminTab('emps')"><span class="ti">👥</span><span class="tl">Empleados</span></button>
+    <button type="button" class="tab-btn" onclick="paAdminTab('reporte')"><span class="ti">📊</span><span class="tl">Reporte</span></button>
+    <button type="button" class="tab-btn" onclick="paAdminTab('acciones')"><span class="ti">📋</span><span class="tl">APs</span></button>
+    <button type="button" class="tab-btn" onclick="paAdminTab('config')"><span class="ti">⚙️</span><span class="tl">Config</span></button>
   </div>
   <div class="portal-body" style="overflow-y:auto;padding-top:16px" id="adminContent">
     <div class="spinner"></div>
@@ -10723,7 +10723,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-07-Q';
+var PA_VERSION = 'v2026-07-07-R';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
