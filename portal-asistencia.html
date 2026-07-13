@@ -5201,12 +5201,24 @@ function _paVerificarFaltasAutomaticas() {
         if (yaGeneradaHoy[emp.id]) return;         // ya se generó
 
         // Verificar si hoy es día laboral para este empleado
-        // Usar _horarioDeEmp para respetar la jerarquía configurada
+        // Usar _horarioDeEmp para respetar la jerarquía configurada.
+        // IMPORTANTE: hay dos formas de marcar "no laborable" según de
+        // dónde viene el horario — el chequeo anterior (horEmp.diasLaborales)
+        // buscaba un campo que no existe en ninguna de las dos, así que
+        // nunca excluía correctamente los días libres de nadie.
         var horEmp = _horarioDeEmp(emp, diaSemana);
-        if (!horEmp) return; // sin horario → no marcar falta automática
-        var dias = horEmp.diasLaborales || (PA._configCargado && PA.horario && PA.horario.diasLaborales) || null;
-        if (!dias) return; // sin diasLaborales configurados → no marcar falta
-        if (dias.indexOf(diaSemana) === -1) return; // no le tocaba laborar hoy
+        if (!horEmp || !horEmp.horaEntrada) return; // sin horario configurado → no marcar falta automática
+        if (horEmp.trabaja === false) return; // horario individual: día desmarcado explícitamente
+        if (diaSemana === 6 && horEmp.trabajaSabado === false) return; // horario general: no trabaja sábado
+        // Domingo es conservador a propósito: solo se genera falta si hay
+        // confirmación explícita de que sí trabaja domingo — ya sea por
+        // horario individual (trabaja:true) o general (trabajaDomingo:true).
+        // Sin esa confirmación, no se sanciona — es preferible no
+        // sancionar de más que sancionar a alguien que no debía trabajar.
+        if (diaSemana === 0) {
+          var _siTrabajaDomingo = (horEmp.trabaja === true) || (horEmp.trabajaDomingo === true);
+          if (!_siTrabajaDomingo) return;
+        }
 
         var motivo = 'Generado automáticamente: el empleado no registró marcación de entrada '
           + 'y no cuenta con incapacidad registrada al corte de las 7:00 PM del ' + hoy + '.';
@@ -10974,7 +10986,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-08-G';
+var PA_VERSION = 'v2026-07-08-H';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
