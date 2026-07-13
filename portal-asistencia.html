@@ -7004,6 +7004,7 @@ function paImprimirAP(apId) {
     'TARDANZAS':              7,
     'DESCUENTO_DIA_SEPTIMO':  7,
     'FALTA_INJUSTIFICADA':    9,
+    'GOCE_VACACIONES':       12,
     'INCAPACIDAD':           13,
     'GENERICA':               9
   };
@@ -8011,7 +8012,7 @@ function _paConfirmarCompFDS(semKey) {
   var cbs = Array.from(document.querySelectorAll('.comp-fds-cb:checked'));
   var batch = paDb.batch();
   var count = 0;
-  var _turnoCompletoIds = []; // empId de quienes hicieron turno completo (sáb+dom) — para corregir HE del sábado
+  var _turnoCompletoIds = []; // empId de quienes recibieron compensatorio de sábado completo (trabajaron sábado, con o sin domingo) — para corregir HE del sábado
 
   cbs.forEach(function(cb) {
     var empId    = cb.dataset.empid;
@@ -8022,7 +8023,7 @@ function _paConfirmarCompFDS(semKey) {
     var nextFri  = cb.dataset.nextfri;
     var nextSat  = cb.dataset.nextsat;
 
-    if (sat && dom) _turnoCompletoIds.push(empId);
+    if (sat) _turnoCompletoIds.push(empId);
 
     // Crear registro de compensatorio para viernes
     if (dom || (sat && dom)) {
@@ -10861,7 +10862,7 @@ function paAprobarVacaciones(btn) {
         // Generar automáticamente la Acción de Personal de Goce de Vacaciones
         return paDb.collection('paAccionesPersonal').add({
           empresa: PA.empresa, empleadoId: empId, empleadoNombre: nom, cargo: cargo,
-          tipo: 'GOCE_VACACIONES', concepto: 'Goce de vacaciones',
+          tipo: 'GOCE_VACACIONES', concepto: 'Goce de vacaciones', opcionMarcada: 12,
           justificacion: 'Goce de vacaciones aprobado: ' + paFechaCorta(inicio) + ' al ' + paFechaCorta(fin) + ' (' + dias + ' día(s))',
           fechaInicio: inicio, fechaFin: fin, dias: dias,
           fecha: paHoy(), fechaEmision: paHoy(),
@@ -10973,7 +10974,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-08-E';
+var PA_VERSION = 'v2026-07-08-G';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
