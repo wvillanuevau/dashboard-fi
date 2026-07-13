@@ -5243,7 +5243,8 @@ function _paCargarPendientesGlobal(callback) {
     paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get(),
     paDb.collection('paCanjes').where('empresa','==',PA.empresa).get(),
     paDb.collection('paIncapacidades').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get(),
-    paDb.collection('paNotificaciones').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get()
+    paDb.collection('paNotificaciones').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get(),
+    paDb.collection('paVacaciones').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get()
   ]).then(function(res) {
     var pendPorEmp = {};
     var addPend = function(empId) { if (!empId) return; pendPorEmp[empId] = (pendPorEmp[empId]||0) + 1; };
@@ -5254,6 +5255,7 @@ function _paCargarPendientesGlobal(callback) {
       if (c.estado==='pendiente_aprobacion' || c.estado==='pendiente_compensatorio') addPend(c.empleadoId);
     });
     res[2].forEach(function(d){ addPend(d.data().empleadoId); });
+    res[4].forEach(function(d){ addPend(d.data().empleadoId); });
 
     var desvincPend = res[3].size || 0;
 
@@ -9341,13 +9343,16 @@ function _paCargarPanelEmp(empId) {
     paDb.collection("paHorasExtra").where("empresa","==",empresa).where("empleadoId","==",empId).get(),
     paDb.collection("paCanjes").where("empresa","==",empresa).where("empleadoId","==",empId).get(),
     paDb.collection("paIncapacidades").where("empresa","==",empresa).where("empleadoId","==",empId).get(),
-    paDb.collection("paMarcaciones").where("empresa","==",empresa).where("empleadoId","==",empId).get()
+    paDb.collection("paMarcaciones").where("empresa","==",empresa).where("empleadoId","==",empId).get(),
+    paDb.collection("paVacaciones").where("empresa","==",empresa).where("empleadoId","==",empId).get()
   ]).then(function(res) {
     _resuelto = true; clearTimeout(_timeoutId);
     var heAll  = []; res[0].forEach(function(d){ heAll.push(Object.assign({id:d.id},d.data())); });
     var canjes = []; res[1].forEach(function(d){ canjes.push(Object.assign({id:d.id},d.data())); });
     var incaps = []; res[2].forEach(function(d){ incaps.push(Object.assign({id:d.id},d.data())); });
     var marcs  = []; res[3].forEach(function(d){ marcs.push(Object.assign({id:d.id},d.data())); });
+    var vacs   = []; res[4].forEach(function(d){ vacs.push(Object.assign({id:d.id},d.data())); });
+    var vacPend = vacs.filter(function(v){ return v.estado === "pendiente"; });
 
     var hePend   = heAll.filter(function(h){ return h.estado==="pendiente"; });
 
@@ -9429,6 +9434,25 @@ function _paCargarPanelEmp(empId) {
     html += "<button class=\"_btn-asign-he\" data-eid=\"" + empId + "\" data-nom=\"" + esc(emp.nombre||"") + "\" data-diurna=\"" + heDiurNeto.toFixed(2) + "\" data-nocturna=\"" + heNoctNeto.toFixed(2) + "\" style=\"flex:1;min-width:120px;padding:9px;background:rgba(0,107,63,.1);border:1.5px solid rgba(0,107,63,.25);border-radius:9px;color:#006B3F;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit\">🔄 Canjear HE</button>";
     html += "<button class=\"_btn-asign-comp\" data-eid=\"" + empId + "\" data-nom=\"" + esc(emp.nombre||"") + "\" style=\"flex:1;min-width:120px;padding:9px;background:rgba(180,83,9,.08);border:1.5px solid rgba(180,83,9,.25);border-radius:9px;color:#B45309;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit\">🔄 Asignar compensatorio</button>";
     html += "</div></div>";
+
+    // ── Vacaciones pendientes ────────────────────────────────────
+    if (vacPend.length) {
+      html += "<div style=\"margin-bottom:10px;border:1.5px solid rgba(56,139,253,.35);border-radius:10px;overflow:hidden\">";
+      html += "<button onclick=\"paTogSection('psVAC"+empId+"')\" style=\"width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:rgba(56,139,253,.07);border:none;cursor:pointer;font-family:inherit\">";
+      html += "<span style=\"font-size:12px;font-weight:700;color:#388bfd\">🏖️ Vacaciones pendientes (" + vacPend.length + ")</span>";
+      html += "<span id=\"psVAC"+empId+"_ico\" style=\"font-size:12px;color:var(--muted)\">▶</span></button>";
+      html += "<div id=\"psVAC"+empId+"\" style=\"display:none;padding:10px 12px\">";
+      vacPend.forEach(function(v){
+        html += "<div style=\"background:var(--surface);border:1.5px solid var(--border);border-radius:10px;padding:10px;margin-bottom:7px\">";
+        html += "<div style=\"font-size:12px;color:var(--muted);margin-bottom:4px\">" + paFechaCorta(v.fechaInicio) + " al " + paFechaCorta(v.fechaFin) + " · <strong>" + v.dias + " día(s)</strong></div>";
+        if (v.motivo) html += "<div style=\"font-size:11px;color:var(--text);margin-bottom:7px\">" + esc(v.motivo) + "</div>";
+        html += "<div style=\"display:flex;gap:6px\">";
+        html += "<button class=\"_btn-aprob-vac\" data-vid=\"" + v.id + "\" data-eid=\"" + empId + "\" data-nom=\"" + esc(emp.nombre||"") + "\" data-cargo=\"" + esc(emp.cargo||"") + "\" data-dias=\"" + v.dias + "\" data-inicio=\"" + v.fechaInicio + "\" data-fin=\"" + v.fechaFin + "\" style=\"" + BS + "background:#006B3F;color:#fff\">✓ Aprobar</button>";
+        html += "<button class=\"_btn-rechaz-vac\" data-vid=\"" + v.id + "\" style=\"" + BS + "background:transparent;color:var(--red);border:2px solid var(--red)\">✗ Rechazar</button>";
+        html += "</div></div>";
+      });
+      html += "</div></div>";
+    }
 
     // ── Acciones de Personal ──────────────────────────────────────
     html += "<div style=\"margin-bottom:10px;border:1.5px solid rgba(248,81,73,.35);border-radius:10px;overflow:hidden\">";
@@ -10805,6 +10829,62 @@ function paRechazarHorasExtra(docId, btn, empId) {
   });
 }
 
+// ── Aprobar/Rechazar Vacaciones — al aprobar, genera automáticamente
+// la Acción de Personal de Goce de Vacaciones y descuenta el saldo.
+function paAprobarVacaciones(btn) {
+  var vacId   = btn.getAttribute('data-vid');
+  var empId   = btn.getAttribute('data-eid');
+  var nom     = btn.getAttribute('data-nom') || '';
+  var cargo   = btn.getAttribute('data-cargo') || '';
+  var dias    = parseInt(btn.getAttribute('data-dias'), 10) || 0;
+  var inicio  = btn.getAttribute('data-inicio') || '';
+  var fin     = btn.getAttribute('data-fin') || '';
+
+  paConfirm('¿Aprobar ' + dias + ' día(s) de vacaciones para ' + nom + '?\n' + paFechaCorta(inicio) + ' al ' + paFechaCorta(fin), function() {
+    paDb.collection('paVacaciones').doc(vacId).update({ estado: 'aprobada', fechaAprobacion: Date.now() })
+      .then(function() {
+        // Descontar del saldo disponible — consulta en vivo, no confía
+        // en PA._pinsDocMap (mismo patrón robusto ya usado para HE y activo).
+        return paDb.collection('paPins').where('empresa','==',PA.empresa).where('empleadoId','==',empId).get()
+          .then(function(snap) {
+            var actual = (PA.empleados.find(function(e){return e.id===empId;})||{}).diasVacacionesDisponibles;
+            if (actual === undefined) actual = 15;
+            var nuevoSaldo = Math.max(0, actual - dias);
+            if (snap.empty) {
+              return paDb.collection('paPins').add({ empresa: PA.empresa, empleadoId: empId, diasVacDisp: nuevoSaldo });
+            }
+            var doc = snap.docs[0];
+            return doc.ref.update({ diasVacDisp: nuevoSaldo });
+          });
+      })
+      .then(function() {
+        // Generar automáticamente la Acción de Personal de Goce de Vacaciones
+        return paDb.collection('paAccionesPersonal').add({
+          empresa: PA.empresa, empleadoId: empId, empleadoNombre: nom, cargo: cargo,
+          tipo: 'GOCE_VACACIONES', concepto: 'Goce de vacaciones',
+          justificacion: 'Goce de vacaciones aprobado: ' + paFechaCorta(inicio) + ' al ' + paFechaCorta(fin) + ' (' + dias + ' día(s))',
+          fechaInicio: inicio, fechaFin: fin, dias: dias,
+          fecha: paHoy(), fechaEmision: paHoy(),
+          estado: 'emitida', origen: 'aprobacion_vacaciones', ts: Date.now()
+        });
+      })
+      .then(function() {
+        paToast('✅ Vacaciones aprobadas — AP de Goce de Vacaciones generada');
+        _paPostApproval(btn, 'emps');
+      })
+      .catch(function(e){ paToast('Error: '+e.message, true); });
+  });
+}
+
+function paRechazarVacaciones(btn) {
+  var vacId = btn.getAttribute('data-vid');
+  paConfirm('¿Rechazar esta solicitud de vacaciones?', function(){
+    paDb.collection('paVacaciones').doc(vacId).update({ estado: 'rechazada', fechaRechazo: Date.now() })
+      .then(function() { paToast('Solicitud de vacaciones rechazada'); _paPostApproval(btn, 'emps'); })
+      .catch(function(e){ paToast('Error: '+e.message, true); });
+  });
+}
+
 // ── Quita solo la tarjeta de HE aprobada/rechazada del DOM, sin volver
 // a cargar todo el panel del empleado — evita el parpadeo/reinicio de
 // los colapsibles. Actualiza el contador "HE pendientes (N)" en el acto.
@@ -10893,7 +10973,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-08-D';
+var PA_VERSION = 'v2026-07-08-E';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -11110,6 +11190,8 @@ window.addEventListener('DOMContentLoaded', function() {
     else if ((b=ev.target.closest('._btn-edit-emp')))    { paEditarEmp(b.getAttribute('data-eid')||''); }
     else if ((b=ev.target.closest('._btn-aprob-he')))    { paAprobarHorasExtra(b.getAttribute('data-hid')||'', b.getAttribute('data-eid')||'', parseFloat(b.getAttribute('data-h')||0), b); }
     else if ((b=ev.target.closest('._btn-rechaz-he')))   { paRechazarHorasExtra(b.getAttribute('data-hid')||'', b, b.getAttribute('data-eid')||''); }
+    else if ((b=ev.target.closest('._btn-aprob-vac')))    { paAprobarVacaciones(b); }
+    else if ((b=ev.target.closest('._btn-rechaz-vac')))   { paRechazarVacaciones(b); }
     else if ((b=ev.target.closest('._btn-evid-he')))     { paVerEvidenciaHE(b.getAttribute('data-eid')||'', b.getAttribute('data-fecha')||''); }
     else if ((b=ev.target.closest('._btn-aprob-comp')))  { paAprobarCompensatorioTurno(b.getAttribute('data-cid')||'', b.getAttribute('data-nom')||'', b); }
     else if ((b=ev.target.closest('._btn-rechaz-comp'))) { paRechazarCompensatorioTurno(b.getAttribute('data-cid')||'', b); }
