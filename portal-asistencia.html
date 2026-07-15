@@ -5635,8 +5635,6 @@ function _paAdminHoyRender(snap, snapInc, content, hoy, snapCanjes, snapHE) {
         +'</div>'
         +'<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">'
         +(inc.foto?'<button onclick="paVerFotoInc(\''+inc.id+'\')" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;color:var(--text)">📷 Ver</button>':'')
-        +(inc.estado==='pendiente'?'<button onclick="paAprobarInc(\''+inc.id+'\')" style="background:#006B3F;color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer">✓ Aprobar</button>':'')
-        +(inc.estado==='pendiente'?'<button onclick="paRechazarInc(\''+inc.id+'\')" style="background:var(--red);color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer">✗</button>':'')
         +'</div></div>';
     });
   }
@@ -7407,6 +7405,16 @@ function paToggleActivoEmp(empId) {
       if (idx === -1) throw new Error('Empleado no encontrado en la lista de técnicos');
       tecnicos[idx] = Object.assign({}, tecnicos[idx], { activo: nuevoActivo });
       return pubRef.update({ tecnicos: tecnicos });
+    }).then(function() {
+      // Registro de auditoría — si "activo" vuelve a cambiar solo, sin que
+      // nadie lo toque desde aquí, esto deja rastro de cuándo y a qué
+      // valor SÍ se cambió desde este botón, para poder comparar contra
+      // lo que aparezca después.
+      return paDb.collection('paActivoLog').add({
+        empresa: PA.empresa, empleadoId: empId, empleadoNombre: emp.nombre,
+        nuevoValor: nuevoActivo, ts: Date.now(), fecha: paHoy(),
+        origen: 'paToggleActivoEmp'
+      }).catch(function(){}); // el log nunca debe bloquear la acción principal
     }).then(function() {
       // Mantener paPins sincronizado también, por si algo más lo consulta
       // — consulta en vivo, no confía en PA._pinsDocMap, y actualiza
@@ -9284,7 +9292,7 @@ function _paAdminEmpsRender(content) {
 
     // Línea 3 — estado del período + alertas
     var _badgesEstado = _paBadgeTardanzas(_tardAcumEmp) + _paBadgeAusencias(_ausAcumEmp);
-    if (pendCount>0 && _empActivo) _badgesEstado += ' <span id="pendBadge'+eid+'">' + _paPill('⚠ ' + pendCount + ' pendiente(s)', 'rgba(248,81,73,.13)', '#f85149') + '</span>';
+    if (pendCount>0 && _empActivo) _badgesEstado += ' <span id="pendBadge'+eid+'" style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;background:rgba(248,81,73,.13);color:#f85149"><span style="width:7px;height:7px;border-radius:50%;background:#f85149;display:inline-block"></span>Pendiente</span>';
     if (!_empActivo) _badgesEstado += ' ' + _paPill('INACTIVO', '#f85149', '#fff');
     _badgesEstado += ' ' + _paPill('🏖️ ' + (emp.diasVacacionesDisponibles||15) + ' días vac.', 'var(--surface2)', 'var(--muted)');
     if (_badgesEstado.trim()) html += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:5px">' + _badgesEstado + '</div>';
@@ -10910,15 +10918,15 @@ function _paQuitarTarjetaHE(btn, empId) {
       var n = Math.max(0, (parseInt(countEl.textContent, 10) || 1) - 1);
       countEl.textContent = n;
     }
-    var badgeWrap = document.getElementById('pendBadge' + empId);
-    if (badgeWrap) {
-      var m = badgeWrap.textContent.match(/(\d+)/);
-      var cur = m ? Math.max(0, parseInt(m[1],10) - 1) : 0;
-      if (cur <= 0) { badgeWrap.remove(); }
-      else { badgeWrap.innerHTML = badgeWrap.innerHTML.replace(/\d+/, cur); }
-    }
   }
-  _paCargarPendientesGlobal(); // solo actualiza badges/contadores globales, no re-renderiza el panel
+  // Recalcular pendientes globales y, si ese empleado ya no tiene nada
+  // pendiente, quitarle el aviso — es solo un punto sin número, así que
+  // se checa contra el conteo real en vez de intentar restarle a un texto.
+  _paCargarPendientesGlobal(function(){
+    if (!empId) return;
+    var badgeWrap = document.getElementById('pendBadge' + empId);
+    if (badgeWrap && !(PA._pendPorEmp && PA._pendPorEmp[empId])) badgeWrap.remove();
+  });
 }
 
 function paCrearEmpleado() {
@@ -10986,7 +10994,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-08-H';
+var PA_VERSION = 'v2026-07-08-I';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
