@@ -769,6 +769,7 @@ select[style*="border:1px solid var(--border)"]{
         <div class="action-info"><div class="action-title">Probar notificación</div><div class="action-sub" id="notifStatus">Toca para probar</div></div>
         <span class="action-arrow">›</span>
       </button>
+      <button type="button" onclick="paCancelarNotificaciones(); paToast('🔕 Notificaciones canceladas')" style="background:transparent;border:none;color:var(--muted);font-size:12px;text-decoration:underline;cursor:pointer;font-family:inherit;margin:2px 0 8px;padding:4px">🔕 Cancelar notificaciones programadas</button>
     </div>
   </div>
 </div>
@@ -827,58 +828,6 @@ select[style*="border:1px solid var(--border)"]{
     <div id="marcarError" style="color:var(--red);font-size:13px;margin-bottom:8px;display:none"></div>
     <button type="button" class="big-btn" id="btnConfirmarMarca" onclick="paConfirmarMarca()">
       ✅ Confirmar registro
-    </button>
-    <div style="height:24px"></div>
-  </div>
-</div>
-
-<!-- ══════════════════════════════════════════════════
-     SCREEN: HORAS EXTRA
-══════════════════════════════════════════════════ -->
-<div class="screen" id="scHorasExtra">
-  <div class="portal-header">
-    <button type="button" class="header-back" onclick="paShow('scDash')">←</button>
-    <div class="header-title">Horas Extra</div>
-  </div>
-  <div class="portal-body" style="overflow-y:auto">
-    <div class="info-box">Las horas extra son revisadas y aprobadas por el administrador antes de registrarse en el pago.</div>
-    <div class="section-title">Tipo de hora extra</div>
-    <div class="ot-types">
-      <div class="ot-type-btn" id="ot_diurna" onclick="paSelOT('diurna')">
-        <div class="ot-type-icon">☀️</div>
-        <div class="ot-type-label">Diurna</div>
-        <div class="ot-type-rate">100% adicional</div>
-      </div>
-      <div class="ot-type-btn" id="ot_nocturna" onclick="paSelOT('nocturna')">
-        <div class="ot-type-icon">🌙</div>
-        <div class="ot-type-label">Nocturna</div>
-        <div class="ot-type-rate">100% + 25%</div>
-      </div>
-      <div class="ot-type-btn" id="ot_feriado" onclick="paSelOT('feriado')">
-        <div class="ot-type-icon">🎉</div>
-        <div class="ot-type-label">Feriado</div>
-        <div class="ot-type-rate">200% adicional</div>
-      </div>
-      <div class="ot-type-btn" id="ot_finde" onclick="paSelOT('finde')">
-        <div class="ot-type-icon">📅</div>
-        <div class="ot-type-label">Fin de semana</div>
-        <div class="ot-type-rate">100% adicional</div>
-      </div>
-    </div>
-    <div class="fg">
-      <label>Fecha de las horas extra</label>
-      <input type="date" id="otFecha" aria-label="Fecha de horas extra" style="font-size:16px">
-    </div>
-    <div class="fg">
-      <label>Cantidad de horas</label>
-      <input type="number" id="otHoras" aria-label="Cantidad de horas extra" min="0.5" max="12" step="0.5" placeholder="Ej: 2.5" style="font-size:20px;font-family:'JetBrains Mono',monospace;text-align:center">
-    </div>
-    <div class="fg">
-      <label>Descripción del trabajo realizado *</label>
-      <textarea id="otDesc" rows="3" placeholder="Describe qué trabajo realizaste en las horas extra..." style="resize:none;width:100%;padding:12px;background:var(--surface);border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:inherit;font-size:14px;outline:none"></textarea>
-    </div>
-    <button type="button" class="big-btn purple" style="background:rgba(188,140,255,.2);color:var(--purple);border:1.5px solid rgba(188,140,255,.3)" onclick="paRegistrarHorasExtra()">
-      ⏰ Solicitar registro de horas extra
     </button>
     <div style="height:24px"></div>
   </div>
@@ -1353,7 +1302,7 @@ function paShow(screenId) {
   document.body.scrollTop = 0;
 
   document.body.classList.toggle('scrollable',
-    ['scMarcar','scHorasExtra','scCanje','scVacaciones','scHistorial','scAdmin','scDash','scSuccess'].indexOf(screenId) >= 0);
+    ['scMarcar','scCanje','scVacaciones','scHistorial','scAdmin','scDash','scSuccess'].indexOf(screenId) >= 0);
   // Side effects — wrapped in try/catch to prevent blank screens
   try {
     if (screenId === 'scDash')      paUpdateDash();
@@ -1690,7 +1639,7 @@ function paVerifyAdminPwd() {
     return;
   }
 
-  var match = (entered === PA.adminPin);
+  var match = _paTimingSafeEqual(entered, PA.adminPin);
   console.log('[Admin] entered:', JSON.stringify(entered), '| adminPin:', JSON.stringify(PA.adminPin), '| match:', match);
 
   if (match) {
@@ -1789,9 +1738,6 @@ function paFmtFecha(ts) {
 // para evitar TypeError cuando PA.empleado es null
 function paEmpId() {
   return PA.empleado ? PA.empleado.id : null;
-}
-function paEmpNombre() {
-  return PA.empleado ? (PA.empleado.nombre || '—') : '—';
 }
 
 
@@ -2455,41 +2401,6 @@ function _paGenerarOTP() {
   });
 }
 
-function paRegisterBio() {
-  if (!PA.empleado) return;
-  var empName = PA.empleado.nombre || 'empleado';
-  
-  var userIdBytes = new TextEncoder().encode(PA.empleado.id);
-  
-  navigator.credentials.create({
-    publicKey: {
-      challenge: new Uint8Array(16).fill(2),
-      rp: { name: 'Portal Asistencia FISDC', id: window.location.hostname },
-      user: { id: userIdBytes, name: empName, displayName: empName },
-      pubKeyCredParams: [{ alg: -7, type: 'public-key' }],
-      authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required' },
-      timeout: 60000
-    }
-  }).then(function(cred) {
-    // Store credential ID in employee record
-    var credIdB64 = btoa(String.fromCharCode.apply(null, new Uint8Array(cred.rawId)));
-    var existDocId = PA._pinsDocMap && PA._pinsDocMap[PA.empleado.id];
-        var bioPromise = existDocId
-          ? paDb.collection('paPins').doc(existDocId).update({ credId: credIdB64 })
-          : paDb.collection('paPins').add({ empresa: PA.empresa, empleadoId: PA.empleado.id, credId: credIdB64, pin: PA.empleado.pin || '' });
-        bioPromise
-      .then(function() {
-        PA.empleado.credId = credIdB64;
-        paToast('🧬 Biométrico registrado para ' + empName);
-        paAfterAuth();
-      });
-  }).catch(function(e) {
-    if (e.name !== 'NotAllowedError') {
-      paToast('No se pudo registrar biométrico: ' + e.message, true);
-    }
-  });
-}
-
 // ══════════════════════════════════════════════════════
 // POST-AUTH: Load today's data and go to dashboard
 // ══════════════════════════════════════════════════════
@@ -2720,6 +2631,7 @@ function paCerrarSesion() {
   PA.marcacionesHoy = [];
   PA.capturedB64 = null;
   PA.location = null;
+  _paDetenerWatchGPS(); // antes esto nunca se llamaba — el GPS seguía activo en segundo plano tras cerrar sesión
   if (PA.horaTimer) clearInterval(PA.horaTimer);
   paShow('scLanding');
 }
@@ -4677,58 +4589,6 @@ function _paMostrarExito(docData, calc) {
 // ══════════════════════════════════════════════════════
 // HORAS EXTRA
 // ══════════════════════════════════════════════════════
-function paGoHorasExtra() {
-  if (!PA.empleado) { paShow("scSelectEmp"); return; }
-
-  PA.otTipo = null;
-  document.querySelectorAll('.ot-type-btn').forEach(function(b){ b.classList.remove('selected'); });
-  var fechaEl = document.getElementById('otFecha');
-  if (fechaEl) fechaEl.value = paHoy();
-  var horasEl = document.getElementById('otHoras');
-  if (horasEl) horasEl.value = '';
-  var descEl = document.getElementById('otDesc');
-  if (descEl) descEl.value = '';
-  paShow('scHorasExtra');
-}
-
-function paSelOT(tipo) {
-  PA.otTipo = tipo;
-  document.querySelectorAll('.ot-type-btn').forEach(function(b){ b.classList.remove('selected'); });
-  var btn = document.getElementById('ot_' + tipo);
-  if (btn) btn.classList.add('selected');
-}
-
-function paRegistrarHorasExtra() {
-  if (!PA.otTipo) { paToast('Selecciona el tipo de hora extra', true); return; }
-  var fechaEl = document.getElementById('otFecha');
-  var horasEl = document.getElementById('otHoras');
-  var descEl = document.getElementById('otDesc');
-  var fecha = fechaEl ? fechaEl.value : paHoy();
-  var horas = parseFloat(horasEl ? horasEl.value : 0) || 0;
-  var desc = (descEl ? descEl.value : '').trim();
-  
-  if (!horas || horas <= 0) { paToast('Ingresa la cantidad de horas', true); return; }
-  if (!desc) { paToast('Describe el trabajo realizado', true); return; }
-  
-  var docData = {
-    empresa: PA.empresa,
-    empleadoId: PA.empleado.id,
-    empleadoNombre: PA.empleado.nombre,
-    fecha: fecha,
-    tipo: PA.otTipo,
-    horas: horas,
-    descripcion: desc,
-    ts: Date.now(),
-    estado: 'pendiente', // admin aprueba
-    folio: 'HE-' + paGenId().toUpperCase()
-  };
-  
-  paDb.collection('paHorasExtra').add(docData).then(function() {
-    paToast('✅ Solicitud enviada. El admin la revisará.');
-    paShow('scDash');
-  }).catch(function(e) { paToast('Error: ' + e.message, true); });
-}
-
 // ══════════════════════════════════════════════════════
 // CANJE
 // ══════════════════════════════════════════════════════
@@ -5251,12 +5111,18 @@ function _paVerificarFaltasAutomaticas() {
 
 function _paCargarPendientesGlobal(callback) {
   if (!paDb || !PA.empresa) { if (callback) callback(); return; }
+  // Cada consulta atrapa su propio error — si UNA falla (por ejemplo por
+  // falta de una regla/índice en una colección nueva), las demás igual
+  // deben poder mostrar sus avisos. Antes, un solo fallo en cualquiera
+  // de las cinco tumbaba TODO el Promise.all y ningún empleado mostraba
+  // el círculo, aunque sí tuviera algo pendiente.
+  var _vacio = { forEach: function(){}, size: 0 };
   Promise.all([
-    paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get(),
-    paDb.collection('paCanjes').where('empresa','==',PA.empresa).get(),
-    paDb.collection('paIncapacidades').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get(),
-    paDb.collection('paNotificaciones').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get(),
-    paDb.collection('paVacaciones').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get()
+    paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get().catch(function(e){ console.warn('[Pendientes/HE]', e.message); return _vacio; }),
+    paDb.collection('paCanjes').where('empresa','==',PA.empresa).get().catch(function(e){ console.warn('[Pendientes/Canjes]', e.message); return _vacio; }),
+    paDb.collection('paIncapacidades').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get().catch(function(e){ console.warn('[Pendientes/Incap]', e.message); return _vacio; }),
+    paDb.collection('paNotificaciones').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get().catch(function(e){ console.warn('[Pendientes/Notif]', e.message); return _vacio; }),
+    paDb.collection('paVacaciones').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get().catch(function(e){ console.warn('[Pendientes/Vac]', e.message); return _vacio; })
   ]).then(function(res) {
     var pendPorEmp = {};
     var addPend = function(empId) { if (!empId) return; pendPorEmp[empId] = (pendPorEmp[empId]||0) + 1; };
@@ -5612,30 +5478,6 @@ function _paAdminHoyRender(snap, snapInc, content, hoy, snapCanjes, snapHE) {
           +'</button>';
       });
       html += '</div></div>';
-    });
-  }
-
-  // ── Incapacidades activas hoy ───────────────────────────
-  var incsHoy = [];
-  snapInc.forEach(function(d) {
-    var inc = Object.assign({ id: d.id }, d.data());
-    if (inc.fechaFin < hoy) return; // filtro cliente — reemplaza where fechaFin>=hoy
-    if (inc.fechaInicio <= hoy && inc.fechaFin >= hoy) incsHoy.push(inc);
-  });
-  if (incsHoy.length) {
-    html += '<div class="section-title" style="margin-top:16px">🏥 Incapacidades activas hoy ('+incsHoy.length+')</div>';
-    // Ordenar incapacidades alfabéticamente por nombre
-    incsHoy.sort(function(a,b){ return (a.empleadoNombre||'').localeCompare(b.empleadoNombre||'','es',{sensitivity:'base'}); });
-    incsHoy.forEach(function(inc) {
-      html += '<div class="report-row">'
-        +'<div style="flex:1">'
-        +'<div class="report-emp">'+inc.empleadoNombre+'</div>'
-        +'<div class="report-detail">'+inc.motivo+'</div>'
-        +'<div class="report-detail" style="color:var(--muted)">'+paFechaCorta(inc.fechaInicio)+' → '+paFechaCorta(inc.fechaFin)+' · '+inc.dias+' día(s) · Estado: <strong>'+inc.estado+'</strong></div>'
-        +'</div>'
-        +'<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">'
-        +(inc.foto?'<button onclick="paVerFotoInc(\''+inc.id+'\')" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;color:var(--text)">📷 Ver</button>':'')
-        +'</div></div>';
     });
   }
 
@@ -6234,19 +6076,6 @@ function _paShowMarcModal(m) {
 // ══════════════════════════════════════════════════════
 // ACCIÓN DE PERSONAL — FALTA INJUSTIFICADA
 // ══════════════════════════════════════════════════════
-function paReportarFaltaEmp(empId, empNombre, empCargo) {
-  var old = document.getElementById('reportarFaltaOverlay'); if(old) old.remove();
-  var hoy = paHoy();
-  var ov = document.createElement('div');
-  ov.id = 'reportarFaltaOverlay';
-  ov.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);z-index:450;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box';
-  ov.innerHTML =
-    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:380px">'    +'<div style="font-weight:700;font-size:16px;margin-bottom:4px">📋 Reportar Falta Injustificada</div>'    +'<div style="font-size:13px;color:var(--muted);margin-bottom:18px">'+esc(empNombre)+'</div>'    +'<label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:5px">FECHA DE LA FALTA</label>'    +'<input type="date" id="rfFecha" value="'+hoy+'" max="'+hoy+'" '    +'style="width:100%;padding:11px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:15px;font-family:inherit;box-sizing:border-box;margin-bottom:16px">'    +'<div style="display:flex;gap:8px">'    +'<button onclick="document.getElementById(\'reportarFaltaOverlay\').remove()" '    +'style="flex:1;padding:11px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--muted);font-size:14px;cursor:pointer;font-family:inherit">Cancelar</button>'    +'<button onclick="var f=document.getElementById(\'rfFecha\').value;document.getElementById(\'reportarFaltaOverlay\').remove();paAccionPersonalFalta(\''+empId+'\',\''+empNombre+'\',\''+empCargo+'\',f)" '    +'style="flex:1;padding:11px;background:#f85149;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">Continuar →</button>'    +'</div></div>';
-  document.body.appendChild(ov);
-}
-
-
-
 // ── Mapeo canónico de tipos de Acción de Personal (18 opciones FISDC) ──
 var PA_AP_TIPOS = {
   1:  { tipo:'RENUNCIA_VOLUNTARIA',    concepto:'Renuncia voluntaria' },
@@ -6733,24 +6562,6 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
 
 
 
-
-function paToggleEmpHist(empUid) {
-  var div = document.getElementById(empUid);
-  var btn = document.getElementById('btn_'+empUid);
-  if (!div) return;
-  var showing = div.style.display !== 'none';
-  div.style.display = showing ? 'none' : 'block';
-  if (btn) btn.textContent = showing ? '▼ Ver días' : '▲ Ocultar';
-}
-
-function paToggleDiaHist(diaUid) {
-  var div = document.getElementById(diaUid);
-  var ico = document.getElementById('ico_'+diaUid);
-  if (!div) return;
-  var showing = div.style.display !== 'none';
-  div.style.display = showing ? 'none' : 'block';
-  if (ico) ico.textContent = showing ? '›' : '∨';
-}
 
 function paEditarMarcacion(marcId) {
   var m = PA._marcacionesDetalle && PA._marcacionesDetalle[marcId];
@@ -9086,37 +8897,6 @@ function paCopiarHorDias(empId, entrada, salida, tol, alm) {
   paToast('Copiado a todos los dias laborables');
 }
 
-function paGuardarHorEmp(empId, empNombre) {
-  var entrada = (document.getElementById('hemp_'+empId+'_entrada')||{}).value||'';
-  var salida  = (document.getElementById('hemp_'+empId+'_salida') ||{}).value||'';
-  if (!entrada && !salida) { paToast('Ingresa al menos entrada y salida', true); return; }
-  var _tolVal  = parseInt((document.getElementById('hemp_'+empId+'_tol')||{}).value, 10);
-  var _almVal  = parseInt((document.getElementById('hemp_'+empId+'_alm')||{}).value, 10);
-  var _sabTol  = parseInt((document.getElementById('hemp_'+empId+'_sabTol')||{}).value, 10);
-  var horEmp = PA.horariosEmp || {};
-  horEmp[empId] = {
-    horaEntrada:        entrada,      // sin fallback — el admin debe ingresar un valor
-    horaSalida:         salida,       // sin fallback
-    minutosTolerancia:  isNaN(_tolVal) ? null : _tolVal,
-    minutosAlmuerzo:    isNaN(_almVal) ? null : _almVal,
-    // Sábado
-    trabajaSabado:      !!(document.getElementById('hemp_'+empId+'_trabSabado')||{}).checked,
-    sabadoEntrada:      (document.getElementById('hemp_'+empId+'_sabEntrada')||{}).value || null,
-    sabadoSalida:       (document.getElementById('hemp_'+empId+'_sabSalida') ||{}).value || null,
-    sabadoTolerancia:   isNaN(_sabTol) ? null : _sabTol,
-    // Domingo
-    trabajaDomingo:     !!(document.getElementById('hemp_'+empId+'_trabDomingo')||{}).checked
-  };
-  PA.horariosEmp = horEmp;
-  paDb.collection('paConfig').doc(PA.empresa).set({ horariosEmp: horEmp }, { merge: true })
-    .then(function(){
-      paToast('✅ Horario guardado para '+empNombre);
-      _paRecalcularHEPendientes([empId]);
-    })
-    .catch(function(e){ paToast('Error: '+e.message, true); });
-}
-
-
 // ── Asignar horario general a empleado específico ────────────────
 function paAplicarHorarioRol(empId, rolVal, empNombre, btn) {
   var horRol = PA.horario;
@@ -9292,7 +9072,7 @@ function _paAdminEmpsRender(content) {
 
     // Línea 3 — estado del período + alertas
     var _badgesEstado = _paBadgeTardanzas(_tardAcumEmp) + _paBadgeAusencias(_ausAcumEmp);
-    if (pendCount>0 && _empActivo) _badgesEstado += ' <span id="pendBadge'+eid+'" style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;background:rgba(248,81,73,.13);color:#f85149"><span style="width:7px;height:7px;border-radius:50%;background:#f85149;display:inline-block"></span>Pendiente</span>';
+    if (pendCount>0 && _empActivo) _badgesEstado += ' <span id="pendBadge'+eid+'" style="display:inline-flex;width:11px;height:11px;border-radius:50%;background:#f85149;flex-shrink:0" title="Tiene algo pendiente"></span>';
     if (!_empActivo) _badgesEstado += ' ' + _paPill('INACTIVO', '#f85149', '#fff');
     _badgesEstado += ' ' + _paPill('🏖️ ' + (emp.diasVacacionesDisponibles||15) + ' días vac.', 'var(--surface2)', 'var(--muted)');
     if (_badgesEstado.trim()) html += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:5px">' + _badgesEstado + '</div>';
@@ -9309,6 +9089,7 @@ function _paAdminEmpsRender(content) {
     html += '<button onclick="paToggleActivoEmp(\''+eid+'\')" style="padding:7px 10px;background:' + (_empActivo?'rgba(248,81,73,.12)':'rgba(46,160,67,.12)') + ';border:1px solid ' + (_empActivo?'rgba(248,81,73,.3)':'rgba(46,160,67,.3)') + ';color:' + (_empActivo?'#f85149':'#3fb950') + ';border-radius:8px;cursor:pointer;font-size:11px;font-family:inherit">' + (_empActivo?'⛔ Desactivar':'✅ Activar') + '</button>';
     if (devStatus === '📱 Vinculado') {
       html += '<button class="_btn-desvincul" data-empid="' + eid + '" data-nom="' + enom + '" style="padding:7px 10px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:8px;cursor:pointer;font-size:11px;font-family:inherit">🔌 Desvincular</button>';
+      html += '<button onclick="paForzarUpdateEmp(\''+eid+'\')" style="padding:7px 10px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:8px;cursor:pointer;font-size:11px;font-family:inherit">🔄 Forzar actualización</button>';
     }
     html += '</div>';
 
@@ -9733,10 +9514,13 @@ function paForzarUpdateEmp(empId) {
 
   paConfirm('¿Forzar actualización del portal en el próximo login de este empleado?', function(){
 
-  var docId = PA._pinsDocMap && PA._pinsDocMap[empId];
-  if (!docId) { paToast('No se encontró registro del empleado', true); return; }
-  paDb.collection('paPins').doc(docId)
-    .update({ requireUpdate: true })
+  paDb.collection('paPins').where('empresa','==',PA.empresa).where('empleadoId','==',empId).get()
+    .then(function(snap) {
+      if (snap.empty) { paToast('No se encontró registro del empleado', true); return; }
+      var batch = paDb.batch();
+      snap.forEach(function(d){ batch.update(d.ref, { requireUpdate: true }); });
+      return batch.commit();
+    })
     .then(function() {
       var emp = PA.empleados.find(function(e){ return e.id===empId; });
       paToast('✅ Al próximo login, '+(emp?emp.nombre:'el empleado')+' será forzado a actualizar.');
@@ -10015,13 +9799,6 @@ function paGenerarReporte() {
   }).catch(function(e) {
     if (rcontent) rcontent.innerHTML = '<div style="color:var(--red);padding:20px">Error: '+e.message+'</div>';
   });
-}
-
-function _hhmm(mins) {
-  if (!mins && mins !== 0) return '--';
-  var h = Math.floor(Math.abs(mins)/60);
-  var m = Math.round(Math.abs(mins)%60);
-  return h+'h '+(m<10?'0':'')+m+'min';
 }
 
 function paImprimirReporteHE() {
@@ -10994,7 +10771,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-08-I';
+var PA_VERSION = 'v2026-07-08-K';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
