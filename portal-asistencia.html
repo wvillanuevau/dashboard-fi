@@ -3526,25 +3526,39 @@ function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
           var _det = _bloque.map(function(t){
             return t.fecha + ' (' + t.mins + ' min, ' + Math.ceil(t.mins/60) + 'h)';
           }).join('; ');
-          paDb.collection('paAccionesPersonal').add({
-            empresa:        PA.empresa,
-            empleadoId:     empId,
-            empleadoNombre: salidaDocData.empleadoNombre,
-            cargo:          salidaDocData.cargo || '',
-            tipo:           'AMONESTACION_TARDANZA',
-            concepto:       'Amonestación por 4 tardanzas acumuladas en quincena',
-            justificacion:  'El empleado acumuló 4 tardanzas en la quincena del ' + _q.desde + ' al ' + _q.hasta + '. ' + _det + '. Total horas a descontar: ' + _totalHrs + 'h',
-            fecha:          hoy,
-            fechaEmision:   paHoy(),
-            totalTardanzas: 4,
-            horasDescuento: _totalHrs,
-            quincenaDesde:  _q.desde,
-            quincenaHasta:  _q.hasta,
-            diasDetalle:    _bloque,
-            opcionMarcada:  5,
-            estado:         'emitida',
-            origen:         'auto',
-            ts:             Date.now()
+          // Reclamo atómico antes de escribir — evita que dos ejecuciones
+          // casi simultáneas (doble tap, reintento de red) generen dos
+          // AP para el mismo empleado+quincena. Mismo patrón que ya
+          // se usa para las Faltas Injustificadas.
+          var _claimRef = paDb.collection('paApClaims').doc(empId + '_AMONTARD_' + _q.desde);
+          paDb.runTransaction(function(tx) {
+            return tx.get(_claimRef).then(function(claimDoc) {
+              if (claimDoc.exists) return false; // ya reclamado por otra ejecución
+              tx.set(_claimRef, { ts: Date.now(), tipo: 'AMONESTACION_TARDANZA', empleadoId: empId });
+              return true;
+            });
+          }).then(function(gano) {
+            if (!gano) return;
+            return paDb.collection('paAccionesPersonal').add({
+              empresa:        PA.empresa,
+              empleadoId:     empId,
+              empleadoNombre: salidaDocData.empleadoNombre,
+              cargo:          salidaDocData.cargo || '',
+              tipo:           'AMONESTACION_TARDANZA',
+              concepto:       'Amonestación por 4 tardanzas acumuladas en quincena',
+              justificacion:  'El empleado acumuló 4 tardanzas en la quincena del ' + _q.desde + ' al ' + _q.hasta + '. ' + _det + '. Total horas a descontar: ' + _totalHrs + 'h',
+              fecha:          hoy,
+              fechaEmision:   paHoy(),
+              totalTardanzas: 4,
+              horasDescuento: _totalHrs,
+              quincenaDesde:  _q.desde,
+              quincenaHasta:  _q.hasta,
+              diasDetalle:    _bloque,
+              opcionMarcada:  5,
+              estado:         'emitida',
+              origen:         'auto',
+              ts:             Date.now()
+            });
           }).catch(function(e){ console.warn('[AP 4ta Tardanza]', e.message); });
         }
       }).catch(function(e){ console.warn('[AP Tardanza check]', e.message); });
@@ -3933,44 +3947,41 @@ function paMostrarWarningTardanzas(tard) {
   // Si 4+ tardanzas: guardar AP real en Firestore (solo si no existe ya para esta quincena)
   if (es4plus && PA.empleado && paDb) {
     var q = _quincenaActual();
-    paDb.collection('paAccionesPersonal')
-      .where('empresa','==', PA.empresa)
-      .get()
-      .then(function(snap) {
-        // Filtro cliente: empleado + tipo + quincena
-        var yaExiste = snap.docs.some(function(d){
-          var r=d.data();
-          // Buscar el tipo actual (DESCUENTO_DIA_SEPTIMO) — no el tipo obsoleto (TARDANZAS)
-          return r.empleadoId===PA.empleado.id
-            && (r.tipo==='DESCUENTO_DIA_SEPTIMO' || r.tipo==='TARDANZAS')
-            && r.quincenaDesde===q.desde;
-        });
-        if (!yaExiste) {
-          paDb.collection('paAccionesPersonal').add({
-            empresa:        PA.empresa,
-            empleadoId:     PA.empleado.id,
-            empleadoNombre: PA.empleado.nombre,
-            cargo:          PA.empleado.cargo,
-            tipo:           'DESCUENTO_DIA_SEPTIMO',
-            concepto:       'Descuento de Día y Séptimo por tardanzas acumuladas',
-            justificacion:  'El empleado acumuló ' + tard.totalTard + ' llegadas tardías en la quincena del '
-              + q.desde + ' al ' + q.hasta + '. Conforme al reglamento interno, la 5ª tardanza genera '
-              + 'Descuento de Día y Séptimo. Total de horas descontadas por tardanzas: '
-              + (tard.totalDescHrs || 0).toFixed(2) + ' hrs.',
-            quincenaDesde:  q.desde,
-            quincenaHasta:  q.hasta,
-            totalTardanzas: tard.totalTard,
-            totalDescHrs:   tard.totalDescHrs,
-            diasDetalle:    tard.dias,
-            origenTardanzas: true,
-            fechaEmision:   paHoy(),
-            opcionMarcada:  7,
-            estado:         'emitida',
-            fechaEmision:   paHoy(),
-            ts:             Date.now()
-          }).catch(function(e){ console.warn('[AP Tardanza]', e.message); });
-        }
-      }).catch(function(e){ console.warn('[AP Tardanza check]', e.message); });
+    // Reclamo atómico antes de escribir — mismo patrón que ya se usa
+    // para Faltas Injustificadas y Amonestación por Tardanza, para
+    // evitar que dos ejecuciones casi simultáneas dupliquen la AP.
+    var _claimRefDS = paDb.collection('paApClaims').doc(PA.empleado.id + '_DIASEP_' + q.desde);
+    paDb.runTransaction(function(tx) {
+      return tx.get(_claimRefDS).then(function(claimDoc) {
+        if (claimDoc.exists) return false; // ya reclamado por otra ejecución
+        tx.set(_claimRefDS, { ts: Date.now(), tipo: 'DESCUENTO_DIA_SEPTIMO', empleadoId: PA.empleado.id });
+        return true;
+      });
+    }).then(function(gano) {
+      if (!gano) return;
+      return paDb.collection('paAccionesPersonal').add({
+        empresa:        PA.empresa,
+        empleadoId:     PA.empleado.id,
+        empleadoNombre: PA.empleado.nombre,
+        cargo:          PA.empleado.cargo,
+        tipo:           'DESCUENTO_DIA_SEPTIMO',
+        concepto:       'Descuento de Día y Séptimo por tardanzas acumuladas',
+        justificacion:  'El empleado acumuló ' + tard.totalTard + ' llegadas tardías en la quincena del '
+          + q.desde + ' al ' + q.hasta + '. Conforme al reglamento interno, la 5ª tardanza genera '
+          + 'Descuento de Día y Séptimo. Total de horas descontadas por tardanzas: '
+          + (tard.totalDescHrs || 0).toFixed(2) + ' hrs.',
+        quincenaDesde:  q.desde,
+        quincenaHasta:  q.hasta,
+        totalTardanzas: tard.totalTard,
+        totalDescHrs:   tard.totalDescHrs,
+        diasDetalle:    tard.dias,
+        origenTardanzas: true,
+        opcionMarcada:  7,
+        estado:         'emitida',
+        fechaEmision:   paHoy(),
+        ts:             Date.now()
+      });
+    }).catch(function(e){ console.warn('[AP Tardanza]', e.message); });
   }
 
   // Detalle de días
@@ -5021,8 +5032,19 @@ function _paVerificarFaltasAutomaticas() {
       paDb.collection('paMarcaciones').where('empresa','==',PA.empresa).where('fecha','==',hoy).get(),
       paDb.collection('paIncapacidades').where('empresa','==',PA.empresa).limit(500).get(),
       paDb.collection('paAccionesPersonal').where('empresa','==',PA.empresa).where('tipo','==','FALTA_INJUSTIFICADA').where('fecha','==',hoy).get(),
-      paDb.collection('paCanjes').where('empresa','==',PA.empresa).where('esCompensatorio','==',true).get()
+      paDb.collection('paCanjes').where('empresa','==',PA.empresa).where('esCompensatorio','==',true).get(),
+      // Estado activo/inactivo FRESCO — no confiar en PA.empleados, que puede
+      // estar desactualizado si el dispositivo lleva rato abierto sin recargar
+      // (por ejemplo, si alguien fue desactivado después de que este dispositivo
+      // cargó la lista). Esto causaba que se generaran faltas para gente ya
+      // desactivada, porque el filtro usaba el snapshot viejo en memoria.
+      paDb.collection('portalesPublicos').doc(PA.empresa).get()
     ]).then(function(res) {
+      var activoFrescoPorEmp = {};
+      if (res[4] && res[4].exists) {
+        var _tecnicosFrescos = (res[4].data() || {}).tecnicos || [];
+        _tecnicosFrescos.forEach(function(t){ activoFrescoPorEmp[t.id] = (t.activo !== false); });
+      }
       var marcaronHoy = {};
       res[0].forEach(function(d) {
         var _r = d.data();
@@ -5054,7 +5076,12 @@ function _paVerificarFaltasAutomaticas() {
       var generadas = 0;
       var pendientesEscritura = [];
 
-      (PA.empleados || []).filter(function(e){ return e.activo !== false; }).forEach(function(emp) {
+      (PA.empleados || []).filter(function(e){
+        // Usar el estado activo FRESCO recién leído si está disponible;
+        // si por algo no se pudo leer, caer al valor en memoria como respaldo.
+        var fresco = activoFrescoPorEmp[e.id];
+        return fresco !== undefined ? fresco : (e.activo !== false);
+      }).forEach(function(emp) {
         if (marcaronHoy[emp.id]) return;          // sí marcó
         if (incapacitadosHoy[emp.id]) return;      // tiene incapacidad
         if (compensatorioHoy[emp.id]) return;      // tiene día compensatorio asignado hoy
@@ -10771,7 +10798,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-08-K';
+var PA_VERSION = 'v2026-07-08-M';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
