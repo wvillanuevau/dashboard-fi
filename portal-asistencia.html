@@ -5330,7 +5330,7 @@ function paAdminTab(tab) {
 }
 
 // ── Render de paAdminHoy — llamado por cada onSnapshot ────────
-function _paAdminHoyRender(snap, snapInc, content, hoy, snapCanjes, snapHE) {
+function _paAdminHoyRender(snap, snapInc, content, hoy, snapCanjes, snapHE, snapVac, snapFaltas) {
   // Los listeners en tiempo real de Hoy pueden disparar esta función
   // después de que el usuario ya cambió de pestaña — si ya no estamos
   // en Hoy, no pintar este contenido encima de la pestaña actual.
@@ -5421,13 +5421,32 @@ function _paAdminHoyRender(snap, snapInc, content, hoy, snapCanjes, snapHE) {
       return _hor && _hor.horaEntrada && _hor.trabaja !== false;
     });
     if (_sinMarcHoy.length > 0) {
-      // Compensatorios asignados/aprobados para hoy
-      var _compHoyPorEmp = {};
+      // Compensatorios Y canjes normales asignados/aprobados para hoy
+      // (antes solo entraban los compensatorios; un canje normal
+      // aprobado no se distinguía y el empleado seguía viéndose "sin
+      // justificación").
+      var _compHoyPorEmp = {}, _canjeHoyPorEmp = {};
       (snapCanjes || {forEach:function(){}}).forEach(function(d){
         var r = d.data();
         if ((r.estado === 'asignado' || r.estado === 'aprobado') && r.fechaLibre === hoy) {
-          _compHoyPorEmp[r.empleadoId] = true;
+          if (r.esCompensatorio) _compHoyPorEmp[r.empleadoId] = true;
+          else _canjeHoyPorEmp[r.empleadoId] = true;
         }
+      });
+      // Vacaciones aprobadas que cubren el día de hoy
+      var _vacHoyPorEmp = {};
+      (snapVac || {forEach:function(){}}).forEach(function(d){
+        var r = d.data();
+        if (r.fechaInicio && r.fechaFin && hoy >= r.fechaInicio && hoy <= r.fechaFin) {
+          _vacHoyPorEmp[r.empleadoId] = true;
+        }
+      });
+      // Faltas Injustificadas que YA se registraron para hoy (manual o
+      // automáticamente) — si ya existe, no tiene sentido seguir
+      // mostrando "sin justificación" como si nadie hubiera hecho nada.
+      var _faltaYaPorEmp = {};
+      (snapFaltas || {forEach:function(){}}).forEach(function(d){
+        _faltaYaPorEmp[d.data().empleadoId] = true;
       });
       // Incapacidades y permisos especiales — activos o para hoy
       var _incapPorEmp = {}, _permisoPorEmp = {};
@@ -5449,8 +5468,14 @@ function _paAdminHoyRender(snap, snapInc, content, hoy, snapCanjes, snapHE) {
       _sinMarcHoy.sort(function(a,b){ return (a.nombre||'').localeCompare(b.nombre||'','es',{sensitivity:'base'}); });
       _sinMarcHoy.forEach(function(emp) {
         var estadoHtml, borderColor, bgColor;
-        if (_compHoyPorEmp[emp.id]) {
+        if (_vacHoyPorEmp[emp.id]) {
+          estadoHtml = '🏖️ Vacaciones aprobadas';
+          borderColor = 'rgba(232,160,32,.35)'; bgColor = 'rgba(232,160,32,.08)';
+        } else if (_compHoyPorEmp[emp.id]) {
           estadoHtml = '🗓️ Libre por compensatorio de turno pasado';
+          borderColor = 'rgba(31,111,67,.3)'; bgColor = 'rgba(31,111,67,.06)';
+        } else if (_canjeHoyPorEmp[emp.id]) {
+          estadoHtml = '🔄 Libre por canje de horas aprobado';
           borderColor = 'rgba(31,111,67,.3)'; bgColor = 'rgba(31,111,67,.06)';
         } else if (_incapPorEmp[emp.id] !== undefined) {
           var _df = _incapPorEmp[emp.id];
@@ -5460,6 +5485,9 @@ function _paAdminHoyRender(snap, snapInc, content, hoy, snapCanjes, snapHE) {
           var _tp = _permisoPorEmp[emp.id] === 'entrada_tardia' ? 'entrada tardía' : 'salida temprano';
           estadoHtml = '🕐 Permiso especial (' + _tp + ') para hoy';
           borderColor = 'rgba(130,80,223,.3)'; bgColor = 'rgba(130,80,223,.06)';
+        } else if (_faltaYaPorEmp[emp.id]) {
+          estadoHtml = '📋 Falta injustificada ya registrada';
+          borderColor = 'rgba(248,81,73,.3)'; bgColor = 'rgba(248,81,73,.06)';
         } else {
           estadoHtml = '🚫 Sin registro de entrada — sin justificación';
           borderColor = 'rgba(248,81,73,.3)'; bgColor = 'rgba(248,81,73,.06)';
@@ -5528,15 +5556,15 @@ function paAdminHoy(content) {
   content.innerHTML = '<div class="spinner"></div>';
   _paUnsubscribeHoy();
 
-  var _latestMarc = null, _latestInc = null, _latestCanjes = null, _latestHE = null, _pending = false;
+  var _latestMarc = null, _latestInc = null, _latestCanjes = null, _latestHE = null, _latestVac = null, _latestFaltas = null, _pending = false;
 
   function _tryRender() {
-    if (!_latestMarc || !_latestInc || !_latestCanjes || !_latestHE) return;
+    if (!_latestMarc || !_latestInc || !_latestCanjes || !_latestHE || !_latestVac || !_latestFaltas) return;
     if (_pending) return;
     _pending = true;
     requestAnimationFrame(function() {
       _pending = false;
-      _paAdminHoyRender(_latestMarc, _latestInc, content, hoy, _latestCanjes, _latestHE);
+      _paAdminHoyRender(_latestMarc, _latestInc, content, hoy, _latestCanjes, _latestHE, _latestVac, _latestFaltas);
     });
   }
 
@@ -5563,9 +5591,11 @@ function paAdminHoy(content) {
       }
     );
 
+  // Todos los canjes (compensatorios Y canjes normales de horas extra) —
+  // antes solo traía los compensatorios, así que un canje normal
+  // aprobado para hoy no se reflejaba en el estado del empleado.
   var _u3 = paDb.collection('paCanjes')
     .where('empresa', '==', PA.empresa)
-    .where('esCompensatorio', '==', true)
     .onSnapshot(
       function(snapC) { _latestCanjes = snapC; _tryRender(); },
       function(err) {
@@ -5587,7 +5617,32 @@ function paAdminHoy(content) {
       }
     );
 
-  PA._hoyUnsubs = [_u1, _u2, _u3, _u4];
+  var _u5 = paDb.collection('paVacaciones')
+    .where('empresa', '==', PA.empresa)
+    .where('estado', '==', 'aprobada')
+    .onSnapshot(
+      function(snapVac) { _latestVac = snapVac; _tryRender(); },
+      function(err) {
+        console.warn('[Hoy/vac]', err.message);
+        if (!_latestVac) _latestVac = { forEach: function(){}, docs: [], size: 0 };
+        _tryRender();
+      }
+    );
+
+  var _u6 = paDb.collection('paAccionesPersonal')
+    .where('empresa', '==', PA.empresa)
+    .where('tipo', '==', 'FALTA_INJUSTIFICADA')
+    .where('fecha', '==', hoy)
+    .onSnapshot(
+      function(snapFaltas) { _latestFaltas = snapFaltas; _tryRender(); },
+      function(err) {
+        console.warn('[Hoy/faltas]', err.message);
+        if (!_latestFaltas) _latestFaltas = { forEach: function(){}, docs: [], size: 0 };
+        _tryRender();
+      }
+    );
+
+  PA._hoyUnsubs = [_u1, _u2, _u3, _u4, _u5, _u6];
 }
 
 
@@ -10798,7 +10853,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-08-M';
+var PA_VERSION = 'v2026-07-08-N';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
