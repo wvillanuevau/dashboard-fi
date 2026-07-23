@@ -6,31 +6,28 @@
 <title>Cronograma de Proyectos — Panel de Control</title>
 <style>
   :root{
-    --paper:#EEF0F3;
-    --paper-line:#C7D1DB;
-    --ink:#1B2A41;
-    --ink-soft:#4C5C72;
-    --amber:#D4A017;
-    --amber-bg:#FBF0D6;
+    --paper:#F4F5F7;
+    --paper-line:#E2E5EA;
+    --ink:#182230;
+    --ink-soft:#5A6676;
+    --amber:#B7791F;
+    --amber-bg:#FDF3E1;
     --red:#B0392A;
-    --red-bg:#F7E2DE;
-    --green:#3F7D58;
-    --green-bg:#DEEEE4;
-    --blue:#2E6E9E;
-    --blue-bg:#DCEAF3;
+    --red-bg:#FBEAE7;
+    --green:#2F7A52;
+    --green-bg:#E3F2E9;
+    --blue:#2A5F8F;
+    --blue-bg:#E4EEF6;
     --card:#FFFFFF;
-    --border:#D6DCE3;
-    --radius:10px;
+    --border:#E3E6EB;
+    --radius:12px;
+    --shadow:0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.04);
   }
   *{box-sizing:border-box;}
   body{
     margin:0; background:var(--paper); color:var(--ink);
-    font-family:'IBM Plex Sans',Arial,sans-serif;
-    background-image:
-      linear-gradient(var(--paper-line) 1px, transparent 1px),
-      linear-gradient(90deg, var(--paper-line) 1px, transparent 1px);
-    background-size:28px 28px;
-    background-attachment:fixed;
+    font-family:'IBM Plex Sans','Segoe UI',Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
   }
   .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 60px;}
 
@@ -70,33 +67,51 @@
 
   .titleblock{
     background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
-    padding:18px 24px;margin-bottom:20px;
+    padding:20px 24px;margin-bottom:20px;box-shadow:var(--shadow);
+    border-top:3px solid var(--ink);
     display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;
   }
   .titleblock h1{margin:0;font-size:21px;letter-spacing:0.3px;font-weight:600;}
   .titleblock .sub{font-size:12.5px;color:var(--ink-soft);margin-top:3px;}
   .titleblock input#projName{
     font-size:21px;font-weight:600;border:none;background:transparent;color:var(--ink);
-    border-bottom:1px dashed var(--paper-line);padding:2px 0;width:340px;
+    border-bottom:1px dashed transparent;padding:2px 0;width:340px;
   }
+  .titleblock input#projName:hover{border-bottom-color:var(--paper-line);}
+  .titleblock input#projName:focus{outline:none;border-bottom-color:var(--blue);}
   .stamp{
-    border:2px solid var(--ink);border-radius:6px;padding:8px 14px;font-size:11px;
-    color:var(--ink-soft);text-align:right;line-height:1.5;
+    font-size:11.5px;color:var(--ink-soft);text-align:right;line-height:1.7;
   }
-  .stamp b{color:var(--ink);}
+  .stamp b{color:var(--ink);font-weight:600;}
 
   .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px;}
-  .kpi{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;}
-  .kpi .label{font-size:11.5px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.5px;}
+  .kpi{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow);border-top:3px solid var(--border);}
+  .kpi .label{font-size:11px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
   .kpi .value{font-size:26px;font-weight:600;margin-top:4px;}
-  .kpi.crit .value{color:var(--red);}
-  .kpi.ok .value{color:var(--green);}
-  .kpi.mid .value{color:var(--amber);}
-  .kpi.blue .value{color:var(--blue);}
+  .kpi.crit{border-top-color:var(--red);}   .kpi.crit .value{color:var(--red);}
+  .kpi.ok{border-top-color:var(--green);}   .kpi.ok .value{color:var(--green);}
+  .kpi.mid{border-top-color:var(--amber);}  .kpi.mid .value{color:var(--amber);}
+  .kpi.blue{border-top-color:var(--blue);}  .kpi.blue .value{color:var(--blue);}
 
   .charts{display:grid;grid-template-columns:1fr 1.4fr;gap:16px;margin-bottom:20px;}
-  .panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;}
-  .panel h3{margin:0 0 14px;font-size:13.5px;font-weight:600;color:var(--ink);text-transform:uppercase;letter-spacing:0.4px;}
+  .panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;box-shadow:var(--shadow);}
+  .panel h3{margin:0 0 14px;font-size:12.5px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.7px;}
+
+  /* Selección fácil de fechas: pasos de días y fechas calculadas */
+  .durwrap{display:flex;align-items:center;gap:3px;}
+  .stepbtn{
+    width:26px;height:26px;border:1px solid var(--border);background:var(--card);
+    border-radius:7px;cursor:pointer;font-size:15px;font-weight:700;color:var(--ink-soft);
+    line-height:1;padding:0;flex-shrink:0;
+  }
+  .stepbtn:hover{background:var(--blue-bg);color:var(--blue);border-color:var(--blue);}
+  .durinput{width:42px;text-align:center;border:1px solid transparent;background:transparent;font-size:13px;font-weight:600;color:var(--ink);border-radius:5px;padding:4px 2px;}
+  .durinput:hover{border-color:var(--border);}
+  .durinput:focus{border-color:var(--blue);outline:none;background:#fff;}
+  .datecell{cursor:pointer;white-space:nowrap;font-size:12px;color:var(--ink);}
+  .datecell:hover .dtxt{color:var(--blue);text-decoration:underline dotted;}
+  .datecell .pinbtn{margin-left:5px;cursor:pointer;font-size:11px;opacity:.85;}
+  .datecell .dhint{color:var(--ink-soft);font-size:10.5px;display:block;}
   .donutwrap{display:flex;align-items:center;gap:20px;}
   .legend{font-size:12.5px;}
   .legend div{display:flex;align-items:center;gap:7px;margin-bottom:7px;}
@@ -171,9 +186,39 @@
   .addrow{padding:8px 10px;font-size:12px;color:var(--blue);cursor:pointer;background:var(--paper);}
   .note{font-size:11.5px;color:var(--ink-soft);margin-top:20px;line-height:1.6;border-top:1px dashed var(--paper-line);padding-top:14px;}
   .emptyhint{font-size:12px;color:var(--ink-soft);padding:14px;background:var(--card);border:1px dashed var(--border);border-radius:8px;text-align:center;}
+  .tblscroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
   @media(max-width:900px){
     .kpis{grid-template-columns:repeat(2,1fr);}
     .charts{grid-template-columns:1fr;}
+  }
+  @media(max-width:640px){
+    .wrap{padding:14px 10px 50px;}
+    /* Barra de proyectos: selector a lo ancho, botones táctiles */
+    .projectbar{gap:6px;}
+    .projectbar select{width:100%;font-size:16px;padding:10px;}
+    .projectbar button{flex:1;min-width:calc(50% - 6px);padding:10px 6px;font-size:12px;}
+    /* Título y sello apilados */
+    .titleblock{flex-direction:column;align-items:stretch;gap:8px;}
+    .titleblock .stamp{text-align:left;}
+    #projName{font-size:18px;width:100%;}
+    /* KPIs más compactos */
+    .kpis{gap:8px;}
+    .kpi{padding:10px;}
+    .kpi .value{font-size:20px;}
+    /* Dona apilada */
+    .donutwrap{flex-direction:column;gap:10px;}
+    /* Gantt: nombre más angosto para dejar espacio a las barras */
+    .grow .gname{width:110px;font-size:10.5px;}
+    /* Tablas: scroll horizontal en vez de aplastar columnas */
+    .tblscroll table{min-width:680px;}
+    /* Inputs a 16px — evita que iPhone haga zoom automático al tocar */
+    input.cellinput, select.cellinput, textarea.nametxt{font-size:16px;}
+    table{font-size:14px;}
+    td{padding:8px 10px;}
+    /* Toolbar táctil */
+    .toolbar button{padding:10px 12px;font-size:13px;}
+    /* Encabezados de fase pegajosos al hacer scroll dentro de la tabla */
+    .fasehead{position:sticky;top:0;z-index:5;}
   }
 </style>
 </head>
@@ -250,7 +295,7 @@
     <label class="filebtn">Cargar respaldo (JSON)
       <input type="file" id="importFile" accept="application/json" onchange="importJSON(event)">
     </label>
-    <button onclick="recalcularFechas()">Recalcular fechas sugeridas</button>
+    <button onclick="resetFechas()" title="Vuelve todas las fechas a automáticas (quita las fijadas) y recalcula toda la cascada">↺ Recalcular todo</button>
     <button onclick="window.print()">Imprimir / PDF</button>
   </div>
 
@@ -421,6 +466,18 @@ function deleteProject(){
 }
 
 /* ============ FECHAS Y ESTADO ============ */
+function fmtDM(f){
+  if(!f) return "—";
+  var m=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+  var p=f.split("-");
+  if(p.length<3) return f;
+  return parseInt(p[2],10)+" "+(m[parseInt(p[1],10)-1]||"");
+}
+function resetFechas(){
+  // Quita todas las anclas manuales y recalcula todo desde cero
+  currentProject().actividades.forEach(function(a){ a.fijo=false; });
+  recalcularFechas();
+}
 function recalcularFechas(){
   var p=currentProject();
   var start = p.inicio || todayStr();
@@ -430,8 +487,15 @@ function recalcularFechas(){
       var depAct = p.actividades.find(function(x){return x.id===depId;});
       if(depAct && depAct.fin && depAct.fin > maxDepEnd) maxDepEnd = depAct.fin;
     });
-    a.inicio = maxDepEnd;
-    a.fin = addDays(maxDepEnd, a.dur);
+    // Fecha anclada manualmente (📌): se respeta el inicio que el usuario
+    // fijó; solo se recalcula su fin según la duración. Las automáticas
+    // siguen la cascada de dependencias como siempre.
+    if(a.fijo && a.inicio){
+      a.fin = addDays(a.inicio, a.dur);
+    } else {
+      a.inicio = maxDepEnd;
+      a.fin = addDays(maxDepEnd, a.dur);
+    }
   });
   markEdited();
   renderAll();
@@ -537,7 +601,7 @@ function renderGantt(){
   var acts=currentProject().actividades;
   var dated = acts.filter(function(a){return a.inicio && a.fin;});
   var host=document.getElementById("ganttChart");
-  if(dated.length===0){host.innerHTML='<p style="font-size:12px;color:var(--ink-soft)">Agrega actividades y pulsa "Recalcular fechas sugeridas" para generar el Gantt.</p>';document.getElementById("ganttRange").textContent="";return;}
+  if(dated.length===0){host.innerHTML='<p style="font-size:12px;color:var(--ink-soft)">Agrega actividades y pulsa "↺ Recalcular todo" para generar el Gantt.</p>';document.getElementById("ganttRange").textContent="";return;}
   var minD = dated.reduce(function(m,a){return a.inicio<m?a.inicio:m;},dated[0].inicio);
   var maxD = dated.reduce(function(m,a){return a.fin>m?a.fin:m;},dated[0].fin);
   var totalDays = (new Date(maxD)-new Date(minD))/86400000 || 1;
@@ -647,6 +711,7 @@ function renderTable(){
     head.className="fasehead";
     head.innerHTML='<span>'+(FASE_NOMBRE[f]||("Fase "+f))+'</span><span style="font-weight:400;font-size:11px;opacity:0.8">'+facts.length+' actividades</span><span class="arrow">▾</span>';
     var tblWrap=document.createElement("div");
+    tblWrap.className="tblscroll";
     (function(tblWrap,head){
       head.onclick=function(){
         head.classList.toggle("collapsed");
@@ -655,7 +720,7 @@ function renderTable(){
     })(tblWrap,head);
     var tbl=document.createElement("table");
     tbl.innerHTML = '<thead><tr><th style="width:250px">Actividad</th><th style="width:9%">Prioridad</th><th style="width:12%">Responsable</th>'+
-      '<th style="width:10%">Inicio</th><th style="width:10%">Fin</th><th style="width:8%">Avance</th><th style="width:9%">Estado</th><th style="width:24px"></th></tr></thead>';
+      '<th style="width:104px">Días</th><th style="width:150px">Fechas</th><th style="width:8%">Avance</th><th style="width:9%">Estado</th><th style="width:24px"></th></tr></thead>';
     var tbody=document.createElement("tbody");
     facts.forEach(function(a){
       var st = calcStatus(a);
@@ -667,8 +732,12 @@ function renderTable(){
           ['Critica','Alta','Media'].map(function(pr){return '<option value="'+pr+'" '+(a.prioridad===pr?'selected':'')+'>'+(pr==='Critica'?'Crítica':pr)+'</option>';}).join('')+
         '</select></td>'+
         '<td><select class="cellinput" data-id="'+a.id+'" data-field="resp">'+respOptions(a.resp)+'</select></td>'+
-        '<td><input class="cellinput" type="date" value="'+(a.inicio||'')+'" data-id="'+a.id+'" data-field="inicio"></td>'+
-        '<td><input class="cellinput" type="date" value="'+(a.fin||'')+'" data-id="'+a.id+'" data-field="fin"></td>'+
+        '<td><div class="durwrap"><button class="stepbtn" data-stepid="'+a.id+'" data-step="-1" title="Un día menos">−</button>'+
+        '<input class="durinput" type="number" min="0" value="'+(a.dur||0)+'" data-id="'+a.id+'" data-field="dur">'+
+        '<button class="stepbtn" data-stepid="'+a.id+'" data-step="1" title="Un día más">+</button></div></td>'+
+        '<td class="datecell" data-dateid="'+a.id+'"><span class="dtxt">'+fmtDM(a.inicio)+' → '+fmtDM(a.fin)+'</span>'+
+        (a.fijo?'<span class="pinbtn" data-pinid="'+a.id+'" title="Fecha fija — toca para volver a automática">📌</span>':'')+
+        '<span class="dhint">'+(a.fijo?'fecha fija':'automática — toca para fijar')+'</span></td>'+
         '<td><input class="cellinput" type="number" min="0" max="100" value="'+a.avance+'" data-id="'+a.id+'" data-field="avance" style="width:55px"></td>'+
         '<td><span class="statustag '+st+'">'+({Pendiente:"Pendiente",Encurso:"En curso",Completado:"Completado",Atrasado:"Atrasado"}[st])+'</span></td>'+
         '<td><button class="delbtn" onclick="deleteActivity('+a.id+')" title="Eliminar">✕</button></td>';
@@ -692,9 +761,56 @@ function renderTable(){
       var act=currentProject().actividades.find(function(a){return a.id===id;});
       if(!act)return;
       if(field==="avance") act[field]=Math.max(0,Math.min(100,parseInt(this.value)||0));
+      else if(field==="dur"){
+        act.dur=Math.max(0,parseInt(this.value)||0);
+        recalcularFechas(); // recalcula en cascada las que dependen de esta
+        return;
+      }
       else act[field]=this.value;
       markEdited();
       renderKPIs();renderDonut();renderPhaseBars();renderGantt();renderTable();
+    });
+  });
+  // Botones − / + de días: un toque ajusta y recalcula la cascada completa
+  host.querySelectorAll("[data-stepid]").forEach(function(btn){
+    btn.addEventListener("click",function(){
+      var id=parseInt(this.dataset.stepid);
+      var act=currentProject().actividades.find(function(a){return a.id===id;});
+      if(!act)return;
+      act.dur=Math.max(0,(act.dur||0)+parseInt(this.dataset.step));
+      recalcularFechas();
+    });
+  });
+  // Pin: soltar una fecha fijada → vuelve a calcularse automática
+  host.querySelectorAll("[data-pinid]").forEach(function(pin){
+    pin.addEventListener("click",function(ev){
+      ev.stopPropagation();
+      var id=parseInt(this.dataset.pinid);
+      var act=currentProject().actividades.find(function(a){return a.id===id;});
+      if(!act)return;
+      act.fijo=false;
+      recalcularFechas();
+    });
+  });
+  // Toque en la fecha: caso excepcional — fijar un inicio manual concreto
+  host.querySelectorAll("[data-dateid]").forEach(function(cell){
+    cell.addEventListener("click",function(){
+      if (this.querySelector('input')) return; // ya está en modo edición
+      var id=parseInt(this.dataset.dateid);
+      var act=currentProject().actividades.find(function(a){return a.id===id;});
+      if(!act)return;
+      var inp=document.createElement("input");
+      inp.type="date"; inp.className="cellinput"; inp.value=act.inicio||todayStr();
+      this.innerHTML=""; this.appendChild(inp);
+      inp.focus();
+      try{ if(inp.showPicker) inp.showPicker(); }catch(e){}
+      inp.addEventListener("change",function(){
+        if(!this.value){ renderTable(); return; }
+        act.inicio=this.value;
+        act.fijo=true; // anclada: recalcularFechas la respeta
+        recalcularFechas();
+      });
+      inp.addEventListener("blur",function(){ setTimeout(function(){ renderTable(); },150); });
     });
   });
   host.querySelectorAll("textarea.nametxt").forEach(function(ta){
