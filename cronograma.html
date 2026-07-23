@@ -206,7 +206,7 @@
     </div>
     <div class="stamp">
       <div><b>Fecha inicio proyecto:</b> <input type="date" id="projStart" style="border:none;background:transparent;font-size:11px;color:var(--ink);" onchange="onStartEdit()"></div>
-      <div><b>Última edición:</b> <span id="lastEdit">—</span></div>
+      <div><b>Última edición:</b> <span id="lastEdit">—</span> &nbsp; <span id="syncBadge" style="font-size:12px;font-weight:600"></span></div>
     </div>
   </div>
 
@@ -262,6 +262,8 @@
 
 </div>
 
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script>
 var ACCESS_CODE = "OBRA2026";
 
@@ -434,7 +436,26 @@ function recalcularFechas(){
   markEdited();
   renderAll();
 }
-function markEdited(){ document.getElementById("lastEdit").textContent = new Date().toLocaleString('es-SV'); }
+function markEdited(){
+  document.getElementById("lastEdit").textContent = new Date().toLocaleString('es-SV');
+  saveLocal();
+  saveCloud();
+}
+function saveLocal(){
+  try{
+    localStorage.setItem("cronograma_state_v1", JSON.stringify(STATE));
+  }catch(e){ /* almacenamiento no disponible en este entorno (ej. vista previa de Claude.ai) */ }
+}
+function loadLocal(){
+  try{
+    var raw = localStorage.getItem("cronograma_state_v1");
+    if(raw){
+      var data = JSON.parse(raw);
+      if(data && data.projects && data.activeProjectId) return data;
+    }
+  }catch(e){ /* almacenamiento no disponible en este entorno */ }
+  return null;
+}
 function calcStatus(a){
   var t = todayStr();
   if(a.avance>=100) return "Completado";
@@ -741,10 +762,129 @@ function checkGate(){
 }
 document.getElementById("gateInput").addEventListener("keydown",function(e){if(e.key==="Enter")checkGate();});
 
+/* ============ FIREBASE (sincronización de equipo) ============ */
+// Mismo proyecto Firebase que los demás sistemas (pf-construccion).
+// Todo el estado se guarda como UN documento: cronogramas/estado.
+// - Al abrir: se carga desde la nube (si existe); si no, usa lo local.
+// - Al editar: se guarda automático 0.8s después del último cambio.
+// - En tiempo real: si un compañero guarda, tu pantalla se actualiza sola.
+var fbDb = null;
+var _writeId = null;         // identifica NUESTRA última escritura (para ignorar el eco)
+var _saveTimer = null;
+var _fbListo = false;
+
+try {
+  var _fbApp = firebase.initializeApp({
+    apiKey:"AIzaSyC0R7573cB76FzC6qPZhLmvKhVT46PN3RM",
+    authDomain:"pf-construccion.firebaseapp.com",
+    projectId:"pf-construccion",
+    storageBucket:"pf-construccion.firebasestorage.app",
+    messagingSenderId:"768666711160",
+    appId:"1:768666711160:web:11dfd8cf50ab19dddc298d"
+  }, 'cronograma');
+  fbDb = firebase.firestore(_fbApp);
+} catch(e) {
+  console.warn('[Firebase] no disponible, modo solo-local:', e.message);
+}
+
+function _syncBadge(estado) {
+  var el = document.getElementById('syncBadge');
+  if (!el) return;
+  var m = {
+    ok:       ['#3F7D58', '● Sincronizado'],
+    saving:   ['#D4A017', '● Guardando…'],
+    offline:  ['#B0392A', '● Sin conexión — cambios solo en este dispositivo'],
+    local:    ['#4C5C72', '● Modo local (sin Firebase)']
+  }[estado] || ['#4C5C72', ''];
+  el.style.color = m[0];
+  el.textContent = m[1];
+}
+
+function saveCloud() {
+  if (!fbDb) { _syncBadge('local'); return; }
+  clearTimeout(_saveTimer);
+  _syncBadge('saving');
+  _saveTimer = setTimeout(function(){
+    _writeId = 'w_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
+    fbDb.collection('cronogramas').doc('estado').set({
+      json: JSON.stringify(STATE),
+      ts: Date.now(),
+      writeId: _writeId
+    }).then(function(){ _syncBadge('ok'); })
+      .catch(function(e){ console.warn('[Firebase] guardar:', e.message); _syncBadge('offline'); });
+  }, 800);
+}
+
+function _startCloudListener() {
+  if (!fbDb) return;
+  fbDb.collection('cronogramas').doc('estado').onSnapshot(function(doc){
+    if (!doc.exists) return;
+    var r = doc.data();
+    if (r.writeId && r.writeId === _writeId) { _syncBadge('ok'); return; } // es nuestro propio eco
+    try {
+      var remoto = JSON.parse(r.json);
+      if (remoto && remoto.projects && remoto.activeProjectId) {
+        // Conservar el proyecto que el usuario está viendo si aún existe
+        var viendo = STATE && STATE.activeProjectId;
+        STATE = remoto;
+        if (viendo && STATE.projects[viendo]) STATE.activeProjectId = viendo;
+        renderProjectSelect();
+        loadProjectIntoHeader();
+        renderAll();
+        saveLocal(); // cache local como respaldo
+        _syncBadge('ok');
+      }
+    } catch(e){ console.warn('[Firebase] datos remotos inválidos:', e.message); }
+  }, function(err){
+    console.warn('[Firebase] listener:', err.message);
+    _syncBadge('offline');
+  });
+}
+
 function init(){
-  renderProjectSelect();
-  loadProjectIntoHeader();
-  recalcularFechas();
+  if (fbDb) {
+    _syncBadge('saving');
+    fbDb.collection('cronogramas').doc('estado').get().then(function(doc){
+      if (doc.exists) {
+        try {
+          var remoto = JSON.parse(doc.data().json);
+          if (remoto && remoto.projects && remoto.activeProjectId) STATE = remoto;
+        } catch(e){ console.warn('[Firebase] estado inválido, usando local'); var l1=loadLocal(); if(l1) STATE=l1; }
+      } else {
+        // Primera vez: si hay algo local, súbelo como punto de partida
+        var l2 = loadLocal();
+        if (l2) STATE = l2;
+        saveCloud();
+      }
+      renderProjectSelect();
+      loadProjectIntoHeader();
+      renderAll();
+      _syncBadge('ok');
+      _startCloudListener();
+    }).catch(function(e){
+      console.warn('[Firebase] carga inicial:', e.message);
+      _syncBadge('offline');
+      _initLocal();
+      _startCloudListener(); // si vuelve la conexión, el listener sincroniza
+    });
+  } else {
+    _syncBadge('local');
+    _initLocal();
+  }
+}
+
+function _initLocal(){
+  var loaded = loadLocal();
+  if(loaded){
+    STATE = loaded;
+    renderProjectSelect();
+    loadProjectIntoHeader();
+    renderAll();
+  } else {
+    renderProjectSelect();
+    loadProjectIntoHeader();
+    recalcularFechas();
+  }
 }
 </script>
 </body>
