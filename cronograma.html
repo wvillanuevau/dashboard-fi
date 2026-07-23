@@ -94,7 +94,7 @@
   .kpi.blue{border-top-color:var(--blue);}  .kpi.blue .value{color:var(--blue);}
 
   .charts{display:grid;grid-template-columns:1fr 1.4fr;gap:16px;margin-bottom:20px;}
-  .panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;box-shadow:var(--shadow);}
+  .panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;box-shadow:var(--shadow);overflow:hidden;}
   .panel h3{margin:0 0 14px;font-size:12.5px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.7px;}
 
   /* Selección fácil de fechas: pasos de días y fechas calculadas */
@@ -122,7 +122,7 @@
   .barrow .fill{height:100%;background:var(--blue);}
   .barrow .pct{width:40px;text-align:right;font-size:12px;font-weight:600;}
 
-  .gantt{overflow-x:auto;}
+  .gantt{overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:8px;}
   .gtitle{font-size:12px;color:var(--ink-soft);margin-bottom:10px;}
   .grow{display:flex;align-items:center;height:26px;font-size:11.5px;}
   .grow .gname{width:230px;flex-shrink:0;padding-right:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink-soft);}
@@ -198,27 +198,69 @@
     .projectbar select{width:100%;font-size:16px;padding:10px;}
     .projectbar button{flex:1;min-width:calc(50% - 6px);padding:10px 6px;font-size:12px;}
     /* Título y sello apilados */
-    .titleblock{flex-direction:column;align-items:stretch;gap:8px;}
+    .titleblock{flex-direction:column;align-items:stretch;gap:8px;padding:14px 16px;}
     .titleblock .stamp{text-align:left;}
     #projName{font-size:18px;width:100%;}
     /* KPIs más compactos */
     .kpis{gap:8px;}
     .kpi{padding:10px;}
     .kpi .value{font-size:20px;}
+    /* Paneles con menos padding para aprovechar el ancho */
+    .panel{padding:14px 14px;}
     /* Dona apilada */
     .donutwrap{flex-direction:column;gap:10px;}
     /* Gantt: nombre más angosto para dejar espacio a las barras */
     .grow .gname{width:110px;font-size:10.5px;}
-    /* Tablas: scroll horizontal en vez de aplastar columnas */
-    .tblscroll table{min-width:680px;}
+    /* ── Tablas → TARJETAS apiladas (sin scroll horizontal) ──
+       Cada fila se convierte en una tarjeta: nombre arriba a lo ancho,
+       y debajo cada dato con su etiqueta a la izquierda. */
+    .tblscroll{border:none;background:transparent;overflow:visible;}
+    .tblscroll table{min-width:0;display:block;}
+    .tblscroll thead{display:none;}
+    .tblscroll tbody{display:block;}
+    .tblscroll tr{
+      display:block;position:relative;background:var(--card);
+      border:1px solid var(--border);border-radius:10px;
+      padding:10px 12px 6px;margin-bottom:8px;box-shadow:var(--shadow);
+    }
+    .tblscroll tr.atrasado{background:var(--red-bg);border-color:rgba(176,57,42,.35);}
+    .tblscroll tr.completado{background:var(--green-bg);border-color:rgba(47,122,82,.3);}
+    .tblscroll td{
+      display:flex;align-items:center;justify-content:space-between;gap:10px;
+      border-bottom:none;padding:5px 0;
+    }
+    .tblscroll td::before{
+      content:attr(data-label);
+      font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
+      color:var(--ink-soft);flex-shrink:0;
+    }
+    .tblscroll td[data-label] .cellinput, .tblscroll td[data-label] select{
+      text-align:right;max-width:60%;
+    }
+    /* Nombre de la actividad / involucrado: título de la tarjeta */
+    .tblscroll td.actcell, .tblscroll td.invname{display:block;padding:0 34px 6px 0;width:auto;}
+    .tblscroll td.actcell::before, .tblscroll td.invname::before{content:none;}
+    .tblscroll td.actcell textarea, .tblscroll td.invname input{
+      font-weight:600;font-size:15px;text-align:left;max-width:100%;width:100%;
+    }
+    /* Botón eliminar: esquina superior derecha de la tarjeta */
+    .tblscroll td.delcell{position:absolute;top:6px;right:8px;padding:0;width:auto;}
+    .tblscroll td.delcell::before{content:none;}
+    /* Fechas: texto a la derecha, alineado */
+    .tblscroll td.datecell{text-align:right;}
+    .tblscroll td.datecell .dhint{font-size:10px;}
+    /* Fila "+ agregar" como botón suelto */
+    .addrow{border-radius:10px;margin-bottom:14px;text-align:center;border:1px dashed var(--border);}
+    /* Encabezado de fase como banda separadora (sin sticky en modo tarjetas) */
+    .fasehead{border-radius:10px;margin-bottom:8px;position:static;}
     /* Inputs a 16px — evita que iPhone haga zoom automático al tocar */
     input.cellinput, select.cellinput, textarea.nametxt{font-size:16px;}
     table{font-size:14px;}
     td{padding:8px 10px;}
     /* Toolbar táctil */
-    .toolbar button{padding:10px 12px;font-size:13px;}
-    /* Encabezados de fase pegajosos al hacer scroll dentro de la tabla */
-    .fasehead{position:sticky;top:0;z-index:5;}
+    .toolbar button, .toolbar label.filebtn{padding:10px 12px;font-size:13px;flex:1;min-width:calc(50% - 6px);text-align:center;}
+    /* Títulos de sección con la línea completa */
+    .sectiontitle{font-size:13px;}
   }
 </style>
 </head>
@@ -634,17 +676,20 @@ function renderInvolucrados(){
   p.involucrados.forEach(function(inv){
     var tr=document.createElement("tr");
     tr.innerHTML =
-      '<td><input class="cellinput" value="'+escapeAttr(inv.nombre)+'" data-invid="'+inv.id+'" data-field="nombre"></td>'+
-      '<td><input class="cellinput" value="'+escapeAttr(inv.rol)+'" data-invid="'+inv.id+'" data-field="rol"></td>'+
-      '<td><input class="cellinput" value="'+escapeAttr(inv.empresa)+'" data-invid="'+inv.id+'" data-field="empresa"></td>'+
-      '<td><input class="cellinput" value="'+escapeAttr(inv.telefono)+'" data-invid="'+inv.id+'" data-field="telefono"></td>'+
-      '<td><input class="cellinput" value="'+escapeAttr(inv.correo)+'" data-invid="'+inv.id+'" data-field="correo"></td>'+
-      '<td><button class="delbtn" onclick="deleteInvolucrado('+inv.id+')" title="Eliminar">✕</button></td>';
+      '<td class="invname"><input class="cellinput" value="'+escapeAttr(inv.nombre)+'" data-invid="'+inv.id+'" data-field="nombre" placeholder="Nombre"></td>'+
+      '<td data-label="Cargo / rol"><input class="cellinput" value="'+escapeAttr(inv.rol)+'" data-invid="'+inv.id+'" data-field="rol"></td>'+
+      '<td data-label="Empresa"><input class="cellinput" value="'+escapeAttr(inv.empresa)+'" data-invid="'+inv.id+'" data-field="empresa"></td>'+
+      '<td data-label="Teléfono"><input class="cellinput" value="'+escapeAttr(inv.telefono)+'" data-invid="'+inv.id+'" data-field="telefono"></td>'+
+      '<td data-label="Correo"><input class="cellinput" value="'+escapeAttr(inv.correo)+'" data-invid="'+inv.id+'" data-field="correo"></td>'+
+      '<td class="delcell"><button class="delbtn" onclick="deleteInvolucrado('+inv.id+')" title="Eliminar">✕</button></td>';
     tbody.appendChild(tr);
   });
   tbl.appendChild(tbody);
   host.innerHTML="";
-  host.appendChild(tbl);
+  var invWrap=document.createElement("div");
+  invWrap.className="tblscroll";
+  invWrap.appendChild(tbl);
+  host.appendChild(invWrap);
   host.querySelectorAll("[data-invid]").forEach(function(el){
     el.addEventListener("change",function(){
       var id=parseInt(this.dataset.invid);
@@ -728,19 +773,19 @@ function renderTable(){
       tr.className = st==="Atrasado"?"atrasado":(st==="Completado"?"completado":"");
       tr.innerHTML =
         '<td class="actcell"><textarea class="cellinput nametxt" rows="1" data-id="'+a.id+'" data-field="nombre">'+escapeHtml(a.nombre)+'</textarea></td>'+
-        '<td><select class="cellinput" data-id="'+a.id+'" data-field="prioridad">'+
+        '<td data-label="Prioridad"><select class="cellinput" data-id="'+a.id+'" data-field="prioridad">'+
           ['Critica','Alta','Media'].map(function(pr){return '<option value="'+pr+'" '+(a.prioridad===pr?'selected':'')+'>'+(pr==='Critica'?'Crítica':pr)+'</option>';}).join('')+
         '</select></td>'+
-        '<td><select class="cellinput" data-id="'+a.id+'" data-field="resp">'+respOptions(a.resp)+'</select></td>'+
-        '<td><div class="durwrap"><button class="stepbtn" data-stepid="'+a.id+'" data-step="-1" title="Un día menos">−</button>'+
+        '<td data-label="Responsable"><select class="cellinput" data-id="'+a.id+'" data-field="resp">'+respOptions(a.resp)+'</select></td>'+
+        '<td data-label="Días"><div class="durwrap"><button class="stepbtn" data-stepid="'+a.id+'" data-step="-1" title="Un día menos">−</button>'+
         '<input class="durinput" type="number" min="0" value="'+(a.dur||0)+'" data-id="'+a.id+'" data-field="dur">'+
         '<button class="stepbtn" data-stepid="'+a.id+'" data-step="1" title="Un día más">+</button></div></td>'+
-        '<td class="datecell" data-dateid="'+a.id+'"><span class="dtxt">'+fmtDM(a.inicio)+' → '+fmtDM(a.fin)+'</span>'+
+        '<td class="datecell" data-label="Fechas" data-dateid="'+a.id+'"><span class="dtxt">'+fmtDM(a.inicio)+' → '+fmtDM(a.fin)+'</span>'+
         (a.fijo?'<span class="pinbtn" data-pinid="'+a.id+'" title="Fecha fija — toca para volver a automática">📌</span>':'')+
         '<span class="dhint">'+(a.fijo?'fecha fija':'automática — toca para fijar')+'</span></td>'+
-        '<td><input class="cellinput" type="number" min="0" max="100" value="'+a.avance+'" data-id="'+a.id+'" data-field="avance" style="width:55px"></td>'+
-        '<td><span class="statustag '+st+'">'+({Pendiente:"Pendiente",Encurso:"En curso",Completado:"Completado",Atrasado:"Atrasado"}[st])+'</span></td>'+
-        '<td><button class="delbtn" onclick="deleteActivity('+a.id+')" title="Eliminar">✕</button></td>';
+        '<td data-label="Avance %"><input class="cellinput" type="number" min="0" max="100" value="'+a.avance+'" data-id="'+a.id+'" data-field="avance" style="width:55px"></td>'+
+        '<td data-label="Estado"><span class="statustag '+st+'">'+({Pendiente:"Pendiente",Encurso:"En curso",Completado:"Completado",Atrasado:"Atrasado"}[st])+'</span></td>'+
+        '<td class="delcell"><button class="delbtn" onclick="deleteActivity('+a.id+')" title="Eliminar">✕</button></td>';
       tbody.appendChild(tr);
     });
     tbl.appendChild(tbody);
