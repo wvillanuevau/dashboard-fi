@@ -53,17 +53,37 @@
   #gateError{color:var(--red);font-size:12px;height:16px;margin-top:6px;}
 
   .projectbar{
-    display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;
+    background:var(--ink);border-radius:var(--radius);box-shadow:var(--shadow);
+    padding:14px 18px;margin-bottom:16px;
+    display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
+  }
+  .pbleft{display:flex;align-items:center;gap:12px;flex-wrap:wrap;flex:1;min-width:260px;}
+  .pblabel{
+    font-size:10.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;
+    color:#9AA7B8;white-space:nowrap;
   }
   .projectbar select{
-    padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;
-    background:var(--card);color:var(--ink);font-weight:600;min-width:220px;
+    padding:11px 38px 11px 14px;border:1px solid rgba(255,255,255,.18);border-radius:9px;
+    font-size:15px;background:#243141 url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1l5 5 5-5' stroke='%239AA7B8' stroke-width='2' fill='none' stroke-linecap='round'/></svg>") no-repeat right 13px center;
+    color:#fff;font-weight:600;min-width:240px;flex:1;max-width:430px;
+    -webkit-appearance:none;appearance:none;cursor:pointer;
   }
+  .projectbar select:focus{outline:none;border-color:#6E9FCB;}
+  .pbcount{
+    font-size:11px;font-weight:700;color:#C7D3E0;background:rgba(255,255,255,.09);
+    border:1px solid rgba(255,255,255,.14);border-radius:20px;padding:4px 11px;white-space:nowrap;
+  }
+  .pbactions{display:flex;gap:8px;flex-wrap:wrap;}
   .projectbar button{
-    background:var(--card);border:1px solid var(--border);border-radius:6px;
-    padding:8px 12px;font-size:12.5px;cursor:pointer;color:var(--ink);font-weight:500;
+    background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);border-radius:8px;
+    padding:9px 13px;font-size:12.5px;cursor:pointer;color:#DCE4EC;font-weight:600;
+    transition:background .15s;
   }
-  .projectbar button:hover{background:var(--paper);}
+  .projectbar button:hover{background:rgba(255,255,255,.16);}
+  .projectbar button.pbprimary{background:#2A5F8F;border-color:#3A76AC;color:#fff;}
+  .projectbar button.pbprimary:hover{background:#347099;}
+  .projectbar button.pbdanger{color:#F0B7AE;border-color:rgba(240,183,174,.35);}
+  .projectbar button.pbdanger:hover{background:rgba(176,57,42,.25);}
 
   .titleblock{
     background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
@@ -193,10 +213,13 @@
   }
   @media(max-width:640px){
     .wrap{padding:14px 10px 50px;}
-    /* Barra de proyectos: selector a lo ancho, botones táctiles */
-    .projectbar{gap:6px;}
-    .projectbar select{width:100%;font-size:16px;padding:10px;}
-    .projectbar button{flex:1;min-width:calc(50% - 6px);padding:10px 6px;font-size:12px;}
+    /* Barra de proyectos: selector protagonista a lo ancho, acciones 2x2 */
+    .projectbar{gap:10px;padding:12px 12px;}
+    .pbleft{min-width:0;width:100%;gap:8px;}
+    .projectbar select{width:100%;max-width:none;font-size:16px;padding:12px 38px 12px 12px;}
+    .pbcount{margin-left:auto;}
+    .pbactions{width:100%;}
+    .projectbar button{flex:1;min-width:calc(50% - 8px);padding:11px 6px;font-size:12.5px;}
     /* Título y sello apilados */
     .titleblock{flex-direction:column;align-items:stretch;gap:8px;padding:14px 16px;}
     .titleblock .stamp{text-align:left;}
@@ -279,11 +302,17 @@
 <div class="wrap" id="mainApp" style="display:none;">
 
   <div class="projectbar">
-    <select id="projectSelect" onchange="switchProject(this.value)"></select>
-    <button onclick="newProject()">+ Nuevo proyecto</button>
-    <button onclick="renameProject()">Renombrar</button>
-    <button onclick="duplicateProject()">Duplicar</button>
-    <button onclick="deleteProject()">Eliminar proyecto</button>
+    <div class="pbleft">
+      <span class="pblabel">📁 Proyecto</span>
+      <select id="projectSelect" onchange="switchProject(this.value)"></select>
+      <span class="pbcount" id="projCount"></span>
+    </div>
+    <div class="pbactions">
+      <button class="pbprimary" onclick="newProject()">+ Nuevo proyecto</button>
+      <button onclick="renameProject()">✎ Renombrar</button>
+      <button onclick="duplicateProject()">⧉ Duplicar</button>
+      <button class="pbdanger" onclick="deleteProject()">🗑 Eliminar</button>
+    </div>
   </div>
 
   <div class="titleblock">
@@ -424,6 +453,7 @@ function currentProject(){ return STATE.projects[STATE.activeProjectId]; }
 function renderProjectSelect(){
   var sel=document.getElementById("projectSelect");
   sel.innerHTML="";
+  var total = Object.keys(STATE.projects).length;
   Object.keys(STATE.projects).forEach(function(pid){
     var opt=document.createElement("option");
     opt.value=pid;
@@ -431,6 +461,8 @@ function renderProjectSelect(){
     if(pid===STATE.activeProjectId) opt.selected=true;
     sel.appendChild(opt);
   });
+  var cnt=document.getElementById("projCount");
+  if(cnt) cnt.textContent = total + (total===1?' proyecto':' proyectos');
 }
 function switchProject(pid){
   STATE.activeProjectId=pid;
