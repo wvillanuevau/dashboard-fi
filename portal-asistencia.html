@@ -1550,12 +1550,12 @@ function paGoToSelectEmp() {
   var vinculo = _paGetVinculo();
   if (vinculo) {
     var emp = PA.empleados.find(function(e){ return e.id === vinculo.empId; });
-    if (emp) {
+    if (emp && emp.activo !== false) {
       PA.empleado = emp;
       paAfterAuth();
       return;
     }
-    _paBorrarVinculo(); // empleado ya no existe — limpiar
+    _paBorrarVinculo(); // empleado ya no existe o está inactivo — limpiar
   }
   // Nivel 2: Firebase — este deviceId ya registrado en paPins?
   var thisDevice = window._PA_DEVICE_ID;
@@ -1564,7 +1564,7 @@ function paGoToSelectEmp() {
     var devEmpId = byDev.data && byDev.data.empleadoId;
     if (devEmpId) {
       var empDev = PA.empleados.find(function(e){ return e.id === devEmpId; });
-      if (empDev) {
+      if (empDev && empDev.activo !== false) {
         PA.empleado = empDev;
         _paGuardarVinculo(empDev);
         paAfterAuth();
@@ -1580,7 +1580,7 @@ function paGoToSelectEmp() {
           var pd = snap.docs[0].data();
           if(pd.empleadoId){
             var empDB = PA.empleados.find(function(e){ return e.id === pd.empleadoId; });
-            if(empDB){ PA.empleado=empDB; _paGuardarVinculo(empDB); paAfterAuth(); return; }
+            if(empDB && empDB.activo !== false){ PA.empleado=empDB; _paGuardarVinculo(empDB); paAfterAuth(); return; }
           }
         }
         paLoadEmpleados(); paShow('scSelectEmp');
@@ -1950,6 +1950,15 @@ function paLoadEmpleados(callback) {
 
       PA.empleados = tecnicos
         .map(function(t){
+          // CAUSA RAÍZ del bug de "re-activación fantasma": el sistema
+          // principal (index.html) re-sincroniza portalesPublicos SIN el
+          // campo activo (solo manda id/nombre/cargo/telefono), borrando
+          // las desactivaciones hechas aquí cada vez que alguien usa el
+          // sistema principal. Por eso el estado activo AUTORITATIVO
+          // vive en paPins (colección propia del portal que el sistema
+          // principal nunca toca); portalesPublicos queda solo de respaldo.
+          var _pdAct = PA._horasMap[t.id];
+          var _act = (_pdAct && _pdAct.activo !== undefined) ? (_pdAct.activo !== false) : (t.activo !== false);
           return {
             id:    t.id,
             nombre: t.nombre || '—',
@@ -1958,7 +1967,7 @@ function paLoadEmpleados(callback) {
             pin:    pins[t.id]  || '',
             credId: creds[t.id] || null,
             deviceId: (PA._deviceMap && PA._deviceMap[t.id]) || null,
-            activo: t.activo !== false,
+            activo: _act,
             diasVacacionesDisponibles: (PA._horasMap[t.id] && PA._horasMap[t.id].diasVacDisp)   || 15,
             horasExtraAcum:            (PA._horasMap[t.id] && PA._horasMap[t.id].horasExtraAcum) || 0,
             fechaContratacion:         (PA._horasMap[t.id] && PA._horasMap[t.id].fechaContratacion) || '',
@@ -2025,6 +2034,7 @@ function paFilterEmps(q) {
 function paSelectEmp(empId) {
   var emp = PA.empleados.find(function(e){ return e.id === empId; });
   if (!emp) return;
+  if (emp.activo === false) { paToast('Este empleado está desactivado. Contacta al administrador.', true); return; }
   PA.empleado = emp;
   PA.pinInput = '';
   PA._bioAttempts = 0;
@@ -5078,16 +5088,27 @@ function _paVerificarFaltasAutomaticas() {
       paDb.collection('paAccionesPersonal').where('empresa','==',PA.empresa).where('tipo','==','FALTA_INJUSTIFICADA').where('fecha','==',hoy).get(),
       paDb.collection('paCanjes').where('empresa','==',PA.empresa).where('esCompensatorio','==',true).get(),
       // Estado activo/inactivo FRESCO — no confiar en PA.empleados, que puede
-      // estar desactualizado si el dispositivo lleva rato abierto sin recargar
-      // (por ejemplo, si alguien fue desactivado después de que este dispositivo
-      // cargó la lista). Esto causaba que se generaran faltas para gente ya
-      // desactivada, porque el filtro usaba el snapshot viejo en memoria.
-      paDb.collection('portalesPublicos').doc(PA.empresa).get()
+      // estar desactualizado si el dispositivo lleva rato abierto sin recargar.
+      // AUTORITATIVO: paPins.activo (propiedad del portal). El sistema
+      // principal re-sincroniza portalesPublicos SIN el campo activo, así
+      // que su valor solo sirve de respaldo cuando no hay pin doc.
+      paDb.collection('portalesPublicos').doc(PA.empresa).get(),
+      paDb.collection('paPins').where('empresa','==',PA.empresa).get()
     ]).then(function(res) {
       var activoFrescoPorEmp = {};
       if (res[4] && res[4].exists) {
         var _tecnicosFrescos = (res[4].data() || {}).tecnicos || [];
         _tecnicosFrescos.forEach(function(t){ activoFrescoPorEmp[t.id] = (t.activo !== false); });
+      }
+      // paPins pisa el valor de portalesPublicos cuando existe — es la
+      // fuente que el admin realmente controla desde este portal.
+      if (res[5]) {
+        res[5].forEach(function(d){
+          var _pf = d.data();
+          if (_pf.empleadoId && _pf.activo !== undefined) {
+            activoFrescoPorEmp[_pf.empleadoId] = (_pf.activo !== false);
+          }
+        });
       }
       var marcaronHoy = {};
       res[0].forEach(function(d) {
@@ -6531,6 +6552,17 @@ function paAccionPersonalGenerica(empId, empNombre, empCargo, fecha) {
     +'<textarea id="acpExplicacion" rows="3" placeholder="Detalle de la acción..." '
     +'style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box"></textarea></div>'
     +'<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">'
+    +'<div style="flex:1;min-width:110px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">SALARIO ACTUAL (US$)</label>'
+    +'<input id="acpSalarioActual" type="number" step="0.01" min="0" placeholder="Ej: 365.00" '
+    +'style="width:100%;padding:9px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box"></div>'
+    +'<div style="flex:1;min-width:110px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">SALARIO NUEVO (US$) <span style="font-weight:400">(si aplica)</span></label>'
+    +'<input id="acpSalarioNuevo" type="number" step="0.01" min="0" placeholder="Solo si cambia" '
+    +'style="width:100%;padding:9px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box"></div>'
+    +'<div style="flex:1;min-width:130px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">RIGE A PARTIR DE</label>'
+    +'<input id="acpFechaRige" type="date" value="'+(fecha||paHoy())+'" '
+    +'style="width:100%;padding:9px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box"></div>'
+    +'</div>'
+    +'<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">'
     +'<div style="flex:1;min-width:120px"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">SOLICITA</label>'
     +'<input id="acpSolicita" type="text" value="WILFREDO VILLANUEVA" '
     +'style="width:100%;padding:9px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box"></div>'
@@ -6573,6 +6605,11 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
 
   var sol      = (document.getElementById('acpSolicita')   ||{}).value || 'WILFREDO VILLANUEVA';
   var aut      = (document.getElementById('acpAutoriza')   ||{}).value || 'Julio de Paul';
+  // Salario y fecha de vigencia (opcionales — solo existen en el
+  // formulario manual; las AP automáticas imprimen sin ellos)
+  var salarioActual = parseFloat((document.getElementById('acpSalarioActual')||{}).value) || null;
+  var salarioNuevo  = parseFloat((document.getElementById('acpSalarioNuevo') ||{}).value) || null;
+  var fechaRige     = (document.getElementById('acpFechaRige')||{}).value || fecha || paHoy();
   // Leer explicación del formulario; si está vacío usar el motivo guardado en la AP
   var exp      = (document.getElementById('acpExplicacion')||{}).value
                || (PA._apCtx && PA._apCtx.accionData && PA._apCtx.accionData.motivo)
@@ -6605,6 +6642,8 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
       concepto: _apInfo.concepto,
       justificacion: _justif,
       solicita:sol, autoriza:aut,
+      salarioActual: salarioActual, salarioNuevo: salarioNuevo,
+      fechaRige: fechaRige,
       opcionMarcada:SELECTED, estado:'emitida', creadoPor:'admin', ts:Date.now()
     }).catch(function(e){ console.warn('[AP]',e.message); });
   }
@@ -6663,7 +6702,7 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
     // Fechas
     +'<table style="width:100%;border-collapse:collapse;margin-bottom:8px"><tr>'
     +'<td style="border:none;font-size:11px;padding:3px 0;width:50%"><b>FECHA ELABORACION:</b>&nbsp;&nbsp;'+hoy+'</td>'
-    +'<td style="border:none;font-size:11px;padding:3px 0"><b>RIGE A PARTIR DE:</b>&nbsp;&nbsp;'+esc(fecha||hoy)+'</td>'
+    +'<td style="border:none;font-size:11px;padding:3px 0"><b>RIGE A PARTIR DE:</b>&nbsp;&nbsp;'+esc(fechaRige||fecha||hoy)+'</td>'
     +'</tr></table>'
 
     // Nombre y departamento
@@ -6692,13 +6731,13 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
     +'<td style="border:1px solid #bbb;padding:3px 8px;font-weight:700;background:#f5f5f5;width:10%">CARGO</td>'
     +'<td style="border:1px solid #bbb;padding:3px 8px;width:30%">'+esc(cargo.toUpperCase())+'</td>'
     +'<td style="border:1px solid #bbb;padding:3px 8px;font-weight:700;background:#f5f5f5;width:20%">SUELDO MENSUAL</td>'
-    +'<td style="border:1px solid #bbb;padding:3px 8px;width:30%"></td>'
+    +'<td style="border:1px solid #bbb;padding:3px 8px;width:30%">'+(salarioActual!=null?('US$ '+salarioActual.toFixed(2)):'')+'</td>'
     +'</tr><tr>'
     +'<td style="border:1px solid #bbb;padding:3px 8px;font-weight:700;background:#f5f5f5">NUEVO</td>'
     +'<td style="border:1px solid #bbb;padding:3px 8px;font-weight:700;background:#f5f5f5">CARGO</td>'
     +'<td style="border:1px solid #bbb;padding:3px 8px">'+esc(cargo.toUpperCase())+'</td>'
     +'<td style="border:1px solid #bbb;padding:3px 8px;font-weight:700;background:#f5f5f5">SUELDO MENSUAL</td>'
-    +'<td style="border:1px solid #bbb;padding:3px 8px"></td>'
+    +'<td style="border:1px solid #bbb;padding:3px 8px">'+(salarioNuevo!=null?('US$ '+salarioNuevo.toFixed(2)):'')+'</td>'
     +'</tr></table>'
 
     // Caso de despido
@@ -7470,47 +7509,183 @@ function paToggleActivoEmp(empId) {
   var label = nuevoActivo ? 'activar' : 'desactivar';
   paConfirm('¿' + label.charAt(0).toUpperCase() + label.slice(1) + ' a ' + emp.nombre + '?' +
     (nuevoActivo ? '' : '\nNo aparecerá en el portal ni en reportes.'), function() {
-    // La fuente real de "activo" es el arreglo tecnicos[] dentro de
-    // portalesPublicos/{empresa} — NO paPins. Antes esta función solo
-    // escribía en paPins, que nadie lee para decidir si un empleado está
-    // activo, así que "Desactivar" nunca tenía efecto real.
+    // ARQUITECTURA (corregida): la fuente AUTORITATIVA de "activo" es
+    // paPins — colección propia del portal. portalesPublicos NO sirve
+    // como fuente porque el sistema principal (index.html) re-sincroniza
+    // su arreglo tecnicos[] SIN el campo activo, borrando cualquier
+    // desactivación guardada ahí (esa era la causa de que los empleados
+    // "revivieran" solos al día siguiente). Aun así se escribe también en
+    // portalesPublicos como respaldo temporal hasta la próxima sync.
     var pubRef = paDb.collection('portalesPublicos').doc(PA.empresa);
-    pubRef.get().then(function(doc) {
-      if (!doc.exists) throw new Error('No se encontró portalesPublicos/' + PA.empresa);
-      var data = doc.data();
-      var tecnicos = (data.tecnicos || []).slice();
-      var idx = tecnicos.findIndex(function(t){ return t.id === empId; });
-      if (idx === -1) throw new Error('Empleado no encontrado en la lista de técnicos');
-      tecnicos[idx] = Object.assign({}, tecnicos[idx], { activo: nuevoActivo });
-      return pubRef.update({ tecnicos: tecnicos });
+    // 1) PRIMERO paPins (autoritativo) — crear el doc si no existe
+    paDb.collection('paPins').where('empresa','==',PA.empresa).where('empleadoId','==',empId).get()
+      .then(function(snap) {
+        if (snap.empty) {
+          return paDb.collection('paPins').add({
+            empresa: PA.empresa, empleadoId: empId, activo: nuevoActivo
+          });
+        }
+        var batch = paDb.batch();
+        snap.forEach(function(d) { batch.update(d.ref, { activo: nuevoActivo }); });
+        return batch.commit();
+      })
+    .then(function() {
+      // 2) portalesPublicos como respaldo (se pierde en la próxima sync
+      // del sistema principal, pero paPins ya quedó firme)
+      return pubRef.get().then(function(doc) {
+        if (!doc.exists) return;
+        var data = doc.data();
+        var tecnicos = (data.tecnicos || []).slice();
+        var idx = tecnicos.findIndex(function(t){ return t.id === empId; });
+        if (idx === -1) return;
+        tecnicos[idx] = Object.assign({}, tecnicos[idx], { activo: nuevoActivo });
+        return pubRef.update({ tecnicos: tecnicos });
+      }).catch(function(){}); // respaldo best-effort, nunca bloquea
     }).then(function() {
-      // Registro de auditoría — si "activo" vuelve a cambiar solo, sin que
-      // nadie lo toque desde aquí, esto deja rastro de cuándo y a qué
-      // valor SÍ se cambió desde este botón, para poder comparar contra
-      // lo que aparezca después.
+      // Registro de auditoría — deja rastro de cuándo y a qué valor se
+      // cambió desde este botón.
       return paDb.collection('paActivoLog').add({
         empresa: PA.empresa, empleadoId: empId, empleadoNombre: emp.nombre,
         nuevoValor: nuevoActivo, ts: Date.now(), fecha: paHoy(),
         origen: 'paToggleActivoEmp'
       }).catch(function(){}); // el log nunca debe bloquear la acción principal
     }).then(function() {
-      // Mantener paPins sincronizado también, por si algo más lo consulta
-      // — consulta en vivo, no confía en PA._pinsDocMap, y actualiza
-      // TODOS los documentos que encuentre para ese empleado (evita que
-      // queden dos documentos en desacuerdo entre sí).
-      return paDb.collection('paPins').where('empresa','==',PA.empresa).where('empleadoId','==',empId).get()
-        .then(function(snap) {
-          if (snap.empty) return;
-          var batch = paDb.batch();
-          snap.forEach(function(d) { batch.update(d.ref, { activo: nuevoActivo }); });
-          return batch.commit();
-        });
-    }).then(function() {
       emp.activo = nuevoActivo;
+      if (PA._horasMap && PA._horasMap[empId]) PA._horasMap[empId].activo = nuevoActivo;
       paToast(nuevoActivo ? '✅ Empleado activado' : '⛔ Empleado desactivado');
       paAdminTab('emps');
     }).catch(function(e){ paToast('Error: ' + e.message, true); });
   });
+}
+
+// ── Marcación manual por admin ────────────────────────────────────
+// Leaflet se carga solo cuando se abre la tarjeta (no pesa en el
+// arranque normal del portal).
+function _paCargarLeaflet(cb) {
+  if (window.L) { cb(); return; }
+  if (window._paLeafletCargando) {
+    var _wait = setInterval(function(){ if (window.L) { clearInterval(_wait); cb(); } }, 150);
+    setTimeout(function(){ clearInterval(_wait); }, 12000);
+    return;
+  }
+  window._paLeafletCargando = true;
+  var css = document.createElement('link');
+  css.rel = 'stylesheet';
+  css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  document.head.appendChild(css);
+  var js = document.createElement('script');
+  js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  js.onload = function(){ cb(); };
+  js.onerror = function(){ paToast('No se pudo cargar el mapa — revisa tu conexión', true); };
+  document.head.appendChild(js);
+}
+
+function paInitMapaManual() {
+  var cont = document.getElementById('mmMapa');
+  if (!cont || cont._mapaListo) return;
+  cont.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">Cargando mapa…</div>';
+  _paCargarLeaflet(function() {
+    if (!document.getElementById('mmMapa')) return; // cambió de pestaña
+    cont.innerHTML = '';
+    cont._mapaListo = true;
+    // Centro: San Salvador
+    var map = L.map('mmMapa').setView([13.6929, -89.2182], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '© OpenStreetMap'
+    }).addTo(map);
+    var marker = null;
+    PA._manualLoc = null;
+    function _setLoc(latlng) {
+      PA._manualLoc = { lat: latlng.lat, lng: latlng.lng };
+      var lbl = document.getElementById('mmCoords');
+      if (lbl) lbl.textContent = '📍 ' + latlng.lat.toFixed(5) + ', ' + latlng.lng.toFixed(5);
+      if (marker) marker.setLatLng(latlng);
+      else {
+        marker = L.marker(latlng, { draggable: true }).addTo(map);
+        marker.on('dragend', function(){ _setLoc(marker.getLatLng()); });
+      }
+    }
+    map.on('click', function(e){ _setLoc(e.latlng); });
+    // WebKit a veces pinta el mapa a medias dentro de contenedores
+    // recién mostrados — forzar recálculo de tamaño
+    setTimeout(function(){ map.invalidateSize(); }, 250);
+  });
+}
+
+function paGuardarMarcacionManual(btn) {
+  var empId = (document.getElementById('mmEmp')||{}).value;
+  var tipo  = (document.getElementById('mmTipo')||{}).value || 'entrada';
+  var fecha = (document.getElementById('mmFecha')||{}).value;
+  var hora  = (document.getElementById('mmHora')||{}).value;
+  var obs   = (document.getElementById('mmObs')||{}).value || '';
+  var emp   = PA.empleados.find(function(e){ return e.id === empId; });
+
+  if (!emp)   { paToast('Selecciona un empleado', true); return; }
+  if (!fecha) { paToast('Selecciona la fecha', true); return; }
+  if (!hora)  { paToast('Ingresa la hora', true); return; }
+  if (!PA._manualLoc) { paToast('Toca el mapa para señalar la ubicación', true); return; }
+
+  var _fp = fecha.split('-');
+  var _hp = hora.split(':');
+  var _Y = parseInt(_fp[0],10), _M = parseInt(_fp[1],10)-1, _D = parseInt(_fp[2],10);
+  var _H = parseInt(_hp[0],10), _Min = parseInt(_hp[1],10);
+  // Regla de zona horaria del proyecto: hora El Salvador = UTC-6
+  var ts = Date.UTC(_Y, _M, _D, _H + 6, _Min, 0);
+
+  // Tardanza calculada igual que en el flujo normal (neta de tolerancia)
+  var minutosRetraso = 0, estadoPuntualidad = 'a_tiempo';
+  if (tipo === 'entrada') {
+    var _dS = _diaSemanaES(ts);
+    var _eH = _horarioDeEmp(emp, _dS);
+    if (_eH && _eH.trabaja !== false && _eH.horaEntrada) {
+      var _pp = _eH.horaEntrada.split(':');
+      var _espMs = parseInt(_pp[0],10)*3600000 + parseInt(_pp[1]||'0',10)*60000;
+      var _actMs = _H*3600000 + _Min*60000;
+      var _tolMs = _toleranciaDeEmp(emp, _dS) * 60000;
+      if (_actMs > _espMs + _tolMs) {
+        minutosRetraso = Math.round((_actMs - _espMs - _tolMs) / 60000);
+        estadoPuntualidad = 'tarde';
+      }
+    }
+  }
+  var _dSem = _diaSemanaES(ts);
+  var docData = {
+    empresa: PA.empresa, empleadoId: emp.id, empleadoNombre: emp.nombre,
+    cargo: emp.cargo || '', tipo: tipo, fecha: fecha, ts: ts,
+    hora: String(_H).padStart(2,'0') + ':' + String(_Min).padStart(2,'0'),
+    fotoRef: null, sinFoto: true,
+    ubicacion: { lat: PA._manualLoc.lat, lng: PA._manualLoc.lng, acc: null, manual: true },
+    centroId: '', centroNombre: '',
+    observacion: '[MANUAL — registrada por admin] ' + obs,
+    minutosRetraso: minutosRetraso, estadoPuntualidad: estadoPuntualidad,
+    esFeriado: (PA.feriados||[]).indexOf(fecha) !== -1,
+    esFinDeSemana: (_dSem === 0 || _dSem === 6),
+    esManual: true, registradoPor: 'admin',
+    folio: 'MAN-' + Date.now().toString(36).toUpperCase()
+  };
+
+  // Aviso si ya existe una marcación del mismo tipo ese día
+  btn.disabled = true;
+  paDb.collection('paMarcaciones')
+    .where('empresa','==',PA.empresa).where('empleadoId','==',emp.id).get()
+    .then(function(snap) {
+      var yaExiste = snap.docs.some(function(d){
+        var r = d.data(); return r.fecha === fecha && r.tipo === tipo;
+      });
+      function _guardar() {
+        paDb.collection('paMarcaciones').add(docData).then(function() {
+          paToast('✅ Marcación manual registrada para ' + emp.nombre);
+          var obsEl = document.getElementById('mmObs'); if (obsEl) obsEl.value = '';
+          btn.disabled = false;
+        }).catch(function(e){ paToast('Error: ' + e.message, true); btn.disabled = false; });
+      }
+      if (yaExiste) {
+        paConfirm('⚠️ ' + emp.nombre + ' ya tiene una marcación de "' + tipo + '" el ' + fecha + '.\n¿Registrar otra de todas formas?', function(){ _guardar(); });
+        btn.disabled = false; // se re-deshabilita dentro de _guardar si confirma
+      } else {
+        _guardar();
+      }
+    }).catch(function(e){ paToast('Error verificando: ' + e.message, true); btn.disabled = false; });
 }
 
 function paToggleSelTodas(checked) {
@@ -9289,6 +9464,37 @@ function _paAdminEmpsRender(content) {
       ? '<button onclick="paForzarUpdateTodos()" style="flex:1;padding:12px;background:rgba(232,160,32,.15);border:1.5px solid rgba(232,160,32,.3);border-radius:12px;color:#B45309;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">⚡ Actualizar ' + desactCount + ' dispositivo(s)</button>'
       : '')
     + '</div>';
+
+  // ── Marcación manual por el administrador ──────────────────────
+  // Caso: empleado extravió el teléfono o no pudo marcar normalmente.
+  // Sin GPS automático (la ubicación se señala en el mapa) y sin foto.
+  html += '<div style="margin-bottom:14px;border:1.5px solid rgba(56,139,253,.35);border-radius:12px;overflow:hidden">'
+    + '<button onclick="var b=document.getElementById(\'mmBody\');var i=document.getElementById(\'mmIco\');var ab=b.style.display===\'none\';b.style.display=ab?\'block\':\'none\';i.textContent=ab?\'▼\':\'▶\';if(ab)paInitMapaManual();" '
+    + 'style="width:100%;display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:rgba(56,139,253,.08);border:none;cursor:pointer;font-family:inherit">'
+    + '<span style="font-size:13px;font-weight:700;color:#388bfd">📍 Marcación manual (admin)</span>'
+    + '<span id="mmIco" style="font-size:12px;color:var(--muted)">▶</span></button>'
+    + '<div id="mmBody" style="display:none;padding:12px 14px">'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Para cuando un empleado no pudo marcar (extravío de teléfono, etc.). Señala la ubicación tocando el mapa — sin GPS automático ni foto.</div>'
+    + '<label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:3px">EMPLEADO</label>'
+    + '<select id="mmEmp" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:14px;font-family:inherit;box-sizing:border-box;margin-bottom:10px">'
+    + PA.empleados.filter(function(e){ return e.activo !== false; }).map(function(e){ return '<option value="'+e.id+'">'+esc(e.nombre)+'</option>'; }).join('')
+    + '</select>'
+    + '<div style="display:flex;gap:8px;margin-bottom:10px">'
+    + '<div style="flex:1"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:3px">TIPO</label>'
+    + '<select id="mmTipo" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:14px;font-family:inherit;box-sizing:border-box">'
+    + '<option value="entrada">Entrada</option><option value="salida">Salida</option></select></div>'
+    + '<div style="flex:1"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:3px">FECHA</label>'
+    + '<input type="date" id="mmFecha" value="'+paHoy()+'" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:14px;font-family:inherit;box-sizing:border-box"></div>'
+    + '<div style="flex:1"><label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:3px">HORA</label>'
+    + '<input type="time" id="mmHora" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:14px;font-family:inherit;box-sizing:border-box"></div>'
+    + '</div>'
+    + '<label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:3px">UBICACIÓN — toca el mapa para colocar el marcador</label>'
+    + '<div id="mmMapa" style="width:100%;height:220px;border-radius:10px;border:1px solid var(--border);margin-bottom:4px;background:var(--surface2)"></div>'
+    + '<div id="mmCoords" style="font-size:11px;color:var(--muted);margin-bottom:10px">Sin ubicación seleccionada</div>'
+    + '<label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:3px">MOTIVO / OBSERVACIÓN</label>'
+    + '<input id="mmObs" placeholder="Ej: extravió su teléfono, marcación registrada por admin" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:14px;font-family:inherit;box-sizing:border-box;margin-bottom:12px">'
+    + '<button id="btnGuardarMarcaManual" onclick="paGuardarMarcacionManual(this)" style="width:100%;padding:12px;background:#388bfd;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">💾 Registrar marcación manual</button>'
+    + '</div></div>';
 
   PA.empleados.slice().sort(function(a,b){ return (a.nombre||'').localeCompare(b.nombre||''); }).forEach(function(emp){
     var pd   = PA._horasMap && PA._horasMap[emp.id];
@@ -11074,7 +11280,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-08-Q';
+var PA_VERSION = 'v2026-07-24-A';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
