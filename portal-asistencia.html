@@ -3620,13 +3620,35 @@ function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
 
     if (calc.total <= 0) { if (callback) callback(null); return; } // sin horas extra
 
+    // Horas reales de entrada y salida — para que el admin las vea en la
+    // tarjeta al aprobar, sin tener que abrir la evidencia
+    function _fmtHoraES(ts) {
+      if (!ts) return '?';
+      var h = _hmsDesdeMedianocheES(typeof ts==='number'?ts:Number(ts));
+      return String(h.horas).padStart(2,'0') + ':' + String(h.minutos).padStart(2,'0');
+    }
+    var _horaE = _fmtHoraES(entradaTs);
+    var _horaS = _fmtHoraES(salidaDocData.ts);
+    var _descBase = (entradaTipo === 'entrada_adicional' ? 'Trabajo adicional — jornada ' : 'Auto-calculado — jornada ') + hoy;
+    // Si el día estaba marcado como NO laborable en el horario del
+    // empleado, la jornada COMPLETA se contó como extra — eso puede ser
+    // correcto (trabajó su día libre) o un error de configuración del
+    // horario. Dejarlo explícito para que el admin lo detecte al instante
+    // (caso real: 11h "extra" porque el viernes quedó con trabaja:false
+    // en el horario individual, teniendo horario normal 8-5).
+    if (calc.esNoProgramado) {
+      _descBase += ' · ⚠️ DÍA NO LABORABLE según su horario — se contó la jornada completa. Si su horario real sí incluye este día, corrígelo en "Horario asignado" y rechaza esta HE.';
+    }
+
     var registros = [];
     if (calc.diurna > 0) {
       registros.push({
         empresa: PA.empresa, empleadoId: empId,
         empleadoNombre: salidaDocData.empleadoNombre,
         fecha: hoy, tipo: 'diurna', horas: calc.diurna,
-        descripcion: (entradaTipo === 'entrada_adicional' ? 'Trabajo adicional — jornada ' : 'Auto-calculado — jornada ') + hoy,
+        horaEntrada: _horaE, horaSalida: _horaS,
+        esNoProgramado: !!calc.esNoProgramado,
+        descripcion: _descBase,
         ts: Date.now(), estado: 'pendiente',
         origen: 'auto', folio: 'HE-AUTO-' + paGenId().toUpperCase()
       });
@@ -3636,7 +3658,9 @@ function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
         empresa: PA.empresa, empleadoId: empId,
         empleadoNombre: salidaDocData.empleadoNombre,
         fecha: hoy, tipo: 'nocturna', horas: calc.nocturna,
-        descripcion: (entradaTipo === 'entrada_adicional' ? 'Trabajo adicional — jornada ' : 'Auto-calculado — jornada ') + hoy,
+        horaEntrada: _horaE, horaSalida: _horaS,
+        esNoProgramado: !!calc.esNoProgramado,
+        descripcion: _descBase,
         ts: Date.now(), estado: 'pendiente',
         origen: 'auto', folio: 'HE-AUTO-' + paGenId().toUpperCase()
       });
@@ -9289,9 +9313,24 @@ function _paTogHorDia(empId, dia) {
 function paGuardarHorDias(empId, empNombre) {
   var dias = {};
   var DIAS = [1,2,3,4,5,6,0]; // Lun→Dom
+  // Horario previamente guardado — para NO dañar días cuyo checkbox no
+  // esté presente en el DOM al guardar (render parcial de WebKit, sección
+  // a medio montar, etc.). El comportamiento anterior asumía trabaja:false
+  // para cualquier día sin checkbox, lo que convertía silenciosamente
+  // días laborables en "libres" — y luego cada jornada completa de ese
+  // día se contaba como horas extra (caso real: 11h "extra" un viernes
+  // con horario normal 8-5).
+  var _horPrevio = (PA.horariosEmp && PA.horariosEmp[empId] && PA.horariosEmp[empId].horarioDias) || {};
   DIAS.forEach(function(d) {
     var trabEl  = document.getElementById('hd_'+empId+'_'+d+'_trab');
-    var trabaja = trabEl ? trabEl.checked : false;
+    if (!trabEl) {
+      // Checkbox ausente del DOM → conservar lo que ya estaba guardado
+      // para este día (o no escribir nada si no había, para que la
+      // jerarquía caiga al horario general).
+      if (_horPrevio[String(d)] !== undefined) dias[String(d)] = _horPrevio[String(d)];
+      return;
+    }
+    var trabaja = trabEl.checked;
     if (!trabaja) {
       dias[String(d)] = { trabaja: false };
     } else {
@@ -9794,7 +9833,11 @@ function _paCargarPanelEmp(empId) {
       hePend.forEach(function(h){
         var tp = {diurna:"☀️",nocturna:"🌙",feriado:"🎉"};
         html += "<div data-he-card=\"" + h.id + "\" style=\"background:var(--surface);border:1.5px solid var(--border);border-radius:10px;padding:10px;margin-bottom:7px\">";
-        html += "<div style=\"font-size:12px;color:var(--muted);margin-bottom:7px\">" + (tp[h.tipo]||"⏰") + " " + paFechaCorta(h.fecha) + " · <strong>" + paHorasLegible(h.horas) + "</strong>" + (h.descripcion ? " · " + h.descripcion.slice(0,40) : "") + "</div>";
+        var _hRango = (h.horaEntrada && h.horaSalida) ? ' · 🕐 ' + h.horaEntrada + ' → ' + h.horaSalida : '';
+        html += "<div style=\"font-size:12px;color:var(--muted);margin-bottom:7px\">" + (tp[h.tipo]||"⏰") + " " + paFechaCorta(h.fecha) + " · <strong>" + paHorasLegible(h.horas) + "</strong>" + _hRango + (h.descripcion ? " · " + esc(h.descripcion.slice(0,60)) : "") + "</div>";
+        if (h.esNoProgramado) {
+          html += "<div style=\"font-size:11px;color:#B45309;background:rgba(232,160,32,.12);border:1px solid rgba(232,160,32,.3);border-radius:8px;padding:7px 9px;margin-bottom:7px\">⚠️ <strong>Día NO laborable según su horario</strong> — se contó la jornada completa como extra. Si su horario real sí incluye este día, corrígelo en \"Horario asignado\" y rechaza esta HE (al guardar el horario se recalculan las pendientes).</div>";
+        }
         html += "<div style=\"display:flex;gap:6px;flex-wrap:wrap\">";
         html += "<button class=\"_btn-aprob-he\" data-hid=\"" + h.id + "\" data-eid=\"" + empId + "\" data-h=\"" + h.horas + "\" style=\"" + BS + "background:#006B3F;color:#fff\">✓ Aprobar</button>";
         html += "<button class=\"_btn-rechaz-he\" data-hid=\"" + h.id + "\" data-eid=\"" + empId + "\" style=\"" + BS + "background:transparent;color:var(--red);border:2px solid var(--red)\">✗ Rechazar</button>";
@@ -9879,6 +9922,26 @@ function _paCargarPanelEmp(empId) {
     html += "<div style=\"font-size:11px;color:var(--muted);margin-bottom:8px\">";
     html += horEmpAct ? "✏️ Horario individual asignado" : "📌 Usando el horario general de la empresa";
     html += "</div>";
+    // Resumen visible de días laborables/libres — un día marcado como
+    // libre por error hace que TODA la jornada de ese día se cuente como
+    // hora extra, así que conviene verlo de un vistazo sin abrir el editor.
+    var _hdRes = horEmpAct && horEmpAct.horarioDias;
+    if (_hdRes) {
+      var _nomDia = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+      var _libres = [];
+      [1,2,3,4,5,6,0].forEach(function(d){
+        var _c = _hdRes[String(d)];
+        if (_c && _c.trabaja === false) _libres.push(_nomDia[d]);
+      });
+      html += "<div style=\"font-size:11px;margin-bottom:8px;padding:7px 9px;border-radius:8px;"
+        + (_libres.length ? "background:rgba(232,160,32,.10);border:1px solid rgba(232,160,32,.28);color:#B45309" : "background:var(--surface2);color:var(--muted)")
+        + "\">";
+      html += _libres.length
+        ? "🚫 <strong>Días marcados como NO laborables:</strong> " + _libres.join(', ')
+          + "<br><span style=\"font-size:10.5px\">Si alguno debería ser laborable, corrígelo abajo — trabajar en un día marcado libre cuenta la jornada COMPLETA como hora extra.</span>"
+        : "✅ Todos los días de la semana están configurados como laborables";
+      html += "</div>";
+    }
     html += "<label style=\"font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:4px\">APLICAR HORARIO</label>";
     html += "<select id=\"horSelEmp_"+empId+"\" style=\"width:100%;padding:8px;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;margin-bottom:8px\">";
     html += "<option value=\"\">── Seleccionar ──</option>";
@@ -11280,7 +11343,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-24-A';
+var PA_VERSION = 'v2026-07-24-B';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
