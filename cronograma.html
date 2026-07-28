@@ -489,7 +489,7 @@
     <div class="dashgrid" id="dashHost"></div>
 
     <div class="note">
-      El porcentaje de <b>Avance de obra civil</b> no se edita aquí: se toma del campo <i>Avance Físico</i> del proyecto correspondiente en Dashboard-FI y se escribe en la actividad fija «Avance total de Obra Civil» de cada cronograma. Para que un proyecto aparezca con datos, vincúlalo desde la pestaña Cronograma y pulsa Actualizar.
+      El porcentaje de <b>Avance de obra civil</b> no se edita aquí: se toma del campo <i>Avance Físico</i> del proyecto correspondiente en Dashboard-FI y se escribe en la actividad fija «Avance total de Obra Civil» de cada cronograma. Para que un proyecto aparezca con datos, vincúlalo desde la pestaña Cronograma y pulsa Actualizar. Este panel solo <b>lee</b> una lista publicada por Dashboard-FI (nombre, estado y avance de cada proyecto): no tiene acceso a gastos, proveedores ni usuarios, y nunca escribe en el sistema principal.
     </div>
 
   </div><!-- /tabDashboard -->
@@ -1117,12 +1117,15 @@ function syncDesdeFI(btn){
   STATE.fiEmpresa = emp;
   if(btn){ btn.disabled = true; btn.textContent = 'Leyendo…'; }
   setFiStatus('Leyendo proyectos de Dashboard-FI…');
-  // SOLO LECTURA del documento de la empresa. El cronograma jamás
-  // escribe ahí, para no chocar con el sistema principal que guarda
-  // sus proyectos como un solo arreglo dentro de ese documento.
-  fbDb.collection('empresas').doc(emp).get().then(function(doc){
+  // SOLO LECTURA de un documento ESPEJO liviano (cronogramaFI/{empresa})
+  // que el sistema principal publica con únicamente id, nombre, marca,
+  // tipo, ubicación, estado y avance de cada proyecto.
+  // No se lee empresas/{empresa} a propósito: ese documento contiene todo
+  // el sistema (gastos, proveedores, usuarios con correos, inventario...)
+  // y abrirlo expondría esa información a cualquiera con este enlace.
+  fbDb.collection('cronogramaFI').doc(emp).get().then(function(doc){
     if(!doc.exists){
-      setFiStatus('⚠ No se encontró la empresa "'+emp+'" en Dashboard-FI. Revisa el código de empresa.', true);
+      setFiStatus('⚠ Aún no hay datos publicados para "'+emp+'". Abre Dashboard-FI una vez con esa empresa para que publique la lista de proyectos, y vuelve a intentar.', true);
       return;
     }
     var proys = (doc.data().proyectos) || [];
@@ -1156,7 +1159,7 @@ function syncDesdeFI(btn){
   }).catch(function(e){
     // Causa típica: las reglas de Firestore no permiten leer "empresas"
     // sin estar autenticado (el cronograma solo tiene el código de acceso).
-    setFiStatus('⚠ No se pudo leer Dashboard-FI: '+e.message+'. Si dice "permission-denied", hay que permitir lectura de la colección "empresas" en las reglas de Firestore.', true);
+    setFiStatus('⚠ No se pudo leer Dashboard-FI: '+e.message+'. Si dice "permission-denied", falta permitir lectura de la colección "cronogramaFI" en las reglas de Firestore.', true);
   }).then(function(){
     if(btn){ btn.disabled = false; btn.textContent = btn.id==='dashSyncBtn' ? '↻ Actualizar todo desde Dashboard-FI' : '↻ Actualizar avance'; }
   });

@@ -164,6 +164,43 @@ window.FB={
   //   2. Concurrencia: 2 usuarios editando secciones distintas no se pisan
   //   3. Costo Firebase: menos bytes escritos
   // ═══════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════
+  // ESPEJO PARA EL CRONOGRAMA (cronogramaFI/{empresa})
+  // ═══════════════════════════════════════════════════════════════════
+  // El panel de cronograma (cronograma.html) necesita leer el avance de
+  // cada proyecto, pero NO puede leer empresas/{empresa}: ese documento
+  // contiene todo el sistema (gastos, proveedores, usuarios con correos,
+  // inventario, taller...). Abrirlo expondría todo eso a cualquiera con
+  // el enlace del cronograma.
+  //
+  // Solución: publicar aparte un documento liviano con SOLO los campos
+  // que el cronograma necesita. Las reglas de Firestore se abren
+  // únicamente para esta colección, no para 'empresas'.
+  //
+  // Es best-effort: si falla, NUNCA rompe ni bloquea el guardado normal.
+  async publicarEspejoCronograma(empresa,proyectos){
+    try{
+      if(!empresa||!Array.isArray(proyectos))return;
+      const ligeros=proyectos.map(function(p){
+        return {
+          id:            p.id||'',
+          nombre:        p.nombre||'',
+          marca:         p.marca||'',
+          tipo:          p.tipo||'',
+          ubicacion:     p.ubicacion||'',
+          estado:        p.estado||'',
+          avanceFisico:  Math.max(0,Math.min(100,parseInt(p.avanceFisico)||0))
+        };
+      });
+      await _fbDb.collection('cronogramaFI').doc(empresa).set({
+        _ts:Date.now(), proyectos:ligeros
+      });
+    }catch(e){
+      // Silencioso a propósito: es un extra, no puede afectar el guardado real
+      console.warn('[FB] espejo cronograma:',e.code||e.message);
+    }
+  },
+
   async saveSection(empresa,sections,data){
     try{
       const ref=_fbDb.collection('empresas').doc(empresa);
@@ -197,6 +234,11 @@ window.FB={
 
       console.log('[FB] saveSection — secciones:',sections.join(','),'tamaño:',(totalSize/1024).toFixed(0)+'KB');
       await ref.update(updates);
+      // Si cambiaron los proyectos, refrescar el espejo liviano que lee
+      // el cronograma (no se espera: no debe retrasar el guardado)
+      if(sections.indexOf('proyectos')!==-1&&data.proyectos){
+        this.publicarEspejoCronograma(empresa,data.proyectos);
+      }
       return {ok:true};
     }catch(e){
       console.error('[FB] saveSection error:',e.code,e.message);
@@ -360,6 +402,8 @@ window.FB={
         }
       }
       await _fbDb.collection('empresas').doc(empresa).set(mainDoc);
+      // Refrescar el espejo liviano del cronograma (best-effort)
+      if(mainDoc&&mainDoc.proyectos) this.publicarEspejoCronograma(empresa,mainDoc.proyectos);
       return true;
     }catch(e){console.error('[FB] save:',e.code,e.message);return false}
   },
@@ -1513,7 +1557,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-07-07-A'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-07-28-A'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -2502,6 +2546,10 @@ async function loadData(){
       var _ltc=((S.mantenimiento&&S.mantenimiento.tecnicos)||[]).filter(function(t){return t.activo!==false;}).length;
       if(_ltc>0){S._lastKnownTecCount=_ltc;console.log('[PP] Técnicos verificados:',_ltc);}
       S._tecnicosDirty=false; // Firebase es la fuente de verdad al cargar
+      // Publicar/refrescar el espejo liviano que lee el cronograma. Va
+      // aquí para que exista desde el primer arranque, sin tener que
+      // esperar a que alguien edite un proyecto. Best-effort.
+      try{window.FB.publicarEspejoCronograma(S.empresa,S.proyectos||[]);}catch(e){}
       // Actualizar localStorage con datos frescos de Firebase (elimina datos obsoletos)
       try{localStorage.setItem('pp3_'+S.empresa,JSON.stringify(serializeState()));}catch(e){}
       setSyncUI('ok','Sincronizado');
