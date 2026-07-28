@@ -206,6 +206,61 @@
   .addrow{padding:8px 10px;font-size:12px;color:var(--blue);cursor:pointer;background:var(--paper);}
   .note{font-size:11.5px;color:var(--ink-soft);margin-top:20px;line-height:1.6;border-top:1px dashed var(--paper-line);padding-top:14px;}
   .emptyhint{font-size:12px;color:var(--ink-soft);padding:14px;background:var(--card);border:1px dashed var(--border);border-radius:8px;text-align:center;}
+  /* ── Pestañas ── */
+  .tabbar{display:flex;gap:6px;margin-bottom:16px;border-bottom:2px solid var(--border);}
+  .tabbtn{
+    background:transparent;border:none;border-bottom:3px solid transparent;margin-bottom:-2px;
+    padding:11px 18px;font-size:13.5px;font-weight:600;color:var(--ink-soft);cursor:pointer;
+    font-family:inherit;border-radius:8px 8px 0 0;
+  }
+  .tabbtn:hover{background:var(--card);color:var(--ink);}
+  .tabbtn.active{color:var(--blue);border-bottom-color:var(--blue);background:var(--card);}
+
+  /* ── Vínculo con Dashboard-FI ── */
+  .filink{
+    background:var(--blue-bg);border:1px solid rgba(42,95,143,.25);border-radius:10px;
+    padding:11px 14px;margin-bottom:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  }
+  .filink .fil{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--blue);white-space:nowrap;}
+  .filink select,.filink input{
+    padding:8px 11px;border:1px solid var(--border);border-radius:8px;background:var(--card);
+    color:var(--ink);font-size:13px;font-family:inherit;
+  }
+  .filink select{flex:1;min-width:190px;}
+  .filink button{
+    background:var(--blue);color:#fff;border:none;border-radius:8px;padding:9px 14px;
+    font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;
+  }
+  .filink button:hover{background:#347099;}
+  .fistatus{font-size:11.5px;color:var(--ink-soft);width:100%;}
+
+  /* ── Tarjetas del dashboard general ── */
+  .dashgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;}
+  .dashcard{
+    background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+    padding:16px 18px;box-shadow:var(--shadow);border-top:3px solid var(--blue);cursor:pointer;
+    transition:box-shadow .15s,transform .15s;
+  }
+  .dashcard:hover{box-shadow:0 4px 12px rgba(16,24,40,.10);transform:translateY(-1px);}
+  .dashcard.sinvinculo{border-top-color:var(--paper-line);}
+  .dashcard.completo{border-top-color:var(--green);}
+  .dashcard.atrasado{border-top-color:var(--red);}
+  .dcname{font-size:15px;font-weight:600;margin-bottom:2px;}
+  .dcmeta{font-size:11.5px;color:var(--ink-soft);margin-bottom:12px;}
+  .dcpctrow{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:5px;}
+  .dcpctlbl{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-soft);}
+  .dcpct{font-size:26px;font-weight:600;}
+  .dcbar{height:9px;background:var(--paper);border-radius:6px;overflow:hidden;margin-bottom:12px;}
+  .dcbar span{display:block;height:100%;border-radius:6px;background:var(--blue);}
+  .dcstats{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--ink-soft);}
+  .dcstats b{color:var(--ink);font-weight:600;}
+  .dcsrc{font-size:10.5px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--border);color:var(--ink-soft);}
+
+  .syncedtag{
+    display:inline-block;font-size:9.5px;font-weight:700;letter-spacing:.4px;
+    background:var(--blue-bg);color:var(--blue);border:1px solid rgba(42,95,143,.3);
+    border-radius:5px;padding:2px 6px;margin-left:6px;vertical-align:middle;white-space:nowrap;
+  }
   .tblscroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
   @media(max-width:900px){
     .kpis{grid-template-columns:repeat(2,1fr);}
@@ -282,6 +337,16 @@
     td{padding:8px 10px;}
     /* Toolbar táctil */
     .toolbar button, .toolbar label.filebtn{padding:10px 12px;font-size:13px;flex:1;min-width:calc(50% - 6px);text-align:center;}
+    /* Pestañas táctiles a lo ancho */
+    .tabbar{gap:0;}
+    .tabbtn{flex:1;padding:12px 6px;font-size:13px;}
+    /* Vínculo con FI: apilado */
+    .filink{padding:10px 11px;gap:8px;}
+    .filink select{width:100%;min-width:0;font-size:16px;padding:10px;}
+    .filink button{width:100%;padding:11px;}
+    /* Tarjetas del dashboard: una por fila */
+    .dashgrid{grid-template-columns:1fr;gap:10px;}
+    .dashcard{padding:14px;}
     /* Títulos de sección con la línea completa */
     .sectiontitle{font-size:13px;}
   }
@@ -313,6 +378,22 @@
       <button onclick="duplicateProject()">⧉ Duplicar</button>
       <button class="pbdanger" onclick="deleteProject()">🗑 Eliminar</button>
     </div>
+  </div>
+
+  <div class="tabbar">
+    <button class="tabbtn active" id="tabBtnCron" onclick="switchTab('cron')">📋 Cronograma</button>
+    <button class="tabbtn" id="tabBtnDash" onclick="switchTab('dash')">📊 Dashboard general</button>
+  </div>
+
+  <div id="tabCronograma">
+
+  <div class="filink">
+    <span class="fil">🔗 Dashboard-FI</span>
+    <select id="fiLinkSelect" onchange="vincularProyectoFI(this.value)">
+      <option value="">— Sin vincular —</option>
+    </select>
+    <button onclick="syncDesdeFI(this)">↻ Actualizar avance</button>
+    <div class="fistatus" id="fiStatus">Vincula este cronograma con su proyecto en Dashboard-FI para traer el avance de obra civil.</div>
   </div>
 
   <div class="titleblock">
@@ -375,6 +456,43 @@
   <div class="note">
     Fechas sugeridas calculadas automáticamente a partir de dependencias y duración estimada en días calendario (no días hábiles) desde la fecha de inicio del proyecto. Edítalas libremente. El campo Responsable se llena desde la lista de Involucrados de este mismo proyecto — agrega ahí a las personas antes de asignarlas. El código de acceso es una validación simple del navegador, no reemplaza un control de seguridad real. El respaldo JSON incluye todos los proyectos e involucrados: es la forma de compartir avances entre el equipo en una página estática.
   </div>
+
+  </div><!-- /tabCronograma -->
+
+  <div id="tabDashboard" style="display:none">
+
+    <div class="titleblock">
+      <div>
+        <h1>Dashboard general</h1>
+        <div class="sub">Avance de obra civil de todos los proyectos — alimentado desde Dashboard-FI</div>
+      </div>
+      <div class="stamp">
+        <div><b>Empresa en FI:</b> <input id="fiEmpresa" placeholder="FISDC" style="border:1px solid var(--border);border-radius:6px;padding:4px 7px;font-size:11px;color:var(--ink);width:90px" onchange="onEmpresaFIEdit()"></div>
+        <div><b>Última sincronización:</b> <span id="fiSyncLbl">nunca</span></div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <button id="dashSyncBtn" onclick="syncDesdeFI(this)">↻ Actualizar todo desde Dashboard-FI</button>
+      <button onclick="window.print()">Imprimir / PDF</button>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi blue"><div class="label">Proyectos</div><div class="value" id="dkProy">0</div></div>
+      <div class="kpi"><div class="label">Avance obra civil</div><div class="value" id="dkAvance">0%</div></div>
+      <div class="kpi ok"><div class="label">Finalizados</div><div class="value" id="dkComp">0</div></div>
+      <div class="kpi crit"><div class="label">Con atrasos</div><div class="value" id="dkAtraso">0</div></div>
+      <div class="kpi mid"><div class="label">Sin vincular</div><div class="value" id="dkSinLink">0</div></div>
+    </div>
+
+    <div class="sectiontitle"><span>Proyectos</span><div class="line"></div></div>
+    <div class="dashgrid" id="dashHost"></div>
+
+    <div class="note">
+      El porcentaje de <b>Avance de obra civil</b> no se edita aquí: se toma del campo <i>Avance Físico</i> del proyecto correspondiente en Dashboard-FI y se escribe en la actividad fija «Avance total de Obra Civil» de cada cronograma. Para que un proyecto aparezca con datos, vincúlalo desde la pestaña Cronograma y pulsa Actualizar.
+    </div>
+
+  </div><!-- /tabDashboard -->
 
 </div>
 
@@ -474,6 +592,7 @@ function loadProjectIntoHeader(){
   document.getElementById("projName").value=p.nombre;
   document.getElementById("projStart").value = p.inicio || addDays(todayStr(),3);
   if(!p.inicio) p.inicio = document.getElementById("projStart").value;
+  renderFiLink();
 }
 function onNameEdit(){
   currentProject().nombre = document.getElementById("projName").value;
@@ -804,7 +923,9 @@ function renderTable(){
       var tr=document.createElement("tr");
       tr.className = st==="Atrasado"?"atrasado":(st==="Completado"?"completado":"");
       tr.innerHTML =
-        '<td class="actcell"><textarea class="cellinput nametxt" rows="1" data-id="'+a.id+'" data-field="nombre">'+escapeHtml(a.nombre)+'</textarea></td>'+
+        (a.esObraCivil
+          ? '<td class="actcell"><textarea class="cellinput nametxt" rows="1" data-id="'+a.id+'" data-field="nombre">'+escapeHtml(a.nombre)+'</textarea><span class="syncedtag">DESDE FI</span></td>'
+          : '<td class="actcell"><textarea class="cellinput nametxt" rows="1" data-id="'+a.id+'" data-field="nombre">'+escapeHtml(a.nombre)+'</textarea></td>')+
         '<td data-label="Prioridad"><select class="cellinput" data-id="'+a.id+'" data-field="prioridad">'+
           ['Critica','Alta','Media'].map(function(pr){return '<option value="'+pr+'" '+(a.prioridad===pr?'selected':'')+'>'+(pr==='Critica'?'Crítica':pr)+'</option>';}).join('')+
         '</select></td>'+
@@ -815,9 +936,13 @@ function renderTable(){
         '<td class="datecell" data-label="Fechas" data-dateid="'+a.id+'"><span class="dtxt">'+fmtDM(a.inicio)+' → '+fmtDM(a.fin)+'</span>'+
         (a.fijo?'<span class="pinbtn" data-pinid="'+a.id+'" title="Fecha fija — toca para volver a automática">📌</span>':'')+
         '<span class="dhint">'+(a.fijo?'fecha fija':'automática — toca para fijar')+'</span></td>'+
-        '<td data-label="Avance %"><input class="cellinput" type="number" min="0" max="100" value="'+a.avance+'" data-id="'+a.id+'" data-field="avance" style="width:55px"></td>'+
+        (a.esObraCivil
+          ? '<td data-label="Avance %"><span title="Este avance se toma de Dashboard-FI — no se edita aqui" style="font-weight:700;color:var(--blue)">'+a.avance+'%</span></td>'
+          : '<td data-label="Avance %"><input class="cellinput" type="number" min="0" max="100" value="'+a.avance+'" data-id="'+a.id+'" data-field="avance" style="width:55px"></td>')+
         '<td data-label="Estado"><span class="statustag '+st+'">'+({Pendiente:"Pendiente",Encurso:"En curso",Completado:"Completado",Atrasado:"Atrasado"}[st])+'</span></td>'+
-        '<td class="delcell"><button class="delbtn" onclick="deleteActivity('+a.id+')" title="Eliminar">✕</button></td>';
+        (a.esObraCivil
+          ? '<td class="delcell"></td>'
+          : '<td class="delcell"><button class="delbtn" onclick="deleteActivity('+a.id+')" title="Eliminar">✕</button></td>');
       tbody.appendChild(tr);
     });
     tbl.appendChild(tbody);
@@ -942,6 +1067,218 @@ function importJSON(evt){
   reader.readAsText(file);
 }
 
+/* ============ PESTAÑAS ============ */
+function switchTab(t){
+  var esCron = (t !== 'dash');
+  document.getElementById('tabCronograma').style.display = esCron ? 'block' : 'none';
+  document.getElementById('tabDashboard').style.display  = esCron ? 'none'  : 'block';
+  document.getElementById('tabBtnCron').className = 'tabbtn' + (esCron ? ' active' : '');
+  document.getElementById('tabBtnDash').className = 'tabbtn' + (esCron ? '' : ' active');
+  // La barra de proyectos es del cronograma (proyecto activo); en el
+  // dashboard general estorba porque ahí se ven todos a la vez.
+  var pb = document.querySelector('.projectbar');
+  if (pb) pb.style.display = esCron ? 'flex' : 'none';
+  if (!esCron) renderDashboard();
+}
+
+/* ====== Actividad fija alimentada por Dashboard-FI ====== */
+var OBRA_CIVIL_NOMBRE = "Avance total de Obra Civil";
+
+function getObraCivil(p){
+  if(!p || !p.actividades) return null;
+  // Se identifica por bandera, no por nombre: así sobrevive a que
+  // alguien la renombre o a respaldos viejos.
+  var a = p.actividades.find(function(x){ return x.esObraCivil === true; });
+  if(a) return a;
+  a = p.actividades.find(function(x){ return (x.nombre||'').toLowerCase().indexOf('obra civil') !== -1; });
+  if(a){ a.esObraCivil = true; return a; }
+  return null;
+}
+
+function ensureObraCivil(p){
+  var a = getObraCivil(p);
+  if(a) return a;
+  var maxId = p.actividades.reduce(function(m,x){ return Math.max(m, x.id||0); }, 0);
+  a = { id:maxId+1, nombre:OBRA_CIVIL_NOMBRE, fase:2, prioridad:"Critica",
+        dur:0, dep:[], resp:"", avance:0, esObraCivil:true };
+  p.actividades.push(a);
+  return a;
+}
+
+/* ====== Lectura desde Dashboard-FI (nunca escribe en FI) ====== */
+function onEmpresaFIEdit(){
+  STATE.fiEmpresa = (document.getElementById('fiEmpresa').value || '').trim().toUpperCase();
+  markEdited();
+}
+
+function syncDesdeFI(btn){
+  if(!fbDb){ setFiStatus('⚠ Sin conexión a Firebase — no se puede leer Dashboard-FI.', true); return; }
+  var emp = (STATE.fiEmpresa || 'FISDC').trim().toUpperCase();
+  STATE.fiEmpresa = emp;
+  if(btn){ btn.disabled = true; btn.textContent = 'Leyendo…'; }
+  setFiStatus('Leyendo proyectos de Dashboard-FI…');
+  // SOLO LECTURA del documento de la empresa. El cronograma jamás
+  // escribe ahí, para no chocar con el sistema principal que guarda
+  // sus proyectos como un solo arreglo dentro de ese documento.
+  fbDb.collection('empresas').doc(emp).get().then(function(doc){
+    if(!doc.exists){
+      setFiStatus('⚠ No se encontró la empresa "'+emp+'" en Dashboard-FI. Revisa el código de empresa.', true);
+      return;
+    }
+    var proys = (doc.data().proyectos) || [];
+    STATE.fiProyectos = proys.map(function(p){
+      return { id:p.id, nombre:p.nombre||'(sin nombre)', marca:p.marca||'', tipo:p.tipo||'',
+               ubicacion:p.ubicacion||'', estado:p.estado||'',
+               avanceFisico: Math.max(0, Math.min(100, parseInt(p.avanceFisico)||0)) };
+    });
+    // Aplicar el avance a la actividad fija de cada cronograma vinculado
+    var aplicados = 0, huerfanos = 0;
+    Object.keys(STATE.projects).forEach(function(pid){
+      var pr = STATE.projects[pid];
+      if(!pr.fiProjectId) return;
+      var fi = STATE.fiProyectos.find(function(f){ return f.id === pr.fiProjectId; });
+      if(!fi){ huerfanos++; return; }
+      var act = ensureObraCivil(pr);
+      act.avance   = fi.avanceFisico;
+      pr.fiNombre  = fi.nombre;
+      pr.fiEstado  = fi.estado;
+      pr.fiAvance  = fi.avanceFisico;
+      aplicados++;
+    });
+    STATE.fiSyncTs = Date.now();
+    markEdited();
+    renderFiLink();
+    renderAll();
+    renderDashboard();
+    var msg = '✅ '+STATE.fiProyectos.length+' proyecto(s) leídos de FI · '+aplicados+' cronograma(s) actualizados';
+    if(huerfanos) msg += ' · ⚠ '+huerfanos+' vínculo(s) apuntan a un proyecto que ya no existe en FI';
+    setFiStatus(msg);
+  }).catch(function(e){
+    // Causa típica: las reglas de Firestore no permiten leer "empresas"
+    // sin estar autenticado (el cronograma solo tiene el código de acceso).
+    setFiStatus('⚠ No se pudo leer Dashboard-FI: '+e.message+'. Si dice "permission-denied", hay que permitir lectura de la colección "empresas" en las reglas de Firestore.', true);
+  }).then(function(){
+    if(btn){ btn.disabled = false; btn.textContent = btn.id==='dashSyncBtn' ? '↻ Actualizar todo desde Dashboard-FI' : '↻ Actualizar avance'; }
+  });
+}
+
+function setFiStatus(txt, esError){
+  var el = document.getElementById('fiStatus');
+  if(el){ el.textContent = txt; el.style.color = esError ? 'var(--red)' : 'var(--ink-soft)'; }
+}
+
+function vincularProyectoFI(fiId){
+  var p = currentProject();
+  p.fiProjectId = fiId || null;
+  if(!fiId){
+    p.fiNombre = null; p.fiAvance = null; p.fiEstado = null;
+  } else {
+    var fi = (STATE.fiProyectos||[]).find(function(f){ return f.id === fiId; });
+    if(fi){
+      var act = ensureObraCivil(p);
+      act.avance  = fi.avanceFisico;
+      p.fiNombre  = fi.nombre;
+      p.fiEstado  = fi.estado;
+      p.fiAvance  = fi.avanceFisico;
+    }
+  }
+  markEdited();
+  renderFiLink();
+  renderAll();
+}
+
+function renderFiLink(){
+  var sel = document.getElementById('fiLinkSelect');
+  if(!sel) return;
+  var p = currentProject();
+  var lista = STATE.fiProyectos || [];
+  sel.innerHTML = '<option value="">— Sin vincular —</option>';
+  lista.forEach(function(f){
+    var opt = document.createElement('option');
+    opt.value = f.id;
+    opt.textContent = f.nombre + (f.ubicacion ? ' · '+f.ubicacion : '') + ' — ' + f.avanceFisico + '%';
+    if(p.fiProjectId === f.id) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  // Vínculo guardado pero aún sin leer la lista de FI en esta sesión
+  if(p.fiProjectId && !lista.some(function(f){ return f.id===p.fiProjectId; })){
+    var o = document.createElement('option');
+    o.value = p.fiProjectId; o.selected = true;
+    o.textContent = (p.fiNombre || 'Proyecto vinculado') + ' (pulsa Actualizar para refrescar)';
+    sel.appendChild(o);
+  }
+  var empIn = document.getElementById('fiEmpresa');
+  if(empIn && !empIn.value) empIn.value = STATE.fiEmpresa || 'FISDC';
+  if(!lista.length && !p.fiProjectId){
+    setFiStatus('Pulsa «↻ Actualizar avance» para traer la lista de proyectos de Dashboard-FI y vincular este cronograma.');
+  } else if(p.fiProjectId){
+    var act = getObraCivil(p);
+    setFiStatus('Vinculado a «'+(p.fiNombre||'?')+'» · Avance de obra civil: '+(act?act.avance:0)+'% (viene de FI, no se edita aquí)');
+  }
+}
+
+/* ============ DASHBOARD GENERAL ============ */
+function renderDashboard(){
+  var host = document.getElementById('dashHost');
+  if(!host) return;
+  var pids = Object.keys(STATE.projects);
+  var sumAv=0, conAv=0, comp=0, atrasados=0, sinLink=0;
+  host.innerHTML = '';
+
+  pids.forEach(function(pid){
+    var p   = STATE.projects[pid];
+    var act = getObraCivil(p);
+    var pct = act ? (parseInt(act.avance)||0) : 0;
+    var vinculado = !!p.fiProjectId;
+    if(vinculado){ sumAv += pct; conAv++; } else { sinLink++; }
+    if(pct >= 100) comp++;
+
+    var acts = p.actividades || [];
+    var nAtras = acts.filter(function(a){ return calcStatus(a)==='Atrasado'; }).length;
+    var nComp  = acts.filter(function(a){ return calcStatus(a)==='Completado'; }).length;
+    if(nAtras > 0) atrasados++;
+
+    var cls = 'dashcard' + (!vinculado ? ' sinvinculo' : (pct>=100 ? ' completo' : (nAtras>0 ? ' atrasado' : '')));
+    var barColor = pct>=100 ? 'var(--green)' : (nAtras>0 ? 'var(--red)' : 'var(--blue)');
+
+    var card = document.createElement('div');
+    card.className = cls;
+    card.onclick = (function(id){ return function(){ switchProject(id); switchTab('cron'); }; })(pid);
+    card.innerHTML =
+      '<div class="dcname">'+escapeHtml(p.nombre)+'</div>'+
+      '<div class="dcmeta">'+(vinculado
+          ? '🔗 '+escapeHtml(p.fiNombre||'FI')+(p.fiEstado?' · '+escapeHtml(p.fiEstado):'')
+          : '⚠ Sin vincular a Dashboard-FI')+'</div>'+
+      '<div class="dcpctrow"><span class="dcpctlbl">Avance obra civil</span>'+
+        '<span class="dcpct" style="color:'+barColor+'">'+pct+'%</span></div>'+
+      '<div class="dcbar"><span style="width:'+pct+'%;background:'+barColor+'"></span></div>'+
+      '<div class="dcstats">'+
+        '<span><b>'+acts.length+'</b> actividades</span>'+
+        '<span><b>'+nComp+'</b> completadas</span>'+
+        (nAtras ? '<span style="color:var(--red)"><b>'+nAtras+'</b> atrasadas</span>' : '')+
+      '</div>'+
+      '<div class="dcsrc">'+(vinculado
+          ? 'Fuente: Avance Físico en Dashboard-FI'
+          : 'Vincúlalo desde la pestaña Cronograma para traer su avance')+'</div>';
+    host.appendChild(card);
+  });
+
+  if(!pids.length){
+    host.innerHTML = '<div class="note">Aún no hay proyectos. Crea uno desde la pestaña Cronograma.</div>';
+  }
+
+  document.getElementById('dkProy').textContent    = pids.length;
+  document.getElementById('dkAvance').textContent  = (conAv ? Math.round(sumAv/conAv) : 0) + '%';
+  document.getElementById('dkComp').textContent    = comp;
+  document.getElementById('dkAtraso').textContent  = atrasados;
+  document.getElementById('dkSinLink').textContent = sinLink;
+
+  var lbl = document.getElementById('fiSyncLbl');
+  if(lbl) lbl.textContent = STATE.fiSyncTs ? new Date(STATE.fiSyncTs).toLocaleString('es-SV') : 'nunca';
+  var empIn = document.getElementById('fiEmpresa');
+  if(empIn && !empIn.value) empIn.value = STATE.fiEmpresa || 'FISDC';
+}
+
 /* ============ GATE ============ */
 function checkGate(){
   var val=document.getElementById("gateInput").value.trim();
@@ -1024,6 +1361,8 @@ function _startCloudListener() {
         renderProjectSelect();
         loadProjectIntoHeader();
         renderAll();
+        var dashVis = document.getElementById('tabDashboard');
+        if(dashVis && dashVis.style.display !== 'none') renderDashboard();
         saveLocal(); // cache local como respaldo
         _syncBadge('ok');
       }
