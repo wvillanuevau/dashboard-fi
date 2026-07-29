@@ -2617,8 +2617,12 @@ function paAfterAuth() {
   // Load today's markings
   var hoy = paHoy();
   // Single WHERE para evitar índice compuesto; filtros empresa y fecha en cliente
+  // Solo las marcaciones de HOY: antes se leia el historial completo del
+  // empleado en CADA inicio de sesion y luego se descartaba todo lo que no
+  // fuera de hoy en el cliente (ver el filtro de abajo).
   paDb.collection('paMarcaciones')
     .where('empleadoId', '==', emp.id)
+    .where('fecha', '==', hoy)
     .get().then(function(snap) {
       PA.marcacionesHoy = [];
       snap.forEach(function(d){
@@ -3569,9 +3573,11 @@ function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
     if (calc.minutosRetraso > 0 && paDb && PA.empresa) {
       var _q = _quincenaActual();
       Promise.all([
+        // Solo la quincena en curso (rango sobre un unico campo -> sin
+        // indice compuesto). Antes leia todo el historial del empleado.
         paDb.collection('paMarcaciones')
-          .where('empresa',   '==', PA.empresa)
-          .where('empleadoId','==', empId)
+          .where('fecha', '>=', _q.desde)
+          .where('fecha', '<=', _q.hasta)
           .get(),
         paDb.collection('paAccionesPersonal')
           .where('empresa',   '==', PA.empresa)
@@ -3584,7 +3590,11 @@ function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
         var marcacionesQ = {}; marcacionesQ[empId] = {};
         res[0].forEach(function(d) {
           var r = d.data();
-          if (r.fecha < _q.desde || r.fecha > _q.hasta) return;
+          // El rango de fechas lo aplico el servidor. Empresa y empleado
+          // ahora se filtran aqui, porque la consulta trae la quincena
+          // completa de todos (asi se evita leer el historial entero).
+          if (r.empresa !== PA.empresa) return;
+          if (r.empleadoId !== empId) return;
           if (r.ts && typeof r.ts==='object' && r.ts.toMillis) r.ts = r.ts.toMillis();
           else if (r.ts && r.ts.seconds) r.ts = r.ts.seconds*1000 + Math.round((r.ts.nanoseconds||0)/1e6);
           if (!marcacionesQ[empId][r.fecha]) marcacionesQ[empId][r.fecha] = [];
@@ -8053,16 +8063,18 @@ function _paCargarAusenciasPeriodo(cb) {
     return;
   }
   // Cargar marcaciones para contar ausencias/tardanzas por empleado.
-  // Firestore SIEMPRE exige índice compuesto al combinar una igualdad
-  // (empresa==) con un rango (fecha>=/<=), sin importar cuántas condiciones
-  // sean — no existe ese índice en este proyecto. Única forma de evitarlo
-  // sin crear el índice: dejar SOLO la igualdad en la consulta (auto-indexada
-  // siempre) y filtrar TODO el rango de fechas en cliente. Nota: esto trae
-  // el historial completo de paMarcaciones de la empresa, no solo el
-  // período — si la colección crece mucho con los años, considerar crear
-  // el índice compuesto en su lugar (más eficiente).
+  // Firestore exige indice compuesto si se combina una igualdad (empresa==)
+  // con un rango (fecha>=/<=). Antes se resolvia dejando SOLO la igualdad
+  // y filtrando las fechas en cliente — pero eso traia el HISTORIAL COMPLETO
+  // de la empresa (miles de documentos) cada vez que se abria la pestana Hoy,
+  // y era la mayor fuente de consumo de cuota de lectura del sistema.
+  // Solucion sin indice compuesto: mandar al servidor el RANGO DE FECHAS
+  // (un solo campo -> Firestore lo indexa automaticamente) y filtrar la
+  // empresa en cliente. Se pasa de leer todo el historial a leer solo la
+  // quincena en curso.
   paDb.collection('paMarcaciones')
-    .where('empresa', '==', PA.empresa)
+    .where('fecha', '>=', _q.desde)
+    .where('fecha', '<=', _q.hasta)
     .get()
     .then(function(snap) {
       // Permisos especiales de entrada tardía aprobados — un solo fetch
@@ -8089,7 +8101,9 @@ function _paCargarAusenciasPeriodo(cb) {
       var marcacionesPorEmp = {};
       snap.forEach(function(d) {
         var r = d.data();
-        if (r.fecha < _q.desde || r.fecha > _q.hasta) return; // filtro client-side del rango completo
+        // El rango de fechas ya lo aplico el servidor; la empresa ahora se
+        // filtra aqui (antes iba en la consulta).
+        if (r.empresa !== PA.empresa) return;
         if (r.tipo === 'entrada') {
           if (!marcoEntrada[r.empleadoId]) marcoEntrada[r.empleadoId] = {};
           marcoEntrada[r.empleadoId][r.fecha] = true;
@@ -9241,11 +9255,23 @@ function _paRecalcularHEPendientes(empIds, callback) {
       });
       if (!docsRelevantes.length) { if (callback) callback(0); return; }
 
-      paDb.collection('paMarcaciones').where('empresa','==',PA.empresa).get()
+      // Solo hacen falta las marcaciones de las fechas que tienen HE
+      // pendiente, no el historial completo de la empresa (eso leia miles
+      // de documentos en cada guardado de horario).
+      var _fechas = docsRelevantes.map(function(x){ return x.data.fecha; })
+                                  .filter(Boolean).sort();
+      if (!_fechas.length) { if (callback) callback(0); return; }
+      var _fDesde = _fechas[0], _fHasta = _fechas[_fechas.length-1];
+
+      paDb.collection('paMarcaciones')
+        .where('fecha','>=',_fDesde)
+        .where('fecha','<=',_fHasta)
+        .get()
         .then(function(snapM) {
           var porEmpFecha = {}; // empId → fecha → {entrada:ts, salida:ts}
           snapM.forEach(function(d) {
             var r = d.data();
+            if (r.empresa !== PA.empresa) return; // empresa ahora en cliente
             if (empIds.indexOf(r.empleadoId) === -1) return;
             if (r.ts && typeof r.ts==='object' && r.ts.toMillis) r.ts = r.ts.toMillis();
             else if (r.ts && r.ts.seconds) r.ts = r.ts.seconds*1000 + Math.round((r.ts.nanoseconds||0)/1e6);
@@ -11395,7 +11421,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-28-A';
+var PA_VERSION = 'v2026-07-28-B';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
