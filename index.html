@@ -1557,7 +1557,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-07-28-A'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-07-28-D'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -2713,6 +2713,39 @@ function _saveProyecto(proyId, updaterFn) {
     markDirty('proyectos'); saveData();
   });
 }
+// ── Fusion de la lista de personal con la del servidor ─────────────
+// La proteccion existente solo evitaba pisar 'tecnicos' cuando NADIE
+// habia editado empleados. Pero al editar o agregar UNO, se escribia la
+// lista completa que este navegador tenia en memoria — que puede ser
+// vieja — y desaparecian los empleados que otro usuario habia agregado
+// despues de que esta sesion cargo. Nadie borraba nada: se perdian al
+// guardar. Ahora se relee el servidor y se fusiona por id antes de
+// escribir; solo se quitan los que se eliminaron explicitamente aqui.
+async function _tecnicosFusionados(){
+  var locales=((S.mantenimiento&&S.mantenimiento.tecnicos)||[]);
+  var borrados=S._tecnicosEliminados||[];
+  try{
+    var doc=await firebase.firestore().collection('empresas').doc(S.empresa).get();
+    var remotos=(doc.exists&&doc.data().mantenimiento&&doc.data().mantenimiento.tecnicos)||[];
+    var porId={};
+    remotos.forEach(function(t){ if(t&&t.id) porId[t.id]=t; });
+    var recuperados=remotos.filter(function(r){
+      return r&&r.id&&borrados.indexOf(r.id)===-1&&!locales.some(function(l){return l&&l.id===r.id;});
+    });
+    locales.forEach(function(t){ if(t&&t.id) porId[t.id]=t; }); // lo editado aqui gana
+    borrados.forEach(function(id){ delete porId[id]; });        // borrado explicito manda
+    if(recuperados.length){
+      console.warn('[PP] Fusion de personal: se conservaron '+recuperados.length
+        +' empleado(s) agregados por otro usuario ('
+        +recuperados.map(function(r){return r.nombre||r.id;}).join(', ')+')');
+    }
+    return Object.keys(porId).map(function(k){return porId[k];});
+  }catch(e){
+    console.warn('[PP] No se pudo fusionar personal, se usa la lista local:',e.message);
+    return locales;
+  }
+}
+
 async function saveData(seccion){
   // Si se pasa sección, marcarla dirty automáticamente
   if(seccion){markDirty(seccion);}
@@ -2807,9 +2840,14 @@ async function _doSaveFirebase(){
           console.log('[PP] mantenimiento guardado SIN sobreescribir tecnicos (dot-notation)');
         }catch(e){ result={ok:false,err:e.message}; }
       } else {
-        // tecnicos fue editado explícitamente → guardar todo incluyendo tecnicos
+        // tecnicos fue editado explícitamente → fusionar con el servidor
+        // ANTES de escribir, para no borrar a quien agrego otro usuario
+        var _fus=await _tecnicosFusionados();
+        S.mantenimiento.tecnicos=_fus;
+        if(!dataToSave.mantenimiento) dataToSave.mantenimiento={};
+        dataToSave.mantenimiento.tecnicos=_fus;
         result=await window.FB.saveSection(S.empresa,otherDirtySections,dataToSave);
-        if((result===true)||(result&&result.ok===true)) S._tecnicosDirty=false;
+        if((result===true)||(result&&result.ok===true)){ S._tecnicosDirty=false; S._tecnicosEliminados=[]; }
       }
 
       var savedOk=(result===true)||(result&&result.ok===true);
@@ -2854,9 +2892,13 @@ async function _doSaveFirebase(){
           result=await window.FB.save(S.empresa,dataToSave);
         }
       } else {
-        // Tecnicos fue editado explícitamente → save completo normal
+        // Tecnicos fue editado explícitamente → fusionar antes de escribir
+        var _fus2=await _tecnicosFusionados();
+        S.mantenimiento.tecnicos=_fus2;
+        if(!dataToSave.mantenimiento) dataToSave.mantenimiento={};
+        dataToSave.mantenimiento.tecnicos=_fus2;
         result=await window.FB.save(S.empresa,dataToSave);
-        if((result===true)||(result&&result.ok===true)) S._tecnicosDirty=false;
+        if((result===true)||(result&&result.ok===true)){ S._tecnicosDirty=false; S._tecnicosEliminados=[]; }
       }
     }
 
@@ -3199,9 +3241,19 @@ function _syncPortalPublico(){
     .filter(function(e){return !e.estado||e.estado==='activo';})
     .map(function(e){return{id:e.id,nombre:e.nombre,ubicacionId:e.ubicacionId||e.centroId||'',ubicacionTipo:e.ubicacionTipo||'centro',categoria:e.categoria||''};});
   var centrosPublicos=(S.centros||[]).map(function(c){return{id:c.id,nombre:c.nombre};});
+  // Publicar TODOS los tecnicos, incluidos los inactivos, con su bandera
+  // activo. Antes se filtraban los inactivos y ademas se omitia el campo,
+  // con dos consecuencias graves en el Portal de Asistencia:
+  //   1) Al desactivar a alguien en este sistema, DESAPARECIA por completo
+  //      del portal: no salia en Empleados ni en la lista de horarios, y
+  //      sus marcaciones del dia quedaban huerfanas ("Sin horario").
+  //      Tampoco habia forma de reactivarlo desde el portal.
+  //   2) Al omitir el campo activo, cada sincronizacion borraba las
+  //      desactivaciones hechas desde el portal (los empleados "revivian").
+  // El portal filtra por su cuenta a los inactivos en la lista publica de
+  // marcacion, asi que publicarlos aqui no los expone para marcar.
   var tecnicosPublicos=((S.mantenimiento&&S.mantenimiento.tecnicos)||[])
-    .filter(function(t){return t.activo!==false;})
-    .map(function(t){return{id:t.id,nombre:t.nombre,cargo:t.cargo||'tecnico',telefono:t.telefono||''};});
+    .map(function(t){return{id:t.id,nombre:t.nombre,cargo:t.cargo||'tecnico',telefono:t.telefono||'',activo:t.activo!==false};});
   var vehiculosPublicos=((S.taller&&S.taller.vehiculos)||[])
     .filter(function(v){return v.estado!=='baja';})
     .map(function(v){return{id:v.id,placa:v.placa,marca:v.marca||'',modelo:v.modelo||'',tipo:v.tipo||''};});
@@ -3222,9 +3274,9 @@ function _syncPortalPublico(){
     });
   // Guard básico: no sincronizar si el estado está vacío (app cargando)
   if(!S.mantenimiento || !S.mantenimiento.tecnicos) return;
-  var newCount=tecnicosPublicos.length;
+  var newCount=tecnicosPublicos.filter(function(t){return t.activo;}).length;
   S._lastKnownTecCount=newCount;
-  console.log('[Portal] Sincronizando portal público —',newCount,'técnicos');
+  console.log('[Portal] Sincronizando portal público —',newCount,'técnicos activos de',tecnicosPublicos.length,'publicados');
   db.collection('portalesPublicos').doc(S.empresa).set({
     empresa:S.empresa,
     centros:centrosPublicos,
@@ -12865,12 +12917,25 @@ function verOTsTecnico(tecId){
 }
 
 function delTecnico(id){
-  markDirty('mantenimiento'); S._tecnicosDirty=true; // flag: tecnicos fue editado explícitamente
-  if(!confirm('¿Eliminar este registro de personal?'))return;
   var m=mantData();
+  // Buscar ANTES de borrar. El codigo anterior buscaba despues de haber
+  // quitado el registro del arreglo, asi que "tx" siempre salia vacio y
+  // logAction NUNCA se ejecutaba: eliminar personal no dejaba NINGUN
+  // rastro en la auditoria. Por eso desaparecia gente sin registro.
+  var tx=(m.tecnicos||[]).find(function(t){return t.id===id;});
+  if(!tx){toast('No se encontró ese registro de personal');return;}
+  if(!confirm('¿Eliminar a "'+tx.nombre+'" de forma permanente?\n\n'
+    +'Desaparecerá del Portal de Asistencia y sus marcaciones quedarán sin dueño.\n'
+    +'Si solo dejó de trabajar, es mejor DESACTIVARLO: conserva su historial '
+    +'y se puede reactivar después.'))return;
+  // markDirty va DESPUES de confirmar: antes se marcaba la seccion como
+  // modificada aunque el usuario cancelara.
+  markDirty('mantenimiento'); S._tecnicosDirty=true;
+  // Registrar el borrado explicito: la fusion con el servidor debe
+  // respetarlo, o el empleado "reviviria" en el siguiente guardado.
+  S._tecnicosEliminados=(S._tecnicosEliminados||[]).concat([id]);
   m.tecnicos=m.tecnicos.filter(function(t){return t.id!==id;});
-  var tx=(mantData().tecnicos||[]).find(function(t){return t.id===id;});
-  if(tx)logAction('ELIMINAR','empleados','Empleado: '+tx.nombre);
+  logAction('ELIMINAR','empleados','Empleado eliminado: '+tx.nombre+' (id '+id+')');
   saveData();renderMantTecnicos();toast('Técnico eliminado');
 }
 
