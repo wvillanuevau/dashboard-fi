@@ -1557,7 +1557,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-07-28-D'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-07-28-E'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -2721,6 +2721,87 @@ function _saveProyecto(proyId, updaterFn) {
 // despues de que esta sesion cargo. Nadie borraba nada: se perdian al
 // guardar. Ahora se relee el servidor y se fusiona por id antes de
 // escribir; solo se quitan los que se eliminaron explicitamente aqui.
+// ── Recuperacion de personal perdido ───────────────────────────────
+// Busca empleados que tienen rastro en el Portal de Asistencia
+// (marcaciones o PIN) pero que ya no existen en la lista de personal.
+// Los restaura con su ID ORIGINAL para que su historial se reconecte.
+async function buscarEmpleadosPerdidos(){
+  if(!S.empresa){toast('Sin empresa activa');return;}
+  toast('Buscando en el Portal de Asistencia...');
+  var db=firebase.firestore();
+  var vistos={}; // id -> {id, nombre, cargo, marcaciones, tienePin, ultima}
+  try{
+    var snapM=await db.collection('paMarcaciones').where('empresa','==',S.empresa).get();
+    snapM.forEach(function(d){
+      var r=d.data(); if(!r.empleadoId)return;
+      var v=vistos[r.empleadoId]||(vistos[r.empleadoId]={id:r.empleadoId,nombre:'',cargo:'',marcaciones:0,tienePin:false,ultima:''});
+      v.marcaciones++;
+      if(r.empleadoNombre&&!v.nombre) v.nombre=r.empleadoNombre;
+      if(r.cargo&&!v.cargo) v.cargo=r.cargo;
+      if(r.fecha&&r.fecha>v.ultima) v.ultima=r.fecha;
+    });
+    var snapP=await db.collection('paPins').where('empresa','==',S.empresa).get();
+    snapP.forEach(function(d){
+      var r=d.data(); if(!r.empleadoId)return;
+      var v=vistos[r.empleadoId]||(vistos[r.empleadoId]={id:r.empleadoId,nombre:'',cargo:'',marcaciones:0,tienePin:false,ultima:''});
+      v.tienePin=true;
+    });
+  }catch(e){
+    alert('No se pudo leer el Portal de Asistencia.\n\n'+(e.code||e.message)
+      +'\n\nSi dice "quota" o "RESOURCE_EXHAUSTED", el proyecto de Firebase agoto su cuota diaria de lecturas: hay que esperar al reinicio diario o subir el plan antes de reintentar.');
+    return;
+  }
+  var existentes={};
+  ((S.mantenimiento&&S.mantenimiento.tecnicos)||[]).forEach(function(t){ if(t&&t.id) existentes[t.id]=true; });
+  var perdidos=Object.keys(vistos).map(function(k){return vistos[k];})
+    .filter(function(v){ return !existentes[v.id]; })
+    .sort(function(a,b){ return (b.ultima||'').localeCompare(a.ultima||''); });
+
+  var old=document.getElementById('modalPerdidos'); if(old) old.remove();
+  var filas=perdidos.length? perdidos.map(function(v){
+      return '<tr>'
+        +'<td><b>'+esc(v.nombre||'(sin nombre en marcaciones)')+'</b><div style="font-size:10px;color:var(--muted)">id: '+esc(v.id)+'</div></td>'
+        +'<td>'+esc(v.cargo||'tecnico')+'</td>'
+        +'<td style="text-align:center">'+v.marcaciones+'</td>'
+        +'<td style="text-align:center">'+(v.tienePin?'Si':'No')+'</td>'
+        +'<td>'+esc(v.ultima||'—')+'</td>'
+        +'<td style="text-align:right"><button class="btn btn-primary btn-xs" onclick="restaurarEmpleadoPerdido('+JSON.stringify(JSON.stringify(v)).replace(/"/g,'&quot;')+')">Restaurar</button></td>'
+        +'</tr>';
+    }).join('')
+    : '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:18px">No hay empleados huerfanos: todos los que tienen marcaciones estan en la lista de personal.</td></tr>';
+
+  var html='<div id="modalPerdidos" class="modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:700;display:flex;align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)this.remove()">'
+    +'<div class="modal" style="background:var(--surface);border-radius:12px;padding:20px;max-width:820px;width:100%;max-height:85vh;overflow:auto">'
+    +'<div class="modal-hdr" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
+    +'<span class="modal-ttl" style="font-weight:700;font-size:15px">🩺 Empleados huerfanos ('+perdidos.length+')</span>'
+    +'<button class="btn btn-secondary btn-xs" onclick="document.getElementById(\'modalPerdidos\').remove()">Cerrar</button></div>'
+    +'<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Tienen marcaciones o PIN en el Portal de Asistencia pero ya no aparecen en la lista de personal. Al restaurarlos se usa su <b>id original</b>, asi que recuperan todo su historial.</div>'
+    +'<table style="width:100%;border-collapse:collapse;font-size:12px">'
+    +'<thead><tr style="text-align:left;border-bottom:1px solid var(--border)">'
+    +'<th style="padding:6px">Empleado</th><th>Cargo</th><th style="text-align:center">Marcaciones</th><th style="text-align:center">PIN</th><th>Ultima</th><th></th></tr></thead>'
+    +'<tbody>'+filas+'</tbody></table></div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+
+function restaurarEmpleadoPerdido(json){
+  var v; try{ v=JSON.parse(json); }catch(e){ toast('Dato invalido'); return; }
+  if(!v||!v.id){toast('Sin id');return;}
+  var m=mantData();
+  m.tecnicos=m.tecnicos||[];
+  if(m.tecnicos.some(function(t){return t.id===v.id;})){toast('Ya existe en la lista');return;}
+  if(!confirm('Restaurar a "'+(v.nombre||v.id)+'" con su id original ('+v.id+')?\n\n'
+    +'Recuperara sus '+v.marcaciones+' marcacion(es) y su historial.'))return;
+  m.tecnicos.push({id:v.id, nombre:v.nombre||('Empleado '+v.id), cargo:v.cargo||'tecnico', telefono:'', activo:true});
+  markDirty('mantenimiento'); S._tecnicosDirty=true;
+  // Por si estaba en la lista de borrados de esta sesion
+  S._tecnicosEliminados=(S._tecnicosEliminados||[]).filter(function(x){return x!==v.id;});
+  logAction('RESTAURAR','empleados','Empleado restaurado: '+(v.nombre||v.id)+' (id '+v.id+')');
+  saveData();
+  toast('✅ '+(v.nombre||v.id)+' restaurado');
+  var mp=document.getElementById('modalPerdidos'); if(mp) mp.remove();
+  if(typeof renderMantTecnicos==='function'){ try{renderMantTecnicos();}catch(e){} }
+}
+
 async function _tecnicosFusionados(){
   var locales=((S.mantenimiento&&S.mantenimiento.tecnicos)||[]);
   var borrados=S._tecnicosEliminados||[];
@@ -2741,8 +2822,11 @@ async function _tecnicosFusionados(){
     }
     return Object.keys(porId).map(function(k){return porId[k];});
   }catch(e){
-    console.warn('[PP] No se pudo fusionar personal, se usa la lista local:',e.message);
-    return locales;
+    // NO devolver la lista local: si la lectura fallo (cuota agotada, sin
+    // red, permisos) escribirla podria borrar a quien no conocemos.
+    // Devolver null significa "no tocar tecnicos en este guardado".
+    console.warn('[PP] No se pudo verificar personal contra el servidor — NO se escribira la lista:',e.code||e.message);
+    return null;
   }
 }
 
@@ -2843,11 +2927,27 @@ async function _doSaveFirebase(){
         // tecnicos fue editado explícitamente → fusionar con el servidor
         // ANTES de escribir, para no borrar a quien agrego otro usuario
         var _fus=await _tecnicosFusionados();
-        S.mantenimiento.tecnicos=_fus;
-        if(!dataToSave.mantenimiento) dataToSave.mantenimiento={};
-        dataToSave.mantenimiento.tecnicos=_fus;
-        result=await window.FB.saveSection(S.empresa,otherDirtySections,dataToSave);
-        if((result===true)||(result&&result.ok===true)){ S._tecnicosDirty=false; S._tecnicosEliminados=[]; }
+        if(_fus){
+          S.mantenimiento.tecnicos=_fus;
+          if(!dataToSave.mantenimiento) dataToSave.mantenimiento={};
+          dataToSave.mantenimiento.tecnicos=_fus;
+          result=await window.FB.saveSection(S.empresa,otherDirtySections,dataToSave);
+          if((result===true)||(result&&result.ok===true)){ S._tecnicosDirty=false; S._tecnicosEliminados=[]; }
+        } else {
+          // No se pudo verificar contra el servidor: guardar todo MENOS
+          // tecnicos y dejar el flag para reintentar en el proximo guardado.
+          var _mf=['checklists','equipos','ots','movimientosEquipos','registros','solicitudesMant'];
+          var _du={_ts:dataToSave._ts||Date.now()};
+          var _mm=dataToSave.mantenimiento||S.mantenimiento||{};
+          _mf.forEach(function(k){ _du['mantenimiento.'+k]=_mm[k]||[]; });
+          otherDirtySections.filter(function(x){return x!=='mantenimiento';})
+            .forEach(function(x){ if(dataToSave[x]!==undefined) _du[x]=dataToSave[x]; });
+          try{
+            await firebase.firestore().collection('empresas').doc(S.empresa).update(_du);
+            result={ok:true};
+            toast('⚠ Se guardó todo menos la lista de personal (no se pudo verificar contra el servidor). Reintenta en un momento.',false,7000);
+          }catch(e){ result={ok:false,err:e.message}; }
+        }
       }
 
       var savedOk=(result===true)||(result&&result.ok===true);
@@ -2894,11 +2994,26 @@ async function _doSaveFirebase(){
       } else {
         // Tecnicos fue editado explícitamente → fusionar antes de escribir
         var _fus2=await _tecnicosFusionados();
-        S.mantenimiento.tecnicos=_fus2;
-        if(!dataToSave.mantenimiento) dataToSave.mantenimiento={};
-        dataToSave.mantenimiento.tecnicos=_fus2;
-        result=await window.FB.save(S.empresa,dataToSave);
-        if((result===true)||(result&&result.ok===true)){ S._tecnicosDirty=false; S._tecnicosEliminados=[]; }
+        if(_fus2){
+          S.mantenimiento.tecnicos=_fus2;
+          if(!dataToSave.mantenimiento) dataToSave.mantenimiento={};
+          dataToSave.mantenimiento.tecnicos=_fus2;
+          result=await window.FB.save(S.empresa,dataToSave);
+          if((result===true)||(result&&result.ok===true)){ S._tecnicosDirty=false; S._tecnicosEliminados=[]; }
+        } else {
+          // Sin verificacion posible: no arriesgar la lista de personal
+          try{
+            var _db2=firebase.firestore();
+            var _du2={_ts:dataToSave._ts||Date.now()};
+            Object.keys(dataToSave).forEach(function(k){ if(k!=='mantenimiento'&&k!=='_ts') _du2[k]=dataToSave[k]; });
+            ['checklists','equipos','ots','movimientosEquipos','registros','solicitudesMant'].forEach(function(k){
+              _du2['mantenimiento.'+k]=(S.mantenimiento||{})[k]||[];
+            });
+            await _db2.collection('empresas').doc(S.empresa).update(_du2);
+            result={ok:true};
+            toast('⚠ Se guardó todo menos la lista de personal (no se pudo verificar contra el servidor). Reintenta en un momento.',false,7000);
+          }catch(e){ result={ok:false,err:e.message}; }
+        }
       }
     }
 
@@ -7689,6 +7804,17 @@ function renderConfig(){
       <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:8px">🚚 Operaciones de Taller</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px">
         <button class="btn btn-secondary btn-sm" onclick="modalCorregirKmVehiculo()" title="Corregir el kilometraje actual de un vehículo (errores de captura, cambio de odómetro, etc.)">🔢 Corregir kilometraje de vehículo</button>
+      </div>
+    </div>
+
+    <!-- 🩺 Recuperar personal perdido -->
+    <div class="ha-block" style="margin-bottom:14px">
+      <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:8px">🩺 Recuperar personal perdido</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <button class="btn btn-secondary btn-sm" onclick="buscarEmpleadosPerdidos()" title="Busca empleados que tienen marcaciones o PIN en el Portal de Asistencia pero ya no están en la lista de personal, y permite restaurarlos con su id original.">🔍 Buscar empleados huérfanos</button>
+      </div>
+      <div style="font-size:10.5px;color:var(--muted);margin-top:6px;line-height:1.4">
+        💡 Si a alguien le desapareció la ficha pero sigue teniendo marcaciones, esta herramienta lo encuentra y lo restaura <b>con su id original</b>, de modo que todo su historial de asistencia se vuelve a conectar. Si se restaura con un id nuevo, el historial queda huérfano para siempre.
       </div>
     </div>
 
