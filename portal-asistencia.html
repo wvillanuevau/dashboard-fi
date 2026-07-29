@@ -3142,7 +3142,13 @@ function _heMinsNocturna(desdeMin, hastaMin) {
   return mins;
 }
 
-function paCalcularHorasExtra(entradaTs, salidaTs, fecha, refOverride) {
+function _fmtHoraES_G(ts) {
+  if (!ts) return '';
+  var h = _hmsDesdeMedianocheES(typeof ts==='number'?ts:Number(ts));
+  return String(h.horas).padStart(2,'0') + ':' + String(h.minutos).padStart(2,'0');
+}
+
+function paCalcularHorasExtra(entradaTs, salidaTs, fecha, refOverride, empOverride) {
   // Domingo trabajado en TURNO no genera HE — se compensa con día libre
   function toMin(ts) {
     // Usar El Salvador timezone (no del dispositivo)
@@ -3163,7 +3169,13 @@ function paCalcularHorasExtra(entradaTs, salidaTs, fecha, refOverride) {
   if (minS <= minE) minS += 24 * 60;
 
   // Usar horario individual por día > plano > rol > global
-  var _hor = _horarioDeEmp(PA.empleado, dia);
+  // El horario debe ser el del DUENO de la marcacion, no el de la sesion
+  // abierta en el dispositivo. Antes se usaba siempre PA.empleado: si
+  // alguien marcaba en un aparato con la sesion de otro (tablet
+  // compartida, sesion no cerrada), se le aplicaba el horario ajeno y
+  // las horas extra salian disparatadas.
+  var _empCalc = empOverride || PA.empleado;
+  var _hor = _horarioDeEmp(_empCalc, dia);
 
   // Sin horario configurado → no se puede calcular HE, devolver 0
   if (!_hor) {
@@ -3205,6 +3217,19 @@ function paCalcularHorasExtra(entradaTs, salidaTs, fecha, refOverride) {
     var hFin = _hor.horaSalida  || null; if (!hFin) return {diurna:0,nocturna:0,total:0,esSabado:false,esDomingo:false,esTurno:false,minutosRetraso:0,descuentoDiaCompleto:false,descuentoJornada:false};
     ini = parseInt(hIni.split(':')[0]) * 60 + parseInt(hIni.split(':')[1] || 0);
     fin = parseInt(hFin.split(':')[0]) * 60 + parseInt(hFin.split(':')[1] || 0);
+  }
+
+  // ── Horario imposible: la salida no puede ser anterior a la entrada ──
+  // Un horario como 07:00-04:00 (error de captura tipico: 4 p.m. escrito
+  // como 04:00) hacia que TODA la jornada se contara como extra, porque
+  // el codigo asumia que el empleado ya habia "salido" a las 4 a.m.
+  // Ante un horario asi no se inventan horas extra: se devuelve 0 con una
+  // bandera para que el administrador lo corrija.
+  if (fin <= ini) {
+    return { diurna:0, nocturna:0, total:0,
+             esSabado:esSabado, esDomingo:false, esTurno:false,
+             minutosRetraso:0, descuentoDiaCompleto:false, descuentoJornada:false,
+             horarioInvalido:true };
   }
 
   // ── Retraso real de entrada ────────────────────────────────────────
@@ -3531,7 +3556,8 @@ function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
   var mEntrada = PA.marcacionesHoy.find(function(m){ return m.tipo === entradaTipo && m.fecha === hoy; });
 
   var registrar = function(entradaTs) {
-    var calc = paCalcularHorasExtra(entradaTs, salidaDocData.ts, hoy);
+    // _empAR es el dueno de la marcacion (no la sesion del dispositivo)
+    var calc = paCalcularHorasExtra(entradaTs, salidaDocData.ts, hoy, null, _empAR || null);
 
     // ── Amonestación en la 4ª tardanza de la quincena ────────────────
     // La llegada tarde siempre cuenta, sin exención por horas extra.
@@ -8400,7 +8426,8 @@ function _paCorregirHEsabadoTurno(empId, lastSat) {
 
     var calcCorregido = paCalcularHorasExtra(
       _paToMs(entradaR.ts), _paToMs(salidaR.ts), lastSat,
-      { horaEntrada: _horSemana.horaEntrada, horaSalida: _horSemana.horaSalida }
+      { horaEntrada: _horSemana.horaEntrada, horaSalida: _horSemana.horaSalida },
+      empObj || null
     );
 
     var heDelSabado = res[1].docs.filter(function(d) {
@@ -9227,7 +9254,6 @@ function _paRecalcularHEPendientes(empIds, callback) {
             porEmpFecha[r.empleadoId][r.fecha][r.tipo] = r.ts;
           });
 
-          var _empleadoOriginal = PA.empleado; // paCalcularHorasExtra usa PA.empleado internamente — respaldar sesión
           var batch = paDb.batch();
           var n = 0;
 
@@ -9238,25 +9264,31 @@ function _paRecalcularHEPendientes(empIds, callback) {
             var marcs = porEmpFecha[he.empleadoId] && porEmpFecha[he.empleadoId][he.fecha];
             if (!marcs || !marcs.entrada || !marcs.salida) return; // sin datos suficientes, no tocar
 
-            PA.empleado = empObj;
-            var calc = paCalcularHorasExtra(marcs.entrada, marcs.salida, he.fecha);
-            var nuevoTotal = Math.round((calc.total||0) * 100) / 100;
+            var calc = paCalcularHorasExtra(marcs.entrada, marcs.salida, he.fecha, null, empObj);
 
-            if (Math.abs(nuevoTotal - (he.horas||0)) < 0.01) return; // sin cambio real
+            // Cada documento guarda SU tipo (diurna o nocturna). Antes se
+            // escribia calc.total (diurna+nocturna) en TODOS los registros
+            // del dia, asi que un dia con ambos tipos terminaba con las
+            // horas duplicadas: cada registro mostraba el total completo.
+            var valorTipo = (he.tipo === 'nocturna') ? (calc.nocturna || 0) : (calc.diurna || 0);
+            var nuevoValor = Math.round(valorTipo * 100) / 100;
 
-            if (nuevoTotal <= 0) {
+            if (Math.abs(nuevoValor - (he.horas||0)) < 0.01) return; // sin cambio real
+
+            if (nuevoValor <= 0) {
               batch.delete(item.ref); // ya no genera horas extra con el horario corregido
             } else {
-              var nuevoTipo = he.tipo;
-              if (calc.diurna > 0 && calc.nocturna <= 0) nuevoTipo = 'diurna';
-              else if (calc.nocturna > 0 && calc.diurna <= 0) nuevoTipo = 'nocturna';
-              else if (calc.diurna > 0 && calc.nocturna > 0) nuevoTipo = calc.diurna >= calc.nocturna ? 'diurna' : 'nocturna';
-              batch.update(item.ref, { horas: nuevoTotal, tipo: nuevoTipo, recalculadoPorCambioHorario: true, recalculadoTs: Date.now() });
+              batch.update(item.ref, {
+                horas: nuevoValor,
+                horaEntrada: _fmtHoraES_G(marcs.entrada),
+                horaSalida:  _fmtHoraES_G(marcs.salida),
+                esNoProgramado: !!calc.esNoProgramado,
+                horarioInvalido: !!calc.horarioInvalido,
+                recalculadoPorCambioHorario: true, recalculadoTs: Date.now()
+              });
             }
             n++;
           });
-
-          PA.empleado = _empleadoOriginal; // restaurar sesión del admin
 
           if (n > 0) {
             batch.commit().then(function(){
@@ -9941,6 +9973,26 @@ function _paCargarPanelEmp(empId) {
           + "<br><span style=\"font-size:10.5px\">Si alguno debería ser laborable, corrígelo abajo — trabajar en un día marcado libre cuenta la jornada COMPLETA como hora extra.</span>"
         : "✅ Todos los días de la semana están configurados como laborables";
       html += "</div>";
+
+      // Detector de horarios imposibles (salida <= entrada el mismo día).
+      // Error de captura clásico: escribir 4 p.m. como "04:00". Antes esto
+      // hacía que la jornada entera se contara como horas extra.
+      var _malos = [];
+      [1,2,3,4,5,6,0].forEach(function(d){
+        var _c = _hdRes[String(d)];
+        if (!_c || _c.trabaja === false) return;
+        var _e = _c.horaEntrada || (horEmpAct && horEmpAct.horaEntrada);
+        var _sd = _c.horaSalida  || (horEmpAct && horEmpAct.horaSalida);
+        if (!_e || !_sd) return;
+        var _em = parseInt(_e.split(':')[0],10)*60 + parseInt(_e.split(':')[1]||0,10);
+        var _sm = parseInt(_sd.split(':')[0],10)*60 + parseInt(_sd.split(':')[1]||0,10);
+        if (_sm <= _em) _malos.push(_nomDia[d] + ' (' + _e + '–' + _sd + ')');
+      });
+      if (_malos.length) {
+        html += "<div style=\"font-size:11px;margin-bottom:8px;padding:8px 10px;border-radius:8px;background:rgba(248,81,73,.10);border:1.5px solid rgba(248,81,73,.35);color:#B0392A\">";
+        html += "⛔ <strong>Horario imposible — la salida es anterior a la entrada:</strong> " + _malos.join(', ');
+        html += "<br><span style=\"font-size:10.5px\">Suele ser un 4 p.m. escrito como <b>04:00</b> en vez de <b>16:00</b>. Mientras esté así no se calculan horas extra de esos días. Corrígelo abajo y guarda.</span></div>";
+      }
     }
     html += "<label style=\"font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:4px\">APLICAR HORARIO</label>";
     html += "<select id=\"horSelEmp_"+empId+"\" style=\"width:100%;padding:8px;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;margin-bottom:8px\">";
@@ -11343,7 +11395,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-24-B';
+var PA_VERSION = 'v2026-07-28-A';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
