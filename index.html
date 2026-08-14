@@ -1635,7 +1635,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-07-29-C'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-07-29-D'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -6334,7 +6334,14 @@ function renderCentros(){
     var gobj=c.gerenteId?(S.gerentesZona||[]).find(function(g){return g.id===c.gerenteId;}):null;
     var gBadge=gobj?('<span class="badge b-blue" style="font-size:10px">👔 '+esc(gobj.nombre)+'</span>'):'<span style="font-size:11px;color:var(--muted)">—</span>';
     var q="'";
-    var acciones=c.auto?'<span style="font-size:11px;color:var(--muted)">—</span>':'<div class="td-act"><button class="btn btn-secondary btn-xs" onclick="modalEditarCentro('+q+c.id+q+')">✏</button><button class="btn btn-danger btn-xs" onclick="delCentro('+q+c.id+q+')">✕</button></div>';
+    // Los centros automaticos (creados con el proyecto) TAMBIEN se editan:
+    // al abrir el restaurante necesitan gerente de zona, codigo de
+    // mantenimiento y descripcion propios. Antes solo mostraban "—" y no
+    // habia forma de asignarles nada. Lo unico que se les niega es
+    // eliminarlos, porque pertenecen al proyecto.
+    var acciones=c.auto
+      ? '<div class="td-act"><button class="btn btn-secondary btn-xs" onclick="modalEditarCentro('+q+c.id+q+')" title="Editar datos del centro">✏</button></div>'
+      : '<div class="td-act"><button class="btn btn-secondary btn-xs" onclick="modalEditarCentro('+q+c.id+q+')">✏</button><button class="btn btn-danger btn-xs" onclick="delCentro('+q+c.id+q+')">✕</button></div>';
     rows+='<tr><td><strong>'+esc(c.nombre)+'</strong>'+fmtCaObj(c)+'</td><td style="font-size:12px;color:var(--muted)">'+esc(c.descripcion||'—')+'</td><td>'+pBadge+'</td><td>'+origBadge+'</td><td>'+codBadge+'</td><td>'+gBadge+'</td><td>'+acciones+'</td></tr>';
   });
   var proyOpts=_proyOpts('');
@@ -6368,7 +6375,21 @@ function modalEditarCentro(id){
   var q="'";
   var btnCancel='<button class="btn btn-secondary" onclick="closeModal('+q+'modalEditCentro'+q+')">Cancelar</button>';
   var btnSave='<button class="btn btn-primary" onclick="guardarEditCentro('+q+id+q+')">Guardar</button>';
-  body.innerHTML=''
+  // Contexto cuando el centro nacio de un proyecto: al terminar la obra
+  // el restaurante entra en operacion y necesita sus datos propios
+  // (gerencia de zona, codigo de mantenimiento), que no se heredan solos.
+  var pObj=c.proyectoId?(S.proyectos||[]).find(function(x){return x.id===c.proyectoId;}):null;
+  var avisoProy='';
+  if(c.auto&&pObj){
+    var fin=(pObj.estado||'').toLowerCase().indexOf('finaliz')!==-1;
+    avisoProy='<div class="info-box" style="margin-bottom:12px;font-size:12px">'
+      +'🏗 Centro del proyecto <b>'+esc(pObj.nombre)+'</b>'
+      +(pObj.marca?' · '+esc(pObj.marca):'')
+      +(fin?' · <b style="color:var(--ok)">Proyecto finalizado</b> — asigna aquí la gerencia de zona y el código de mantenimiento para su operación.'
+           :' · Estado: '+esc(pObj.estado||'—')+'. Puedes asignar desde ya su gerencia de zona.')
+      +'</div>';
+  }
+  body.innerHTML=avisoProy
     +'<div class="fg"><label>Nombre *</label><input id="ecN" value="'+esc(c.nombre)+'"></div>'
     +'<div class="fg"><label>Descripción</label><input id="ecD" value="'+esc(c.descripcion||'')+'"></div>'
     +'<div class="fg"><label>Código Mantenimiento (4 dígitos)</label><input id="ecCod" type="text" maxlength="4" value="'+esc(c.codigoMant||'')+'" placeholder="Ej: 1234"></div>'
