@@ -201,6 +201,72 @@ window.FB={
     }
   },
 
+  // ═══════════════════════════════════════════════════════════════════
+  // ESPEJO PARA EL PANEL DE MANTENIMIENTO (mantenimientoFI/{empresa})
+  // ═══════════════════════════════════════════════════════════════════
+  // Mismo criterio que el espejo del cronograma: el panel externo NO puede
+  // leer empresas/{empresa} (ahi vive todo el sistema: gastos, proveedores,
+  // usuarios con correos...). Se publica solo lo necesario para programar
+  // mantenimientos. Best-effort: nunca bloquea el guardado normal.
+  async publicarEspejoMantenimiento(empresa,S){
+    try{
+      if(!empresa||!S)return;
+      var m=S.mantenimiento||{};
+      var marcas=S.marcas||[];
+      var proyById={};
+      (S.proyectos||[]).forEach(function(p){ if(p&&p.id) proyById[p.id]=p; });
+      // La marca del restaurante no vive en el centro: se deduce del
+      // proyecto vinculado y, si no hay, del propio nombre del centro.
+      function marcaDeCentro(c){
+        if(!c) return '';
+        if(c.proyectoId&&proyById[c.proyectoId]&&proyById[c.proyectoId].marca) return proyById[c.proyectoId].marca;
+        var n=(c.nombre||'').toLowerCase();
+        for(var i=0;i<marcas.length;i++){
+          var mk=String(marcas[i]||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+          if(mk&&n.replace(/[^a-z0-9]/g,'').indexOf(mk)!==-1) return marcas[i];
+        }
+        return '';
+      }
+      // Gerencia de zona: el centro guarda gerenteId -> S.gerentesZona
+      var gzById={};
+      (S.gerentesZona||[]).forEach(function(g){ if(g&&g.id) gzById[g.id]=g; });
+      var centros=(S.centros||[]).map(function(c){
+        var g=c.gerenteId?gzById[c.gerenteId]:null;
+        return {id:c.id,nombre:c.nombre||'',marca:marcaDeCentro(c),
+                gerenteId:c.gerenteId||'', gerente:(g&&g.nombre)||''};
+      });
+      var equipos=(m.equipos||[])
+        .filter(function(e){ return e&&e.estado!=='baja'; })
+        .map(function(e){
+          return {
+            id:e.id, nombre:e.nombre||'', categoria:e.categoria||'',
+            marcaEquipo:e.marca||'', modelo:e.modelo||'', serie:e.serie||'',
+            ubicacionTipo:e.ubicacionTipo||'centro',
+            ubicacionId:e.ubicacionId||e.centroId||'',
+            frecuencia:e.frecuencia||'', ultimoMant:e.ultimoMant||null,
+            unidades:e.unidades||1, estado:e.estado||'activo',
+            // Estado operativo y fecha programada, que se editan desde el panel
+            estadoOp:e.estadoOp||'funcionando', fechaAccion:e.fechaAccion||''
+          };
+        });
+      var tecnicos=((m.tecnicos)||[])
+        .filter(function(t){ return t&&t.activo!==false; })
+        .map(function(t){ return {id:t.id,nombre:t.nombre||'',tipo:t.tipo||''}; });
+      var registros=(m.registros||[]).map(function(r){
+        return {id:r.id,equipoId:r.equipoId,fecha:r.fecha,tecnicoId:r.tecnicoId||'',
+                observaciones:r.observaciones||'',costo:r.costo||0};
+      });
+      await _fbDb.collection('mantenimientoFI').doc(empresa).set({
+        _ts:Date.now(), centros:centros, equipos:equipos, tecnicos:tecnicos,
+        registros:registros, marcas:marcas,
+        frecuencias:(S.config&&S.config.frecuencias)||['mensual','bimestral','trimestral','semestral','anual'],
+        rotaciones:(S.config&&S.config.rotacionesMant)||null
+      });
+    }catch(e){
+      console.warn('[FB] espejo mantenimiento:',e.code||e.message);
+    }
+  },
+
   async saveSection(empresa,sections,data){
     try{
       const ref=_fbDb.collection('empresas').doc(empresa);
@@ -238,6 +304,9 @@ window.FB={
       // el cronograma (no se espera: no debe retrasar el guardado)
       if(sections.indexOf('proyectos')!==-1&&data.proyectos){
         this.publicarEspejoCronograma(empresa,data.proyectos);
+      }
+      if(sections.indexOf('mantenimiento')!==-1||sections.indexOf('centros')!==-1||sections.indexOf('gerentesZona')!==-1){
+        this.publicarEspejoMantenimiento(empresa,window.S||{});
       }
       return {ok:true};
     }catch(e){
@@ -404,6 +473,7 @@ window.FB={
       await _fbDb.collection('empresas').doc(empresa).set(mainDoc);
       // Refrescar el espejo liviano del cronograma (best-effort)
       if(mainDoc&&mainDoc.proyectos) this.publicarEspejoCronograma(empresa,mainDoc.proyectos);
+      this.publicarEspejoMantenimiento(empresa,window.S||{});
       return true;
     }catch(e){console.error('[FB] save:',e.code,e.message);return false}
   },
@@ -1557,7 +1627,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-07-28-F'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-07-29-B'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -2550,6 +2620,8 @@ async function loadData(){
       // aquí para que exista desde el primer arranque, sin tener que
       // esperar a que alguien edite un proyecto. Best-effort.
       try{window.FB.publicarEspejoCronograma(S.empresa,S.proyectos||[]);}catch(e){}
+      try{window.FB.publicarEspejoMantenimiento(S.empresa,S);}catch(e){}
+      try{importarRegistrosMantExternos();}catch(e){}
       // Actualizar localStorage con datos frescos de Firebase (elimina datos obsoletos)
       try{localStorage.setItem('pp3_'+S.empresa,JSON.stringify(serializeState()));}catch(e){}
       setSyncUI('ok','Sincronizado');
@@ -2725,6 +2797,56 @@ function _saveProyecto(proyId, updaterFn) {
 // Busca empleados que tienen rastro en el Portal de Asistencia
 // (marcaciones o PIN) pero que ya no existen en la lista de personal.
 // Los restaura con su ID ORIGINAL para que su historial se reconecte.
+// ── Importar mantenimientos registrados desde el panel externo ─────
+// El panel (mantenimiento.html) NO escribe en empresas/{empresa}: eso
+// arriesgaria pisar todo el sistema. Escribe cada registro como un
+// documento suelto en la coleccion 'mantRegistros', y aqui se importan
+// al estado y se marcan como procesados. Best-effort y silencioso.
+async function importarRegistrosMantExternos(){
+  if(!S.empresa||!window.FB||!window.FB.ready())return;
+  try{
+    var db=firebase.firestore();
+    var snap=await db.collection('mantRegistros')
+      .where('empresa','==',S.empresa)
+      .where('importado','==',false)
+      .get();
+    if(snap.empty)return;
+    var m=mantData();
+    if(!m.registros)m.registros=[];
+    var yaIds={}; m.registros.forEach(function(r){ if(r&&r.id) yaIds[r.id]=true; });
+    var nuevos=0, batch=db.batch();
+    snap.forEach(function(d){
+      var r=d.data();
+      if(!r.equipoId||!r.fecha)return;
+      var rid=r.registroId||d.id;
+      if(!yaIds[rid]){
+        m.registros.push({
+          id:rid, equipoId:r.equipoId, fecha:r.fecha,
+          tecnicoId:r.tecnicoId||'', observaciones:r.observaciones||'',
+          costo:parseFloat(r.costo)||0, ts:r.ts||Date.now(),
+          creadoPor:r.creadoPor||'panel-mantenimiento', origen:'panel'
+        });
+        var eq=(m.equipos||[]).find(function(e){return e.id===r.equipoId;});
+        if(eq&&(!eq.ultimoMant||r.fecha>eq.ultimoMant)) eq.ultimoMant=r.fecha;
+        // Estado operativo definido en el panel (funcionando / reparacion /
+        // cambio / dañado por vida util) con su fecha programada
+        if(eq&&r.estadoOp){ eq.estadoOp=r.estadoOp; eq.fechaAccion=r.fechaAccion||''; }
+        nuevos++;
+      }
+      batch.update(d.ref,{importado:true,importadoTs:Date.now()});
+    });
+    if(nuevos){
+      markDirty('mantenimiento');
+      saveData();
+      console.log('[Mant] '+nuevos+' mantenimiento(s) importados del panel externo');
+      if(typeof toast==='function') toast('✓ '+nuevos+' mantenimiento(s) registrados desde el panel');
+    }
+    await batch.commit();
+  }catch(e){
+    console.warn('[Mant] importar registros externos:',e.code||e.message);
+  }
+}
+
 async function buscarEmpleadosPerdidos(){
   if(!S.empresa){toast('Sin empresa activa');return;}
   toast('Buscando en el Portal de Asistencia...');

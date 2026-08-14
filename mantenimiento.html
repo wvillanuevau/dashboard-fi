@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Control de Mantenimiento — Panel</title>
+<style>
+  :root{
+    --paper:#F4F5F7; --paper-line:#E2E5EA;
+    --ink:#182230; --ink-soft:#5A6676;
+    --amber:#B7791F; --amber-bg:#FDF3E1;
+    --red:#B0392A;   --red-bg:#FBEAE7;
+    --green:#2F7A52; --green-bg:#E3F2E9;
+    --blue:#2A5F8F;  --blue-bg:#E4EEF6;
+    --card:#FFFFFF;  --border:#E3E6EB;
+    --radius:12px;
+    --shadow:0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.04);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font-family:'IBM Plex Sans','Segoe UI',Arial,sans-serif;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1180px;margin:0 auto;padding:24px 18px 60px;}
+
+  /* Puerta de acceso */
+  #gate{max-width:380px;margin:14vh auto;background:var(--card);border:1px solid var(--border);
+    border-radius:var(--radius);box-shadow:var(--shadow);padding:26px;text-align:center;}
+  #gate h1{font-size:19px;margin:0 0 6px;}
+  #gate p{font-size:12.5px;color:var(--ink-soft);margin:0 0 16px;}
+  #gate input{width:100%;padding:12px;border:1px solid var(--border);border-radius:9px;
+    font-size:16px;text-align:center;font-family:inherit;margin-bottom:10px;}
+  #gate button{width:100%;padding:12px;background:var(--ink);color:#fff;border:none;
+    border-radius:9px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;}
+  #gateError{color:var(--red);font-size:12px;margin-top:8px;min-height:16px;}
+
+  /* Encabezado */
+  .titleblock{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+    padding:18px 22px;margin-bottom:16px;box-shadow:var(--shadow);border-top:3px solid var(--ink);
+    display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;}
+  .titleblock h1{margin:0;font-size:20px;font-weight:600;}
+  .titleblock .sub{font-size:12.5px;color:var(--ink-soft);margin-top:3px;}
+  .stamp{font-size:11.5px;color:var(--ink-soft);text-align:right;line-height:1.7;}
+  .stamp b{color:var(--ink);font-weight:600;}
+
+  /* Ciclo */
+  .ciclo{background:var(--blue-bg);border:1px solid rgba(42,95,143,.25);border-radius:10px;
+    padding:12px 14px;margin-bottom:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .ciclo .lbl{font-size:10.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
+    color:var(--blue);white-space:nowrap;}
+  .ciclo input{padding:8px 10px;border:1px solid var(--border);border-radius:8px;
+    background:var(--card);color:var(--ink);font-size:13px;font-family:inherit;}
+  .ciclo button{background:var(--blue);color:#fff;border:none;border-radius:8px;padding:9px 14px;
+    font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;}
+  .ciclo button:hover{background:#347099;}
+  .ciclo button.ghost{background:var(--card);color:var(--ink);border:1px solid var(--border);}
+  .cstatus{font-size:11.5px;color:var(--ink-soft);width:100%;}
+
+  /* KPIs */
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:18px;}
+  .kpi{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+    padding:13px 15px;box-shadow:var(--shadow);border-top:3px solid var(--border);}
+  .kpi .label{font-size:10.5px;color:var(--ink-soft);text-transform:uppercase;
+    letter-spacing:.6px;font-weight:600;}
+  .kpi .value{font-size:25px;font-weight:600;margin-top:3px;}
+  .kpi .sub{font-size:10.5px;color:var(--ink-soft);margin-top:2px;}
+  .kpi.ok{border-top-color:var(--green);}   .kpi.ok .value{color:var(--green);}
+  .kpi.mid{border-top-color:var(--amber);}  .kpi.mid .value{color:var(--amber);}
+  .kpi.crit{border-top-color:var(--red);}   .kpi.crit .value{color:var(--red);}
+  .kpi.blue{border-top-color:var(--blue);}  .kpi.blue .value{color:var(--blue);}
+
+  /* Filtros */
+  .filtros{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center;}
+  .filtros select,.filtros input{padding:9px 11px;border:1px solid var(--border);border-radius:8px;
+    background:var(--card);color:var(--ink);font-size:13px;font-family:inherit;}
+  .filtros input[type=search]{flex:1;min-width:180px;}
+
+  /* Marca */
+  .marca{margin-bottom:18px;}
+  .marcahdr{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--ink);
+    color:#fff;border-radius:10px;margin-bottom:10px;}
+  .marcahdr .nm{font-size:14px;font-weight:600;flex:1;}
+  .marcahdr .pc{font-size:13px;font-weight:700;}
+
+  /* Restaurante */
+  .rest{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+    box-shadow:var(--shadow);margin-bottom:10px;overflow:hidden;}
+  .resthdr{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;user-select:none;}
+  .resthdr:hover{background:var(--paper);}
+  .restnm{font-size:13.5px;font-weight:600;flex:1;}
+  .restpc{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;}
+  .restbar{height:7px;background:var(--paper);margin:0 14px 12px;border-radius:5px;overflow:hidden;}
+  .restbar span{display:block;height:100%;border-radius:5px;transition:width .3s;}
+  .restbody{border-top:1px solid var(--border);padding:6px 0;}
+
+  /* Equipo */
+  .eq{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--paper-line);}
+  .eq:last-child{border-bottom:none;}
+  .eqinfo{flex:1;min-width:0;}
+  .eqnm{font-size:13px;font-weight:600;}
+  .eqmeta{font-size:10.5px;color:var(--ink-soft);margin-top:2px;}
+  .badge{font-size:9.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+    padding:3px 8px;border-radius:20px;white-space:nowrap;}
+  .badge.ok{background:var(--green-bg);color:var(--green);}
+  .badge.pend{background:var(--amber-bg);color:var(--amber);}
+  .badge.venc{background:var(--red-bg);color:var(--red);}
+  /* Estado operativo del equipo */
+  .op{font-size:9.5px;font-weight:700;letter-spacing:.3px;padding:3px 7px;border-radius:20px;white-space:nowrap;}
+  .op.funcionando{background:var(--green-bg);color:var(--green);}
+  .op.reparacion{background:var(--amber-bg);color:var(--amber);}
+  .op.cambio{background:var(--blue-bg);color:var(--blue);}
+  .op.vidautil{background:var(--red-bg);color:var(--red);}
+  .eqfecha{font-size:10.5px;color:var(--amber);font-weight:600;margin-top:2px;}
+  /* Gerencia de zona */
+  .gerhdr{display:flex;align-items:center;gap:9px;padding:8px 13px;background:var(--blue-bg);
+    border:1px solid rgba(42,95,143,.25);border-radius:9px;margin:0 0 9px;}
+  .gerhdr .gn{font-size:12.5px;font-weight:700;color:var(--blue);flex:1;}
+  .gerhdr .gp{font-size:12px;font-weight:700;color:var(--blue);}
+  .gerwrap{padding-left:10px;border-left:2px solid rgba(42,95,143,.18);margin-bottom:14px;}
+  .btnreg{background:var(--blue);color:#fff;border:none;border-radius:7px;padding:7px 11px;
+    font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;}
+  .btnreg:hover{background:#347099;}
+  .btnreg.done{background:var(--card);color:var(--ink-soft);border:1px solid var(--border);}
+
+  /* Modal */
+  .ov{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;display:flex;
+    align-items:center;justify-content:center;padding:18px;}
+  .ovbox{background:var(--card);border-radius:14px;padding:20px;width:100%;max-width:400px;}
+  .ovbox h3{margin:0 0 4px;font-size:15px;}
+  .ovbox .who{font-size:12px;color:var(--ink-soft);margin-bottom:14px;}
+  .ovbox label{font-size:10.5px;font-weight:700;color:var(--ink-soft);
+    text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px;}
+  .ovbox input,.ovbox select,.ovbox textarea{width:100%;padding:10px;border:1px solid var(--border);
+    border-radius:8px;font-size:14px;font-family:inherit;margin-bottom:11px;background:var(--card);color:var(--ink);}
+  .ovbox textarea{resize:vertical;min-height:60px;}
+  .ovrow{display:flex;gap:8px;}
+  .ovrow button{flex:1;padding:11px;border-radius:9px;font-size:14px;font-weight:600;
+    cursor:pointer;font-family:inherit;border:none;}
+  .btncancel{background:var(--paper);color:var(--ink-soft);border:1px solid var(--border)!important;}
+  .btnok{background:var(--blue);color:#fff;}
+
+  .note{font-size:11.5px;color:var(--ink-soft);background:var(--card);border:1px solid var(--border);
+    border-left:3px solid var(--blue);border-radius:8px;padding:11px 13px;margin-top:18px;line-height:1.6;}
+  .empty{text-align:center;color:var(--ink-soft);font-size:13px;padding:30px 0;}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);
+    color:#fff;padding:11px 18px;border-radius:9px;font-size:13px;z-index:900;box-shadow:var(--shadow);}
+
+  @media(max-width:640px){
+    .wrap{padding:14px 10px 50px;}
+    .kpis{grid-template-columns:repeat(2,1fr);gap:8px;}
+    .kpi{padding:10px;} .kpi .value{font-size:20px;}
+    .titleblock{flex-direction:column;align-items:stretch;padding:14px 16px;}
+    .stamp{text-align:left;}
+    .ciclo{padding:10px 11px;} .ciclo input{flex:1;min-width:130px;font-size:16px;}
+    .ciclo button{width:100%;}
+    .filtros select,.filtros input{width:100%;font-size:16px;}
+    .eq{flex-wrap:wrap;} .eqinfo{flex-basis:100%;}
+  }
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <h1>🔧 Control de Mantenimiento</h1>
+  <p>Ingresa el código de acceso del equipo</p>
+  <input type="password" id="gateInput" placeholder="Código">
+  <button onclick="checkGate()">Entrar</button>
+  <div id="gateError"></div>
+</div>
+
+<div class="wrap" id="app" style="display:none">
+
+  <div class="titleblock">
+    <div>
+      <h1>Control de Mantenimiento</h1>
+      <div class="sub">Equipos por restaurante — programación y avance del ciclo</div>
+    </div>
+    <div class="stamp">
+      <div><b>Empresa:</b> <input id="empIn" style="border:1px solid var(--border);border-radius:6px;padding:4px 7px;font-size:11px;width:80px" onchange="onEmpEdit()"></div>
+      <div><b>Datos al:</b> <span id="syncLbl">—</span></div>
+    </div>
+  </div>
+
+  <div class="ciclo">
+    <span class="lbl">🔄 Ciclo de mantenimiento</span>
+    <input type="date" id="cicloDesde" onchange="onCicloEdit()">
+    <span style="color:var(--ink-soft)">→</span>
+    <input type="date" id="cicloHasta" onchange="onCicloEdit()">
+    <button onclick="cargarDatos(this)">↻ Actualizar</button>
+    <button class="ghost" onclick="window.print()">Imprimir</button>
+    <div class="cstatus" id="cstatus">Define el periodo del ciclo: cada equipo debe recibir mantenimiento una vez dentro de esas fechas.</div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi blue"><div class="label">Equipos</div><div class="value" id="kEq">0</div><div class="sub" id="kEqSub">—</div></div>
+    <div class="kpi ok"><div class="label">Avance del ciclo</div><div class="value" id="kAv">0%</div><div class="sub" id="kAvSub">atendidos</div></div>
+    <div class="kpi mid"><div class="label">Pendientes</div><div class="value" id="kPen">0</div><div class="sub" id="kPenSub">—</div></div>
+    <div class="kpi crit"><div class="label">Vencidos</div><div class="value" id="kVen">0</div><div class="sub">ciclo terminado sin atender</div></div>
+    <div class="kpi mid"><div class="label">Fuera de servicio</div><div class="value" id="kFuera">0</div><div class="sub" id="kFueraSub">reparación / cambio / vida útil</div></div>
+  </div>
+
+  <div class="filtros">
+    <select id="fMarca" onchange="render()"><option value="">Todas las marcas</option></select>
+    <select id="fGerente" onchange="render()"><option value="">Todas las gerencias</option></select>
+    <select id="fEstado" onchange="render()">
+      <option value="">Todos los estados</option>
+      <option value="pend">Solo pendientes</option>
+      <option value="ok">Solo atendidos</option>
+      <option value="venc">Solo vencidos</option>
+      <option value="fuera">Solo fuera de servicio</option>
+    </select>
+    <input type="search" id="fBuscar" placeholder="Buscar equipo o restaurante…" oninput="render()">
+  </div>
+
+  <div id="lista"></div>
+
+  <div class="note">
+    Los equipos se agrupan por <b>marca → gerencia de zona → restaurante</b>. El <b>estado del equipo</b> (funcionando, en reparación, por cambiar, dañado por vida útil) se define al registrar un mantenimiento; reparación y cambio piden fecha programada. El <b>avance</b> se calcula sobre el ciclo definido arriba: un equipo cuenta como atendido si tiene un mantenimiento registrado con fecha dentro del periodo. Los mantenimientos que registres aquí se envían al sistema principal y aparecen ahí automáticamente la próxima vez que se abra. Este panel solo lee la lista de equipos: no tiene acceso a gastos, proveedores ni usuarios.
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script>
+var ACCESS_CODE = "MANT2026";
+
+var DB = null;
+var D = { centros:[], equipos:[], tecnicos:[], registros:[], marcas:[] };
+var CFG = { empresa:'FISDC', desde:'', hasta:'' };
+var abiertos = {};
+// Cambios de estado operativo hechos en esta sesion, antes de que el
+// sistema principal los importe (para que se vean reflejados de una vez)
+var estadoOpLocal = {}, fechaAccionLocal = {};
+
+/* ---------- utilidades ---------- */
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function hoyStr(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function addMeses(f,n){var d=new Date(f+'T12:00:00');d.setMonth(d.getMonth()+n);return d.toISOString().slice(0,10);}
+function fmtDM(f){
+  if(!f) return '—';
+  var m=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  var p=String(f).split('-'); if(p.length<3) return f;
+  return parseInt(p[2],10)+' '+(m[parseInt(p[1],10)-1]||'')+' '+p[0];
+}
+function toast(t){
+  var e=document.createElement('div'); e.className='toast'; e.textContent=t;
+  document.body.appendChild(e); setTimeout(function(){e.remove();},2600);
+}
+function guardarCfg(){ try{localStorage.setItem('mant_cfg',JSON.stringify(CFG));}catch(e){} }
+function cargarCfg(){
+  try{ var r=localStorage.getItem('mant_cfg'); if(r) CFG=Object.assign(CFG,JSON.parse(r)); }catch(e){}
+  if(!CFG.desde){ CFG.desde=hoyStr(); CFG.hasta=addMeses(CFG.desde,3); }
+}
+
+/* ---------- estado de cada equipo ---------- */
+// Un equipo esta "atendido" si tiene un mantenimiento con fecha dentro
+// del ciclo. Si no, esta pendiente; y si el ciclo ya termino, vencido.
+function ultimoEnCiclo(eqId){
+  var mejor=null;
+  D.registros.forEach(function(r){
+    if(r.equipoId!==eqId||!r.fecha) return;
+    if(r.fecha>=CFG.desde && r.fecha<=CFG.hasta){ if(!mejor||r.fecha>mejor) mejor=r.fecha; }
+  });
+  return mejor;
+}
+function ultimoGlobal(eq){
+  var mejor=eq.ultimoMant||null;
+  D.registros.forEach(function(r){
+    if(r.equipoId!==eq.id||!r.fecha) return;
+    if(!mejor||r.fecha>mejor) mejor=r.fecha;
+  });
+  return mejor;
+}
+function estadoEq(eq){
+  if(ultimoEnCiclo(eq.id)) return 'ok';
+  return hoyStr()>CFG.hasta ? 'venc' : 'pend';
+}
+
+// Estado operativo del equipo (independiente del ciclo de mantenimiento)
+var OPS={
+  funcionando:{lbl:'Funcionando', cls:'funcionando', fecha:false},
+  reparacion :{lbl:'En reparación', cls:'reparacion', fecha:true },
+  cambio     :{lbl:'Por cambiar',   cls:'cambio',     fecha:true },
+  vidautil   :{lbl:'Dañado — vida útil', cls:'vidautil', fecha:false}
+};
+function opDe(eq){
+  var v=(estadoOpLocal[eq.id]!==undefined)?estadoOpLocal[eq.id]:(eq.estadoOp||'funcionando');
+  return OPS[v]?v:'funcionando';
+}
+function fechaAccionDe(eq){
+  return (fechaAccionLocal[eq.id]!==undefined)?fechaAccionLocal[eq.id]:(eq.fechaAccion||'');
+}
+function fueraDeServicio(eq){ return opDe(eq)!=='funcionando'; }
+
+/* ---------- carga desde Firebase ---------- */
+function setStatus(t,err){
+  var e=document.getElementById('cstatus');
+  if(e){ e.textContent=t; e.style.color=err?'var(--red)':'var(--ink-soft)'; }
+}
+function cargarDatos(btn){
+  if(!DB){ setStatus('⚠ Sin conexión a Firebase.',true); return; }
+  if(btn){ btn.disabled=true; btn.textContent='Leyendo…'; }
+  setStatus('Leyendo equipos del sistema…');
+  // Solo lectura del espejo liviano publicado por el sistema principal.
+  DB.collection('mantenimientoFI').doc(CFG.empresa).get().then(function(doc){
+    if(!doc.exists){
+      setStatus('⚠ Aún no hay datos para "'+CFG.empresa+'". Abre el sistema principal una vez con esa empresa y reintenta.',true);
+      return;
+    }
+    var d=doc.data();
+    D.centros=d.centros||[]; D.equipos=d.equipos||[];
+    D.tecnicos=d.tecnicos||[]; D.registros=d.registros||[]; D.marcas=d.marcas||[];
+    var lbl=document.getElementById('syncLbl');
+    if(lbl) lbl.textContent=d._ts?new Date(d._ts).toLocaleString('es-SV'):'—';
+    // Sumar los mantenimientos registrados desde este panel que el
+    // sistema principal aun no ha importado, para no verlos "pendientes".
+    return DB.collection('mantRegistros')
+      .where('empresa','==',CFG.empresa).where('importado','==',false).get()
+      .then(function(sn){
+        sn.forEach(function(x){
+          var r=x.data();
+          if(r.equipoId&&r.fecha&&!D.registros.some(function(y){return y.id===(r.registroId||x.id);})){
+            D.registros.push({id:r.registroId||x.id,equipoId:r.equipoId,fecha:r.fecha,
+              tecnicoId:r.tecnicoId||'',observaciones:r.observaciones||'',costo:r.costo||0});
+          }
+        });
+      }).catch(function(){});
+  }).then(function(){
+    llenarFiltroMarcas();
+    render();
+    if(D.equipos.length) setStatus('✅ '+D.equipos.length+' equipo(s) en '+D.centros.length+' ubicación(es).');
+  }).catch(function(e){
+    setStatus('⚠ No se pudo leer: '+e.message+'. Si dice "permission-denied", falta permitir lectura de "mantenimientoFI" en las reglas de Firestore.',true);
+  }).then(function(){
+    if(btn){ btn.disabled=false; btn.textContent='↻ Actualizar'; }
+  });
+}
+
+/* ---------- agrupacion ---------- */
+function centroDe(eq){
+  return D.centros.find(function(c){ return c.id===eq.ubicacionId; }) || null;
+}
+// Estructura: marca -> gerencia de zona -> restaurante -> equipos
+function agrupar(){
+  var fM=(document.getElementById('fMarca')||{}).value||'';
+  var fG=(document.getElementById('fGerente')||{}).value||'';
+  var fE=(document.getElementById('fEstado')||{}).value||'';
+  var q=((document.getElementById('fBuscar')||{}).value||'').toLowerCase().trim();
+  var marcas={};
+  D.equipos.forEach(function(eq){
+    if(eq.ubicacionTipo && eq.ubicacionTipo!=='centro') return; // bodega, no restaurante
+    var c=centroDe(eq);
+    var marca=(c&&c.marca)||'Sin marca';
+    var ger=(c&&c.gerente)||'Sin gerencia asignada';
+    var rest=(c&&c.nombre)||'Sin ubicación';
+    if(fM&&marca!==fM) return;
+    if(fG&&ger!==fG) return;
+    var est=estadoEq(eq);
+    if(fE){
+      if(fE==='fuera'){ if(!fueraDeServicio(eq)) return; }
+      else if(est!==fE) return;
+    }
+    if(q&&(eq.nombre||'').toLowerCase().indexOf(q)===-1&&rest.toLowerCase().indexOf(q)===-1
+       &&ger.toLowerCase().indexOf(q)===-1) return;
+    if(!marcas[marca]) marcas[marca]={};
+    if(!marcas[marca][ger]) marcas[marca][ger]={};
+    if(!marcas[marca][ger][rest]) marcas[marca][ger][rest]=[];
+    marcas[marca][ger][rest].push(eq);
+  });
+  return marcas;
+}
+
+/* ---------- render ---------- */
+function llenarFiltroMarcas(){
+  var sel=document.getElementById('fMarca');
+  if(sel){
+    var v=sel.value, set={};
+    D.equipos.forEach(function(eq){ var c=centroDe(eq); set[(c&&c.marca)||'Sin marca']=true; });
+    sel.innerHTML='<option value="">Todas las marcas</option>'+
+      Object.keys(set).sort().map(function(m){return '<option'+(m===v?' selected':'')+'>'+esc(m)+'</option>';}).join('');
+  }
+  var selG=document.getElementById('fGerente');
+  if(selG){
+    var vg=selG.value, setG={};
+    D.equipos.forEach(function(eq){ var c=centroDe(eq); setG[(c&&c.gerente)||'Sin gerencia asignada']=true; });
+    selG.innerHTML='<option value="">Todas las gerencias</option>'+
+      Object.keys(setG).sort().map(function(g){return '<option'+(g===vg?' selected':'')+'>'+esc(g)+'</option>';}).join('');
+  }
+}
+
+function render(){
+  var host=document.getElementById('lista'); if(!host) return;
+  var grupos=agrupar();
+  var marcasK=Object.keys(grupos).sort();
+
+  // KPIs globales (todos los equipos de restaurante, sin filtros)
+  var tot=0,ok=0,ven=0,fuera=0;
+  D.equipos.forEach(function(eq){
+    if(eq.ubicacionTipo && eq.ubicacionTipo!=='centro') return;
+    tot++;
+    var e=estadoEq(eq);
+    if(e==='ok') ok++; else if(e==='venc') ven++;
+    if(fueraDeServicio(eq)) fuera++;
+  });
+  var pend=tot-ok;
+  function set(id,v){var e=document.getElementById(id); if(e) e.textContent=v;}
+  set('kEq',tot);
+  set('kEqSub',D.centros.length+' ubicación(es) · '+marcasK.length+' marca(s)');
+  set('kAv',(tot?Math.round(ok/tot*100):0)+'%');
+  set('kAvSub',ok+' de '+tot+' atendidos');
+  set('kPen',pend);
+  set('kPenSub',hoyStr()>CFG.hasta?'el ciclo ya terminó':'faltan por atender');
+  set('kVen',ven);
+  set('kFuera',fuera);
+
+  if(!marcasK.length){
+    host.innerHTML='<div class="empty">No hay equipos que coincidan.<br><small>Pulsa «↻ Actualizar» si aún no has cargado los datos.</small></div>';
+    return;
+  }
+
+  var html='';
+  marcasK.forEach(function(marca){
+    var gers=grupos[marca];
+    var gerK=Object.keys(gers).sort();
+    var mt=0,mo=0;
+    gerK.forEach(function(g){ Object.keys(gers[g]).forEach(function(r){
+      gers[g][r].forEach(function(eq){ mt++; if(estadoEq(eq)==='ok') mo++; }); }); });
+    var mp=mt?Math.round(mo/mt*100):0;
+    html+='<div class="marca">';
+    html+='<div class="marcahdr"><span class="nm">'+esc(marca)+'</span>'
+        +'<span class="pc">'+mp+'% · '+mo+'/'+mt+'</span></div>';
+
+    gerK.forEach(function(ger){
+      var rests=gers[ger];
+      var restK=Object.keys(rests).sort();
+      var gt=0,go=0;
+      restK.forEach(function(r){ rests[r].forEach(function(eq){ gt++; if(estadoEq(eq)==='ok') go++; }); });
+      var gp=gt?Math.round(go/gt*100):0;
+      html+='<div class="gerhdr"><span class="gn">👔 '+esc(ger)+'</span>'
+          +'<span class="gp">'+gp+'% · '+go+'/'+gt+'</span></div>';
+      html+='<div class="gerwrap">';
+
+      restK.forEach(function(rest){
+        var eqs=rests[rest];
+        var t=eqs.length, o=eqs.filter(function(e){return estadoEq(e)==='ok';}).length;
+        var p=t?Math.round(o/t*100):0;
+        var col=p>=100?'var(--green)':(eqs.some(function(e){return estadoEq(e)==='venc';})?'var(--red)':'var(--blue)');
+        var key=marca+'|'+ger+'|'+rest;
+        var ab=!!abiertos[key];
+        var nf=eqs.filter(fueraDeServicio).length;
+        html+='<div class="rest">';
+        html+='<div class="resthdr" onclick="toggleRest('+JSON.stringify(key).replace(/"/g,'&quot;')+')">'
+            +'<span style="color:var(--ink-soft);font-size:11px">'+(ab?'▼':'▶')+'</span>'
+            +'<span class="restnm">'+esc(rest)
+            +(nf?' <span style="font-size:10.5px;color:var(--amber);font-weight:600">· '+nf+' fuera de servicio</span>':'')
+            +'</span>'
+            +'<span class="restpc" style="color:'+col+'">'+p+'% · '+o+'/'+t+'</span></div>';
+        html+='<div class="restbar"><span style="width:'+p+'%;background:'+col+'"></span></div>';
+        if(ab){
+          html+='<div class="restbody">';
+          eqs.sort(function(a,b){return (a.nombre||'').localeCompare(b.nombre||'','es');});
+          eqs.forEach(function(eq){
+            var est=estadoEq(eq);
+            var lbl=est==='ok'?'Atendido':(est==='venc'?'Vencido':'Pendiente');
+            var ult=ultimoGlobal(eq);
+            var op=opDe(eq), oi=OPS[op], fa=fechaAccionDe(eq);
+            html+='<div class="eq">'
+              +'<div class="eqinfo"><div class="eqnm">'+esc(eq.nombre)+'</div>'
+              +'<div class="eqmeta">'+esc(eq.categoria||'—')
+                +(eq.marcaEquipo?' · '+esc(eq.marcaEquipo):'')
+                +(eq.modelo?' '+esc(eq.modelo):'')
+                +' · Último: '+fmtDM(ult)+'</div>'
+              +(fa&&OPS[op].fecha?'<div class="eqfecha">📅 '+(op==='reparacion'?'Reparación':'Cambio')+' programado: '+fmtDM(fa)+'</div>':'')
+              +'</div>'
+              +'<span class="op '+oi.cls+'">'+oi.lbl+'</span>'
+              +'<span class="badge '+est+'">'+lbl+'</span>'
+              +'<button class="btnreg'+(est==='ok'?' done':'')+'" onclick="abrirRegistro('+JSON.stringify(eq.id).replace(/"/g,'&quot;')+')">'
+              +(est==='ok'?'+ Otro':'✓ Registrar')+'</button>'
+              +'</div>';
+          });
+          html+='</div>';
+        }
+        html+='</div>';
+      });
+      html+='</div>';
+    });
+    html+='</div>';
+  });
+  host.innerHTML=html;
+}
+
+function toggleRest(key){ abiertos[key]=!abiertos[key]; render(); }
+
+/* ---------- registrar mantenimiento ---------- */
+function abrirRegistro(eqId){
+  var eq=D.equipos.find(function(e){return e.id===eqId;});
+  if(!eq) return;
+  var c=centroDe(eq);
+  var old=document.getElementById('ovReg'); if(old) old.remove();
+  var opActual=opDe(eq);
+  var tecOpts='<option value="">— Selecciona —</option>'+
+    D.tecnicos.map(function(t){return '<option value="'+esc(t.id)+'">'+esc(t.nombre)+'</option>';}).join('')+
+    '<option value="__otro__">Otro / externo</option>';
+  var ov=document.createElement('div');
+  ov.id='ovReg'; ov.className='ov';
+  ov.innerHTML='<div class="ovbox">'
+    +'<h3>✓ Registrar mantenimiento</h3>'
+    +'<div class="who">'+esc(eq.nombre)+((c&&c.nombre)?' · '+esc(c.nombre):'')+'</div>'
+    +'<label>Fecha</label><input type="date" id="rgFecha" value="'+hoyStr()+'">'
+    +'<label>Técnico</label><select id="rgTec">'+tecOpts+'</select>'
+    +'<label>Estado del equipo</label><select id="rgOp" onchange="toggleFechaAccion()">'
+      +Object.keys(OPS).map(function(k){
+        return '<option value="'+k+'"'+(k===opActual?' selected':'')+'>'+OPS[k].lbl+'</option>';}).join('')
+    +'</select>'
+    +'<div id="rgFechaWrap" style="display:none">'
+      +'<label id="rgFechaLbl">Fecha programada</label>'
+      +'<input type="date" id="rgFechaAccion" value="'+esc(fechaAccionDe(eq))+'">'
+    +'</div>'
+    +'<label>Observaciones</label><textarea id="rgObs" placeholder="Qué se hizo, repuestos, pendientes…"></textarea>'
+    +'<label>Costo (US$) — opcional</label><input type="number" step="0.01" min="0" id="rgCosto" placeholder="0.00">'
+    +'<div class="ovrow">'
+    +'<button class="btncancel" onclick="document.getElementById(\'ovReg\').remove()">Cancelar</button>'
+    +'<button class="btnok" id="rgOk" onclick="guardarRegistro('+JSON.stringify(eqId).replace(/"/g,'&quot;')+',this)">Guardar</button>'
+    +'</div></div>';
+  document.body.appendChild(ov);
+  toggleFechaAccion();
+}
+
+// Reparación y Cambio necesitan fecha programada; los otros estados no.
+function toggleFechaAccion(){
+  var sel=document.getElementById('rgOp'); if(!sel) return;
+  var wrap=document.getElementById('rgFechaWrap');
+  var lbl=document.getElementById('rgFechaLbl');
+  var info=OPS[sel.value];
+  if(!wrap||!info) return;
+  wrap.style.display=info.fecha?'block':'none';
+  if(lbl) lbl.textContent=sel.value==='reparacion'?'Fecha programada de reparación':'Fecha programada de cambio';
+}
+
+function guardarRegistro(eqId,btn){
+  var fecha=(document.getElementById('rgFecha')||{}).value;
+  var tec=(document.getElementById('rgTec')||{}).value||'';
+  var obs=((document.getElementById('rgObs')||{}).value||'').trim();
+  var costo=parseFloat((document.getElementById('rgCosto')||{}).value)||0;
+  var op=(document.getElementById('rgOp')||{}).value||'funcionando';
+  var fAccion=(document.getElementById('rgFechaAccion')||{}).value||'';
+  if(!fecha){ toast('Selecciona la fecha'); return; }
+  if(OPS[op]&&OPS[op].fecha&&!fAccion){
+    toast('Indica la fecha programada de '+(op==='reparacion'?'reparación':'cambio')); return;
+  }
+  if(!OPS[op]||!OPS[op].fecha) fAccion='';
+  if(!DB){ toast('Sin conexión'); return; }
+  if(btn){ btn.disabled=true; btn.textContent='Guardando…'; }
+  var rid='mr_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,5);
+  // Se escribe como documento propio en 'mantRegistros'. NUNCA se escribe
+  // en el documento del sistema principal: el sistema los importa solo.
+  DB.collection('mantRegistros').add({
+    empresa:CFG.empresa, registroId:rid, equipoId:eqId, fecha:fecha,
+    tecnicoId:tec==='__otro__'?'':tec, observaciones:obs, costo:costo,
+    estadoOp:op, fechaAccion:fAccion,
+    ts:Date.now(), importado:false, creadoPor:'panel-mantenimiento'
+  }).then(function(){
+    D.registros.push({id:rid,equipoId:eqId,fecha:fecha,tecnicoId:tec,observaciones:obs,costo:costo});
+    // Reflejar el estado de una vez, sin esperar a que el sistema importe
+    estadoOpLocal[eqId]=op; fechaAccionLocal[eqId]=fAccion;
+    var ov=document.getElementById('ovReg'); if(ov) ov.remove();
+    render();
+    toast('✅ Mantenimiento registrado');
+  }).catch(function(e){
+    toast('Error: '+e.message);
+    if(btn){ btn.disabled=false; btn.textContent='Guardar'; }
+  });
+}
+
+/* ---------- configuracion ---------- */
+function onEmpEdit(){
+  CFG.empresa=((document.getElementById('empIn')||{}).value||'FISDC').trim().toUpperCase();
+  guardarCfg();
+}
+function onCicloEdit(){
+  CFG.desde=(document.getElementById('cicloDesde')||{}).value||CFG.desde;
+  CFG.hasta=(document.getElementById('cicloHasta')||{}).value||CFG.hasta;
+  if(CFG.hasta<CFG.desde){ toast('La fecha final no puede ser antes que la inicial'); return; }
+  guardarCfg();
+  render();
+  var dias=Math.round((new Date(CFG.hasta+'T12:00:00')-new Date(CFG.desde+'T12:00:00'))/86400000);
+  setStatus('Ciclo de '+dias+' días: cada equipo debe atenderse una vez entre '+fmtDM(CFG.desde)+' y '+fmtDM(CFG.hasta)+'.');
+}
+
+/* ---------- arranque ---------- */
+function checkGate(){
+  if((document.getElementById('gateInput').value||'').trim()===ACCESS_CODE){
+    document.getElementById('gate').style.display='none';
+    document.getElementById('app').style.display='block';
+    init();
+  } else {
+    document.getElementById('gateError').textContent='Código incorrecto';
+  }
+}
+document.getElementById('gateInput').addEventListener('keydown',function(e){ if(e.key==='Enter') checkGate(); });
+
+function init(){
+  cargarCfg();
+  document.getElementById('empIn').value=CFG.empresa;
+  document.getElementById('cicloDesde').value=CFG.desde;
+  document.getElementById('cicloHasta').value=CFG.hasta;
+  try{
+    var app=firebase.initializeApp({
+      apiKey:"AIzaSyC0R7573cB76FzC6qPZhLmvKhVT46PN3RM",
+      authDomain:"pf-construccion.firebaseapp.com",
+      projectId:"pf-construccion",
+      storageBucket:"pf-construccion.firebasestorage.app",
+      messagingSenderId:"768666711160",
+      appId:"1:768666711160:web:11dfd8cf50ab19dddc298d"
+    },'mantenimiento');
+    DB=firebase.firestore(app);
+  }catch(e){ setStatus('⚠ Firebase no disponible: '+e.message,true); }
+  cargarDatos(null);
+}
+</script>
+</body>
+</html>
