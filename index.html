@@ -212,6 +212,14 @@ window.FB={
     try{
       if(!empresa||!S)return;
       var m=S.mantenimiento||{};
+      // GUARDIA: nunca publicar un espejo vacio. Si por alguna razon el
+      // estado no llego completo, publicarlo borraria los equipos del
+      // panel externo (paso exactamente eso: se llamaba con window.S,
+      // que no existe porque S se declara con const y no cuelga de window).
+      if(!Array.isArray(m.equipos)||!m.equipos.length){
+        console.warn('[FB] espejo mantenimiento: estado sin equipos, NO se publica (se conserva el anterior)');
+        return;
+      }
       var marcas=S.marcas||[];
       var proyById={};
       (S.proyectos||[]).forEach(function(p){ if(p&&p.id) proyById[p.id]=p; });
@@ -306,7 +314,7 @@ window.FB={
         this.publicarEspejoCronograma(empresa,data.proyectos);
       }
       if(sections.indexOf('mantenimiento')!==-1||sections.indexOf('centros')!==-1||sections.indexOf('gerentesZona')!==-1){
-        this.publicarEspejoMantenimiento(empresa,window.S||{});
+        this.publicarEspejoMantenimiento(empresa,S);
       }
       return {ok:true};
     }catch(e){
@@ -473,7 +481,7 @@ window.FB={
       await _fbDb.collection('empresas').doc(empresa).set(mainDoc);
       // Refrescar el espejo liviano del cronograma (best-effort)
       if(mainDoc&&mainDoc.proyectos) this.publicarEspejoCronograma(empresa,mainDoc.proyectos);
-      this.publicarEspejoMantenimiento(empresa,window.S||{});
+      this.publicarEspejoMantenimiento(empresa,S);
       return true;
     }catch(e){console.error('[FB] save:',e.code,e.message);return false}
   },
@@ -1627,7 +1635,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-07-29-B'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-07-29-C'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);

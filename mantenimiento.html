@@ -326,7 +326,13 @@ function cargarDatos(btn){
   }).then(function(){
     llenarFiltroMarcas();
     render();
-    if(D.equipos.length) setStatus('✅ '+D.equipos.length+' equipo(s) en '+D.centros.length+' ubicación(es).');
+    if(D.equipos.length){
+      setStatus('✅ '+D.equipos.length+' equipo(s) en '+D.centros.length+' ubicación(es).');
+    } else {
+      // No dejar el mensaje en "Leyendo...": si el espejo existe pero
+      // viene sin equipos, decirlo claramente.
+      setStatus('⚠ Se leyó "'+CFG.empresa+'" pero no trae equipos. Abre el sistema principal con esa empresa y guarda un cambio para que vuelva a publicarlos.',true);
+    }
   }).catch(function(e){
     setStatus('⚠ No se pudo leer: '+e.message+'. Si dice "permission-denied", falta permitir lectura de "mantenimientoFI" en las reglas de Firestore.',true);
   }).then(function(){
