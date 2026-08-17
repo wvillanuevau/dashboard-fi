@@ -115,10 +115,36 @@
   .gerhdr .gn{font-size:12.5px;font-weight:700;color:var(--blue);flex:1;}
   .gerhdr .gp{font-size:12px;font-weight:700;color:var(--blue);}
   .gerwrap{padding-left:10px;border-left:2px solid rgba(42,95,143,.18);margin-bottom:14px;}
-  .btnreg{background:var(--blue);color:#fff;border:none;border-radius:7px;padding:7px 11px;
-    font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;}
+  /* Registro en la misma linea del equipo */
+  .eqrow{padding:10px 14px;border-bottom:1px solid var(--paper-line);}
+  .eqrow:last-child{border-bottom:none;}
+  .eqtop{display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+  .eqline{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;}
+  .eqline input,.eqline select{padding:6px 8px;border:1px solid var(--border);border-radius:7px;
+    font-size:12px;font-family:inherit;background:var(--card);color:var(--ink);}
+  .eqline input[type=date]{width:132px;}
+  .eqline select.tec{max-width:150px;}
+  .eqline select.op{max-width:150px;}
+  .eqline input.obs{flex:1;min-width:120px;}
+  .eqline input.costo{width:82px;}
+  .btnreg{background:var(--blue);color:#fff;border:none;border-radius:7px;padding:7px 12px;
+    font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;}
   .btnreg:hover{background:#347099;}
-  .btnreg.done{background:var(--card);color:var(--ink-soft);border:1px solid var(--border);}
+  .btnreg:disabled{opacity:.55;cursor:default;}
+  .btnhist{background:transparent;border:1px solid var(--border);color:var(--ink-soft);
+    border-radius:7px;padding:6px 9px;font-size:11.5px;cursor:pointer;font-family:inherit;white-space:nowrap;}
+  .btnhist:hover{background:var(--paper);color:var(--ink);}
+  /* Historial */
+  .hist{background:var(--paper);border-radius:9px;margin-top:8px;padding:9px 11px;}
+  .histttl{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
+    color:var(--ink-soft);margin-bottom:7px;}
+  .hrow{display:flex;gap:9px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--paper-line);font-size:12px;}
+  .hrow:last-child{border-bottom:none;}
+  .hfec{font-weight:600;white-space:nowrap;}
+  .htec{color:var(--ink-soft);white-space:nowrap;}
+  .hobs{flex:1;color:var(--ink-soft);}
+  .hcos{font-weight:600;white-space:nowrap;}
+  .hvacio{font-size:12px;color:var(--ink-soft);padding:4px 0;}
 
   /* Modal */
   .ov{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;display:flex;
@@ -152,7 +178,16 @@
     .ciclo{padding:10px 11px;} .ciclo input{flex:1;min-width:130px;font-size:16px;}
     .ciclo button{width:100%;}
     .filtros select,.filtros input{width:100%;font-size:16px;}
-    .eq{flex-wrap:wrap;} .eqinfo{flex-basis:100%;}
+    .eqtop{flex-wrap:wrap;} .eqinfo{flex-basis:100%;}
+    /* Registro en linea: campos a lo ancho, tactiles, sin zoom en iPhone */
+    .eqline{gap:5px;}
+    .eqline input,.eqline select{font-size:16px;padding:9px;}
+    .eqline input[type=date]{flex:1;min-width:140px;width:auto;}
+    .eqline select.tec,.eqline select.op{flex:1;min-width:130px;max-width:none;}
+    .eqline input.obs{flex-basis:100%;}
+    .eqline input.costo{flex:1;min-width:90px;width:auto;}
+    .btnreg{flex-basis:100%;padding:11px;}
+    .hobs{flex-basis:100%;}
   }
 </style>
 </head>
@@ -213,7 +248,7 @@
   <div id="lista"></div>
 
   <div class="note">
-    Los equipos se agrupan por <b>marca → gerencia de zona → restaurante</b>. El <b>estado del equipo</b> (funcionando, en reparación, por cambiar, dañado por vida útil) se define al registrar un mantenimiento; reparación y cambio piden fecha programada. El <b>avance</b> se calcula sobre el ciclo definido arriba: un equipo cuenta como atendido si tiene un mantenimiento registrado con fecha dentro del periodo. Los mantenimientos que registres aquí se envían al sistema principal y aparecen ahí automáticamente la próxima vez que se abra. Este panel solo lee la lista de equipos: no tiene acceso a gastos, proveedores ni usuarios.
+    Los equipos se agrupan por <b>marca → gerencia de zona → restaurante</b>. El <b>estado del equipo</b> (funcionando, en reparación, por cambiar, dañado por vida útil) se define al registrar un mantenimiento; reparación y cambio piden fecha programada. Cada equipo se registra <b>en su propia línea</b>, sin abrir ventanas: fecha, técnico, estado, observaciones y costo. El botón <b>🕘 Historial</b> despliega todos los mantenimientos anteriores de ese equipo. El <b>avance</b> se calcula sobre el ciclo definido arriba: un equipo cuenta como atendido si tiene un mantenimiento registrado con fecha dentro del periodo. Los mantenimientos que registres aquí se envían al sistema principal y aparecen ahí automáticamente la próxima vez que se abra. Este panel solo lee la lista de equipos: no tiene acceso a gastos, proveedores ni usuarios.
   </div>
 </div>
 
@@ -229,6 +264,7 @@ var abiertos = {};
 // Cambios de estado operativo hechos en esta sesion, antes de que el
 // sistema principal los importe (para que se vean reflejados de una vez)
 var estadoOpLocal = {}, fechaAccionLocal = {};
+var histAbierto = {};
 
 /* ---------- utilidades ---------- */
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -468,19 +504,57 @@ function render(){
             var lbl=est==='ok'?'Atendido':(est==='venc'?'Vencido':'Pendiente');
             var ult=ultimoGlobal(eq);
             var op=opDe(eq), oi=OPS[op], fa=fechaAccionDe(eq);
-            html+='<div class="eq">'
+            var id=eq.id, J=function(v){return JSON.stringify(v).replace(/"/g,'&quot;');};
+            var hAbierto=!!histAbierto[id];
+            html+='<div class="eqrow">';
+            // Linea 1: identidad y estado
+            html+='<div class="eqtop">'
               +'<div class="eqinfo"><div class="eqnm">'+esc(eq.nombre)+'</div>'
               +'<div class="eqmeta">'+esc(eq.categoria||'—')
                 +(eq.marcaEquipo?' · '+esc(eq.marcaEquipo):'')
                 +(eq.modelo?' '+esc(eq.modelo):'')
                 +' · Último: '+fmtDM(ult)+'</div>'
-              +(fa&&OPS[op].fecha?'<div class="eqfecha">📅 '+(op==='reparacion'?'Reparación':'Cambio')+' programado: '+fmtDM(fa)+'</div>':'')
+              +(fa&&oi.fecha?'<div class="eqfecha">📅 '+(op==='reparacion'?'Reparación':'Cambio')+' programado: '+fmtDM(fa)+'</div>':'')
               +'</div>'
               +'<span class="op '+oi.cls+'">'+oi.lbl+'</span>'
               +'<span class="badge '+est+'">'+lbl+'</span>'
-              +'<button class="btnreg'+(est==='ok'?' done':'')+'" onclick="abrirRegistro('+JSON.stringify(eq.id).replace(/"/g,'&quot;')+')">'
-              +(est==='ok'?'+ Otro':'✓ Registrar')+'</button>'
+              +'<button class="btnhist" onclick="toggleHist('+J(id)+')">'+(hAbierto?'▲':'🕘')+' Historial ('+historialDe(id).length+')</button>'
               +'</div>';
+            // Linea 2: registro directo, sin abrir ninguna ventana
+            html+='<div class="eqline">'
+              +'<input type="date" id="f_'+id+'" value="'+hoyStr()+'" title="Fecha del mantenimiento">'
+              +'<select class="tec" id="t_'+id+'" title="Técnico"><option value="">Técnico…</option>'
+              + D.tecnicos.map(function(t){return '<option value="'+esc(t.id)+'">'+esc(t.nombre)+'</option>';}).join('')
+              +'<option value="__otro__">Otro / externo</option></select>'
+              +'<select class="op" id="o_'+id+'" onchange="onOpChange('+J(id)+')" title="Estado del equipo">'
+              + Object.keys(OPS).map(function(k){
+                  return '<option value="'+k+'"'+(k===op?' selected':'')+'>'+OPS[k].lbl+'</option>';}).join('')
+              +'</select>'
+              +'<input type="date" id="a_'+id+'" value="'+esc(fa)+'" style="display:'+(oi.fecha?'':'none')+'" title="Fecha programada">'
+              +'<input class="obs" id="b_'+id+'" placeholder="Observaciones…">'
+              +'<input class="costo" id="c_'+id+'" type="number" step="0.01" min="0" placeholder="US$">'
+              +'<button class="btnreg" id="g_'+id+'" onclick="registrarLinea('+J(id)+')">✓ Registrar</button>'
+              +'</div>';
+            // Historial, colapsable
+            if(hAbierto){
+              var hs=historialDe(id);
+              html+='<div class="hist"><div class="histttl">🕘 Historial de mantenimientos</div>';
+              if(!hs.length){
+                html+='<div class="hvacio">Sin mantenimientos registrados todavía.</div>';
+              } else {
+                hs.forEach(function(r){
+                  var tn=(D.tecnicos.find(function(t){return t.id===r.tecnicoId;})||{}).nombre||'—';
+                  html+='<div class="hrow">'
+                    +'<span class="hfec">'+fmtDM(r.fecha)+'</span>'
+                    +'<span class="htec">'+esc(tn)+'</span>'
+                    +'<span class="hobs">'+esc(r.observaciones||'')+'</span>'
+                    +(r.costo?'<span class="hcos">US$ '+Number(r.costo).toFixed(2)+'</span>':'')
+                    +'</div>';
+                });
+              }
+              html+='</div>';
+            }
+            html+='</div>';
           });
           html+='</div>';
         }
@@ -495,84 +569,56 @@ function render(){
 
 function toggleRest(key){ abiertos[key]=!abiertos[key]; render(); }
 
-/* ---------- registrar mantenimiento ---------- */
-function abrirRegistro(eqId){
-  var eq=D.equipos.find(function(e){return e.id===eqId;});
-  if(!eq) return;
-  var c=centroDe(eq);
-  var old=document.getElementById('ovReg'); if(old) old.remove();
-  var opActual=opDe(eq);
-  var tecOpts='<option value="">— Selecciona —</option>'+
-    D.tecnicos.map(function(t){return '<option value="'+esc(t.id)+'">'+esc(t.nombre)+'</option>';}).join('')+
-    '<option value="__otro__">Otro / externo</option>';
-  var ov=document.createElement('div');
-  ov.id='ovReg'; ov.className='ov';
-  ov.innerHTML='<div class="ovbox">'
-    +'<h3>✓ Registrar mantenimiento</h3>'
-    +'<div class="who">'+esc(eq.nombre)+((c&&c.nombre)?' · '+esc(c.nombre):'')+'</div>'
-    +'<label>Fecha</label><input type="date" id="rgFecha" value="'+hoyStr()+'">'
-    +'<label>Técnico</label><select id="rgTec">'+tecOpts+'</select>'
-    +'<label>Estado del equipo</label><select id="rgOp" onchange="toggleFechaAccion()">'
-      +Object.keys(OPS).map(function(k){
-        return '<option value="'+k+'"'+(k===opActual?' selected':'')+'>'+OPS[k].lbl+'</option>';}).join('')
-    +'</select>'
-    +'<div id="rgFechaWrap" style="display:none">'
-      +'<label id="rgFechaLbl">Fecha programada</label>'
-      +'<input type="date" id="rgFechaAccion" value="'+esc(fechaAccionDe(eq))+'">'
-    +'</div>'
-    +'<label>Observaciones</label><textarea id="rgObs" placeholder="Qué se hizo, repuestos, pendientes…"></textarea>'
-    +'<label>Costo (US$) — opcional</label><input type="number" step="0.01" min="0" id="rgCosto" placeholder="0.00">'
-    +'<div class="ovrow">'
-    +'<button class="btncancel" onclick="document.getElementById(\'ovReg\').remove()">Cancelar</button>'
-    +'<button class="btnok" id="rgOk" onclick="guardarRegistro('+JSON.stringify(eqId).replace(/"/g,'&quot;')+',this)">Guardar</button>'
-    +'</div></div>';
-  document.body.appendChild(ov);
-  toggleFechaAccion();
+/* ---------- registrar mantenimiento (en la misma linea) ---------- */
+// Historial de un equipo, mas reciente primero
+function historialDe(eqId){
+  return D.registros.filter(function(r){ return r.equipoId===eqId && r.fecha; })
+                    .sort(function(a,b){ return b.fecha.localeCompare(a.fecha); });
 }
+function toggleHist(eqId){ histAbierto[eqId]=!histAbierto[eqId]; render(); }
 
-// Reparación y Cambio necesitan fecha programada; los otros estados no.
-function toggleFechaAccion(){
-  var sel=document.getElementById('rgOp'); if(!sel) return;
-  var wrap=document.getElementById('rgFechaWrap');
-  var lbl=document.getElementById('rgFechaLbl');
+// Reparacion y Cambio piden fecha programada; los otros estados no.
+function onOpChange(eqId){
+  var sel=document.getElementById('o_'+eqId);
+  var fec=document.getElementById('a_'+eqId);
+  if(!sel||!fec) return;
   var info=OPS[sel.value];
-  if(!wrap||!info) return;
-  wrap.style.display=info.fecha?'block':'none';
-  if(lbl) lbl.textContent=sel.value==='reparacion'?'Fecha programada de reparación':'Fecha programada de cambio';
+  fec.style.display=(info&&info.fecha)?'':'none';
 }
 
-function guardarRegistro(eqId,btn){
-  var fecha=(document.getElementById('rgFecha')||{}).value;
-  var tec=(document.getElementById('rgTec')||{}).value||'';
-  var obs=((document.getElementById('rgObs')||{}).value||'').trim();
-  var costo=parseFloat((document.getElementById('rgCosto')||{}).value)||0;
-  var op=(document.getElementById('rgOp')||{}).value||'funcionando';
-  var fAccion=(document.getElementById('rgFechaAccion')||{}).value||'';
-  if(!fecha){ toast('Selecciona la fecha'); return; }
-  if(OPS[op]&&OPS[op].fecha&&!fAccion){
+function registrarLinea(eqId){
+  var fecha=(document.getElementById('f_'+eqId)||{}).value;
+  var tec  =(document.getElementById('t_'+eqId)||{}).value||'';
+  var op   =(document.getElementById('o_'+eqId)||{}).value||'funcionando';
+  var fAcc =(document.getElementById('a_'+eqId)||{}).value||'';
+  var obs  =((document.getElementById('b_'+eqId)||{}).value||'').trim();
+  var costo=parseFloat((document.getElementById('c_'+eqId)||{}).value)||0;
+  var btn  = document.getElementById('g_'+eqId);
+
+  if(!fecha){ toast('Selecciona la fecha del mantenimiento'); return; }
+  if(OPS[op]&&OPS[op].fecha&&!fAcc){
     toast('Indica la fecha programada de '+(op==='reparacion'?'reparación':'cambio')); return;
   }
-  if(!OPS[op]||!OPS[op].fecha) fAccion='';
+  if(!OPS[op]||!OPS[op].fecha) fAcc='';
   if(!DB){ toast('Sin conexión'); return; }
   if(btn){ btn.disabled=true; btn.textContent='Guardando…'; }
+
   var rid='mr_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,5);
-  // Se escribe como documento propio en 'mantRegistros'. NUNCA se escribe
-  // en el documento del sistema principal: el sistema los importa solo.
+  // Documento propio en 'mantRegistros'. NUNCA se escribe en el documento
+  // del sistema principal: ese lo importa el sistema por su cuenta.
   DB.collection('mantRegistros').add({
     empresa:CFG.empresa, registroId:rid, equipoId:eqId, fecha:fecha,
     tecnicoId:tec==='__otro__'?'':tec, observaciones:obs, costo:costo,
-    estadoOp:op, fechaAccion:fAccion,
+    estadoOp:op, fechaAccion:fAcc,
     ts:Date.now(), importado:false, creadoPor:'panel-mantenimiento'
   }).then(function(){
     D.registros.push({id:rid,equipoId:eqId,fecha:fecha,tecnicoId:tec,observaciones:obs,costo:costo});
-    // Reflejar el estado de una vez, sin esperar a que el sistema importe
-    estadoOpLocal[eqId]=op; fechaAccionLocal[eqId]=fAccion;
-    var ov=document.getElementById('ovReg'); if(ov) ov.remove();
+    estadoOpLocal[eqId]=op; fechaAccionLocal[eqId]=fAcc;
     render();
     toast('✅ Mantenimiento registrado');
   }).catch(function(e){
     toast('Error: '+e.message);
-    if(btn){ btn.disabled=false; btn.textContent='Guardar'; }
+    if(btn){ btn.disabled=false; btn.textContent='✓ Registrar'; }
   });
 }
 
