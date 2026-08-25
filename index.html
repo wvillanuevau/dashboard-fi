@@ -223,11 +223,15 @@ window.FB={
       var marcas=S.marcas||[];
       var proyById={};
       (S.proyectos||[]).forEach(function(p){ if(p&&p.id) proyById[p.id]=p; });
-      // La marca del restaurante no vive en el centro: se deduce del
-      // proyecto vinculado y, si no hay, del propio nombre del centro.
+      // Marca del restaurante, por orden de confianza.
       function marcaDeCentro(c){
         if(!c) return '';
+        // 1) Asignada a mano en el centro (lo mas confiable)
+        if(c.marca) return c.marca;
+        // 2) Marca del proyecto del que nacio el centro
         if(c.proyectoId&&proyById[c.proyectoId]&&proyById[c.proyectoId].marca) return proyById[c.proyectoId].marca;
+        // 3) Ultimo recurso: deducir del nombre. Falla cuando el centro se
+        //    llama "AGUILARES" o "Zaragoza", sin la marca en el texto.
         var n=(c.nombre||'').toLowerCase();
         for(var i=0;i<marcas.length;i++){
           var mk=String(marcas[i]||'').toLowerCase().replace(/[^a-z0-9]/g,'');
@@ -314,7 +318,7 @@ window.FB={
         this.publicarEspejoCronograma(empresa,data.proyectos);
       }
       if(sections.indexOf('mantenimiento')!==-1||sections.indexOf('centros')!==-1||sections.indexOf('gerentesZona')!==-1){
-        this.publicarEspejoMantenimiento(empresa,S);
+        try{ this.publicarEspejoMantenimiento(empresa,S); }catch(eM){}
       }
       return {ok:true};
     }catch(e){
@@ -364,13 +368,60 @@ window.FB={
           // Gastos no cambiaron: saltar reescritura de chunks (ahorra ~11 escrituras y ~1.6 MB de tráfico)
           console.log('[FB] Gastos sin cambios — omitiendo reescritura de chunks');
         } else {
-          // Gastos cambiaron: reescribir chunks como antes
+          // Gastos cambiaron: reescribir chunks
           const ref=_fbDb.collection('empresas').doc(empresa);
+          // ═══════════════════════════════════════════════════════════════
+          // FUSION ANTES DE ESCRIBIR (evita perder gastos de otro usuario)
+          // ═══════════════════════════════════════════════════════════════
+          // Antes se reescribian TODOS los chunks con la lista que este
+          // navegador tenia en memoria. Si otro usuario agrego o edito
+          // gastos despues de que esta sesion cargo, esos gastos se
+          // borraban al guardar: "solo se guarda la informacion de uno de
+          // los dos". Ahora se relee el servidor y se fusiona por id.
+          let gastosFinal=gastos;
+          try{
+            const snapPrev=await ref.collection('gastos_chunks').get();
+            const remotos=[];
+            snapPrev.docs
+              .sort((a,b)=>(parseInt(a.id.split('_')[1]||0))-(parseInt(b.id.split('_')[1]||0)))
+              .forEach(d=>{ const it=(d.data()||{}).items; if(Array.isArray(it)) remotos.push(...it); });
+            if(remotos.length){
+              const borrados=(window.S&&window.S._gastosEliminados)||[];
+              const porId={};
+              remotos.forEach(g=>{ if(g&&g.id) porId[g.id]=g; });
+              const recuperados=remotos.filter(r=>r&&r.id
+                &&borrados.indexOf(r.id)===-1
+                &&!gastos.some(l=>l&&l.id===r.id));
+              gastos.forEach(g=>{ if(g&&g.id) porId[g.id]=g; }); // lo local gana
+              borrados.forEach(id=>{ delete porId[id]; });        // borrado explicito manda
+              gastosFinal=Object.keys(porId).map(k=>porId[k]);
+              if(recuperados.length){
+                console.warn('[FB] Fusion de gastos: se conservaron '+recuperados.length
+                  +' gasto(s) registrados por otro usuario');
+                try{ if(typeof toast==='function') toast('ℹ Se conservaron '+recuperados.length+' gasto(s) de otro usuario'); }catch(e3){}
+              }
+            }
+          }catch(eF){
+            // Si no se pudo verificar, NO reescribir los chunks: es
+            // preferible reintentar que arriesgar borrar gastos ajenos.
+            console.warn('[FB] No se pudo verificar gastos contra el servidor — se omite la reescritura:',eF.code||eF.message);
+            mainDoc._gastosTotal=gastos.length;
+            await _fbDb.collection('empresas').doc(empresa).set(mainDoc);
+            if(mainDoc&&mainDoc.proyectos) this.publicarEspejoCronograma(empresa,mainDoc.proyectos);
+            try{ this.publicarEspejoMantenimiento(empresa,S); }catch(eM){}
+            return true;
+          }
           const batch=_fbDb.batch();
-          const numChunks=Math.ceil(gastos.length/CHUNK_SIZE);
+          const numChunks=Math.ceil(gastosFinal.length/CHUNK_SIZE);
           for(let i=0;i<numChunks;i++){
             const chunkRef=ref.collection('gastos_chunks').doc('chunk_'+i);
-            batch.set(chunkRef,{items:gastos.slice(i*CHUNK_SIZE,(i+1)*CHUNK_SIZE),_i:i,_ts:Date.now()});
+            batch.set(chunkRef,{items:gastosFinal.slice(i*CHUNK_SIZE,(i+1)*CHUNK_SIZE),_i:i,_ts:Date.now()});
+          }
+          // El estado local y el doc principal deben reflejar la fusion
+          if(gastosFinal!==gastos){
+            try{ if(window.S) window.S.gastos=gastosFinal; }catch(e4){}
+            data.gastos=gastosFinal;
+            mainDoc._gastosTotal=gastosFinal.length;
           }
           // Limpiar chunks sobrantes si hay menos que antes
           try{
@@ -381,22 +432,52 @@ window.FB={
             });
           }catch(e2){}
           await batch.commit();
-          // Actualizar hash SOLO después de commit exitoso
-          this._lastGastosHash=hashActual;
-          console.log('[FB] Chunks de gastos reescritos: '+numChunks+' chunks, '+gastos.length+' gastos');
+          // Actualizar hash SOLO después de commit exitoso, y sobre la
+          // lista realmente escrita (la fusionada)
+          this._lastGastosHash=this._hashGastos(gastosFinal);
+          try{ if(window.S) window.S._gastosEliminados=[]; }catch(e5){}
+          console.log('[FB] Chunks de gastos reescritos: '+numChunks+' chunks, '+gastosFinal.length+' gastos');
         }
       } else {
-        // Pocos gastos: guardar en doc principal, limpiar chunks si existían
+        // Pocos gastos: guardar en doc principal, limpiar chunks si existían.
+        // Aqui tambien hay que fusionar: escribir la lista local pisaria
+        // los gastos que otro usuario haya registrado mientras tanto.
         mainDoc._gastosChunked=false;
         try{
           const ref=_fbDb.collection('empresas').doc(empresa);
+          const docPrev=await ref.get();
+          if(docPrev.exists){
+            const prev=docPrev.data()||{};
+            const remotos=Array.isArray(prev.gastos)?prev.gastos:[];
+            if(remotos.length){
+              const borrados=(window.S&&window.S._gastosEliminados)||[];
+              const porId={};
+              remotos.forEach(g=>{ if(g&&g.id) porId[g.id]=g; });
+              const recuperados=remotos.filter(r=>r&&r.id
+                &&borrados.indexOf(r.id)===-1
+                &&!gastos.some(l=>l&&l.id===r.id));
+              gastos.forEach(g=>{ if(g&&g.id) porId[g.id]=g; });
+              borrados.forEach(id=>{ delete porId[id]; });
+              const fusion=Object.keys(porId).map(k=>porId[k]);
+              if(recuperados.length){
+                console.warn('[FB] Fusion de gastos (doc principal): se conservaron '+recuperados.length+' gasto(s) de otro usuario');
+                try{ if(typeof toast==='function') toast('ℹ Se conservaron '+recuperados.length+' gasto(s) de otro usuario'); }catch(e6){}
+              }
+              mainDoc.gastos=fusion;
+              data.gastos=fusion;
+              try{ if(window.S) window.S.gastos=fusion; }catch(e7){}
+            }
+          }
           const chunksSnap=await ref.collection('gastos_chunks').get();
           if(!chunksSnap.empty){
             const batch2=_fbDb.batch();
             chunksSnap.docs.forEach(d=>batch2.delete(d.ref));
             await batch2.commit();
           }
-        }catch(e2){}
+        }catch(e2){
+          console.warn('[FB] No se pudo verificar gastos del doc principal:',e2.code||e2.message);
+        }
+        try{ if(window.S) window.S._gastosEliminados=[]; }catch(e8){}
         // Resetear hash porque ya no se usa chunking
         this._lastGastosHash=null;
       }
@@ -481,7 +562,7 @@ window.FB={
       await _fbDb.collection('empresas').doc(empresa).set(mainDoc);
       // Refrescar el espejo liviano del cronograma (best-effort)
       if(mainDoc&&mainDoc.proyectos) this.publicarEspejoCronograma(empresa,mainDoc.proyectos);
-      this.publicarEspejoMantenimiento(empresa,S);
+      try{ this.publicarEspejoMantenimiento(empresa,S); }catch(eM){}
       return true;
     }catch(e){console.error('[FB] save:',e.code,e.message);return false}
   },
@@ -1635,7 +1716,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-07-29-D'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-07-29-F'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -3087,6 +3168,18 @@ async function _doSaveFirebase(){
 
       var savedOk=(result===true)||(result&&result.ok===true);
       if(savedOk){
+        // Republicar el espejo de mantenimiento AQUI, que es el punto por
+        // donde pasan TODAS las ramas de guardado. Antes el enganche vivia
+        // dentro de saveSection, pero la rama de dot-notation (la que corre
+        // al editar equipos o centros sin tocar empleados) escribe directo
+        // a Firestore y nunca llama a saveSection: por eso el panel se
+        // quedaba con datos viejos aunque el sistema si guardara.
+        if(otherDirtySections.indexOf('mantenimiento')!==-1
+           ||otherDirtySections.indexOf('centros')!==-1
+           ||otherDirtySections.indexOf('gerentesZona')!==-1
+           ||otherDirtySections.indexOf('proyectos')!==-1){
+          try{ window.FB.publicarEspejoMantenimiento(S.empresa,S); }catch(e){}
+        }
         otherDirtySections.forEach(function(s){delete S._dirtySections[s];});
       }
     }
@@ -6234,7 +6327,16 @@ function imprimirCronograma(pid){
 
 
 // ═══ TAB: PLANIFICACIÓN INICIAL ═══
-function delGasto(id){if(!confirm('¿Eliminar gasto?'))return;const g=S.gastos.find(x=>x.id===id);S.gastos=(S.gastos||[]).filter(x=>x.id!==id);if(g)logAction('ELIMINAR','gastos',`Factura: ${g.factura}`);markDirty('gastos');saveData();render()}
+function delGasto(id){
+  if(!confirm('¿Eliminar gasto?'))return;
+  const g=S.gastos.find(x=>x.id===id);
+  S.gastos=(S.gastos||[]).filter(x=>x.id!==id);
+  // Registrar el borrado explicito: la fusion con el servidor debe
+  // respetarlo, o el gasto "reviviria" en el siguiente guardado.
+  S._gastosEliminados=(S._gastosEliminados||[]).concat([id]);
+  if(g)logAction('ELIMINAR','gastos',`Factura: ${g.factura}`);
+  markDirty('gastos');saveData();render()
+}
 
 let _editGastoId=null;
 function editarGasto(id){
@@ -6372,6 +6474,12 @@ function modalEditarCentro(id){
   var gOpts='<option value="">— Sin gerente —</option>'+(S.gerentesZona||[]).map(function(g){
     return '<option value="'+g.id+'"'+(c.gerenteId===g.id?' selected':'')+'>'+esc(g.nombre)+'</option>';
   }).join('');
+  // Marca del restaurante: se asigna a mano porque los centros suelen
+  // llamarse "AGUILARES" o "Zaragoza", sin la marca en el nombre, y
+  // deducirla del texto fallaba en casi todos.
+  var mOpts='<option value="">— Sin marca —</option>'+(S.marcas||[]).map(function(mk){
+    return '<option value="'+esc(mk)+'"'+(c.marca===mk?' selected':'')+'>'+esc(mk)+'</option>';
+  }).join('');
   var q="'";
   var btnCancel='<button class="btn btn-secondary" onclick="closeModal('+q+'modalEditCentro'+q+')">Cancelar</button>';
   var btnSave='<button class="btn btn-primary" onclick="guardarEditCentro('+q+id+q+')">Guardar</button>';
@@ -6393,6 +6501,7 @@ function modalEditarCentro(id){
     +'<div class="fg"><label>Nombre *</label><input id="ecN" value="'+esc(c.nombre)+'"></div>'
     +'<div class="fg"><label>Descripción</label><input id="ecD" value="'+esc(c.descripcion||'')+'"></div>'
     +'<div class="fg"><label>Código Mantenimiento (4 dígitos)</label><input id="ecCod" type="text" maxlength="4" value="'+esc(c.codigoMant||'')+'" placeholder="Ej: 1234"></div>'
+    +'<div class="fg"><label>Marca</label><select id="ecMarca">'+mOpts+'</select></div>'
     +'<div class="fg"><label>Gerente de Zona</label><select id="ecGerente">'+gOpts+'</select></div>'
     +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">'+btnCancel+btnSave+'</div>';
   openModal('modalEditCentro');
@@ -6410,6 +6519,7 @@ function guardarEditCentro(id){
   if(cod)c.codigoMant=cod; else delete c.codigoMant;
   var gId=(document.getElementById('ecGerente')&&document.getElementById('ecGerente').value)||'';
   if(gId)c.gerenteId=gId; else delete c.gerenteId;
+  if(mkSel)c.marca=mkSel; else delete c.marca;
   saveData();closeModal('modalEditCentro');render();toast('✓ Centro actualizado');
 }
 
