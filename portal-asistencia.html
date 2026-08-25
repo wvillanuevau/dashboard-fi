@@ -10607,14 +10607,19 @@ function paImprimirResumenHE(data) {
 
       // Marcaciones del día
       var entrada = null, salida = null, alSal = null, alReg = null;
+      var entAdic = null, salAdic = null;
       mDia.forEach(function(m) {
         if (m.tipo === 'entrada')              entrada = m;
         else if (m.tipo === 'salida')          salida  = m;
         else if (m.tipo === 'almuerzo_salida') alSal   = m;
         else if (m.tipo === 'almuerzo_regreso')alReg   = m;
-        else if (m.tipo === 'entrada_adicional' && !entrada) entrada = m;
-        else if (m.tipo === 'salida_adicional'  && !salida)  salida  = m;
+        // Turno adicional: es un SEGUNDO turno del mismo dia, no un
+        // reemplazo. Antes se ignoraba si ya existia entrada/salida normal.
+        else if (m.tipo === 'entrada_adicional'){ if(!entAdic||_paToMs(m.ts)<_paToMs(entAdic.ts)) entAdic=m; }
+        else if (m.tipo === 'salida_adicional') { if(!salAdic||_paToMs(m.ts)>_paToMs(salAdic.ts)) salAdic=m; }
       });
+      if(!entrada && entAdic){ entrada = entAdic; entAdic = null; }
+      if(!salida  && salAdic){ salida  = salAdic; salAdic = null; }
 
       // Sin marcaciones en día NL → fila vacía
       if (isNL && !entrada && !salida) {
@@ -10645,6 +10650,14 @@ function paImprimirResumenHE(data) {
       var trabajadoMins = rawMins - almuerzoMins;
       if (trabajadoMins < 0) trabajadoMins = 0;
 
+      // Sumar el turno adicional al total del dia
+      var minsAdic = 0;
+      if (entAdic && salAdic) {
+        minsAdic = Math.max(0, Math.round((_paToMs(salAdic.ts) - _paToMs(entAdic.ts)) / 60000));
+        trabajadoMins += minsAdic;
+        if(!salida || _paToMs(salAdic.ts) > _paToMs(salida.ts)) horaFin = fmtHora(_paToMs(salAdic.ts));
+      }
+
       // Jornada normal según tipo de día
       var d = new Date(f + 'T12:00:00');
       var dow = d.getDay();
@@ -10657,6 +10670,12 @@ function paImprimirResumenHE(data) {
         heNocMins = Math.round((he.dias[f].nocturna || 0) * 60);
       } else if (tipo !== 'NL' && trabajadoMins > jornadaNormal) {
         heDiuMins = trabajadoMins - jornadaNormal;
+      } else if (tipo === 'NL' && trabajadoMins > 0) {
+        heDiuMins = trabajadoMins; // dia no laborable: todo cuenta como extra
+      }
+      // Respaldo: el turno adicional nunca debe quedar fuera del reporte
+      if (minsAdic > 0 && (heDiuMins + heNocMins) < minsAdic) {
+        heDiuMins = Math.max(heDiuMins, minsAdic);
       }
       totHEDiu += heDiuMins;
       totHENoc += heNocMins;
@@ -11064,25 +11083,48 @@ function paExportarExcel() {
         fechas.forEach(function(f,fi){
           var tipo=_tipodia(f),mDia=marcs[f]||[];
           var ent=null,sal=null,alS=null,alR=null;
+          var entAd=null,salAd=null;
           mDia.forEach(function(m){
             if(m.tipo==='entrada')ent=m;
             else if(m.tipo==='salida')sal=m;
             else if(m.tipo==='almuerzo_salida')alS=m;
             else if(m.tipo==='almuerzo_regreso')alR=m;
-            else if(m.tipo==='entrada_adicional'&&!ent)ent=m;
-            else if(m.tipo==='salida_adicional'&&!sal)sal=m;
+            // Las marcaciones adicionales son un SEGUNDO turno del mismo dia
+            // (el empleado regresa a trabajar despues de su salida normal).
+            // Antes solo se usaban si NO habia entrada/salida normal, asi que
+            // en un dia con ambos turnos el turno adicional se descartaba
+            // entero y sus horas nunca llegaban al reporte.
+            else if(m.tipo==='entrada_adicional'){ if(!entAd||_paToMs(m.ts)<_paToMs(entAd.ts)) entAd=m; }
+            else if(m.tipo==='salida_adicional'){ if(!salAd||_paToMs(m.ts)>_paToMs(salAd.ts)) salAd=m; }
           });
+          // Si solo hubo turno adicional, ese es el turno del dia
+          if(!ent&&entAd){ ent=entAd; entAd=null; }
+          if(!sal&&salAd){ sal=salAd; salAd=null; }
+
           var hIn=ent?_fmtTs(_paToMs(ent.ts)):'--';
           var hFin=sal?_fmtTs(_paToMs(sal.ts)):'--';
           var raw=0; if(ent&&sal)raw=Math.round((_paToMs(sal.ts)-_paToMs(ent.ts))/60000);
           var alm=0; if(alS&&alR)alm=Math.round((_paToMs(alR.ts)-_paToMs(alS.ts))/60000);
           else if(raw>=420)alm=60;
           var trab=Math.max(0,raw-alm);
+
+          // Sumar el turno adicional (si quedo uno aparte del normal)
+          var minsAd=0;
+          if(entAd&&salAd){
+            minsAd=Math.max(0,Math.round((_paToMs(salAd.ts)-_paToMs(entAd.ts))/60000));
+            trab+=minsAd;
+            // La hora fin del dia debe reflejar el cierre real del turno adicional
+            if(!sal||_paToMs(salAd.ts)>_paToMs(sal.ts)) hFin=_fmtTs(_paToMs(salAd.ts));
+          }
           var dow=new Date(f+'T12:00:00').getDay();
           var jn=dow===6?240:(tipo==='L'?480:0);
           var heDiu=0,heNoc=0;
           if(e.dias&&e.dias[f]){heDiu=Math.round((e.dias[f].diurna||0)*60);heNoc=Math.round((e.dias[f].nocturna||0)*60);}
           else if(tipo!=='NL'&&trab>jn)heDiu=trab-jn;
+          else if(tipo==='NL'&&trab>0)heDiu=trab; // dia no laborable: todo es extra
+          // Respaldo: si hubo turno adicional y el calculo previo no lo
+          // incluyo, sumarlo para que no se pierda en el reporte.
+          if(minsAd>0&&(heDiu+heNoc)<minsAd) heDiu=Math.max(heDiu,minsAd);
           totD+=heDiu; totN+=heNoc;
           var isNL=(tipo==='NL'&&!ent&&!sal);
           var bg=isNL?LGRAY:(fi%2===0?WHITE:'FFF9F9F9');
@@ -11421,7 +11463,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-28-B';
+var PA_VERSION = 'v2026-07-29-A';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
