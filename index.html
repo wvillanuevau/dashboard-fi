@@ -245,7 +245,15 @@ window.FB={
       var centros=(S.centros||[]).map(function(c){
         var g=c.gerenteId?gzById[c.gerenteId]:null;
         return {id:c.id,nombre:c.nombre||'',marca:marcaDeCentro(c),
-                gerenteId:c.gerenteId||'', gerente:(g&&g.nombre)||''};
+                gerenteId:c.gerenteId||'', gerente:(g&&g.nombre)||'', esBodega:false};
+      });
+      // Publicar tambien las bodegas: hay equipos cuya ubicacion es una
+      // bodega y no un centro. Antes no se publicaban y esos equipos
+      // aparecian en el panel bajo "Sin ubicacion".
+      ((S.inventario&&S.inventario.bodegas)||[]).forEach(function(b){
+        if(!b||!b.id)return;
+        centros.push({id:b.id,nombre:(b.nombre||'Bodega'),marca:'',
+                      gerenteId:'', gerente:'', esBodega:true});
       });
       var equipos=(m.equipos||[])
         .filter(function(e){ return e&&e.estado!=='baja'; })
@@ -1716,7 +1724,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-07-29-F'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-07-29-G'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -6519,6 +6527,9 @@ function guardarEditCentro(id){
   if(cod)c.codigoMant=cod; else delete c.codigoMant;
   var gId=(document.getElementById('ecGerente')&&document.getElementById('ecGerente').value)||'';
   if(gId)c.gerenteId=gId; else delete c.gerenteId;
+  // mkSel se leia sin estar definida: lanzaba ReferenceError y cortaba la
+  // funcion justo antes de guardar, por eso el boton no hacia nada.
+  var mkSel=(document.getElementById('ecMarca')&&document.getElementById('ecMarca').value)||'';
   if(mkSel)c.marca=mkSel; else delete c.marca;
   saveData();closeModal('modalEditCentro');render();toast('✓ Centro actualizado');
 }

@@ -388,8 +388,10 @@ function agrupar(){
   var q=((document.getElementById('fBuscar')||{}).value||'').toLowerCase().trim();
   var marcas={};
   D.equipos.forEach(function(eq){
-    if(eq.ubicacionTipo && eq.ubicacionTipo!=='centro') return; // bodega, no restaurante
     var c=centroDe(eq);
+    // Los equipos en bodega no pertenecen a un restaurante: van a su
+    // propio grupo y NO cuentan para el avance por gerencia.
+    if((eq.ubicacionTipo && eq.ubicacionTipo!=='centro') || (c&&c.esBodega)) return;
     var marca=(c&&c.marca)||'Sin marca';
     var ger=(c&&c.gerente)||'Sin gerencia asignada';
     var rest=(c&&c.nombre)||'Sin ubicación';
@@ -415,14 +417,14 @@ function llenarFiltroMarcas(){
   var sel=document.getElementById('fMarca');
   if(sel){
     var v=sel.value, set={};
-    D.equipos.forEach(function(eq){ var c=centroDe(eq); set[(c&&c.marca)||'Sin marca']=true; });
+    D.equipos.forEach(function(eq){ var c=centroDe(eq); if(c&&c.esBodega)return; set[(c&&c.marca)||'Sin marca']=true; });
     sel.innerHTML='<option value="">Todas las marcas</option>'+
       Object.keys(set).sort().map(function(m){return '<option'+(m===v?' selected':'')+'>'+esc(m)+'</option>';}).join('');
   }
   var selG=document.getElementById('fGerente');
   if(selG){
     var vg=selG.value, setG={};
-    D.equipos.forEach(function(eq){ var c=centroDe(eq); setG[(c&&c.gerente)||'Sin gerencia asignada']=true; });
+    D.equipos.forEach(function(eq){ var c=centroDe(eq); if(c&&c.esBodega)return; setG[(c&&c.gerente)||'Sin gerencia asignada']=true; });
     selG.innerHTML='<option value="">Todas las gerencias</option>'+
       Object.keys(setG).sort().map(function(g){return '<option'+(g===vg?' selected':'')+'>'+esc(g)+'</option>';}).join('');
   }
@@ -436,7 +438,8 @@ function render(){
   // KPIs globales (todos los equipos de restaurante, sin filtros)
   var tot=0,ok=0,ven=0,fuera=0;
   D.equipos.forEach(function(eq){
-    if(eq.ubicacionTipo && eq.ubicacionTipo!=='centro') return;
+    var _c=centroDe(eq);
+    if((eq.ubicacionTipo && eq.ubicacionTipo!=='centro') || (_c&&_c.esBodega)) return;
     tot++;
     var e=estadoEq(eq);
     if(e==='ok') ok++; else if(e==='venc') ven++;
