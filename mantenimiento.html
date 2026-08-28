@@ -145,6 +145,9 @@
   .hobs{flex:1;color:var(--ink-soft);}
   .hcos{font-weight:600;white-space:nowrap;}
   .hvacio{font-size:12px;color:var(--ink-soft);padding:4px 0;}
+  .hsep{font-size:10.5px;color:var(--ink-soft);text-align:center;padding:7px 0 4px;
+    border-top:1px dashed var(--border);margin-top:5px;}
+  .hrow.hactual .hfec{color:var(--green);}
 
   /* Modal */
   .ov{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;display:flex;
@@ -216,9 +219,10 @@
 
   <div class="ciclo">
     <span class="lbl">🔄 Ciclo de mantenimiento</span>
-    <input type="date" id="cicloDesde" onchange="onCicloEdit()">
+    <input type="date" id="cicloDesde" onchange="onCicloEdit('desde')" title="Inicio del ciclo (3 meses)">
     <span style="color:var(--ink-soft)">→</span>
-    <input type="date" id="cicloHasta" onchange="onCicloEdit()">
+    <input type="date" id="cicloHasta" onchange="onCicloEdit('hasta')" title="Fin del ciclo — la duración siempre es de 3 meses">
+    <span id="cicloInfo" style="font-size:11.5px;font-weight:600;white-space:nowrap"></span>
     <button onclick="cargarDatos(this)">↻ Actualizar</button>
     <button class="ghost" onclick="window.print()">Imprimir</button>
     <div class="cstatus" id="cstatus">Define el periodo del ciclo: cada equipo debe recibir mantenimiento una vez dentro de esas fechas.</div>
@@ -248,7 +252,7 @@
   <div id="lista"></div>
 
   <div class="note">
-    Los equipos se agrupan por <b>marca → gerencia de zona → restaurante</b>. El <b>estado del equipo</b> (funcionando, en reparación, por cambiar, dañado por vida útil) se define al registrar un mantenimiento; reparación y cambio piden fecha programada. Cada equipo se registra <b>en su propia línea</b>, sin abrir ventanas: fecha, técnico, estado, observaciones y costo. El botón <b>🕘 Historial</b> despliega todos los mantenimientos anteriores de ese equipo. El <b>avance</b> se calcula sobre el ciclo definido arriba: un equipo cuenta como atendido si tiene un mantenimiento registrado con fecha dentro del periodo. Los mantenimientos que registres aquí se envían al sistema principal y aparecen ahí automáticamente la próxima vez que se abra. Este panel solo lee la lista de equipos: no tiene acceso a gastos, proveedores ni usuarios.
+    Los equipos se agrupan por <b>marca → gerencia de zona → restaurante</b>. El <b>estado del equipo</b> (funcionando, en reparación, por cambiar, dañado por vida útil) se define al registrar un mantenimiento; reparación y cambio piden fecha programada. Cada equipo se registra <b>en su propia línea</b>, sin abrir ventanas: fecha, técnico, estado, observaciones y costo. El botón <b>🕘 Historial</b> despliega todos los mantenimientos anteriores de ese equipo. El ciclo dura <b>siempre 3 meses</b>: al cambiar una fecha, la otra se ajusta sola, y cuando el periodo termina el sistema abre el siguiente automáticamente. El historial de cada equipo conserva los últimos <b>6 meses</b>. El <b>avance</b> se calcula sobre el ciclo vigente: un equipo cuenta como atendido si tiene un mantenimiento registrado con fecha dentro del periodo. Los mantenimientos que registres aquí se envían al sistema principal y aparecen ahí automáticamente la próxima vez que se abra. Este panel solo lee la lista de equipos: no tiene acceso a gastos, proveedores ni usuarios.
   </div>
 </div>
 
@@ -270,6 +274,23 @@ var histAbierto = {};
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function hoyStr(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function addMeses(f,n){var d=new Date(f+'T12:00:00');d.setMonth(d.getMonth()+n);return d.toISOString().slice(0,10);}
+function addDias(f,n){var d=new Date(f+'T12:00:00');d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);}
+// El ciclo dura SIEMPRE 3 meses: definida una punta, la otra se calcula.
+var CICLO_MESES = 3;
+function finDeCiclo(desde){ return addDias(addMeses(desde,CICLO_MESES),-1); }
+function inicioDeCiclo(hasta){ return addMeses(addDias(hasta,1),-CICLO_MESES); }
+// Al vencer el ciclo, avanza solo al siguiente periodo de 3 meses.
+// Devuelve cuantos ciclos avanzo (0 = seguimos en el mismo).
+function avanzarCicloSiVencio(){
+  var saltos=0, hoy=hoyStr(), guarda=0;
+  while(CFG.hasta && hoy>CFG.hasta && guarda<40){
+    CFG.desde=addDias(CFG.hasta,1);
+    CFG.hasta=finDeCiclo(CFG.desde);
+    saltos++; guarda++;
+  }
+  if(saltos){ guardarCfg(); }
+  return saltos;
+}
 function fmtDM(f){
   if(!f) return '—';
   var m=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
@@ -283,7 +304,8 @@ function toast(t){
 function guardarCfg(){ try{localStorage.setItem('mant_cfg',JSON.stringify(CFG));}catch(e){} }
 function cargarCfg(){
   try{ var r=localStorage.getItem('mant_cfg'); if(r) CFG=Object.assign(CFG,JSON.parse(r)); }catch(e){}
-  if(!CFG.desde){ CFG.desde=hoyStr(); CFG.hasta=addMeses(CFG.desde,3); }
+  if(!CFG.desde){ CFG.desde=hoyStr(); }
+  CFG.hasta=finDeCiclo(CFG.desde); // la duracion no es editable: siempre 3 meses
 }
 
 /* ---------- estado de cada equipo ---------- */
@@ -541,19 +563,30 @@ function render(){
             // Historial, colapsable
             if(hAbierto){
               var hs=historialDe(id);
-              html+='<div class="hist"><div class="histttl">🕘 Historial de mantenimientos</div>';
+              var antiguos=historialAntiguoDe(id);
+              html+='<div class="hist"><div class="histttl">🕘 Historial · últimos '+HIST_MESES+' meses (desde '+fmtDM(limiteHistorial())+')</div>';
               if(!hs.length){
-                html+='<div class="hvacio">Sin mantenimientos registrados todavía.</div>';
+                html+='<div class="hvacio">Sin mantenimientos en los últimos '+HIST_MESES+' meses.</div>';
               } else {
+                var marcoCicloAnterior=false;
                 hs.forEach(function(r){
+                  // Separador visual entre el ciclo actual y lo anterior
+                  if(!marcoCicloAnterior && r.fecha<CFG.desde){
+                    marcoCicloAnterior=true;
+                    html+='<div class="hsep">— ciclos anteriores —</div>';
+                  }
                   var tn=(D.tecnicos.find(function(t){return t.id===r.tecnicoId;})||{}).nombre||'—';
-                  html+='<div class="hrow">'
+                  var enCiclo=(r.fecha>=CFG.desde&&r.fecha<=CFG.hasta);
+                  html+='<div class="hrow'+(enCiclo?' hactual':'')+'">'
                     +'<span class="hfec">'+fmtDM(r.fecha)+'</span>'
                     +'<span class="htec">'+esc(tn)+'</span>'
                     +'<span class="hobs">'+esc(r.observaciones||'')+'</span>'
                     +(r.costo?'<span class="hcos">US$ '+Number(r.costo).toFixed(2)+'</span>':'')
                     +'</div>';
                 });
+              }
+              if(antiguos){
+                html+='<div class="hvacio" style="margin-top:6px">+ '+antiguos+' registro(s) anteriores a '+fmtDM(limiteHistorial())+' (no se muestran)</div>';
               }
               html+='</div>';
             }
@@ -574,9 +607,19 @@ function toggleRest(key){ abiertos[key]=!abiertos[key]; render(); }
 
 /* ---------- registrar mantenimiento (en la misma linea) ---------- */
 // Historial de un equipo, mas reciente primero
+// Historial visible: ultimos 6 meses (dos ciclos completos), para poder
+// comparar el ciclo actual con el anterior sin cargar años de registros.
+var HIST_MESES = 6;
+function limiteHistorial(){ return addMeses(hoyStr(), -HIST_MESES); }
 function historialDe(eqId){
-  return D.registros.filter(function(r){ return r.equipoId===eqId && r.fecha; })
+  var lim=limiteHistorial();
+  return D.registros.filter(function(r){ return r.equipoId===eqId && r.fecha && r.fecha>=lim; })
                     .sort(function(a,b){ return b.fecha.localeCompare(a.fecha); });
+}
+// Registros mas viejos que la ventana, solo para informar cuantos hay
+function historialAntiguoDe(eqId){
+  var lim=limiteHistorial();
+  return D.registros.filter(function(r){ return r.equipoId===eqId && r.fecha && r.fecha<lim; }).length;
 }
 function toggleHist(eqId){ histAbierto[eqId]=!histAbierto[eqId]; render(); }
 
@@ -630,14 +673,30 @@ function onEmpEdit(){
   CFG.empresa=((document.getElementById('empIn')||{}).value||'FISDC').trim().toUpperCase();
   guardarCfg();
 }
-function onCicloEdit(){
-  CFG.desde=(document.getElementById('cicloDesde')||{}).value||CFG.desde;
-  CFG.hasta=(document.getElementById('cicloHasta')||{}).value||CFG.hasta;
-  if(CFG.hasta<CFG.desde){ toast('La fecha final no puede ser antes que la inicial'); return; }
+// El ciclo siempre dura 3 meses: al cambiar una fecha, la otra se ajusta
+// sola. Asi el porcentaje de avance siempre compara periodos iguales.
+function onCicloEdit(cual){
+  var nD=(document.getElementById('cicloDesde')||{}).value;
+  var nH=(document.getElementById('cicloHasta')||{}).value;
+  if(cual==='hasta'&&nH){ CFG.hasta=nH; CFG.desde=inicioDeCiclo(nH); }
+  else if(nD){ CFG.desde=nD; CFG.hasta=finDeCiclo(nD); }
   guardarCfg();
+  pintarCiclo();
   render();
-  var dias=Math.round((new Date(CFG.hasta+'T12:00:00')-new Date(CFG.desde+'T12:00:00'))/86400000);
-  setStatus('Ciclo de '+dias+' días: cada equipo debe atenderse una vez entre '+fmtDM(CFG.desde)+' y '+fmtDM(CFG.hasta)+'.');
+  setStatus('Ciclo de 3 meses: cada equipo debe atenderse una vez entre '+fmtDM(CFG.desde)+' y '+fmtDM(CFG.hasta)+'. Al terminar, el sistema abre el siguiente ciclo automáticamente.');
+}
+function pintarCiclo(){
+  var a=document.getElementById('cicloDesde'), b=document.getElementById('cicloHasta');
+  if(a) a.value=CFG.desde;
+  if(b) b.value=CFG.hasta;
+  var lbl=document.getElementById('cicloInfo');
+  if(lbl){
+    var hoy=hoyStr();
+    var faltan=Math.round((new Date(CFG.hasta+'T12:00:00')-new Date(hoy+'T12:00:00'))/86400000);
+    lbl.textContent = (hoy<CFG.desde) ? 'Comienza en '+Math.abs(faltan)+' día(s)'
+      : (faltan>=0 ? 'Faltan '+faltan+' día(s) para cerrar' : 'Ciclo vencido');
+    lbl.style.color = (faltan<0) ? 'var(--red)' : (faltan<=15 ? 'var(--amber)' : 'var(--ink-soft)');
+  }
 }
 
 /* ---------- arranque ---------- */
@@ -654,9 +713,16 @@ document.getElementById('gateInput').addEventListener('keydown',function(e){ if(
 
 function init(){
   cargarCfg();
+  // Si el ciclo ya vencio, abrir automaticamente el siguiente periodo de
+  // 3 meses (puede saltar varios si el panel llevaba tiempo sin abrirse).
+  var saltos=avanzarCicloSiVencio();
   document.getElementById('empIn').value=CFG.empresa;
-  document.getElementById('cicloDesde').value=CFG.desde;
-  document.getElementById('cicloHasta').value=CFG.hasta;
+  pintarCiclo();
+  if(saltos){
+    setTimeout(function(){
+      toast('🔄 Nuevo ciclo abierto: '+fmtDM(CFG.desde)+' → '+fmtDM(CFG.hasta));
+    },700);
+  }
   try{
     var app=firebase.initializeApp({
       apiKey:"AIzaSyC0R7573cB76FzC6qPZhLmvKhVT46PN3RM",
