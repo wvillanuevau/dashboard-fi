@@ -1724,7 +1724,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-07-29-H'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-07-29-I'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -20571,7 +20571,13 @@ function _renderReportesChoferes(reportes){
       var kmOdo=r.kmOdometro?(r.kmOdometro).toLocaleString('en-US'):'';
       var novColor=r.novedad?'background:#fff3e0':'';
       var tip=r.motoristaNombre||r.choferNombre||'';
-      return '<td style="text-align:center;font-size:11px;'+novColor+';padding:6px 4px" title="'+esc(tip)+'">'
+      // Celda clicable: abre el modal de correccion. Antes la tabla solo
+      // pintaba los numeros y no habia forma de editarlos desde aqui —
+      // al hacer clic unicamente se seleccionaba el texto.
+      var _tit=(tip?esc(tip)+' · ':'')+'Clic para corregir km o galones';
+      return '<td class="rdc-cel" onclick="editarReporteChofer(\''+r.id+'\')" '
+        +'style="text-align:center;font-size:11px;'+novColor+';padding:6px 4px;cursor:pointer" '
+        +'title="'+_tit+'">'
         +'<div style="font-weight:700;color:var(--accent)">'+kmOdo+'</div>'
         +(gal?'<div style="color:#facc15;font-size:10px">⛽'+gal+'</div>':'')
         +(r.novedad?'<div style="color:var(--accent);font-size:9px">⚠</div>':'')
@@ -20702,7 +20708,7 @@ function _renderReportesChoferes(reportes){
     +'</td></tr></tfoot>'
     +'</table></div>'
     +'<div style="display:flex;gap:16px;flex-wrap:wrap;padding:10px 14px;background:var(--surface2);font-size:11px;color:var(--muted)">'
-    +'<span>Cada celda muestra <strong style="color:var(--accent)">Km odómetro</strong> + <strong style="color:#facc15">galones</strong></span>'
+    +'<span>Cada celda muestra <strong style="color:var(--accent)">Km odómetro</strong> + <strong style="color:#facc15">galones</strong> · <strong>clic en una celda para corregirla</strong></span>'
     +'<span><strong style="color:var(--accent)">⚠</strong> = novedad reportada</span>'
     +'</div></div>';
 }
@@ -20800,6 +20806,10 @@ function guardarCorreccionReporte(repId){
     }
   }
 
+  // Sin markDirty el guardado por secciones no sabe que cambio y NO
+  // persiste nada: la correccion se veia en pantalla pero se perdia al
+  // recargar. Los reportes viven en S.taller.
+  markDirty('taller');
   saveData();
   logAction('CORREGIR','chofer_reporte','Reporte '+repId+': '+kmOrig+'→'+nuevoKm+' km · Motivo: '+motivo.slice(0,50));
   document.getElementById('modalEditRep').remove();
@@ -20828,6 +20838,8 @@ function eliminarReporteChofer(repId){
     var ultimo=(t.reportesDiarios||[]).filter(function(r){return r.vehiculoId===rep.vehiculoId;}).sort(function(a,b){return (b.fecha+'').localeCompare(a.fecha+'');})[0];
     if(ultimo){veh.kmActual=ultimo.kmOdometro;veh.kmActuales=ultimo.kmOdometro;}
   }
+  // Igual que la correccion: sin markDirty el borrado no se persistia.
+  markDirty('taller');
   saveData();
   logAction('ELIMINAR','chofer_reporte','Reporte '+repId+' eliminado (km original: '+(rep.kmOdometro||0)+')');
   toast('✓ Reporte eliminado');
