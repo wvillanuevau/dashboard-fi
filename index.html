@@ -1724,7 +1724,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-07-29-I'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-07-29-J'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -20317,11 +20317,22 @@ function renderTallerReportesChoferes(){
           novedad:r.novedad||'', origen:'portal'
         });
       });
-      // Unir ambas fuentes — Firestore (portal) tiene PRIORIDAD sobre local
-      // Un reporte del portal es más confiable que el local legacy
+      // Unir ambas fuentes. Firestore (portal) tiene prioridad sobre el
+      // local legacy, EXCEPTO cuando el local es una correccion hecha por
+      // un administrador: en ese caso manda la correccion, o el km
+      // corregido se veria pisado por el valor original del portal.
       var vistos={};
       var todosRep=[];
-      // Primero agregar Firestore (mayor prioridad)
+      var corregidos={};
+      repLocales.forEach(function(r){
+        if(r.motivoCorreccion||r.corregidoPor){
+          corregidos[(r.vehiculoId||'')+'|'+(r.fecha||'')]=r;
+        }
+      });
+      Object.keys(corregidos).forEach(function(k){
+        vistos[k]=true; todosRep.push(corregidos[k]);
+      });
+      // Luego Firestore (portal)
       repFirestore.forEach(function(r){
         var key=(r.vehiculoId||'')+'|'+(r.fecha||'');
         if(!vistos[key]){vistos[key]=true;todosRep.push(r);}
@@ -20332,6 +20343,11 @@ function renderTallerReportesChoferes(){
         if(!vistos[key]){vistos[key]=true;todosRep.push(r);}
       });
       todosRep.sort(function(a,b){return (a.fecha||'').localeCompare(b.fecha||'');});
+      // Guardar los reportes VISIBLES: la tabla mezcla los del portal de
+      // motoristas (Firestore) con los locales, pero la correccion solo
+      // buscaba en los locales y respondia "Reporte no encontrado" para
+      // todos los del portal, que son la mayoria.
+      S._rdcVisibles=todosRep;
       _renderReportesChoferes(todosRep);
     }).catch(function(err){
       console.error('[ReportesMotoristas] Firestore error:', err);
@@ -20344,6 +20360,7 @@ function renderTallerReportesChoferes(){
         content2.innerHTML='';
         content2.appendChild(warn);
       }
+      S._rdcVisibles=repLocales;
       _renderReportesChoferes(repLocales);
     });
 }
@@ -20720,6 +20737,14 @@ function editarReporteChofer(repId){
   }
   var t=tallerData();
   var rep=(t.reportesDiarios||[]).find(function(r){return r.id===repId;});
+  var esDelPortal=false;
+  if(!rep){
+    // Reporte del portal de motoristas: existe en Firestore pero no en el
+    // estado local. Se toma de los visibles y al guardar se copia al
+    // sistema como correccion.
+    rep=(S._rdcVisibles||[]).find(function(r){return r.id===repId;});
+    esDelPortal=!!rep;
+  }
   if(!rep){toast('Reporte no encontrado',true);return;}
   var veh=t.vehiculos.find(function(v){return v.id===rep.vehiculoId;});
 
@@ -20732,6 +20757,7 @@ function editarReporteChofer(repId){
       +'<div><strong>Chofer:</strong> '+esc(rep.choferNombre||'')+'</div>'
       +'<div><strong>Fecha:</strong> '+fmtDate(rep.fecha)+'</div>'
       +'<div><strong>Reportado:</strong> '+(rep.kmOdometro||0).toLocaleString()+' km · '+(rep.kmRecorridos||0).toLocaleString()+' km recorridos</div>'
+      +(esDelPortal?'<div style="margin-top:6px;font-size:11px;color:var(--accent)">📱 Reporte enviado desde el portal de motoristas. La corrección se guardará en el sistema y prevalecerá sobre el original.</div>':'')
     +'</div>'
     +'<div class="row2">'
       +'<div class="fg"><label>Km del odómetro (corregido) *</label>'
@@ -20755,7 +20781,16 @@ function editarReporteChofer(repId){
 function guardarCorreccionReporte(repId){
   var t=tallerData();
   var rep=(t.reportesDiarios||[]).find(function(r){return r.id===repId;});
-  if(!rep)return;
+  if(!rep){
+    // Viene del portal: incorporarlo al estado local para poder corregirlo
+    // (el original en Firestore no se toca; este tiene prioridad al mostrar).
+    var vis=(S._rdcVisibles||[]).find(function(r){return r.id===repId;});
+    if(!vis){toast('Reporte no encontrado',true);return;}
+    if(!t.reportesDiarios)t.reportesDiarios=[];
+    rep=JSON.parse(JSON.stringify(vis));
+    rep.importadoDePortal=true;
+    t.reportesDiarios.push(rep);
+  }
   var nuevoKm=parseInt((document.getElementById('editKmOdo')||{}).value)||0;
   var nuevaGal=parseFloat((document.getElementById('editGal')||{}).value)||0;
   var motivo=((document.getElementById('editMotivo')||{}).value||'').trim();
