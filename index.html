@@ -1724,7 +1724,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-07-29-K'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-07-29-M'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -20059,43 +20059,77 @@ function guardarRevision(vehId){
   var t=tallerData();
   if(!t.revisiones)t.revisiones=[];
   var revId='rev_'+Date.now().toString(36);
-  var fotoRefs=[];
 
-  // Subir cada foto a Firebase Storage como ref
+  // ═══════════════════════════════════════════════════════════════
+  // ESPERAR a que las fotos suban ANTES de guardar la revision.
+  // Antes se lanzaban las subidas sin esperar y se guardaba la
+  // revision de inmediato: si una subida fallaba (red, cuota,
+  // permisos) la revision quedaba apuntando a una foto inexistente
+  // y salia "Foto no encontrada". Solo se anotaba en la consola.
+  // ═══════════════════════════════════════════════════════════════
+  if(btn) btn.textContent='⏳ Subiendo fotos...';
+
+  var subidas=[];
   if(window.FB&&window.FB.saveComprobante){
     fotos.forEach(function(dataUrl,i){
       var refId='revision_'+revId+'_'+i;
-      fotoRefs.push('ref:'+refId);
-      window.FB.saveComprobante(S.empresa,refId,dataUrl).catch(function(e){
-        console.error('[Revisión] Error subiendo foto '+i+':',e);
-      });
+      subidas.push(
+        window.FB.saveComprobante(S.empresa,refId,dataUrl)
+          .then(function(){ return {ok:true, ref:'ref:'+refId, i:i}; })
+          .catch(function(e){
+            console.error('[Revisión] Error subiendo foto '+i+':',e);
+            return {ok:false, i:i, err:(e&&e.message)||'error', data:dataUrl};
+          })
+      );
     });
   } else {
-    // Fallback (improbable): guardar inline (bloated)
-    fotoRefs=fotos;
+    fotos.forEach(function(dataUrl,i){ subidas.push(Promise.resolve({ok:true,ref:dataUrl,i:i})); });
   }
 
-  var rev={
-    id:revId,
-    vehiculoId:vehId,
-    fecha:localDate(new Date()),
-    ts:Date.now(),
-    mecanicoEmail:S.currentUser?S.currentUser.email:null,
-    mecanicoNombre:S.currentUser?S.currentUser.nombre||S.currentUser.email:'',
-    fotos:fotoRefs,
-    observaciones:obs
-  };
-  t.revisiones.push(rev);
-  saveData();
-  logAction('CREAR','revision_foto','Revisión '+fotos.length+' fotos · veh '+vehId.slice(0,6));
+  Promise.all(subidas).then(function(res){
+    var okRefs=res.filter(function(r){return r.ok;}).map(function(r){return r.ref;});
+    var fallidas=res.filter(function(r){return !r.ok;});
 
-  S._revFotos=null;
-  setTimeout(function(){
+    if(!okRefs.length){
+      // Ninguna subio: no guardar una revision sin evidencia
+      unlock();
+      if(btn) btn.textContent='✓ Guardar revisión';
+      toast('No se pudo subir ninguna foto. Revisa tu conexión e intenta de nuevo.',true);
+      return;
+    }
+
+    var rev={
+      id:revId,
+      vehiculoId:vehId,
+      fecha:localDate(new Date()),
+      ts:Date.now(),
+      mecanicoEmail:S.currentUser?S.currentUser.email:null,
+      mecanicoNombre:S.currentUser?S.currentUser.nombre||S.currentUser.email:'',
+      fotos:okRefs,           // SOLO las que realmente subieron
+      observaciones:obs
+    };
+    if(fallidas.length) rev.fotosFallidas=fallidas.length;
+
+    t.revisiones.push(rev);
+    // Sin markDirty el guardado por secciones no persiste la revision
+    markDirty('taller');
+    saveData();
+    logAction('CREAR','revision_foto','Revisión '+okRefs.length+' fotos'
+      +(fallidas.length?' ('+fallidas.length+' fallaron)':'')+' · veh '+vehId.slice(0,6));
+
+    S._revFotos=null;
     unlock();
-    document.getElementById('modalRevDiv').remove();
+    var md=document.getElementById('modalRevDiv'); if(md) md.remove();
     renderTallerRevisiones();
-    toast('✓ Revisión guardada con '+fotos.length+' foto(s)');
-  },300);
+    if(fallidas.length){
+      toast('⚠ Revisión guardada con '+okRefs.length+' foto(s). '+fallidas.length+' no se pudieron subir — vuelve a agregarlas.',true);
+    } else {
+      toast('✓ Revisión guardada con '+okRefs.length+' foto(s)');
+    }
+  }).catch(function(e){
+    unlock();
+    toast('Error guardando la revisión: '+((e&&e.message)||e),true);
+  });
 }
 
 // ── Histórico de revisiones de un vehículo ──
@@ -20298,7 +20332,17 @@ function renderTallerReportesChoferes(){
       galonesCargados:r.galonesCargados||0,
       costoGasolina:r.costoGasolina||0,
       novedad:r.novedad||r.observaciones||'',
-      origen:'local'
+      origen:'local',
+      // CONSERVAR las marcas de correccion. Este mapeo las descartaba, asi
+      // que al repintar la tabla la correccion ya no se reconocia como tal
+      // y el valor original del portal volvia a ganar: por eso la celda
+      // corregida nunca se actualizaba.
+      motivoCorreccion:r.motivoCorreccion||'',
+      corregidoPor:r.corregidoPor||'',
+      fechaCorreccion:r.fechaCorreccion||null,
+      kmOriginal:r.kmOriginal,
+      galOriginal:r.galOriginal,
+      importadoDePortal:!!r.importadoDePortal
     };
   });
 
