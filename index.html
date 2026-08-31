@@ -1724,7 +1724,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-07-29-J'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-07-29-K'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -20592,7 +20592,10 @@ function _renderReportesChoferes(reportes){
       // pintaba los numeros y no habia forma de editarlos desde aqui —
       // al hacer clic unicamente se seleccionaba el texto.
       var _tit=(tip?esc(tip)+' · ':'')+'Clic para corregir km o galones';
-      return '<td class="rdc-cel" onclick="editarReporteChofer(\''+r.id+'\')" '
+      // Identificar por vehiculo+fecha, NO por id: los reportes del portal
+      // traen el id de dentro del documento y pueden repetirse entre
+      // vehiculos o fechas, con lo que se abria el reporte equivocado.
+      return '<td class="rdc-cel" onclick="editarReporteChofer(\''+(r.id||'')+'\',\''+(v.id||'')+'\',\''+f+'\')" '
         +'style="text-align:center;font-size:11px;'+novColor+';padding:6px 4px;cursor:pointer" '
         +'title="'+_tit+'">'
         +'<div style="font-weight:700;color:var(--accent)">'+kmOdo+'</div>'
@@ -20731,21 +20734,36 @@ function _renderReportesChoferes(reportes){
 }
 
 
-function editarReporteChofer(repId){
+function editarReporteChofer(repId, vehId, fechaCel){
   if(!S.currentUser||(S.currentUser.rol!=='admin'&&S.currentUser.rol!=='supervisor')){
     toast('Solo administradores pueden corregir reportes',true);return;
   }
   var t=tallerData();
-  var rep=(t.reportesDiarios||[]).find(function(r){return r.id===repId;});
+  // Buscar por vehiculo+fecha cuando venga de la tabla semanal: es la
+  // unica combinacion garantizada como unica. El id queda de respaldo.
+  function _buscar(lista){
+    if(!lista)return null;
+    if(vehId&&fechaCel){
+      var porFecha=lista.filter(function(r){return r.vehiculoId===vehId&&r.fecha===fechaCel;});
+      if(porFecha.length){
+        // Si hay varios, preferir el ya corregido
+        return porFecha.find(function(r){return r.motivoCorreccion||r.corregidoPor;})||porFecha[0];
+      }
+      return null;
+    }
+    return lista.find(function(r){return r.id===repId;})||null;
+  }
+  var rep=_buscar(t.reportesDiarios);
   var esDelPortal=false;
   if(!rep){
     // Reporte del portal de motoristas: existe en Firestore pero no en el
     // estado local. Se toma de los visibles y al guardar se copia al
     // sistema como correccion.
-    rep=(S._rdcVisibles||[]).find(function(r){return r.id===repId;});
+    rep=_buscar(S._rdcVisibles);
     esDelPortal=!!rep;
   }
   if(!rep){toast('Reporte no encontrado',true);return;}
+  repId=rep.id||repId;
   var veh=t.vehiculos.find(function(v){return v.id===rep.vehiculoId;});
 
   (function(_e){if(_e)_e.remove();})(document.getElementById('modalEditRep'));
@@ -20773,24 +20791,36 @@ function editarReporteChofer(repId){
     +'<div style="font-size:11px;color:var(--muted);margin-top:6px">⚠ Al guardar se recalculan automáticamente los km recorridos, costo y se actualiza el km del vehículo si era el último reporte. La corrección quedará marcada en el log.</div>'
     +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">'
       +'<button class="btn btn-secondary" onclick="document.getElementById(\'modalEditRep\').remove()">Cancelar</button>'
-      +'<button class="btn btn-primary" onclick="guardarCorreccionReporte(\''+repId+'\')">✓ Guardar corrección</button>'
+      +'<button class="btn btn-primary" onclick="guardarCorreccionReporte(\''+repId+'\',\''+(rep.vehiculoId||'')+'\',\''+(rep.fecha||'')+'\')">✓ Guardar corrección</button>'
     +'</div></div></div>';
   document.body.insertAdjacentHTML('beforeend',html);
 }
 
-function guardarCorreccionReporte(repId){
+function guardarCorreccionReporte(repId, vehId, fechaCel){
   var t=tallerData();
-  var rep=(t.reportesDiarios||[]).find(function(r){return r.id===repId;});
+  function _buscarG(lista){
+    if(!lista)return null;
+    if(vehId&&fechaCel){
+      var pf=lista.filter(function(r){return r.vehiculoId===vehId&&r.fecha===fechaCel;});
+      if(pf.length) return pf.find(function(r){return r.motivoCorreccion||r.corregidoPor;})||pf[0];
+      return null;
+    }
+    return lista.find(function(r){return r.id===repId;})||null;
+  }
+  var rep=_buscarG(t.reportesDiarios);
   if(!rep){
     // Viene del portal: incorporarlo al estado local para poder corregirlo
     // (el original en Firestore no se toca; este tiene prioridad al mostrar).
-    var vis=(S._rdcVisibles||[]).find(function(r){return r.id===repId;});
+    var vis=_buscarG(S._rdcVisibles);
     if(!vis){toast('Reporte no encontrado',true);return;}
     if(!t.reportesDiarios)t.reportesDiarios=[];
     rep=JSON.parse(JSON.stringify(vis));
     rep.importadoDePortal=true;
     t.reportesDiarios.push(rep);
   }
+  // Alinear repId con el reporte realmente encontrado: se busca por
+  // vehiculo+fecha, asi que el id recibido podria no ser el suyo.
+  repId=rep.id||repId;
   var nuevoKm=parseInt((document.getElementById('editKmOdo')||{}).value)||0;
   var nuevaGal=parseFloat((document.getElementById('editGal')||{}).value)||0;
   var motivo=((document.getElementById('editMotivo')||{}).value||'').trim();
@@ -20801,7 +20831,7 @@ function guardarCorreccionReporte(repId){
   var galOrig=rep.galonesCargados||0;
 
   // Recalcular km recorridos basándose en el reporte previo
-  var reps=(t.reportesDiarios||[]).filter(function(r){return r.vehiculoId===rep.vehiculoId&&r.id!==repId;}).sort(function(a,b){return (b.fecha+'').localeCompare(a.fecha+'');});
+  var reps=(t.reportesDiarios||[]).filter(function(r){return r.vehiculoId===rep.vehiculoId&&r!==rep;}).sort(function(a,b){return (b.fecha+'').localeCompare(a.fecha+'');});
   var ultimoPrev=reps.find(function(r){return r.fecha<rep.fecha;});
   var kmBase=ultimoPrev?ultimoPrev.kmOdometro:0;
   var nuevosRec=nuevoKm-kmBase;
@@ -20825,7 +20855,7 @@ function guardarCorreccionReporte(repId){
   var veh=t.vehiculos.find(function(v){return v.id===rep.vehiculoId;});
   if(veh){
     var ultimoDeTodos=(t.reportesDiarios||[]).filter(function(r){return r.vehiculoId===rep.vehiculoId;}).sort(function(a,b){return (b.fecha+'').localeCompare(a.fecha+'');})[0];
-    if(ultimoDeTodos&&ultimoDeTodos.id===repId){
+    if(ultimoDeTodos===rep){
       veh.kmActual=nuevoKm;
       veh.kmActuales=nuevoKm;
     }
