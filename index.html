@@ -1724,7 +1724,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-07-29-G'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-07-29-H'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -2048,10 +2048,17 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 
 // ── Mini Calendario Reutilizable ─────────────────────────
 function miniCalHTML(currentDate, onSelectFn, markedDates, maxDate){
+  if(currentDate instanceof Date) currentDate=localDate(currentDate);
+  if(typeof currentDate!=='string'||!/^\d{4}-\d{2}-\d{2}/.test(currentDate)) currentDate=localDate(new Date());
   var d=new Date(currentDate+'T12:00:00');
+  if(isNaN(d.getTime())){ currentDate=localDate(new Date()); d=new Date(currentDate+'T12:00:00'); }
   var year=d.getFullYear(),month=d.getMonth();
   var today=localDate(new Date());
+  // Aceptar tanto texto 'YYYY-MM-DD' como objeto Date, para que una
+  // llamada mal formada no rompa toda la pantalla.
   var maxD=maxDate||today;
+  if(maxD instanceof Date) maxD=localDate(maxD);
+  else if(typeof maxD!=='string') maxD=today;
   var DS=['Do','Lu','Ma','Mi','Ju','Vi','Sa'];
   var MS=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   var primerDia=new Date(year,month,1).getDay();
@@ -20644,8 +20651,12 @@ function _renderReportesChoferes(reportes){
     +'<div class="sec-hdr">🔍 Filtros del análisis</div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">'
     +'<div class="fg" style="margin:0"><label>Vehículo</label><select onchange="S._rdcFiltroVeh=this.value;renderTallerReportesChoferes()">'+vehOpts+'</select></div>'
-    +'<div class="fg" style="margin:0"><label>Desde</label>'+localDate(miniCalHTML(S._rdcFiltroDesde,'rdcCalDesde',[],new Date()))+'</div>'
-    +'<div class="fg" style="margin:0"><label>Hasta</label>'+localDate(miniCalHTML(S._rdcFiltroHasta,'rdcCalHasta',[],new Date()))+'</div>'
+    // miniCalHTML espera la fecha maxima como TEXTO 'YYYY-MM-DD', no un
+    // objeto Date: al recibir un Date fallaba con "maxD.slice is not a
+    // function" y la pantalla no cargaba. Ademas localDate() envolvia el
+    // HTML devuelto en vez de convertir la fecha, que era el segundo error.
+    +'<div class="fg" style="margin:0"><label>Desde</label>'+miniCalHTML(S._rdcFiltroDesde,'rdcCalDesde',[],localDate(new Date()))+'</div>'
+    +'<div class="fg" style="margin:0"><label>Hasta</label>'+miniCalHTML(S._rdcFiltroHasta,'rdcCalHasta',[],localDate(new Date()))+'</div>'
     +'</div></div>'
     // Análisis comparativo
     +'<div class="sec-hdr" style="margin:18px 0 10px 0">🚨 ANÁLISIS COMPARATIVO POR VEHÍCULO</div>'
