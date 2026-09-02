@@ -1784,7 +1784,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-09-01-B'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-09-02-A'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -2978,10 +2978,19 @@ async function importarRegistrosMantExternos(){
     var m=mantData();
     if(!m.registros)m.registros=[];
     var yaIds={}; m.registros.forEach(function(r){ if(r&&r.id) yaIds[r.id]=true; });
-    var nuevos=0, batch=db.batch();
+    var nuevos=0, malformados=0, batch=db.batch();
     snap.forEach(function(d){
       var r=d.data();
-      if(!r.equipoId||!r.fecha)return;
+      if(!r.equipoId||!r.fecha){
+        // Antes esta condicion salia sin marcar el documento, asi que
+        // quedaba huerfano: 'importado' seguia en false para siempre y
+        // Firestore lo volvia a devolver (cobrando una lectura) en cada
+        // login de cada sesion. Ahora se marca igual, con un flag aparte
+        // para poder encontrarlo despues sin que siga pesando en cuota.
+        batch.update(d.ref,{importado:true,importadoTs:Date.now(),importadoError:'faltan equipoId o fecha'});
+        malformados++;
+        return;
+      }
       var rid=r.registroId||d.id;
       if(!yaIds[rid]){
         m.registros.push({
@@ -2999,6 +3008,9 @@ async function importarRegistrosMantExternos(){
       }
       batch.update(d.ref,{importado:true,importadoTs:Date.now()});
     });
+    if(malformados){
+      console.warn('[Mant] '+malformados+' registro(s) de mantRegistros sin equipoId/fecha — marcados con importadoError, revisar en Firestore');
+    }
     if(nuevos){
       markDirty('mantenimiento');
       saveData();

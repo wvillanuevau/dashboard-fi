@@ -1846,6 +1846,24 @@ function paHoy() {
   }
 }
 
+// ── 'YYYY-MM-DD' de hace N días, misma zona horaria que paHoy() ────────────
+// Usado para acotar por fecha consultas que antes traían la coleccion
+// completa (ej. paAutoCompletarDiaAnterior) — evita pagar lecturas por
+// marcaciones de meses atras cuando solo se necesitan los ultimos dias.
+function _paFechaHaceNDias(n) {
+  try {
+    var d = new Date();
+    d.setDate(d.getDate() - n);
+    return d.toLocaleDateString('sv-SE', { timeZone: 'America/El_Salvador' });
+  } catch(e) {
+    var hoy = paHoy();
+    var partes = hoy.split('-');
+    var dd = new Date(Date.UTC(parseInt(partes[0]), parseInt(partes[1])-1, parseInt(partes[2])));
+    dd.setUTCDate(dd.getUTCDate() - n);
+    return dd.getUTCFullYear()+'-'+String(dd.getUTCMonth()+1).padStart(2,'0')+'-'+String(dd.getUTCDate()).padStart(2,'0');
+  }
+}
+
 // ── Formatea una fecha 'YYYY-MM-DD' como texto legible en español ──
 // Ej: '2026-07-06' → 'lunes 06 julio 2026'
 // Si el string no es una fecha válida, lo devuelve tal cual (seguro
@@ -3452,8 +3470,15 @@ function paAutoCompletarDiaAnterior(callback) {
   var emp = PA.empleado;
   if (!emp) { _cbOnce(); return; }
 
+  // Antes esta consulta traia TODO el historial de marcaciones del
+  // empleado (sin filtro de fecha) solo para revisar si ayer quedo un
+  // turno sin cerrar. Con meses de historial acumulado, eso significa
+  // pagar cientos de lecturas en cada login. Solo se necesitan los
+  // ultimos dias — 7 de margen cubre incluso un fin de semana largo.
+  var _diaAntDesde = _paFechaHaceNDias(7);
   paDb.collection('paMarcaciones')
     .where('empleadoId', '==', emp.id)
+    .where('fecha', '>=', _diaAntDesde)
     .get()
     .then(function(snap) {
       // Agrupar por fecha
@@ -3946,15 +3971,20 @@ function paTardanzasEmp(empId, marcaciones, horaEntradaStr, permisosJustificados
 function paCargarTardanzasEmpActual(callback) {
   if (!PA.empleado) { if(callback) callback(); return; }
   var q = _quincenaActual();
+  // Antes esta consulta traia TODO el historial de marcaciones del
+  // empleado y filtraba la quincena despues, en el cliente (linea de
+  // abajo comentada). El rango q.desde/q.hasta ya estaba calculado —
+  // solo faltaba usarlo en la consulta misma.
   paDb.collection('paMarcaciones')
     .where('empleadoId','==', PA.empleado.id)
+    .where('fecha','>=', q.desde)
+    .where('fecha','<=', q.hasta)
     .get()
     .then(function(snap) {
       var marcaciones = {};
       marcaciones[PA.empleado.id] = {};
       snap.forEach(function(d) {
         var r = d.data();
-        if (r.fecha < q.desde || r.fecha > q.hasta) return;
         if (r.ts && typeof r.ts==='object' && r.ts.toMillis) r.ts = r.ts.toMillis();
         else if (r.ts && r.ts.seconds) r.ts = r.ts.seconds*1000 + Math.round((r.ts.nanoseconds||0)/1e6);
         if (!marcaciones[PA.empleado.id][r.fecha]) marcaciones[PA.empleado.id][r.fecha] = [];
@@ -11463,7 +11493,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-07-29-A';
+var PA_VERSION = 'v2026-09-02-A';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
