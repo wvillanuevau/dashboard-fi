@@ -5301,7 +5301,11 @@ function _paCargarPendientesGlobal(callback) {
   var _vacio = { forEach: function(){}, size: 0 };
   Promise.all([
     paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get().catch(function(e){ console.warn('[Pendientes/HE]', e.message); return _vacio; }),
-    paDb.collection('paCanjes').where('empresa','==',PA.empresa).get().catch(function(e){ console.warn('[Pendientes/Canjes]', e.message); return _vacio; }),
+    // Antes sin filtro de estado — traia TODOS los canjes de la empresa
+    // desde el primer dia (era la unica de estas 5 consultas sin acotar,
+    // las otras 4 ya filtran por estado=='pendiente'). Los dos valores
+    // que el render realmente cuenta son estos.
+    paDb.collection('paCanjes').where('empresa','==',PA.empresa).where('estado','in',['pendiente_aprobacion','pendiente_compensatorio']).get().catch(function(e){ console.warn('[Pendientes/Canjes]', e.message); return _vacio; }),
     paDb.collection('paIncapacidades').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get().catch(function(e){ console.warn('[Pendientes/Incap]', e.message); return _vacio; }),
     paDb.collection('paNotificaciones').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get().catch(function(e){ console.warn('[Pendientes/Notif]', e.message); return _vacio; }),
     paDb.collection('paVacaciones').where('empresa','==',PA.empresa).where('estado','==','pendiente').limit(500).get().catch(function(e){ console.warn('[Pendientes/Vac]', e.message); return _vacio; })
@@ -5588,11 +5592,13 @@ function _paAdminHoyRender(snap, snapInc, content, hoy, snapCanjes, snapHE, snap
           else _canjeHoyPorEmp[r.empleadoId] = true;
         }
       });
-      // Vacaciones aprobadas que cubren el día de hoy
+      // Vacaciones aprobadas que cubren el día de hoy — el filtro por
+      // fechaFin ya vino acotado en la consulta; estado se revisa aquí
+      // porque ya no está en la consulta (se cambió por el rango de fecha)
       var _vacHoyPorEmp = {};
       (snapVac || {forEach:function(){}}).forEach(function(d){
         var r = d.data();
-        if (r.fechaInicio && r.fechaFin && hoy >= r.fechaInicio && hoy <= r.fechaFin) {
+        if (r.estado === 'aprobada' && r.fechaInicio && r.fechaFin && hoy >= r.fechaInicio && hoy <= r.fechaFin) {
           _vacHoyPorEmp[r.empleadoId] = true;
         }
       });
@@ -5746,11 +5752,14 @@ function paAdminHoy(content) {
       }
     );
 
-  // Todos los canjes (compensatorios Y canjes normales de horas extra) —
-  // antes solo traía los compensatorios, así que un canje normal
-  // aprobado para hoy no se reflejaba en el estado del empleado.
+  // Solo canjes con fechaLibre = hoy — es lo único que el render usa
+  // (ver _paAdminHoyRender: 'r.fechaLibre === hoy'). Antes traía TODOS
+  // los canjes de la empresa desde el primer día, sin acotar — con meses
+  // de historial acumulado, cada apertura/refresco de esta pestaña pagaba
+  // esa lectura completa otra vez.
   var _u3 = paDb.collection('paCanjes')
     .where('empresa', '==', PA.empresa)
+    .where('fechaLibre', '==', hoy)
     .onSnapshot(
       function(snapC) { _latestCanjes = snapC; _tryRender(); },
       function(err) {
@@ -5760,9 +5769,16 @@ function paAdminHoy(content) {
       }
     );
 
+  // Acotado a la quincena actual — es el rango que _paAdminHoyRender ya
+  // usa para sumar horas extra ('r.fecha < _qHoyHE.desde || > .hasta').
+  // Antes traía TODAS las horas extra aprobadas desde el inicio del
+  // sistema y descartaba casi todo en el cliente.
+  var _qHoyAdmin = _quincenaActual();
   var _u4 = paDb.collection('paHorasExtra')
     .where('empresa', '==', PA.empresa)
     .where('estado', '==', 'aprobado')
+    .where('fecha', '>=', _qHoyAdmin.desde)
+    .where('fecha', '<=', _qHoyAdmin.hasta)
     .onSnapshot(
       function(snapHE) { _latestHE = snapHE; _tryRender(); },
       function(err) {
@@ -5772,9 +5788,12 @@ function paAdminHoy(content) {
       }
     );
 
+  // fechaFin >= hoy descarta vacaciones que ya terminaron — no pueden
+  // cubrir el día de hoy, así que no hace falta traerlas. El estado
+  // ('aprobada') se sigue revisando en el cliente, igual que antes.
   var _u5 = paDb.collection('paVacaciones')
     .where('empresa', '==', PA.empresa)
-    .where('estado', '==', 'aprobada')
+    .where('fechaFin', '>=', hoy)
     .onSnapshot(
       function(snapVac) { _latestVac = snapVac; _tryRender(); },
       function(err) {
@@ -11493,7 +11512,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-09-02-A';
+var PA_VERSION = 'v2026-09-02-B';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
