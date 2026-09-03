@@ -52,6 +52,9 @@
     font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;}
   .ciclo button:hover{background:#347099;}
   .ciclo button.ghost{background:var(--card);color:var(--ink);border:1px solid var(--border);}
+  .ciclo button.ciclo-nav{padding:7px 12px;font-size:14px;font-weight:700;line-height:1;}
+  .ciclo .rango{font-size:14px;font-weight:700;color:var(--ink);white-space:nowrap;
+    padding:0 2px;}
   .cstatus{font-size:11.5px;color:var(--ink-soft);width:100%;}
 
   /* KPIs */
@@ -214,18 +217,19 @@
     <div class="stamp">
       <div><b>Empresa:</b> <input id="empIn" style="border:1px solid var(--border);border-radius:6px;padding:4px 7px;font-size:11px;width:80px" onchange="onEmpEdit()"></div>
       <div><b>Datos al:</b> <span id="syncLbl">—</span></div>
+      <div><b>Versión:</b> <span id="verLbl">—</span></div>
     </div>
   </div>
 
   <div class="ciclo">
     <span class="lbl">🔄 Ciclo de mantenimiento</span>
-    <input type="date" id="cicloDesde" onchange="onCicloEdit('desde')" title="Inicio del ciclo (3 meses)">
-    <span style="color:var(--ink-soft)">→</span>
-    <input type="date" id="cicloHasta" onchange="onCicloEdit('hasta')" title="Fin del ciclo — la duración siempre es de 3 meses">
+    <button class="ciclo-nav" onclick="navegarCiclo(-1)" title="Periodo anterior (3 meses atrás)">◀</button>
+    <span class="rango" id="cicloRango">—</span>
+    <button class="ciclo-nav" onclick="navegarCiclo(1)" title="Periodo siguiente (3 meses adelante)">▶</button>
     <span id="cicloInfo" style="font-size:11.5px;font-weight:600;white-space:nowrap"></span>
     <button onclick="cargarDatos(this)">↻ Actualizar</button>
     <button class="ghost" onclick="window.print()">Imprimir</button>
-    <div class="cstatus" id="cstatus">Define el periodo del ciclo: cada equipo debe recibir mantenimiento una vez dentro de esas fechas.</div>
+    <div class="cstatus" id="cstatus">El periodo es fijo — dura siempre 3 meses. Usa las flechas para navegar a periodos anteriores o futuros; cada equipo debe recibir mantenimiento una vez dentro del periodo que estés viendo.</div>
   </div>
 
   <div class="kpis">
@@ -260,6 +264,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script>
 var ACCESS_CODE = "MANT2026";
+var MANT_VERSION = 'v2026-09-03-A'; // Actualizar en cada entrega
 
 var DB = null;
 var D = { centros:[], equipos:[], tecnicos:[], registros:[], marcas:[] };
@@ -673,22 +678,26 @@ function onEmpEdit(){
   CFG.empresa=((document.getElementById('empIn')||{}).value||'FISDC').trim().toUpperCase();
   guardarCfg();
 }
-// El ciclo siempre dura 3 meses: al cambiar una fecha, la otra se ajusta
-// sola. Asi el porcentaje de avance siempre compara periodos iguales.
-function onCicloEdit(cual){
-  var nD=(document.getElementById('cicloDesde')||{}).value;
-  var nH=(document.getElementById('cicloHasta')||{}).value;
-  if(cual==='hasta'&&nH){ CFG.hasta=nH; CFG.desde=inicioDeCiclo(nH); }
-  else if(nD){ CFG.desde=nD; CFG.hasta=finDeCiclo(nD); }
+// El ciclo siempre dura 3 meses y no se edita a mano — la única forma de
+// moverse es navegando periodo completo por periodo completo con las
+// flechas. dir=-1 retrocede un periodo, dir=1 avanza un periodo. Mismo
+// calculo que ya usa avanzarCicloSiVencio() para el avance automatico.
+function navegarCiclo(dir){
+  if(dir<0){
+    CFG.hasta=addDias(CFG.desde,-1);
+    CFG.desde=inicioDeCiclo(CFG.hasta);
+  } else {
+    CFG.desde=addDias(CFG.hasta,1);
+    CFG.hasta=finDeCiclo(CFG.desde);
+  }
   guardarCfg();
   pintarCiclo();
   render();
-  setStatus('Ciclo de 3 meses: cada equipo debe atenderse una vez entre '+fmtDM(CFG.desde)+' y '+fmtDM(CFG.hasta)+'. Al terminar, el sistema abre el siguiente ciclo automáticamente.');
+  setStatus('Viendo el periodo '+fmtDM(CFG.desde)+' → '+fmtDM(CFG.hasta)+'. Cada equipo debe atenderse una vez dentro de ese rango.');
 }
 function pintarCiclo(){
-  var a=document.getElementById('cicloDesde'), b=document.getElementById('cicloHasta');
-  if(a) a.value=CFG.desde;
-  if(b) b.value=CFG.hasta;
+  var r=document.getElementById('cicloRango');
+  if(r) r.textContent=fmtDM(CFG.desde)+' → '+fmtDM(CFG.hasta);
   var lbl=document.getElementById('cicloInfo');
   if(lbl){
     var hoy=hoyStr();
@@ -713,6 +722,7 @@ document.getElementById('gateInput').addEventListener('keydown',function(e){ if(
 
 function init(){
   cargarCfg();
+  var vEl=document.getElementById('verLbl'); if(vEl) vEl.textContent=MANT_VERSION;
   // Si el ciclo ya vencio, abrir automaticamente el siguiente periodo de
   // 3 meses (puede saltar varios si el panel llevaba tiempo sin abrirse).
   var saltos=avanzarCicloSiVencio();
