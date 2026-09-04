@@ -261,6 +261,45 @@
     background:var(--blue-bg);color:var(--blue);border:1px solid rgba(42,95,143,.3);
     border-radius:5px;padding:2px 6px;margin-left:6px;vertical-align:middle;white-space:nowrap;
   }
+  /* ── Dashboard ejecutivo ── */
+  .kpi .sub{font-size:10.5px;color:var(--ink-soft);margin-top:3px;}
+
+  .ranking{display:flex;flex-direction:column;gap:11px;}
+  .rkrow{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;}
+  .rkname{font-size:12.5px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .rkpct{font-size:12.5px;font-weight:700;font-variant-numeric:tabular-nums;}
+  .rkbar{grid-column:1/-1;height:8px;background:var(--paper);border-radius:5px;overflow:hidden;}
+  .rkbar span{display:block;height:100%;border-radius:5px;transition:width .4s;}
+  .rkmeta{grid-column:1/-1;font-size:10.5px;color:var(--ink-soft);margin-top:-2px;}
+
+  .alertlist{display:flex;flex-direction:column;gap:8px;max-height:270px;overflow-y:auto;}
+  .alertrow{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
+    padding:9px 11px;border-radius:9px;background:var(--paper);border-left:3px solid var(--ink-soft);cursor:pointer;
+  }
+  .alertrow:hover{background:var(--card);box-shadow:var(--shadow);}
+  .alertrow.late{border-left-color:var(--red);background:var(--red-bg);}
+  .alertrow.soon{border-left-color:var(--amber);background:var(--amber-bg);}
+  .aract{font-size:12.5px;font-weight:600;color:var(--ink);}
+  .arproj{font-size:10.5px;color:var(--ink-soft);margin-top:1px;}
+  .artag{font-size:11px;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;}
+
+  .dcard-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+  .estbadge{
+    font-size:9.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+    padding:3px 8px;border-radius:20px;white-space:nowrap;
+    background:var(--paper);color:var(--ink-soft);border:1px solid var(--border);
+  }
+  .estbadge.fin{background:var(--green-bg);color:var(--green);border-color:rgba(47,122,82,.3);}
+  .estbadge.cur{background:var(--blue-bg);color:var(--blue);border-color:rgba(42,95,143,.3);}
+  .estbadge.alerta{background:var(--red-bg);color:var(--red);border-color:rgba(176,57,42,.3);}
+
+  .ringrow{display:flex;align-items:center;gap:14px;margin:14px 0 10px;}
+  .ring{flex-shrink:0;}
+  .ringstats{flex:1;display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--ink-soft);}
+  .ringstats b{color:var(--ink);font-weight:600;}
+  .dcfoot{font-size:11px;color:var(--ink-soft);padding-top:10px;border-top:1px dashed var(--border);}
+  .emptypanel{font-size:12px;color:var(--ink-soft);padding:14px 0;text-align:center;}
   .tblscroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
   @media(max-width:900px){
     .kpis{grid-template-columns:repeat(2,1fr);}
@@ -347,6 +386,11 @@
     /* Tarjetas del dashboard: una por fila */
     .dashgrid{grid-template-columns:1fr;gap:10px;}
     .dashcard{padding:14px;}
+    /* Paneles del dashboard apilados y compactos */
+    .alertlist{max-height:none;}
+    .alertrow{padding:10px;}
+    .ringrow{gap:11px;}
+    .rkname{font-size:12px;}
     /* Títulos de sección con la línea completa */
     .sectiontitle{font-size:13px;}
   }
@@ -404,6 +448,7 @@
     <div class="stamp">
       <div><b>Fecha inicio proyecto:</b> <input type="date" id="projStart" style="border:none;background:transparent;font-size:11px;color:var(--ink);" onchange="onStartEdit()"></div>
       <div><b>Última edición:</b> <span id="lastEdit">—</span> &nbsp; <span id="syncBadge" style="font-size:12px;font-weight:600"></span></div>
+      <div><b>Versión:</b> <span id="verLbl">—</span></div>
     </div>
   </div>
 
@@ -478,11 +523,36 @@
     </div>
 
     <div class="kpis">
-      <div class="kpi blue"><div class="label">Proyectos</div><div class="value" id="dkProy">0</div></div>
-      <div class="kpi"><div class="label">Avance obra civil</div><div class="value" id="dkAvance">0%</div></div>
-      <div class="kpi ok"><div class="label">Finalizados</div><div class="value" id="dkComp">0</div></div>
-      <div class="kpi crit"><div class="label">Con atrasos</div><div class="value" id="dkAtraso">0</div></div>
-      <div class="kpi mid"><div class="label">Sin vincular</div><div class="value" id="dkSinLink">0</div></div>
+      <div class="kpi blue"><div class="label">Proyectos</div><div class="value" id="dkProy">0</div><div class="sub" id="dkProySub">—</div></div>
+      <div class="kpi"><div class="label">Avance obra civil</div><div class="value" id="dkAvance">0%</div><div class="sub" id="dkAvanceSub">promedio ponderado</div></div>
+      <div class="kpi ok"><div class="label">Finalizados</div><div class="value" id="dkComp">0</div><div class="sub" id="dkCompSub">al 100%</div></div>
+      <div class="kpi crit"><div class="label">Actividades atrasadas</div><div class="value" id="dkAtraso">0</div><div class="sub" id="dkAtrasoSub">en 0 proyectos</div></div>
+      <div class="kpi mid"><div class="label">Vencen en 14 días</div><div class="value" id="dkPronto">0</div><div class="sub">actividades por cerrar</div></div>
+    </div>
+
+    <div class="charts">
+      <div class="panel">
+        <h3>Estado de actividades · consolidado</h3>
+        <div class="donutwrap">
+          <svg id="dashDonutSvg" viewBox="0 0 42 42" width="132" height="132" style="transform:rotate(-90deg)"></svg>
+          <div class="legend" id="dashDonutLegend"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Avance de obra civil por proyecto</h3>
+        <div class="ranking" id="dashRanking"></div>
+      </div>
+    </div>
+
+    <div class="charts">
+      <div class="panel">
+        <h3>⚠ Actividades atrasadas</h3>
+        <div class="alertlist" id="dashAtrasadas"></div>
+      </div>
+      <div class="panel">
+        <h3>📅 Próximos vencimientos · 14 días</h3>
+        <div class="alertlist" id="dashProximas"></div>
+      </div>
     </div>
 
     <div class="sectiontitle"><span>Proyectos</span><div class="line"></div></div>
@@ -551,6 +621,8 @@ function addDays(dateStr,days){
 }
 function escapeAttr(s){ return String(s).replace(/"/g,"&quot;"); }
 function escapeHtml(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+var CRONO_VERSION = 'v2026-09-03-A'; // Actualizar en cada entrega
 
 var STATE = {
   activeProjectId: "p1",
@@ -650,6 +722,8 @@ function deleteProject(){
   var ids=Object.keys(STATE.projects);
   if(ids.length<=1){ alert("Debe existir al menos un proyecto."); return; }
   if(!confirm('¿Eliminar el proyecto "'+currentProject().nombre+'"? Esta acción no se puede deshacer.')) return;
+  if(!STATE._eliminados) STATE._eliminados=[];
+  STATE._eliminados.push(STATE.activeProjectId);
   delete STATE.projects[STATE.activeProjectId];
   STATE.activeProjectId = Object.keys(STATE.projects)[0];
   renderProjectSelect();
@@ -716,6 +790,11 @@ function loadLocal(){
 function calcStatus(a){
   var t = todayStr();
   if(a.avance>=100) return "Completado";
+  // La actividad alimentada por Dashboard-FI es un INDICADOR del avance
+  // global, no una tarea con fecha límite: su "fin" es simbólico (dura 0
+  // días y arranca con el proyecto). Si se juzgara por fecha aparecería
+  // siempre como atrasada y llenaría de ruido las alertas del dashboard.
+  if(a.esObraCivil) return a.avance>0 ? "Encurso" : "Pendiente";
   if(a.fin && t > a.fin) return "Atrasado";
   if(a.inicio && t >= a.inicio) return "Encurso";
   return "Pendiente";
@@ -1221,65 +1300,189 @@ function renderFiLink(){
 }
 
 /* ============ DASHBOARD GENERAL ============ */
+function _diasEntre(a,b){
+  if(!a||!b) return 0;
+  return Math.round((new Date(b+"T12:00:00") - new Date(a+"T12:00:00"))/86400000);
+}
+function _estadoClase(est){
+  var e=(est||"").toLowerCase();
+  if(e.indexOf("finaliz")!==-1||e.indexOf("termin")!==-1) return "fin";
+  if(e.indexOf("curso")!==-1||e.indexOf("proceso")!==-1||e.indexOf("ejec")!==-1) return "cur";
+  return "";
+}
+function _anilloSVG(pct,color){
+  var c=2*Math.PI*15.9155, len=(Math.max(0,Math.min(100,pct))/100)*c;
+  return '<svg class="ring" viewBox="0 0 42 42" width="62" height="62">'
+    +'<circle cx="21" cy="21" r="15.9155" fill="none" stroke="var(--paper)" stroke-width="5"/>'
+    +'<circle cx="21" cy="21" r="15.9155" fill="none" stroke="'+color+'" stroke-width="5" stroke-linecap="round"'
+    +' stroke-dasharray="'+len.toFixed(2)+' '+(c-len).toFixed(2)+'" transform="rotate(-90 21 21)"/>'
+    +'<text x="21" y="24" text-anchor="middle" font-size="10" font-weight="700" fill="'+color+'">'+pct+'%</text></svg>';
+}
+
 function renderDashboard(){
-  var host = document.getElementById('dashHost');
+  var host=document.getElementById("dashHost");
   if(!host) return;
-  var pids = Object.keys(STATE.projects);
-  var sumAv=0, conAv=0, comp=0, atrasados=0, sinLink=0;
-  host.innerHTML = '';
+  var hoy=todayStr();
+  var pids=Object.keys(STATE.projects);
+
+  // ── Recolección global ──
+  var sumAv=0, conAv=0, comp=0, sinLink=0;
+  var glob={Pendiente:0,Encurso:0,Completado:0,Atrasado:0};
+  var atrasadas=[], proximas=[], ranking=[];
 
   pids.forEach(function(pid){
-    var p   = STATE.projects[pid];
-    var act = getObraCivil(p);
-    var pct = act ? (parseInt(act.avance)||0) : 0;
-    var vinculado = !!p.fiProjectId;
-    if(vinculado){ sumAv += pct; conAv++; } else { sinLink++; }
-    if(pct >= 100) comp++;
+    var p=STATE.projects[pid];
+    var act=getObraCivil(p);
+    var pct=act?(parseInt(act.avance)||0):0;
+    var vinculado=!!p.fiProjectId;
+    if(vinculado){ sumAv+=pct; conAv++; } else { sinLink++; }
+    if(pct>=100) comp++;
 
-    var acts = p.actividades || [];
-    var nAtras = acts.filter(function(a){ return calcStatus(a)==='Atrasado'; }).length;
-    var nComp  = acts.filter(function(a){ return calcStatus(a)==='Completado'; }).length;
-    if(nAtras > 0) atrasados++;
+    var acts=p.actividades||[];
+    var nAtras=0, nComp=0, ini=null, fin=null;
+    acts.forEach(function(a){
+      var st=calcStatus(a);
+      glob[st]=(glob[st]||0)+1;
+      if(st==="Atrasado"){
+        nAtras++;
+        atrasadas.push({proj:p.nombre,pid:pid,act:a.nombre,fin:a.fin,dias:_diasEntre(a.fin,hoy)});
+      }
+      if(st==="Completado") nComp++;
+      // El indicador de obra civil no entra en listas de vencimientos:
+      // no es una tarea que alguien deba "cerrar" en una fecha.
+      if(st!=="Completado"&&a.fin&&!a.esObraCivil){
+        var faltan=_diasEntre(hoy,a.fin);
+        if(faltan>=0&&faltan<=14) proximas.push({proj:p.nombre,pid:pid,act:a.nombre,fin:a.fin,dias:faltan});
+      }
+      if(a.inicio&&(!ini||a.inicio<ini)) ini=a.inicio;
+      if(a.fin&&(!fin||a.fin>fin)) fin=a.fin;
+    });
 
-    var cls = 'dashcard' + (!vinculado ? ' sinvinculo' : (pct>=100 ? ' completo' : (nAtras>0 ? ' atrasado' : '')));
-    var barColor = pct>=100 ? 'var(--green)' : (nAtras>0 ? 'var(--red)' : 'var(--blue)');
+    ranking.push({pid:pid,nombre:p.nombre,pct:pct,vinculado:vinculado,
+                  nAtras:nAtras,nComp:nComp,total:acts.length,ini:ini,fin:fin,
+                  fiNombre:p.fiNombre,fiEstado:p.fiEstado});
+  });
 
-    var card = document.createElement('div');
-    card.className = cls;
-    card.onclick = (function(id){ return function(){ switchProject(id); switchTab('cron'); }; })(pid);
-    card.innerHTML =
-      '<div class="dcname">'+escapeHtml(p.nombre)+'</div>'+
-      '<div class="dcmeta">'+(vinculado
-          ? '🔗 '+escapeHtml(p.fiNombre||'FI')+(p.fiEstado?' · '+escapeHtml(p.fiEstado):'')
-          : '⚠ Sin vincular a Dashboard-FI')+'</div>'+
-      '<div class="dcpctrow"><span class="dcpctlbl">Avance obra civil</span>'+
-        '<span class="dcpct" style="color:'+barColor+'">'+pct+'%</span></div>'+
-      '<div class="dcbar"><span style="width:'+pct+'%;background:'+barColor+'"></span></div>'+
-      '<div class="dcstats">'+
-        '<span><b>'+acts.length+'</b> actividades</span>'+
-        '<span><b>'+nComp+'</b> completadas</span>'+
-        (nAtras ? '<span style="color:var(--red)"><b>'+nAtras+'</b> atrasadas</span>' : '')+
-      '</div>'+
-      '<div class="dcsrc">'+(vinculado
-          ? 'Fuente: Avance Físico en Dashboard-FI'
-          : 'Vincúlalo desde la pestaña Cronograma para traer su avance')+'</div>';
+  var totalAtras=atrasadas.length;
+  var proyConAtraso=ranking.filter(function(r){return r.nAtras>0;}).length;
+
+  // ── KPIs ──
+  function set(id,v){ var e=document.getElementById(id); if(e) e.textContent=v; }
+  set("dkProy",pids.length);
+  set("dkProySub", conAv+" vinculado(s)"+(sinLink?" · "+sinLink+" sin vincular":""));
+  set("dkAvance",(conAv?Math.round(sumAv/conAv):0)+"%");
+  set("dkAvanceSub", conAv?("promedio de "+conAv+" proyecto(s)"):"sin proyectos vinculados");
+  set("dkComp",comp);
+  set("dkCompSub", pids.length?("de "+pids.length+" proyectos"):"—");
+  set("dkAtraso",totalAtras);
+  set("dkAtrasoSub","en "+proyConAtraso+" proyecto(s)");
+  set("dkPronto",proximas.length);
+
+  // ── Dona consolidada ──
+  var colors={Pendiente:"#8A97A8",Encurso:"#2A5F8F",Completado:"#2F7A52",Atrasado:"#B0392A"};
+  var labels={Pendiente:"Pendiente",Encurso:"En curso",Completado:"Completado",Atrasado:"Atrasado"};
+  var totalActs=glob.Pendiente+glob.Encurso+glob.Completado+glob.Atrasado;
+  var svg=document.getElementById("dashDonutSvg");
+  if(svg){
+    var circ=2*Math.PI*15.9155, off=0, parts="";
+    if(totalActs===0){
+      parts='<circle cx="21" cy="21" r="15.9155" fill="none" stroke="var(--paper)" stroke-width="6"/>';
+    } else {
+      Object.keys(glob).forEach(function(k){
+        var len=(glob[k]/totalActs)*circ;
+        if(len<=0) return;
+        parts+='<circle cx="21" cy="21" r="15.9155" fill="none" stroke="'+colors[k]+'" stroke-width="6" '
+          +'stroke-dasharray="'+len.toFixed(2)+' '+(circ-len).toFixed(2)+'" stroke-dashoffset="'+(-off).toFixed(2)+'"/>';
+        off+=len;
+      });
+    }
+    var pctComp=totalActs?Math.round((glob.Completado/totalActs)*100):0;
+    svg.innerHTML=parts+'<text x="21" y="23" text-anchor="middle" font-size="7" fill="#182230" font-weight="700" transform="rotate(90 21 21)">'+pctComp+'%</text>';
+  }
+  var leg=document.getElementById("dashDonutLegend");
+  if(leg){
+    leg.innerHTML="";
+    Object.keys(glob).forEach(function(k){
+      leg.innerHTML+='<div><span class="sw" style="background:'+colors[k]+'"></span>'+labels[k]+' — '+glob[k]+'</div>';
+    });
+    leg.innerHTML+='<div style="margin-top:6px;font-size:11px;color:var(--ink-soft)">Total: '+totalActs+' actividades en '+pids.length+' proyecto(s)</div>';
+  }
+
+  // ── Ranking de avance ──
+  var rk=document.getElementById("dashRanking");
+  if(rk){
+    rk.innerHTML="";
+    var orden=ranking.slice().sort(function(a,b){ return b.pct-a.pct; });
+    if(!orden.length){ rk.innerHTML='<div class="emptypanel">Sin proyectos todavía.</div>'; }
+    orden.forEach(function(r){
+      var col=r.pct>=100?"var(--green)":(r.nAtras>0?"var(--red)":"var(--blue)");
+      var row=document.createElement("div");
+      row.className="rkrow";
+      row.innerHTML='<div class="rkname">'+escapeHtml(r.nombre)+'</div>'
+        +'<div class="rkpct" style="color:'+col+'">'+r.pct+'%</div>'
+        +'<div class="rkbar"><span style="width:'+r.pct+'%;background:'+col+'"></span></div>'
+        +'<div class="rkmeta">'+(r.vinculado?"🔗 "+escapeHtml(r.fiNombre||"FI"):"⚠ sin vincular a Dashboard-FI")
+        +' · '+r.total+' actividades'+(r.nAtras?' · <span style="color:var(--red)">'+r.nAtras+' atrasada(s)</span>':'')+'</div>';
+      rk.appendChild(row);
+    });
+  }
+
+  // ── Alertas: atrasadas y próximas ──
+  function pintarLista(idHost,items,tipo,vacio){
+    var h=document.getElementById(idHost);
+    if(!h) return;
+    h.innerHTML="";
+    if(!items.length){ h.innerHTML='<div class="emptypanel">'+vacio+'</div>'; return; }
+    items.slice(0,40).forEach(function(it){
+      var row=document.createElement("div");
+      row.className="alertrow "+tipo;
+      var tag = tipo==="late"
+        ? '<span class="artag" style="color:var(--red)">'+it.dias+' d atraso</span>'
+        : '<span class="artag" style="color:var(--amber)">'+(it.dias===0?"vence hoy":"en "+it.dias+" d")+'</span>';
+      row.innerHTML='<div><div class="aract">'+escapeHtml(it.act)+'</div>'
+        +'<div class="arproj">'+escapeHtml(it.proj)+' · vence '+fmtDM(it.fin)+'</div></div>'+tag;
+      row.onclick=(function(pid){ return function(){ switchProject(pid); switchTab("cron"); }; })(it.pid);
+      h.appendChild(row);
+    });
+  }
+  atrasadas.sort(function(a,b){ return b.dias-a.dias; });
+  proximas.sort(function(a,b){ return a.dias-b.dias; });
+  pintarLista("dashAtrasadas",atrasadas,"late","✅ Ninguna actividad atrasada.");
+  pintarLista("dashProximas",proximas,"soon","Sin vencimientos en los próximos 14 días.");
+
+  // ── Tarjetas por proyecto ──
+  host.innerHTML="";
+  if(!pids.length){
+    host.innerHTML='<div class="note">Aún no hay proyectos. Crea uno desde la pestaña Cronograma.</div>';
+  }
+  ranking.forEach(function(r){
+    var col=r.pct>=100?"var(--green)":(r.nAtras>0?"var(--red)":"var(--blue)");
+    var cls="dashcard"+(!r.vinculado?" sinvinculo":(r.pct>=100?" completo":(r.nAtras>0?" atrasado":"")));
+    var estTxt=r.fiEstado||(r.vinculado?"":"Sin vincular");
+    var estCls=r.nAtras>0?"alerta":_estadoClase(r.fiEstado);
+    var card=document.createElement("div");
+    card.className=cls;
+    card.onclick=(function(pid){ return function(){ switchProject(pid); switchTab("cron"); }; })(r.pid);
+    card.innerHTML=
+      '<div class="dcard-top"><div class="dcname">'+escapeHtml(r.nombre)+'</div>'
+        +(estTxt?'<span class="estbadge '+estCls+'">'+escapeHtml(estTxt)+'</span>':'')+'</div>'
+      +'<div class="dcmeta">'+(r.vinculado?'🔗 '+escapeHtml(r.fiNombre||'FI'):'⚠ Sin vincular a Dashboard-FI')+'</div>'
+      +'<div class="ringrow">'+_anilloSVG(r.pct,col)
+        +'<div class="ringstats">'
+          +'<div><b>'+r.total+'</b> actividades · <b>'+r.nComp+'</b> completadas</div>'
+          +(r.nAtras?'<div style="color:var(--red)"><b>'+r.nAtras+'</b> atrasada(s)</div>':'<div>Sin atrasos</div>')
+          +'<div style="font-size:10.5px">Avance de obra civil</div>'
+        +'</div></div>'
+      +'<div class="dcfoot">'+(r.ini&&r.fin
+          ? '📅 '+fmtDM(r.ini)+' → '+fmtDM(r.fin)+' · '+_diasEntre(r.ini,r.fin)+' días'
+          : 'Sin fechas calculadas todavía')+'</div>';
     host.appendChild(card);
   });
 
-  if(!pids.length){
-    host.innerHTML = '<div class="note">Aún no hay proyectos. Crea uno desde la pestaña Cronograma.</div>';
-  }
-
-  document.getElementById('dkProy').textContent    = pids.length;
-  document.getElementById('dkAvance').textContent  = (conAv ? Math.round(sumAv/conAv) : 0) + '%';
-  document.getElementById('dkComp').textContent    = comp;
-  document.getElementById('dkAtraso').textContent  = atrasados;
-  document.getElementById('dkSinLink').textContent = sinLink;
-
-  var lbl = document.getElementById('fiSyncLbl');
-  if(lbl) lbl.textContent = STATE.fiSyncTs ? new Date(STATE.fiSyncTs).toLocaleString('es-SV') : 'nunca';
-  var empIn = document.getElementById('fiEmpresa');
-  if(empIn && !empIn.value) empIn.value = STATE.fiEmpresa || 'FISDC';
+  var lbl=document.getElementById("fiSyncLbl");
+  if(lbl) lbl.textContent=STATE.fiSyncTs?new Date(STATE.fiSyncTs).toLocaleString("es-SV"):"nunca";
+  var empIn=document.getElementById("fiEmpresa");
+  if(empIn&&!empIn.value) empIn.value=STATE.fiEmpresa||"FISDC";
 }
 
 /* ============ GATE ============ */
@@ -1338,13 +1541,52 @@ function saveCloud() {
   clearTimeout(_saveTimer);
   _syncBadge('saving');
   _saveTimer = setTimeout(function(){
-    _writeId = 'w_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
-    fbDb.collection('cronogramas').doc('estado').set({
-      json: JSON.stringify(STATE),
-      ts: Date.now(),
-      writeId: _writeId
-    }).then(function(){ _syncBadge('ok'); })
-      .catch(function(e){ console.warn('[Firebase] guardar:', e.message); _syncBadge('offline'); });
+    var ref = fbDb.collection('cronogramas').doc('estado');
+    var eliminadosEnEsteGuardado = (STATE._eliminados || []).slice();
+    var idActivo = STATE.activeProjectId;
+    var proyectoActivoLocal = STATE.projects[idActivo]; // puede ser undefined si ya no existe
+    var nuevoWriteId = 'w_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
+    _writeId = nuevoWriteId; // asignar YA — el listener puede reaccionar al eco antes de que la promesa resuelva
+
+    fbDb.runTransaction(function(tx){
+      return tx.get(ref).then(function(doc){
+        var remoto = { activeProjectId: idActivo, nextProjectSeq: STATE.nextProjectSeq, projects: {} };
+        if (doc.exists) {
+          try { var r = JSON.parse(doc.data().json); if (r && r.projects) remoto = r; }
+          catch(e){ /* documento remoto invalido — se trata como vacio, no se arriesga a fallar el guardado */ }
+        }
+        // Fusion: los proyectos del servidor son la base — asi lo que haya
+        // agregado o editado OTRA sesion en OTRO proyecto no se pierde.
+        // Antes esto se sobrescribia completo con lo que hubiera en esta
+        // pestaña, sin importar que otra persona tuviera el cronograma
+        // abierto al mismo tiempo editando algo distinto.
+        var proyectosFusionados = Object.assign({}, remoto.projects || {});
+        eliminadosEnEsteGuardado.forEach(function(pid){ delete proyectosFusionados[pid]; });
+        if (proyectoActivoLocal) proyectosFusionados[idActivo] = proyectoActivoLocal;
+        var nextSeqFusionado = Math.max(STATE.nextProjectSeq || 1, remoto.nextProjectSeq || 1);
+
+        var estadoFusionado = {
+          activeProjectId: idActivo,
+          nextProjectSeq: nextSeqFusionado,
+          projects: proyectosFusionados
+        };
+        tx.set(ref, { json: JSON.stringify(estadoFusionado), ts: Date.now(), writeId: nuevoWriteId });
+        return estadoFusionado;
+      });
+    }).then(function(estadoFusionado){
+      // Reflejar en esta sesion lo que realmente quedo escrito — incluye
+      // proyectos de otras sesiones que esta pestaña no conocia.
+      STATE.projects = estadoFusionado.projects;
+      STATE.nextProjectSeq = estadoFusionado.nextProjectSeq;
+      STATE._eliminados = (STATE._eliminados || []).filter(function(id){ return eliminadosEnEsteGuardado.indexOf(id)===-1; });
+      renderProjectSelect();
+      _syncBadge('ok');
+    }).catch(function(e){
+      console.warn('[Firebase] guardar:', e.message);
+      _syncBadge('offline');
+      // No se limpia STATE._eliminados — se reintenta el borrado en el
+      // proximo guardado en vez de que el proyecto "reviva" a medias.
+    });
   }, 800);
 }
 
@@ -1377,6 +1619,7 @@ function _startCloudListener() {
 }
 
 function init(){
+  var vEl=document.getElementById('verLbl'); if(vEl) vEl.textContent=CRONO_VERSION;
   if (fbDb) {
     _syncBadge('saving');
     fbDb.collection('cronogramas').doc('estado').get().then(function(doc){

@@ -289,65 +289,53 @@ window.FB={
 
   async saveSection(empresa,sections,data){
     try{
-      const ref=_fbDb.collection('empresas').doc(empresa);
-      const updates={_ts:Date.now()};
-      var totalSize=0;
       var escritas=[];
+      var totalSize=0;
+      var secsAEscribir=[];
 
-      // Secciones con registros que se fusionan contra el servidor antes
-      // de escribir (una sola lectura cubre todas). 'gastos' y
-      // 'mantenimiento' tienen su propia fusion dedicada en otro lado.
-      var aFusionar=sections.filter(function(s){return _SPEC_FUSION.hasOwnProperty(s);});
-      var fusionado=null, fusionOk=true;
-      if(aFusionar.length){
-        var spec={}; aFusionar.forEach(function(s){spec[s]=_SPEC_FUSION[s];});
-        fusionado=await _fusionarSeccionesContraServidor(spec,{});
-        fusionOk=!!fusionado;
-      }
-
-      // Construir el objeto de updates con paths de primer nivel
-      // (Firebase update() reemplaza el campo completo del path indicado)
+      // Estimado de tamaño usando lo que hay en memoria local — es solo
+      // para decidir si vale la pena intentar (limite de 1MB por doc), la
+      // fusion y escritura real ocurren dentro de la transaccion contra
+      // el estado verdadero del servidor.
       sections.forEach(function(sec){
         if(sec==='gastos'){
           // gastos NO se guarda aquí — se manejan en chunks separados (ver save())
-          // Este caso requiere fallback al save completo, lo manejamos antes en _doSaveFirebase
           return;
         }
         if(_SPEC_FUSION.hasOwnProperty(sec)){
-          if(!fusionOk)return; // no se pudo verificar contra el servidor: se omite, sigue dirty
-          S[sec]=fusionado[sec];
-          updates[sec]=fusionado[sec];
-          escritas.push(sec);
-          try{totalSize+=JSON.stringify(fusionado[sec]).length;}catch(e){}
+          secsAEscribir.push(sec);
+          try{totalSize+=JSON.stringify(S[sec]).length;}catch(e){}
         } else if(data[sec]!==undefined){
-          updates[sec]=data[sec];
-          escritas.push(sec);
+          secsAEscribir.push(sec);
           try{totalSize+=JSON.stringify(data[sec]).length;}catch(e){}
         }
       });
 
-      // Si no hay nada que actualizar, retornar éxito silencioso
-      if(Object.keys(updates).length<=1){ // solo _ts
-        return {ok:true,escritas:escritas};
-      }
+      if(!secsAEscribir.length){ return {ok:true,escritas:[]}; }
 
-      // Verificar tamaño total (límite de update individual también es 1MB pero por seguridad)
       if(totalSize>800000){
         console.warn('[FB] saveSection: total >800KB, fallback a save completo');
         return {ok:false,err:'Sección muy grande, usando save completo'};
       }
 
-      console.log('[FB] saveSection — secciones:',escritas.join(','),'tamaño:',(totalSize/1024).toFixed(0)+'KB');
-      await ref.update(updates);
+      // Fusion + escritura en UNA transaccion atomica — sin la ventana de
+      // carrera que existe cuando se lee el servidor y se escribe despues
+      // en dos pasos separados (ver _guardarConTransaccion).
+      var resultado=await _guardarConTransaccion(null,null,secsAEscribir,data);
+      if(!resultado){
+        return {ok:false,err:'No se pudo verificar contra el servidor'};
+      }
+
+      console.log('[FB] saveSection — secciones:',resultado.escritas.join(','),'tamaño aprox:',(totalSize/1024).toFixed(0)+'KB');
       // Si cambiaron los proyectos, refrescar el espejo liviano que lee
       // el cronograma (no se espera: no debe retrasar el guardado)
-      if(updates.proyectos){
-        this.publicarEspejoCronograma(empresa,updates.proyectos);
+      if(sections.indexOf('proyectos')!==-1&&S.proyectos){
+        this.publicarEspejoCronograma(empresa,S.proyectos);
       }
       if(sections.indexOf('mantenimiento')!==-1||sections.indexOf('centros')!==-1||sections.indexOf('gerentesZona')!==-1){
         try{ this.publicarEspejoMantenimiento(empresa,S); }catch(eM){}
       }
-      return {ok:true,escritas:escritas};
+      return resultado;
     }catch(e){
       console.error('[FB] saveSection error:',e.code,e.message);
       return {ok:false,err:e.message||'Error en saveSection'};
@@ -391,34 +379,34 @@ window.FB={
   },
   async save(empresa,data){
     try{
-      // Fusionar el resto de secciones (todo lo que no sea gastos, que
-      // tiene su propia fusion mas abajo) contra el servidor antes de
-      // construir el documento. Este es el camino de "guardado completo"
-      // que se dispara cuando gastos esta dirty — sin esto, escribia TODO
-      // el documento (centros, proveedores, inventario, proyectos,
-      // asistencia, taller...) con lo que hubiera en memoria del
-      // navegador, sin fusion, cada vez que se registraba un gasto.
-      var _fusionOk=true;
+      // El resto de secciones (todo lo que no sea gastos ni mantenimiento,
+      // que tienen su propio camino) se fusiona Y ESCRIBE en una
+      // transaccion atomica SEPARADA, lo antes posible — antes de todo el
+      // procesamiento de gastos de abajo. Esto es el camino de "guardado
+      // completo" que se dispara cuando gastos esta dirty. Antes hacia la
+      // lectura aqui pero la escritura mucho mas abajo, al final de toda
+      // la logica de chunking de gastos — una ventana larga donde otra
+      // sesion podia escribir esas mismas secciones en el medio, y esta
+      // funcion terminaba sobrescribiendola con datos ya viejos.
+      var _otrasOk=true;
       try{
-        var _fusTodo=await _fusionarSeccionesContraServidor(_SPEC_FUSION,{});
-        if(_fusTodo){
-          Object.keys(_fusTodo).forEach(function(k){
-            data[k]=_fusTodo[k];
-            try{ S[k]=_fusTodo[k]; }catch(eS){}
-          });
-        } else { _fusionOk=false; }
-      }catch(eFus){ _fusionOk=false; console.warn('[FB] save: error fusionando secciones:',eFus.message); }
+        var _otrasResultado=await _guardarConTransaccion(null,null,Object.keys(_SPEC_FUSION),data);
+        _otrasOk=!!_otrasResultado;
+      }catch(eFus){ _otrasOk=false; console.warn('[FB] save: error guardando el resto de secciones:',eFus.message); }
+      if(!_otrasOk){
+        console.warn('[FB] save: el resto de secciones no se pudo verificar/guardar — se reintentaran en el proximo ciclo');
+      }
 
       const CHUNK_SIZE=500; // 500 gastos por chunk ≈ 200KB
       const gastos=data.gastos||[];
+      // mainDoc YA NO lleva las secciones de _SPEC_FUSION (recien escritas
+      // arriba, en su propia transaccion) ni 'mantenimiento' (tiene su
+      // propio camino protegido en _doSaveFirebase) — escribirlas aqui de
+      // nuevo, sin fusion fresca, reintroduciria la misma ventana de
+      // carrera que se acaba de cerrar arriba.
       const mainDoc={...data,_ts:data._ts||Date.now()};
-      if(!_fusionOk){
-        // No se pudo verificar el resto de secciones contra el servidor:
-        // se excluyen de este guardado (se reintentan despues) en vez de
-        // sobrescribirlas con lo que hubiera en memoria local.
-        Object.keys(_SPEC_FUSION).forEach(function(k){ delete mainDoc[k]; });
-        console.warn('[FB] save: secciones sin verificar excluidas de este guardado:',Object.keys(_SPEC_FUSION).join(','));
-      }
+      delete mainDoc.mantenimiento;
+      Object.keys(_SPEC_FUSION).forEach(function(k){ delete mainDoc[k]; });
       // Si hay muchos gastos, sacarlos del doc principal y chunkeados
       if(gastos.length>200){
         mainDoc.gastos=[]; // doc principal sin gastos
@@ -474,8 +462,8 @@ window.FB={
             // preferible reintentar que arriesgar borrar gastos ajenos.
             console.warn('[FB] No se pudo verificar gastos contra el servidor — se omite la reescritura:',eF.code||eF.message);
             mainDoc._gastosTotal=gastos.length;
-            await this._writeMainDoc(_fbDb.collection('empresas').doc(empresa),mainDoc,_fusionOk);
-            if(mainDoc&&mainDoc.proyectos) this.publicarEspejoCronograma(empresa,mainDoc.proyectos);
+            await this._writeMainDoc(_fbDb.collection('empresas').doc(empresa),mainDoc,false);
+            if(_otrasOk&&S.proyectos) this.publicarEspejoCronograma(empresa,S.proyectos);
             try{ this.publicarEspejoMantenimiento(empresa,S); }catch(eM){}
             return true;
           }
@@ -627,9 +615,9 @@ window.FB={
           return {ok:false,err:'Doc '+(docStr.length/1024).toFixed(0)+'KB supera 1MB. Mayores: '+top3};
         }
       }
-      await this._writeMainDoc(_fbDb.collection('empresas').doc(empresa),mainDoc,_fusionOk);
+      await this._writeMainDoc(_fbDb.collection('empresas').doc(empresa),mainDoc,false);
       // Refrescar el espejo liviano del cronograma (best-effort)
-      if(mainDoc&&mainDoc.proyectos) this.publicarEspejoCronograma(empresa,mainDoc.proyectos);
+      if(_otrasOk&&S.proyectos) this.publicarEspejoCronograma(empresa,S.proyectos);
       try{ this.publicarEspejoMantenimiento(empresa,S); }catch(eM){}
       return true;
     }catch(e){console.error('[FB] save:',e.code,e.message);return false}
@@ -1784,7 +1772,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-09-02-A'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-09-03-B'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -3230,6 +3218,7 @@ async function _fusionarSeccionesContraServidor(spec,eliminados){
         var remObj=remoto[seccion]||{};
         var borObj=eliminados[seccion]||{};
         var out={};
+        Object.keys(remObj).forEach(function(k){ out[k]=remObj[k]; });
         Object.keys(locObj).forEach(function(k){ out[k]=locObj[k]; }); // preservar escalares (ej. energy.tarifa)
         subcampos.forEach(function(sc){
           out[sc]=fusionarArreglo(locObj[sc],remObj[sc],borObj[sc]);
@@ -3266,6 +3255,111 @@ async function _fusionarLista(secciones){
     out.escritas.push(s);
   });
   return out;
+}
+
+// ── Fusion + escritura en UNA transaccion atomica ───────────────────────
+// _mantFusionado/_fusionarSeccionesContraServidor hacen la lectura y la
+// fusion, pero la escritura pasa DESPUES, en un paso separado. Si dos
+// sesiones hacen esto casi al mismo tiempo, la segunda puede leer el
+// servidor ANTES de que la primera termine de escribir, fusionar con
+// datos ya viejos, y sobrescribir lo que la primera acababa de guardar —
+// aunque las dos tengan el codigo correcto. Fue exactamente lo que le
+// paso a los registros de UCA/Metro10/San Luis.
+//
+// runTransaction() cierra esa ventana: lectura y escritura quedan como
+// una sola operacion. Si Firestore detecta que el documento cambio entre
+// la lectura y la escritura de esta transaccion, reintenta la funcion
+// completa sola, con datos frescos — nunca deja que dos escrituras se
+// pisen a ciegas.
+//
+// camposMant: campos de mantenimiento a fusionar (null si no aplica)
+// eliminadosMant: {campo:[ids borrados]} para tecnicos
+// otrasSecciones: nombres de secciones de nivel superior (de _SPEC_FUSION
+//   o de paso directo) a fusionar/escribir en la misma transaccion
+async function _guardarConTransaccion(camposMant,eliminadosMant,otrasSecciones,dataToSave){
+  var ref=firebase.firestore().collection('empresas').doc(S.empresa);
+  function fusionarArreglo(locales,remotos,borrados){
+    locales=locales||[]; remotos=remotos||[]; borrados=borrados||[];
+    var porId={};
+    remotos.forEach(function(t){ if(t&&t.id) porId[t.id]=t; });
+    locales.forEach(function(t){ if(t&&t.id) porId[t.id]=t; }); // lo editado aqui gana
+    borrados.forEach(function(id){ delete porId[id]; });        // borrado explicito manda
+    return Object.keys(porId).map(function(k){return porId[k];});
+  }
+  try{
+    var resultado=await firebase.firestore().runTransaction(async function(tx){
+      var doc=await tx.get(ref);
+      var remoto=(doc.exists&&doc.data())||{};
+      var dotUpdates={_ts:Date.now()};
+      var aplicarLocal={};
+
+      if(camposMant&&camposMant.length){
+        var remotoMant=remoto.mantenimiento||{};
+        var mantFusionado={};
+        camposMant.forEach(function(campo){
+          var merged=fusionarArreglo(
+            S.mantenimiento&&S.mantenimiento[campo],
+            remotoMant[campo],
+            eliminadosMant&&eliminadosMant[campo]
+          );
+          dotUpdates['mantenimiento.'+campo]=merged;
+          mantFusionado[campo]=merged;
+        });
+        aplicarLocal.mantenimiento=mantFusionado;
+      }
+
+      var otrasEscritas=[];
+      (otrasSecciones||[]).forEach(function(sec){
+        if(_SPEC_FUSION.hasOwnProperty(sec)){
+          var subcampos=_SPEC_FUSION[sec];
+          if(!subcampos){
+            var merged=fusionarArreglo(S[sec],remoto[sec],null);
+            dotUpdates[sec]=merged;
+            aplicarLocal[sec]=merged;
+          } else {
+            var locObj=S[sec]||{}, remObj=remoto[sec]||{}, out={};
+            // Preservar escalares de AMBOS lados — antes solo se copiaban
+            // las claves que esta sesion ya conocia localmente, asi que un
+            // campo que solo existiera en el servidor (ej. una config
+            // agregada por otra sesion que esta pestaña nunca cargo) se
+            // perdia en la fusion. Ahora: primero el servidor como base,
+            // despues lo local encima (lo editado aqui gana en conflicto).
+            Object.keys(remObj).forEach(function(k){ out[k]=remObj[k]; });
+            Object.keys(locObj).forEach(function(k){ out[k]=locObj[k]; });
+            subcampos.forEach(function(sc){
+              out[sc]=fusionarArreglo(locObj[sc],remObj[sc],null);
+            });
+            dotUpdates[sec]=out;
+            aplicarLocal[sec]=out;
+          }
+          otrasEscritas.push(sec);
+        } else if(dataToSave&&dataToSave[sec]!==undefined){
+          dotUpdates[sec]=dataToSave[sec];
+          otrasEscritas.push(sec);
+        }
+      });
+
+      tx.update(ref,dotUpdates);
+      return {aplicarLocal:aplicarLocal,escritas:otrasEscritas};
+    });
+
+    if(resultado.aplicarLocal.mantenimiento){
+      Object.keys(resultado.aplicarLocal.mantenimiento).forEach(function(campo){
+        S.mantenimiento[campo]=resultado.aplicarLocal.mantenimiento[campo];
+      });
+    }
+    Object.keys(resultado.aplicarLocal).forEach(function(sec){
+      if(sec==='mantenimiento')return;
+      S[sec]=resultado.aplicarLocal[sec];
+    });
+    return {ok:true,escritas:resultado.escritas};
+  }catch(e){
+    // Documento no existe, permisos, red caida, u otro fallo real de la
+    // transaccion (no un conflicto de escritura — esos Firestore ya los
+    // reintenta solo internamente varias veces antes de rendirse).
+    console.warn('[PP] Transaccion de guardado fallo — no se escribio nada en este ciclo, se reintentara:',e.code||e.message);
+    return null;
+  }
 }
 
 async function saveData(seccion){
@@ -3363,35 +3457,19 @@ async function _doSaveFirebase(){
       if(mantIdx>=0){
         var _camposMant=['checklists','equipos','ots','movimientosEquipos','registros','solicitudesMant','tecnicos'];
         var _elimMant={tecnicos:S._tecnicosEliminados||[]};
-        var _fusMant=await _mantFusionado(_camposMant,_elimMant);
-        if(_fusMant){
-          var dotUpdates={_ts:dataToSave._ts||Date.now()};
-          _camposMant.forEach(function(k){
-            S.mantenimiento[k]=_fusMant[k];
-            dotUpdates['mantenimiento.'+k]=_fusMant[k];
-          });
-          var _otras=await _fusionarLista(otherSecsSinMant);
-          otherSecsSinMant.forEach(function(s){
-            if(_SPEC_FUSION.hasOwnProperty(s)){
-              if(_otras.escritas.indexOf(s)!==-1) dotUpdates[s]=_otras.valores[s];
-            } else if(dataToSave[s]!==undefined){
-              dotUpdates[s]=dataToSave[s];
-              _otras.escritas.push(s);
-            }
-          });
-          try{
-            await firebase.firestore().collection('empresas').doc(S.empresa).update(dotUpdates);
-            result={ok:true,escritas:_otras.escritas};
-            _mantEscrito=true;
-            console.log('[PP] mantenimiento guardado con fusion completa contra servidor');
-            S._tecnicosDirty=false; S._tecnicosEliminados=[];
-          }catch(e){ result={ok:false,err:e.message}; }
+        var _tx=await _guardarConTransaccion(_camposMant,_elimMant,otherSecsSinMant,dataToSave);
+        if(_tx){
+          result=_tx;
+          _mantEscrito=true;
+          console.log('[PP] mantenimiento guardado con transaccion atomica (sin ventana de carrera entre lectura y escritura)');
+          S._tecnicosDirty=false; S._tecnicosEliminados=[];
         } else {
-          // No se pudo verificar contra el servidor: NO se escribe nada de
-          // mantenimiento en este ciclo. Las demas secciones sucias si se
-          // guardan (con su propia fusion, dentro de saveSection), para no
-          // bloquear todo por esto — mantenimiento se reintenta solo en el
-          // proximo guardado (sigue marcado dirty).
+          // La transaccion no se pudo completar (sin red, permisos, doc no
+          // existe): NO se escribe nada de mantenimiento en este ciclo. Las
+          // demas secciones sucias si se guardan (con su propia fusion,
+          // dentro de saveSection) para no bloquear todo por esto —
+          // mantenimiento se reintenta solo en el proximo guardado (sigue
+          // marcado dirty).
           if(otherSecsSinMant.length){
             result=await window.FB.saveSection(S.empresa,otherSecsSinMant,dataToSave);
           } else {
@@ -3435,55 +3513,32 @@ async function _doSaveFirebase(){
       }
     }
 
-    // Si no había nada dirty pero se llegó aquí por otra razón, save completo
+    // Si no había nada dirty pero se llegó aquí por otra razón, save completo.
+    // Una auditoria encontro 45 funciones en este archivo que llaman
+    // saveData() sin marcar ninguna seccion primero (markDirty) — sobre
+    // todo en mantenimiento, proyectos y taller, que ni siquiera estan en
+    // la lista de modulos que S._activeModule detecta solo. Cada una de
+    // esas dispara este camino. Antes escribia todo con dot-notation
+    // directo desde memoria local, sin fusion — exactamente el patron que
+    // borro los registros de UCA/Metro10/San Luis. En vez de corregir las
+    // 45 una por una (fragil: la siguiente funcion que alguien agregue
+    // puede repetir el mismo olvido), este camino de respaldo ahora usa
+    // la misma transaccion atomica que protege al resto del sistema —
+    // sin importar cual funcion se le olvido el markDirty, lo que se
+    // escribe aqui siempre se fusiona contra el servidor primero.
     if(dirtySections.length===0){
-      if(!S._tecnicosDirty){
-        // PROTECCIÓN: si no editamos empleados explícitamente, NO sobreescribir
-        // mantenimiento.tecnicos en Firebase (puede tener empleados que no tenemos localmente)
-        // Usamos dot-notation para actualizar todo EXCEPTO tecnicos
-        try{
-          var _db=firebase.firestore();
-          var _mantLocal=S.mantenimiento||{};
-          var _dotUpdates={_ts:dataToSave._ts||Date.now()};
-          // Copiar todos los campos del full dataToSave EXCEPTO mantenimiento (lo hacemos granular)
-          Object.keys(dataToSave).forEach(function(k){
-            if(k!=='mantenimiento'&&k!=='_ts') _dotUpdates[k]=dataToSave[k];
-          });
-          // Mantenimiento: campo por campo SIN tecnicos
-          ['checklists','equipos','ots','movimientosEquipos','registros','solicitudesMant'].forEach(function(k){
-            _dotUpdates['mantenimiento.'+k]=_mantLocal[k]||[];
-          });
-          await _db.collection('empresas').doc(S.empresa).update(_dotUpdates);
-          result={ok:true};
-          console.log('[PP] Full save protegido: mantenimiento.tecnicos NO sobreescrito');
-        }catch(_e){
-          // Si falla, intentar save normal (mejor que perder datos)
-          console.warn('[PP] dot-notation fallback a save completo:',_e.message);
-          result=await window.FB.save(S.empresa,dataToSave);
-        }
+      var _camposMantFallback=['checklists','equipos','ots','movimientosEquipos','registros','solicitudesMant','tecnicos'];
+      var _elimMantFallback={tecnicos:S._tecnicosEliminados||[]};
+      var _otrasFallback=Object.keys(_SPEC_FUSION).concat(['config','usuarios','marcas']);
+      var _txFallback=await _guardarConTransaccion(_camposMantFallback,_elimMantFallback,_otrasFallback,dataToSave);
+      if(_txFallback){
+        result={ok:true};
+        console.log('[PP] Save de respaldo (sin markDirty explicito) — fusion completa via transaccion atomica');
+        S._tecnicosDirty=false; S._tecnicosEliminados=[];
+        try{ window.FB.publicarEspejoMantenimiento(S.empresa,S); }catch(eM){}
       } else {
-        // Tecnicos fue editado explícitamente → fusionar antes de escribir
-        var _fus2=await _tecnicosFusionados();
-        if(_fus2){
-          S.mantenimiento.tecnicos=_fus2;
-          if(!dataToSave.mantenimiento) dataToSave.mantenimiento={};
-          dataToSave.mantenimiento.tecnicos=_fus2;
-          result=await window.FB.save(S.empresa,dataToSave);
-          if((result===true)||(result&&result.ok===true)){ S._tecnicosDirty=false; S._tecnicosEliminados=[]; }
-        } else {
-          // Sin verificacion posible: no arriesgar la lista de personal
-          try{
-            var _db2=firebase.firestore();
-            var _du2={_ts:dataToSave._ts||Date.now()};
-            Object.keys(dataToSave).forEach(function(k){ if(k!=='mantenimiento'&&k!=='_ts') _du2[k]=dataToSave[k]; });
-            ['checklists','equipos','ots','movimientosEquipos','registros','solicitudesMant'].forEach(function(k){
-              _du2['mantenimiento.'+k]=(S.mantenimiento||{})[k]||[];
-            });
-            await _db2.collection('empresas').doc(S.empresa).update(_du2);
-            result={ok:true};
-            toast('⚠ Se guardó todo menos la lista de personal (no se pudo verificar contra el servidor). Reintenta en un momento.',false,7000);
-          }catch(e){ result={ok:false,err:e.message}; }
-        }
+        console.warn('[PP] Save de respaldo no se pudo verificar contra el servidor — se reintentara');
+        result={ok:false,err:'No se pudo verificar contra el servidor'};
       }
     }
 
@@ -12688,31 +12743,33 @@ function renderMantChecklists(){
 function mantNuevoChecklist(){
   var m=mantData();
   m.checklists.push({id:genId(),_ca:Date.now(),categoria:'general',nombre:'Nuevo checklist',puntos:[]});
+  markDirty('mantenimiento');saveData();
   renderMantChecklists();
 }
 function mantEliminarCL(ci){
   if(!confirm('¿Eliminar checklist?'))return;
   mantData().checklists.splice(ci,1);
-  saveData();renderMantChecklists();
+  markDirty('mantenimiento');saveData();renderMantChecklists();
 }
 function mantActualizarCL(ci,campo,val){
   var cl=mantData().checklists[ci];
-  if(cl)cl[campo]=val;
+  if(cl){cl[campo]=val;markDirty('mantenimiento');saveData();}
 }
 function mantAgregarPunto(ci){
   var cl=mantData().checklists[ci];
   if(!cl)return;
   cl.puntos.push({id:genId(),_ca:Date.now(),texto:'',requerido:false});
+  markDirty('mantenimiento');saveData();
   renderMantChecklists();
 }
 function mantEliminarPunto(ci,pi){
   var cl=mantData().checklists[ci];
-  if(cl)cl.puntos.splice(pi,1);
+  if(cl){cl.puntos.splice(pi,1);markDirty('mantenimiento');saveData();}
   renderMantChecklists();
 }
 function mantActualizarPunto(ci,pi,campo,val){
   var cl=mantData().checklists[ci];
-  if(cl&&cl.puntos[pi])cl.puntos[pi][campo]=val;
+  if(cl&&cl.puntos[pi]){cl.puntos[pi][campo]=val;markDirty('mantenimiento');saveData();}
 }
 
 // ── mant_tecnicos ─────────────────────────────────────────
