@@ -10314,12 +10314,18 @@ function paAddFeriado() {
   if (PA.feriados.indexOf(val) >= 0) { paToast('Ya está en la lista', true); return; }
   PA.feriados.push(val);
   PA.feriados.sort();
+  if (!PA._feriadosAgregados) PA._feriadosAgregados = [];
+  PA._feriadosAgregados.push(val);
+  if (PA._feriadosEliminados) PA._feriadosEliminados = PA._feriadosEliminados.filter(function(f){ return f!==val; });
   if (el) el.value = '';
   paAdminConfig(document.getElementById('paAdminContent')||document.getElementById('adminContent'));
 }
 
 function paDelFeriado(btn, fecha) {
   PA.feriados = PA.feriados.filter(function(f){ return f !== fecha; });
+  if (!PA._feriadosEliminados) PA._feriadosEliminados = [];
+  PA._feriadosEliminados.push(fecha);
+  if (PA._feriadosAgregados) PA._feriadosAgregados = PA._feriadosAgregados.filter(function(f){ return f!==fecha; });
   paAdminConfig(document.getElementById('paAdminContent')||document.getElementById('adminContent'));
 }
 
@@ -10361,9 +10367,26 @@ function paQuincenaSig() {
 }
 
 function paGuardarFeriados() {
-  paDb.collection('paConfig').doc(PA.empresa).set({ feriados: PA.feriados }, { merge: true })
-    .then(function(){ paToast('✅ '+PA.feriados.length+' feriados guardados'); })
-    .catch(function(e){ paToast('Error: '+e.message, true); });
+  var agregados = (PA._feriadosAgregados||[]).slice();
+  var eliminados = (PA._feriadosEliminados||[]).slice();
+  var ref = paDb.collection('paConfig').doc(PA.empresa);
+  return paDb.runTransaction(function(tx){
+    return tx.get(ref).then(function(doc){
+      var remotos = (doc.exists && doc.data() && doc.data().feriados) || [];
+      var set = {};
+      remotos.forEach(function(f){ set[f]=true; });
+      eliminados.forEach(function(f){ delete set[f]; });   // borrado explicito manda
+      agregados.forEach(function(f){ set[f]=true; });      // lo agregado aqui gana
+      var fusionados = Object.keys(set).sort();
+      tx.set(ref, { feriados: fusionados }, { merge: true });
+      return fusionados;
+    });
+  }).then(function(fusionados){
+    PA.feriados = fusionados;
+    PA._feriadosAgregados = [];
+    PA._feriadosEliminados = [];
+    paToast('✅ '+fusionados.length+' feriados guardados');
+  }).catch(function(e){ paToast('Error: '+e.message, true); });
 }
 
 function paSetPeriodo(tipo) {
@@ -11512,7 +11535,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-09-02-B';
+var PA_VERSION = 'v2026-09-03-A';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
