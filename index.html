@@ -320,8 +320,11 @@ window.FB={
 
       // Fusion + escritura en UNA transaccion atomica — sin la ventana de
       // carrera que existe cuando se lee el servidor y se escribe despues
-      // en dos pasos separados (ver _guardarConTransaccion).
-      var resultado=await _guardarConTransaccion(null,null,secsAEscribir,data);
+      // en dos pasos separados (ver _guardarConTransaccion). La foto de
+      // generacion aqui protege contra que algo se edite MIENTRAS esta
+      // transaccion viaja — si pasa, esa seccion no se da por guardada.
+      var _genAntes=Object.assign({},S._dirtyGen||{});
+      var resultado=await _guardarConTransaccion(null,null,secsAEscribir,data,_genAntes);
       if(!resultado){
         return {ok:false,err:'No se pudo verificar contra el servidor'};
       }
@@ -388,11 +391,27 @@ window.FB={
       // la logica de chunking de gastos — una ventana larga donde otra
       // sesion podia escribir esas mismas secciones en el medio, y esta
       // funcion terminaba sobrescribiendola con datos ya viejos.
+      // El resto de secciones se fusiona Y ESCRIBE en una transaccion
+      // atomica SEPARADA, lo antes posible — antes de todo el
+      // procesamiento de gastos de abajo. PERO solo las que realmente
+      // tienen algo pendiente (S._dirtySections), no las 10 secciones
+      // completas cada vez — antes se fusionaban TODAS sin condicion cada
+      // vez que se guardaba un gasto, sin importar si tenian cambios o
+      // no. Con gastos siendo lo que mas se edita en el sistema, eso
+      // significaba una transaccion de 10 secciones (taller con sus 10
+      // sub-arreglos incluido) por cada factura registrada — el gasto
+      // real de lecturas que probablemente disparo la cuota.
       var _otrasOk=true;
-      try{
-        var _otrasResultado=await _guardarConTransaccion(null,null,Object.keys(_SPEC_FUSION),data);
-        _otrasOk=!!_otrasResultado;
-      }catch(eFus){ _otrasOk=false; console.warn('[FB] save: error guardando el resto de secciones:',eFus.message); }
+      var _seccionesRealmenteDirty=Object.keys(_SPEC_FUSION).filter(function(sec){
+        return S._dirtySections&&S._dirtySections[sec];
+      });
+      if(_seccionesRealmenteDirty.length){
+        try{
+          var _genAntesFB=Object.assign({},S._dirtyGen||{});
+          var _otrasResultado=await _guardarConTransaccion(null,null,_seccionesRealmenteDirty,data,_genAntesFB);
+          _otrasOk=!!_otrasResultado;
+        }catch(eFus){ _otrasOk=false; console.warn('[FB] save: error guardando el resto de secciones:',eFus.message); }
+      }
       if(!_otrasOk){
         console.warn('[FB] save: el resto de secciones no se pudo verificar/guardar — se reintentaran en el proximo ciclo');
       }
@@ -1772,7 +1791,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-09-03-B'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-09-08-F'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -1998,6 +2017,14 @@ const S={
 function markDirty(seccion){
   if(!seccion)return;
   S._dirtySections[seccion]=true;
+  // Contador de generacion: cada vez que se edita una seccion, sube. El
+  // guardado toma una foto de este numero al empezar; si al terminar el
+  // numero ya subio de nuevo, significa que algo se edito MIENTRAS el
+  // guardado estaba en camino (llamadas de red, unos cientos de ms a un
+  // par de segundos) — ese dato nuevo no alcanzo a viajar en esta
+  // escritura y NO se debe dar por guardado, o se pierde en silencio.
+  S._dirtyGen=S._dirtyGen||{};
+  S._dirtyGen[seccion]=(S._dirtyGen[seccion]||0)+1;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -2823,10 +2850,21 @@ function startListening(){
     if(S._saving)return;
     if(!remoteData||Object.keys(remoteData).length<=3)return;
 
-    // Secciones a proteger: dirty + módulo activo si el usuario está escribiendo
-    // Solo proteger secciones donde el usuario está escribiendo activamente
-    // NUNCA proteger mantenimiento.tecnicos — debe siempre reflejar Firebase
-    var skip=Object.keys(S._dirtySections||{}).filter(function(s){return s!=='mantenimiento';});
+    // Secciones a proteger: dirty + módulo activo si el usuario está escribiendo.
+    // Antes 'mantenimiento' se excluia a proposito de esta proteccion (para
+    // que tecnicos siempre reflejara Firebase) — pero eso significaba que
+    // CUALQUIER escritura de CUALQUIER persona, en CUALQUIER modulo,
+    // disparaba una actualizacion en tiempo real que borraba de la memoria
+    // de esta pestaña cualquier edicion de mantenimiento que siguiera
+    // pendiente de guardar (los 800ms de debounce, o mientras la
+    // transaccion de guardado viajaba). No hacia falta que el guardado de
+    // esta pestaña fallara — bastaba con que OTRA persona guardara algo
+    // completamente distinto mientras tanto. Ahora que el guardado de
+    // mantenimiento se fusiona contra el servidor en una transaccion
+    // atomica antes de escribir, ya no hace falta mantenerlo "siempre
+    // fresco" a costa de arriesgar perder ediciones en progreso — se
+    // protege igual que el resto de secciones.
+    var skip=Object.keys(S._dirtySections||{});
     var activeEl=document.activeElement;
     var isTyping=activeEl&&(activeEl.tagName==='INPUT'||activeEl.tagName==='TEXTAREA'||activeEl.tagName==='SELECT');
     if(isTyping){
@@ -2834,8 +2872,7 @@ function startListening(){
       var secMap={inventario:'inventario',gastos:'gastos',asistencia:'asistencia',
                   taller:'taller',centros:'centros',proveedores:'proveedores',proyectos:'proyectos'};
       var modSec=secMap[mod];
-      // No proteger mantenimiento aunque el usuario esté escribiendo en esa sección
-      if(modSec&&modSec!=='mantenimiento'&&skip.indexOf(modSec)<0) skip.push(modSec);
+      if(modSec&&skip.indexOf(modSec)<0) skip.push(modSec);
     }
 
     if(remoteData._gastosChunked){
@@ -2843,7 +2880,21 @@ function startListening(){
       _listenReloadTimer=setTimeout(async()=>{
         try{
           const full=await window.FB.load(S.empresa);
-          if(full&&!S._saving){applyData(full,false,skip);if(S.currentUser&&!isTyping)render();setSyncUI('ok','Actualizado');}
+          // Recalcular skip AQUI, no usar la foto de hace 800ms — si algo se
+          // edito en esa ventana (muy plausible, es tiempo real de sobra
+          // para escribir algo), la foto vieja no lo protegeria y esta
+          // recarga completa lo sobrescribiria igual.
+          var skipFresco=Object.keys(S._dirtySections||{});
+          var activeElFresco=document.activeElement;
+          var isTypingFresco=activeElFresco&&(activeElFresco.tagName==='INPUT'||activeElFresco.tagName==='TEXTAREA'||activeElFresco.tagName==='SELECT');
+          if(isTypingFresco){
+            var modFresco=S._activeModule||'';
+            var secMapFresco={inventario:'inventario',gastos:'gastos',asistencia:'asistencia',
+                        taller:'taller',centros:'centros',proveedores:'proveedores',proyectos:'proyectos'};
+            var modSecFresco=secMapFresco[modFresco];
+            if(modSecFresco&&skipFresco.indexOf(modSecFresco)<0) skipFresco.push(modSecFresco);
+          }
+          if(full&&!S._saving){applyData(full,false,skipFresco);if(S.currentUser&&!isTypingFresco)render();setSyncUI('ok','Actualizado');}
         }catch(e){}
       },800);
       applyData(remoteData,true,skip);
@@ -3276,7 +3327,7 @@ async function _fusionarLista(secciones){
 // eliminadosMant: {campo:[ids borrados]} para tecnicos
 // otrasSecciones: nombres de secciones de nivel superior (de _SPEC_FUSION
 //   o de paso directo) a fusionar/escribir en la misma transaccion
-async function _guardarConTransaccion(camposMant,eliminadosMant,otrasSecciones,dataToSave){
+async function _guardarConTransaccion(camposMant,eliminadosMant,otrasSecciones,dataToSave,genSnapshot){
   var ref=firebase.firestore().collection('empresas').doc(S.empresa);
   function fusionarArreglo(locales,remotos,borrados){
     locales=locales||[]; remotos=remotos||[]; borrados=borrados||[];
@@ -3285,6 +3336,16 @@ async function _guardarConTransaccion(camposMant,eliminadosMant,otrasSecciones,d
     locales.forEach(function(t){ if(t&&t.id) porId[t.id]=t; }); // lo editado aqui gana
     borrados.forEach(function(id){ delete porId[id]; });        // borrado explicito manda
     return Object.keys(porId).map(function(k){return porId[k];});
+  }
+  // Si una seccion se volvio a editar (markDirty subio su generacion) DESPUES
+  // de que este guardado tomo su foto de datos, esa seccion ya tiene algo
+  // nuevo en memoria que esta escritura nunca vio. No es seguro darla por
+  // guardada: sobrescribir S[seccion] con el resultado de esta transaccion
+  // borraria esa edicion nueva de la memoria local tambien, no solo del
+  // servidor.
+  function _sigueSiendoValida(seccion){
+    if(!genSnapshot)return true; // sin foto de generacion: comportamiento anterior
+    return (S._dirtyGen&&S._dirtyGen[seccion]||0)===(genSnapshot[seccion]||0);
   }
   try{
     var resultado=await firebase.firestore().runTransaction(async function(tx){
@@ -3343,21 +3404,42 @@ async function _guardarConTransaccion(camposMant,eliminadosMant,otrasSecciones,d
       return {aplicarLocal:aplicarLocal,escritas:otrasEscritas};
     });
 
+    var mantAplicado=false;
     if(resultado.aplicarLocal.mantenimiento){
-      Object.keys(resultado.aplicarLocal.mantenimiento).forEach(function(campo){
-        S.mantenimiento[campo]=resultado.aplicarLocal.mantenimiento[campo];
-      });
+      if(_sigueSiendoValida('mantenimiento')){
+        Object.keys(resultado.aplicarLocal.mantenimiento).forEach(function(campo){
+          S.mantenimiento[campo]=resultado.aplicarLocal.mantenimiento[campo];
+        });
+        mantAplicado=true;
+      } else {
+        console.log('[PP] mantenimiento se volvio a editar mientras este guardado viajaba — no se sobrescribe la memoria local, se reintenta solo en el proximo ciclo');
+      }
     }
-    Object.keys(resultado.aplicarLocal).forEach(function(sec){
-      if(sec==='mantenimiento')return;
+    var escritasSeguras=[];
+    resultado.escritas.forEach(function(sec){
+      if(!_sigueSiendoValida(sec)){
+        console.log('[PP] '+sec+' se volvio a editar mientras este guardado viajaba — no se sobrescribe la memoria local, se reintenta solo en el proximo ciclo');
+        return;
+      }
       S[sec]=resultado.aplicarLocal[sec];
+      escritasSeguras.push(sec);
     });
-    return {ok:true,escritas:resultado.escritas};
+    return {ok:true,escritas:escritasSeguras,mantAplicado:mantAplicado};
   }catch(e){
     // Documento no existe, permisos, red caida, u otro fallo real de la
     // transaccion (no un conflicto de escritura — esos Firestore ya los
     // reintenta solo internamente varias veces antes de rendirse).
-    console.warn('[PP] Transaccion de guardado fallo — no se escribio nada en este ciclo, se reintentara:',e.code||e.message);
+    var _msg=(e&&e.message)||'';
+    var _esTamano=/longer than|exceeds the maximum|maximum size|too large|1048576/i.test(_msg);
+    if(_esTamano){
+      // Reintentar NO arregla esto — el documento sigue del mismo tamaño
+      // en el proximo intento. Avisar claro, distinto del mensaje generico
+      // de "se reintentara solo" que aqui seria falso.
+      console.error('[PP] Documento de la empresa demasiado grande para escribir — hace falta archivar datos viejos:',_msg);
+      toast('🛑 El documento de la empresa llegó a su límite de tamaño (1MB) — esto NO se va a resolver reintentando. Hace falta archivar datos viejos de mantenimiento (equipos/OTs de ciclos anteriores). Avisa a soporte.',true,15000);
+    } else {
+      console.warn('[PP] Transaccion de guardado fallo — no se escribio nada en este ciclo, se reintentara:',e.code||e.message);
+    }
     return null;
   }
 }
@@ -3407,6 +3489,15 @@ async function _doSaveFirebase(){
     S._saving=true;
     S._lastSaveTs=Date.now();
     const dataToSave={...serializeForFirestore(),_ts:S._lastSaveTs};
+    // Foto de la generacion de cada seccion AL EMPEZAR este guardado. Si al
+    // terminar la generacion de una seccion ya avanzo (alguien la edito
+    // mientras esta escritura viajaba), esa seccion NO se da por guardada
+    // — se deja dirty para el proximo ciclo, en vez de perder en silencio
+    // lo que se agrego durante la ventana de guardado.
+    const _genAlEmpezar=Object.assign({},S._dirtyGen||{});
+    function _sigueLimpio(seccion){
+      return (S._dirtyGen&&S._dirtyGen[seccion]||0)===(_genAlEmpezar[seccion]||0);
+    }
     // Log doc size for debugging
     const sz=JSON.stringify(dataToSave).length;
 
@@ -3435,7 +3526,7 @@ async function _doSaveFirebase(){
     }
 
     var result;
-    if(otherDirtySections.length>0&&otherDirtySections.length<=4&&window.FB.saveSection){
+    if(otherDirtySections.length>0&&window.FB.saveSection){
       console.log('[PP] Saving sections:',otherDirtySections.join(','),'sz:'+(sz/1024).toFixed(0)+'KB');
 
       // TODO el contenido de mantenimiento (equipos, registros, checklists,
@@ -3457,12 +3548,12 @@ async function _doSaveFirebase(){
       if(mantIdx>=0){
         var _camposMant=['checklists','equipos','ots','movimientosEquipos','registros','solicitudesMant','tecnicos'];
         var _elimMant={tecnicos:S._tecnicosEliminados||[]};
-        var _tx=await _guardarConTransaccion(_camposMant,_elimMant,otherSecsSinMant,dataToSave);
+        var _tx=await _guardarConTransaccion(_camposMant,_elimMant,otherSecsSinMant,dataToSave,_genAlEmpezar);
         if(_tx){
           result=_tx;
-          _mantEscrito=true;
-          console.log('[PP] mantenimiento guardado con transaccion atomica (sin ventana de carrera entre lectura y escritura)');
-          S._tecnicosDirty=false; S._tecnicosEliminados=[];
+          _mantEscrito=_tx.mantAplicado;
+          console.log('[PP] mantenimiento guardado con transaccion atomica (sin ventana de carrera entre lectura y escritura)'+(_tx.mantAplicado?'':' — pero se volvio a editar mientras viajaba, se reintenta solo'));
+          if(_tx.mantAplicado){ S._tecnicosDirty=false; S._tecnicosEliminados=[]; }
         } else {
           // La transaccion no se pudo completar (sin red, permisos, doc no
           // existe): NO se escribe nada de mantenimiento en este ciclo. Las
@@ -3509,7 +3600,11 @@ async function _doSaveFirebase(){
       console.log('[PP] Saving gastos chunks — gastos:'+S.gastos.length+' sz:'+(sz/1024).toFixed(0)+'KB');
       result=await window.FB.save(S.empresa,dataToSave);
       if((result===true)||(result&&result.ok===true)){
-        delete S._dirtySections['gastos'];
+        if(_sigueLimpio('gastos')){
+          delete S._dirtySections['gastos'];
+        } else {
+          console.log('[PP] gastos se volvio a editar mientras este guardado viajaba — se reintenta solo en el proximo ciclo, no se pierde lo nuevo');
+        }
       }
     }
 
@@ -3530,7 +3625,7 @@ async function _doSaveFirebase(){
       var _camposMantFallback=['checklists','equipos','ots','movimientosEquipos','registros','solicitudesMant','tecnicos'];
       var _elimMantFallback={tecnicos:S._tecnicosEliminados||[]};
       var _otrasFallback=Object.keys(_SPEC_FUSION).concat(['config','usuarios','marcas']);
-      var _txFallback=await _guardarConTransaccion(_camposMantFallback,_elimMantFallback,_otrasFallback,dataToSave);
+      var _txFallback=await _guardarConTransaccion(_camposMantFallback,_elimMantFallback,_otrasFallback,dataToSave,_genAlEmpezar);
       if(_txFallback){
         result={ok:true};
         console.log('[PP] Save de respaldo (sin markDirty explicito) — fusion completa via transaccion atomica');
@@ -10560,6 +10655,26 @@ function calcItemTotal(item){
 
 function ccTotalItems(items){return(items||[]).reduce((s,it)=>s+calcItemTotal(it),0)}
 
+// Un reintegro de caja chica se puede generar desde dos lugares distintos:
+// el formulario manual de este modulo (guarda 'items') o el generador de
+// reportes (guarda 'gastosSnapshot', con gastos ya existentes marcados
+// como caja chica). Antes la lista, el detalle y la impresion solo leian
+// 'items' — un reintegro generado desde Reportes se veia con 0 items y
+// $0.00, y si alguien le daba Editar+Guardar desde aqui, se le borraba
+// el gastosSnapshot real sin avisar. Este helper normaliza ambas formas
+// a la misma estructura para que todo lo que lee items funcione igual.
+function ccReintegroItems(r){
+  if(r.items) return r.items;
+  if(r.gastosSnapshot) return r.gastosSnapshot.map(function(g){
+    return {
+      ccosto:g.ccosto||'', no:'', fecha:g.fecha||'', proveedor:g.proveedor||'',
+      numDoc:g.factura||'', concepto:g.descripcion||'',
+      montoNeto:g.valor||0, iva:0, retencion:0
+    };
+  });
+  return [];
+}
+
 function renderCajaChica(){
   const cc=S.cajachica||{reintegros:[]};
   const reintegros=[...(cc.reintegros||[])].reverse();
@@ -10568,14 +10683,15 @@ function renderCajaChica(){
     rows=`<tr><td colspan="6" class="empty" style="text-align:center;padding:28px;color:var(--muted)">Sin reintegros registrados — crea el primero con el botón de arriba</td></tr>`;
   } else {
     reintegros.forEach(r=>{
-      const total=ccTotalItems(r.items);
+      const itemsR=ccReintegroItems(r);
+      const total=ccTotalItems(itemsR);
       const fa=parseFloat(r.fondoAutorizado)||2000;
       const disp=fa-total;
-      const fechaStr=fmtDate(r.fechaCorte);
+      const fechaStr=fmtDate(r.fechaCorte||r.hasta);
       rows+=`<tr>
         <td><strong>${fechaStr||'—'}</strong></td>
         <td>${r.responsable||'—'}</td>
-        <td style="text-align:center">${(r.items||[]).length}</td>
+        <td style="text-align:center">${itemsR.length}</td>
         <td style="text-align:right;color:var(--red)">${fmtCur(total)}</td>
         <td style="text-align:right;color:${disp>=0?'var(--green)':'var(--red)'}">${fmtCur(disp)}</td>
         <td>
@@ -10588,7 +10704,7 @@ function renderCajaChica(){
       </tr>`;
     });
   }
-  const totalGeneral=((cc.reintegros||[]).reduce((s,r)=>s+ccTotalItems(r.items),0));
+  const totalGeneral=((cc.reintegros||[]).reduce((s,r)=>s+ccTotalItems(ccReintegroItems(r)),0));
   document.getElementById('content').innerHTML=`
     <div class="kpi-grid">
       <div class="kpi"><div class="kpi-lbl">Reintegros</div><div class="kpi-val">${(cc.reintegros||[]).length}</div></div>
@@ -10822,6 +10938,15 @@ function ccGuardar(){
 function ccEliminar(id){
   markDirty('cajachica');
   if(!confirm('¿Eliminar este reintegro?'))return;
+  var r=((S.cajachica||{}).reintegros||[]).find(function(x){return x.id===id;});
+  if(r&&r.gastosSnapshot&&r.gastosSnapshot.length){
+    // Liberar los gastos vinculados a este reintegro — si no, quedan
+    // marcados como "ya reintegrados" para siempre, sin ningun reintegro
+    // real detras, y nunca vuelven a aparecer disponibles para el
+    // siguiente reintegro.
+    markDirty('gastos');
+    (S.gastos||[]).forEach(function(g){ if(g.reintegradoEn===id) delete g.reintegradoEn; });
+  }
   S.cajachica.reintegros=((S.cajachica||{}).reintegros||[]).filter(r=>r.id!==id);
   saveData();renderCajaChica();toast('Reintegro eliminado');
 }
@@ -10829,13 +10954,14 @@ function ccEliminar(id){
 function ccVerDetalle(id){
   const r=((S.cajachica&&S.cajachica.reintegros)||[]).find(x=>x.id===id);
   if(!r)return;
-  const items=r.items||[];
+  const items=ccReintegroItems(r);
   const totNeto=items.reduce((s,it)=>s+(parseFloat(it.montoNeto)||0),0);
   const totIva=items.reduce((s,it)=>s+(parseFloat(it.iva)||0),0);
   const totRet=items.reduce((s,it)=>s+(parseFloat(it.retencion)||0),0);
   const totTotal=totNeto+totIva-totRet;
   const fa=parseFloat(r.fondoAutorizado)||2000;
   const disp=fa-totTotal;
+  const fechaMostrar=r.fechaCorte?fmtDate(r.fechaCorte):(r.desde&&r.hasta?fmtDate(r.desde)+' – '+fmtDate(r.hasta):'—');
   let rows=items.length===0?`<tr><td colspan="9" class="empty" style="text-align:center">Sin ítems</td></tr>`:'';
   items.forEach(it=>{
     const tot=calcItemTotal(it);
@@ -10860,7 +10986,7 @@ function ccVerDetalle(id){
       </div>
       <div style="text-align:right">
         <div style="font-size:12px;color:var(--muted)">Fecha de Corte</div>
-        <div style="font-weight:700">${fmtDate(r.fechaCorte)}</div>
+        <div style="font-weight:700">${fechaMostrar}</div>
         <div style="font-size:12px;color:var(--muted);margin-top:4px">Responsable: <strong>${r.responsable||''}</strong></div>
         <div style="font-size:12px;color:var(--muted)">Fondo Autorizado: <strong>${fmtCur(fa)}</strong></div>
       </div>
@@ -10903,6 +11029,15 @@ function ccVerDetalle(id){
 function ccEditarDesdeDetalle(id){
   const r=((S.cajachica&&S.cajachica.reintegros)||[]).find(x=>x.id===id);
   if(!r)return;
+  if(r.gastosSnapshot&&!r.items){
+    // Este reintegro se generó desde Reportes (a partir de gastos reales
+    // marcados como caja chica), no desde este formulario manual. Abrirlo
+    // aquí y guardarlo reemplazaría el gastosSnapshot real por una lista
+    // vacía o manual — antes esto pasaba en silencio y borraba el
+    // reintegro real. Se edita desde Reportes, no desde aquí.
+    toast('Este reintegro se generó desde Reportes — edítalo o elimínalo desde ahí, no desde este formulario',true);
+    return;
+  }
   _ccEdit=r;
   _ccItems=r.items?r.items.map(it=>({...it})):[];
   closeModal('modalCCDet');
@@ -10913,7 +11048,8 @@ function ccEditarDesdeDetalle(id){
 function ccImprimirReintegro(id){
   const r=((S.cajachica&&S.cajachica.reintegros)||[]).find(x=>x.id===id);
   if(!r)return;
-  const items=r.items||[];
+  const items=ccReintegroItems(r);
+  const fechaMostrar=r.fechaCorte?fmtDate(r.fechaCorte):(r.desde&&r.hasta?fmtDate(r.desde)+' – '+fmtDate(r.hasta):'—');
   const totNeto=items.reduce((s,it)=>s+(parseFloat(it.montoNeto)||0),0);
   const totIva=items.reduce((s,it)=>s+(parseFloat(it.iva)||0),0);
   const totRet=items.reduce((s,it)=>s+(parseFloat(it.retencion)||0),0);
@@ -10939,7 +11075,7 @@ function ccImprimirReintegro(id){
   });
 
   const html=`<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <title>Reintegro Caja Chica – ${fmtDate(r.fechaCorte)}</title>
+  <title>Reintegro Caja Chica – ${fechaMostrar}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:Arial,sans-serif;font-size:10pt;color:#000;background:#fff;padding:18px 24px}
@@ -10979,7 +11115,7 @@ function ccImprimirReintegro(id){
   <div class="titulo">REINTEGRO DE FONDO DE CAJA CHICA</div>
   <div class="meta-grid">
     <div class="meta-col">
-      <div class="meta-row"><span class="meta-lbl">Fecha de Corte:</span><span>${fmtDate(r.fechaCorte)}</span></div>
+      <div class="meta-row"><span class="meta-lbl">Fecha de Corte:</span><span>${fechaMostrar}</span></div>
       <div class="meta-row"><span class="meta-lbl">Responsable:</span><span>${r.responsable||''}</span></div>
     </div>
     <div class="meta-col">

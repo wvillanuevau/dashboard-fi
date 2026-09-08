@@ -264,7 +264,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script>
 var ACCESS_CODE = "MANT2026";
-var MANT_VERSION = 'v2026-09-03-A'; // Actualizar en cada entrega
+var MANT_VERSION = 'v2026-09-08-A'; // Actualizar en cada entrega
 
 var DB = null;
 var D = { centros:[], equipos:[], tecnicos:[], registros:[], marcas:[] };
@@ -362,6 +362,7 @@ function cargarDatos(btn){
   if(!DB){ setStatus('⚠ Sin conexión a Firebase.',true); return; }
   if(btn){ btn.disabled=true; btn.textContent='Leyendo…'; }
   setStatus('Leyendo equipos del sistema…');
+  var _pendientesFallaron=false;
   // Solo lectura del espejo liviano publicado por el sistema principal.
   DB.collection('mantenimientoFI').doc(CFG.empresa).get().then(function(doc){
     if(!doc.exists){
@@ -385,12 +386,24 @@ function cargarDatos(btn){
               tecnicoId:r.tecnicoId||'',observaciones:r.observaciones||'',costo:r.costo||0});
           }
         });
-      }).catch(function(){});
+      }).catch(function(e){
+        // Antes este error se tragaba en silencio — el panel se veia bien
+        // pero los numeros podian estar desactualizados sin ningun aviso,
+        // porque lo pendiente en mantRegistros no se pudo sumar. Ahora se
+        // avisa explicitamente, combinado con el mensaje de exito de abajo
+        // para que no se pierda.
+        console.warn('[Mant] No se pudo leer mantRegistros pendientes:',e.code||e.message);
+        _pendientesFallaron=true;
+      });
   }).then(function(){
     llenarFiltroMarcas();
     render();
     if(D.equipos.length){
-      setStatus('✅ '+D.equipos.length+' equipo(s) en '+D.centros.length+' ubicación(es).');
+      if(_pendientesFallaron){
+        setStatus('⚠ '+D.equipos.length+' equipo(s) — no se pudo verificar si hay mantenimientos recientes sin sincronizar (red inestable). Los números pueden estar desactualizados: reintenta en un momento.',true);
+      } else {
+        setStatus('✅ '+D.equipos.length+' equipo(s) en '+D.centros.length+' ubicación(es).');
+      }
     } else {
       // No dejar el mensaje en "Leyendo...": si el espejo existe pero
       // viene sin equipos, decirlo claramente.
