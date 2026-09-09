@@ -1791,7 +1791,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-09-08-F'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-09-08-H'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -2951,9 +2951,35 @@ function _emergencySave(){
 window.addEventListener('pagehide', _emergencySave);
 window.addEventListener('beforeunload', _emergencySave);
 // visibilitychange: cuando el usuario pone la app en background en móvil
+var _hiddenDesde=null;
+var UMBRAL_RESYNC_MS=3*60*1000; // 3 minutos en segundo plano
 document.addEventListener('visibilitychange', function(){
-  if(document.visibilityState==='hidden' && S._dirty){
-    _emergencySave();
+  if(document.visibilityState==='hidden'){
+    if(S._dirty) _emergencySave();
+    _hiddenDesde=Date.now();
+  } else if(document.visibilityState==='visible' && _hiddenDesde){
+    var minutosFuera=Math.round((Date.now()-_hiddenDesde)/60000);
+    _hiddenDesde=null;
+    // Una pestaña que estuvo mucho rato en segundo plano (celular
+    // bloqueado, ventana minimizada durante horas) puede tener en memoria
+    // una copia de mantenimiento/proyectos/etc. bastante mas vieja que el
+    // servidor — timers y actividad de red se retrasan mientras la
+    // pestaña no esta al frente. Si esa sesion luego edita algo y guarda,
+    // la fusion por transaccion ya evita que borre lo que otros
+    // agregaron — pero igual conviene refrescar la copia local antes de
+    // seguir trabajando, para no tomar decisiones sobre datos viejos.
+    if(minutosFuera*60000>=UMBRAL_RESYNC_MS && S.currentUser && S.empresa && window.FB && window.FB.load && !S._saving){
+      console.log('[PP] Pestaña estuvo '+minutosFuera+' min en segundo plano — resincronizando');
+      window.FB.load(S.empresa).then(function(fresh){
+        if(!fresh||S._saving)return;
+        var skip=Object.keys(S._dirtySections||{});
+        applyData(fresh,false,skip);
+        if(S.currentUser) render();
+        if(Object.keys(S._dirtySections||{}).length){
+          toast('🔄 Se actualizaron los datos tras estar '+minutosFuera+' min inactivo — revisa que tus cambios pendientes sigan correctos antes de continuar.',false,8000);
+        }
+      }).catch(function(e){ console.warn('[PP] Resync tras background fallo:',e.message); });
+    }
   }
 });
 
@@ -3953,15 +3979,34 @@ function recuperarDesdeLocalStorage(){
     var asMem=((S.asistencia&&S.asistencia.registros)||[]).length;
     var movLocal=((local.inventario&&local.inventario.movimientos)||[]).length;
     var movMem=((S.inventario&&S.inventario.movimientos)||[]).length;
+    // Antes esta comparacion no incluia mantenimiento — justo la seccion
+    // mas relevante de todo lo que hemos revisado esta semana. Si el
+    // respaldo local tenia equipos/registros que la memoria actual no
+    // tenia, esta herramienta ni lo mostraba ni lo detectaba.
+    var mantLocalRegs=((local.mantenimiento&&local.mantenimiento.registros)||[]).length;
+    var mantMemRegs=((S.mantenimiento&&S.mantenimiento.registros)||[]).length;
+    var mantLocalEq=((local.mantenimiento&&local.mantenimiento.equipos)||[]).length;
+    var mantMemEq=((S.mantenimiento&&S.mantenimiento.equipos)||[]).length;
     var msg='📦 LOCALSTORAGE — Fecha guardado: '+tsLocal+'\n\n'
       +'Gastos: '+gasLocal+(gasLocal>gasMem?' ⬆ ('+gasMem+' en memoria)':' (igual)')+' \n'
+      +'Mantenimiento — equipos: '+mantLocalEq+(mantLocalEq>mantMemEq?' ⬆ ('+mantMemEq+' en memoria)':' (igual)')+' \n'
+      +'Mantenimiento — registros: '+mantLocalRegs+(mantLocalRegs>mantMemRegs?' ⬆ ('+mantMemRegs+' en memoria)':' (igual)')+' \n'
       +'Inventario productos: '+invLocal+(invLocal>invMem?' ⬆ ('+invMem+' en memoria)':' (igual)')+' \n'
       +'Inventario movimientos: '+movLocal+(movLocal>movMem?' ⬆ ('+movMem+' en memoria)':' (igual)')+' \n'
       +'Asistencia: '+asLocal+(asLocal>asMem?' ⬆ ('+asMem+' en memoria)':' (igual)')+' \n\n'
       +'¿Restaurar desde localStorage? (se guardará inmediatamente a Firestore)';
     if(confirm(msg)){
       applyData(local,false);
-      markDirty('asistencia');markDirty('inventario');markDirty('taller');
+      // Marcar TODAS las secciones que applyData pudo haber cargado —
+      // antes solo se marcaban 3 de las 14 posibles, asi que restaurar
+      // cualquier otra cosa (mantenimiento incluido) la dejaba visible en
+      // pantalla pero SIN guardarse de verdad — el siguiente aviso del
+      // listener la volvia a borrar de la memoria sin que nadie se diera
+      // cuenta, porque nunca llego a Firestore.
+      ['mantenimiento','gastos','asistencia','inventario','taller','centros',
+       'proveedores','proyectos','gerentesZona','cajachica','auditorias',
+       'energy','config'].forEach(function(sec){ markDirty(sec); });
+      if(local.mantenimiento&&local.mantenimiento.tecnicos) S._tecnicosDirty=true;
       saveData();
       render();
       toast('✅ Datos restaurados. Guardando a Firestore...');
@@ -4184,6 +4229,29 @@ function enterApp(email,rol,nombre,permisos,proyectosPermitidos){
   render();toast('Bienvenido, '+nombre);
   // Cargar badges de notificación (async, no bloquea)
   setTimeout(loadBadges, 1000);
+
+  // Si hay un respaldo local (de un _emergencySave que quiza no alcanzo a
+  // terminar de escribir a Firestore antes de que la pestaña se cerrara)
+  // con MAS datos que lo que se acaba de cargar del servidor, avisar de
+  // forma visible — antes esto solo se veia si alguien sabia que existia
+  // el boton "Recuperar data perdida" en el panel de diagnostico, algo
+  // que nadie iba a saber buscar despues de un cierre inesperado.
+  setTimeout(function(){
+    try{
+      var raw=localStorage.getItem('pp3_'+S.empresa);
+      if(!raw)return;
+      var local=JSON.parse(raw);
+      var mantLocalEq=((local.mantenimiento&&local.mantenimiento.equipos)||[]).length;
+      var mantMemEq=((S.mantenimiento&&S.mantenimiento.equipos)||[]).length;
+      var mantLocalRegs=((local.mantenimiento&&local.mantenimiento.registros)||[]).length;
+      var mantMemRegs=((S.mantenimiento&&S.mantenimiento.registros)||[]).length;
+      var gasLocal=(local.gastos||[]).length;
+      var gasMem=(S.gastos||[]).length;
+      if(mantLocalEq>mantMemEq||mantLocalRegs>mantMemRegs||gasLocal>gasMem){
+        toast('⚠️ Hay un respaldo local en esta computadora con más datos que el servidor — probablemente de un cierre inesperado. Ve a Configuración → Herramientas Admin → "Recuperar data perdida" para revisarlo.',true,10000);
+      }
+    }catch(e){}
+  }, 2000);
 }
 
 async function logout(){
