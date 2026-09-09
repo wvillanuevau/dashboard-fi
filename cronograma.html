@@ -622,7 +622,7 @@ function addDays(dateStr,days){
 function escapeAttr(s){ return String(s).replace(/"/g,"&quot;"); }
 function escapeHtml(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 
-var CRONO_VERSION = 'v2026-09-03-A'; // Actualizar en cada entrega
+var CRONO_VERSION = 'v2026-09-08-A'; // Actualizar en cada entrega
 
 var STATE = {
   activeProjectId: "p1",
@@ -769,6 +769,7 @@ function recalcularFechas(){
 }
 function markEdited(){
   document.getElementById("lastEdit").textContent = new Date().toLocaleString('es-SV');
+  _cronoGen++;
   saveLocal();
   saveCloud();
 }
@@ -1507,6 +1508,13 @@ document.getElementById("gateInput").addEventListener("keydown",function(e){if(e
 var fbDb = null;
 var _writeId = null;         // identifica NUESTRA última escritura (para ignorar el eco)
 var _saveTimer = null;
+// Contador de generacion: sube cada vez que se edita algo. _cronoGenConfirmado
+// lleva hasta que generacion quedo realmente confirmada en el servidor. Si
+// _cronoGenConfirmado < _cronoGen, hay algo sin confirmar todavia — el
+// listener no debe reemplazar STATE mientras eso sea cierto, o borraria
+// esa edicion de la memoria antes de que alcance a guardarse.
+var _cronoGen = 0;
+var _cronoGenConfirmado = 0;
 var _fbListo = false;
 
 try {
@@ -1541,6 +1549,7 @@ function saveCloud() {
   clearTimeout(_saveTimer);
   _syncBadge('saving');
   _saveTimer = setTimeout(function(){
+    var genAlEmpezar = _cronoGen;
     var ref = fbDb.collection('cronogramas').doc('estado');
     var eliminadosEnEsteGuardado = (STATE._eliminados || []).slice();
     var idActivo = STATE.activeProjectId;
@@ -1579,6 +1588,7 @@ function saveCloud() {
       STATE.projects = estadoFusionado.projects;
       STATE.nextProjectSeq = estadoFusionado.nextProjectSeq;
       STATE._eliminados = (STATE._eliminados || []).filter(function(id){ return eliminadosEnEsteGuardado.indexOf(id)===-1; });
+      if (_cronoGenConfirmado < genAlEmpezar) _cronoGenConfirmado = genAlEmpezar;
       renderProjectSelect();
       _syncBadge('ok');
     }).catch(function(e){
@@ -1601,8 +1611,18 @@ function _startCloudListener() {
       if (remoto && remoto.projects && remoto.activeProjectId) {
         // Conservar el proyecto que el usuario está viendo si aún existe
         var viendo = STATE && STATE.activeProjectId;
+        // Si el proyecto activo tiene una edicion sin confirmar todavia
+        // (markEdited() ya corrio pero el guardado de 800ms no ha
+        // terminado), NO reemplazarlo con la version del servidor — antes
+        // esto pasaba sin ningun chequeo, y cualquier persona guardando
+        // CUALQUIER OTRO proyecto borraba lo que el usuario estaba
+        // escribiendo en el suyo. El guardado pendiente ya se encarga de
+        // fusionar correctamente contra el servidor cuando le toque.
+        var hayPendiente = _cronoGenConfirmado < _cronoGen;
+        var proyectoLocalPendiente = (hayPendiente && viendo && STATE.projects && STATE.projects[viendo]) ? STATE.projects[viendo] : null;
         STATE = remoto;
         if (viendo && STATE.projects[viendo]) STATE.activeProjectId = viendo;
+        if (proyectoLocalPendiente && viendo) STATE.projects[viendo] = proyectoLocalPendiente;
         renderProjectSelect();
         loadProjectIntoHeader();
         renderAll();

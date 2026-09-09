@@ -1791,7 +1791,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-09-08-H'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-09-09-C'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -2842,6 +2842,7 @@ async function loadData(){
 }
 
 var _listenReloadTimer=null;
+var _ultimaRecargaGastosCompleta=0; // limite de frecuencia — ver uso mas abajo
 function startListening(){
   if(S._listening||!window.FB||!S.empresa)return;
   const user=window.FB.currentUser();if(!user)return;
@@ -2877,6 +2878,27 @@ function startListening(){
 
     if(remoteData._gastosChunked){
       clearTimeout(_listenReloadTimer);
+      // Limite de frecuencia: antes esta recarga completa (documento
+      // principal + TODOS los chunks de gastos, ~13 lecturas con el
+      // volumen actual) se disparaba en CADA aviso del listener — es
+      // decir, cada vez que CUALQUIER persona guardaba CUALQUIER cosa,
+      // en CUALQUIER modulo, TODAS las pestañas conectadas hacian esta
+      // recarga completa 800ms despues. Con varias personas activas esto
+      // multiplicaba las lecturas muy rapido (cientos de escrituras al
+      // dia x 13 lecturas x N pestañas conectadas) y es la causa mas
+      // probable de agotar la cuota gratuita de Firestore. Ahora, como
+      // maximo, se recarga una vez cada 20 segundos sin importar cuantos
+      // avisos lleguen mientras tanto — los ultimos gastos de otras
+      // sesiones pueden tardar hasta 20s en reflejarse en esta pestaña
+      // en vez de 800ms, un costo aceptable frente al ahorro de lecturas.
+      var _ahoraReload=Date.now();
+      if(_ahoraReload-(_ultimaRecargaGastosCompleta||0)<20000){
+        applyData(remoteData,true,skip);
+        if(!isTyping&&S.currentUser) render();
+        setSyncUI('ok','Actualizado');
+        return;
+      }
+      _ultimaRecargaGastosCompleta=_ahoraReload;
       _listenReloadTimer=setTimeout(async()=>{
         try{
           const full=await window.FB.load(S.empresa);
@@ -3699,6 +3721,7 @@ async function _doSaveFirebase(){
 
 // ── Badge notifications ───────────────────────────────────
 // Solo cuenta items que requieren ACCIÓN INMEDIATA del admin
+var _ultimaConsultaBadges=0;
 function loadBadges(){
   if(!S.empresa||!S.currentUser)return;
   if(!S._badges)S._badges={};
@@ -3724,6 +3747,31 @@ function loadBadges(){
   var sinRep=todosActivos.filter(function(v){
     return !(t.reportesDiarios||[]).find(function(r){return r.vehiculoId===v.id&&r.fecha===hoy;});
   }).length;
+
+  // Actualizar badges locales sincrónicos — esto es gratis (no toca
+  // Firestore) asi que se actualiza siempre, sin importar el limite de
+  // frecuencia de abajo.
+  S._badges.taller_ots               = otsVenc;
+  S._badges.mant_equipos             = mantVenc;
+  S._badges.taller_reportes_choferes = sinRep; // se refinará con Firestore async si toca abajo
+  if(S._badges.taller_solicitudes===undefined) S._badges.taller_solicitudes=0;
+  if(S._badges.mant_solicitudes===undefined)   S._badges.mant_solicitudes=0;
+
+  // Re-renderizar nav con datos locales inmediatamente
+  if(S.currentUser)_renderNavBadges();
+
+  // Limite de frecuencia para las 3 consultas a Firestore de abajo —
+  // antes se disparaban SIN CONDICION cada vez que loadBadges() se
+  // llamaba, y esta funcion se llama automaticamente 500ms despues de
+  // CADA guardado exitoso en _doSaveFirebase() — es decir, cada gasto,
+  // cada equipo, cada registro de mantenimiento de CUALQUIER persona
+  // disparaba 3 consultas mas aqui, sin importar si algo relacionado con
+  // OTs/solicitudes/reportes de motoristas habia cambiado. Ahora, como
+  // maximo, estas 3 consultas corren una vez cada 30 segundos.
+  var _ahoraBadges=Date.now();
+  if(_ahoraBadges-_ultimaConsultaBadges<30000) return;
+  _ultimaConsultaBadges=_ahoraBadges;
+
   // Ajuste asíncrono desde Firestore (reportes del portal)
   firebase.firestore().collection('reportesMotoristas')
     .where('empresa','==',S.empresa).where('fecha','==',hoy).get()
@@ -3738,18 +3786,6 @@ function loadBadges(){
       S._badges.taller_reportes_choferes=sinRepFinal;
       _renderNavBadges();
     }).catch(function(){});
-
-
-  // Actualizar badges locales sincrónicos
-  S._badges.taller_ots               = otsVenc;
-  S._badges.mant_equipos             = mantVenc;
-  S._badges.taller_reportes_choferes = sinRep; // se refinará con Firestore async arriba
-  // Limpiar badges de solicitudes hasta que llegue respuesta de Firestore
-  if(S._badges.taller_solicitudes===undefined) S._badges.taller_solicitudes=0;
-  if(S._badges.mant_solicitudes===undefined)   S._badges.mant_solicitudes=0;
-
-  // Re-renderizar nav con datos locales inmediatamente
-  if(S.currentUser)_renderNavBadges();
 
   // Solicitudes nuevas (Firestore) — async
   var db=firebase.firestore();window._db=db;
@@ -12595,22 +12631,35 @@ function _portalError2(msg) {
 }
 
 // ── Admin: módulo Solicitudes de Mantenimiento ────────────
+var _msCacheRemoto=null; // {docs:[...], ts:...} — cache de solicitudesMant
 function renderMantSolicitudes() {
   var m = mantData();
   var content = document.getElementById('content');
   if (!content) return;
   content.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted)">Cargando solicitudes...</div>';
 
+  // Reusar la ultima consulta remota si es reciente — mismo patron que
+  // renderTallerTrabajos/renderTallerReportesChoferes: esta pantalla
+  // tambien esta en el despachador principal de render() y se
+  // consultaba sin filtro de fecha en cada guardado de cualquiera
+  // mientras esta pestaña estuviera activa.
+  if(_msCacheRemoto&&(Date.now()-_msCacheRemoto.ts)<TJ_CACHE_MS){
+    _renderSolicitudesList(_msCacheRemoto.docs, m);
+    return;
+  }
+
   var db = firebase.firestore();
   db.collection('solicitudesMant').where('empresa','==',S.empresa).get().then(function(snap) {
     var docs = [];
     snap.forEach(function(d){ docs.push(d.data()); });
     docs.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+    _msCacheRemoto={docs:docs,ts:Date.now()};
     _renderSolicitudesList(docs, m);
   }).catch(function(err) {
     db.collection('solicitudesMant').where('empresa','==',S.empresa).get().then(function(snap){
       var docs=[]; snap.forEach(function(d){docs.push(d.data());}); 
       docs.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+      _msCacheRemoto={docs:docs,ts:Date.now()};
       _renderSolicitudesList(docs, m);
     }).catch(function(e){
       content.innerHTML = '<div class="empty">Error al cargar solicitudes: '+e.message+'</div>';
@@ -12703,7 +12752,7 @@ function _renderSolicitudesList(docs, m) {
     +tabBtn('finalizada','🟢 Finalizadas',cFin)
     +tabBtn('rechazada','🔴 Rechazadas',cRech)
     +tabBtn('todas','Todas',docs.length)
-    +'<button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="renderMantSolicitudes()">↺ Actualizar</button>'
+    +'<button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="_msCacheRemoto=null;renderMantSolicitudes()">↺ Actualizar</button>'
     +'</div>'
     +'<div class="tbl-wrap"><table>'
     +'<thead><tr><th>Folio / Fecha</th><th>Sucursal</th><th>Equipo</th><th>Descripción</th><th>Estado</th><th>Acción</th></tr></thead>'
@@ -12782,7 +12831,7 @@ function solMantConfirmarOT(solId) {
       var modal=document.getElementById('modalProcesarSol');if(modal)modal.remove();
       var tec=(m.tecnicos||[]).find(function(t){return t.id===tecId;});
       toast('✅ OT '+otId+' creada'+(tec?' — asignada a '+tec.nombre:'')+' · Prioridad: '+prioridad);
-      renderMantSolicitudes();
+      _msCacheRemoto=null; renderMantSolicitudes();
     }).catch(function(e){toast('OT creada pero error al actualizar solicitud: '+e.message,true);});
   }).catch(function(e){toast('Error: '+e.message,true);});
 }
@@ -12793,14 +12842,14 @@ function solMantMarcarEstado(solId, nuevoEstado) {
   firebase.firestore().collection('solicitudesMant').doc(solId).update({estado:nuevoEstado}).then(function(){
     toast('Estado actualizado: '+est.label);
     loadBadges();
-    renderMantSolicitudes();
+    _msCacheRemoto=null; renderMantSolicitudes();
   }).catch(function(e){toast('Error: '+e.message,true);});
 }
 
 function solMantRechazar(solId) {
   if(!confirm('¿Rechazar esta solicitud?'))return;
   firebase.firestore().collection('solicitudesMant').doc(solId).update({estado:'rechazada'}).then(function(){
-    toast('Solicitud rechazada');renderMantSolicitudes();
+    toast('Solicitud rechazada');_msCacheRemoto=null;renderMantSolicitudes();
   }).catch(function(e){toast('Error: '+e.message,true);});
 }
 
@@ -12864,7 +12913,7 @@ function adminAprobarCierreOT(docId, otId, origenSolicitud) {
   db.collection('tecActualizaciones').doc(docId).delete().then(function(){
     toast('✅ OT cerrada correctamente');
     var old=document.getElementById('modalSolCierrAdmin');if(old)old.remove();
-    renderMantSolicitudes();
+    _msCacheRemoto=null; renderMantSolicitudes();
     loadBadges();
   }).catch(function(e){toast('Error: '+e.message,true);});
 }
@@ -19557,10 +19606,21 @@ function choferRenderMisSolicitudes(veh){
 // ═══════════════════════════════════════════════════════════════════
 //  ADMIN — SOLICITUDES DE REVISIÓN
 // ═══════════════════════════════════════════════════════════════════
+var _tsCacheRemoto=null; // {docs:[...], ts:...} — cache de solicitudesTaller para renderTallerSolicitudes
 function renderTallerSolicitudes(){
   var content=document.getElementById('content');
   if(!content)return;
   content.innerHTML='<div style="padding:40px;text-align:center;color:var(--muted)">Cargando solicitudes...</div>';
+
+  // Reusar la ultima consulta remota si es reciente — mismo patron que
+  // las otras 4 pantallas de solicitudes/reportes ya corregidas: esta
+  // tambien esta en el despachador principal de render() y se
+  // consultaba sin filtro de fecha en cada guardado de cualquiera
+  // mientras esta pestaña estuviera activa.
+  if(_tsCacheRemoto&&(Date.now()-_tsCacheRemoto.ts)<TJ_CACHE_MS){
+    _procesarSolTallerRemoto(_tsCacheRemoto.docs);
+    return;
+  }
 
   // Cargar desde colección pública Firestore
   firebase.firestore().collection('solicitudesTaller')
@@ -19568,7 +19628,23 @@ function renderTallerSolicitudes(){
     .get().then(function(snap){
       var docs=[];
       snap.forEach(function(d){docs.push(d.data());});
-      // Incluir también solicitudes del sistema interno (legacy)
+      _tsCacheRemoto={docs:docs,ts:Date.now()};
+      _procesarSolTallerRemoto(docs);
+    }).catch(function(err){
+      // Fallback: solo solicitudes internas
+      var t=tallerData();
+      var docs=(t.solicitudes||[]).map(function(s){return{
+        id:s.id, empresa:S.empresa,
+        vehiculoId:s.vehiculoId, vehiculoPlaca:s.vehiculoPlaca||'',
+        motoristaNombre:s.choferNombre||s.choferId||'',
+        descripcion:s.descripcion||'', fotos:s.foto?[s.foto]:[],
+        estado:solEstNorm(s.estado||'nueva'), ts:s.ts||0, origen:'interno'
+      };});
+      docs.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+      _renderTallerSolLista(docs);
+    });
+}
+function _procesarSolTallerRemoto(docs){
       var t=tallerData();
       (t.solicitudes||[]).forEach(function(s){
         // Solo incluir si no existe ya en Firestore
@@ -19585,19 +19661,6 @@ function renderTallerSolicitudes(){
       });
       docs.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
       _renderTallerSolLista(docs);
-    }).catch(function(err){
-      // Fallback: solo solicitudes internas
-      var t=tallerData();
-      var docs=(t.solicitudes||[]).map(function(s){return{
-        id:s.id, empresa:S.empresa,
-        vehiculoId:s.vehiculoId, vehiculoPlaca:s.vehiculoPlaca||'',
-        motoristaNombre:s.choferNombre||s.choferId||'',
-        descripcion:s.descripcion||'', fotos:s.foto?[s.foto]:[],
-        estado:solEstNorm(s.estado||'nueva'), ts:s.ts||0, origen:'interno'
-      };});
-      docs.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
-      _renderTallerSolLista(docs);
-    });
 }
 
 function _renderTallerSolLista(docs){
@@ -19675,7 +19738,7 @@ function _renderTallerSolLista(docs){
     +'<span style="font-size:12px;color:var(--muted)">🚛 Portal motoristas:</span>'
     +'<code style="font-size:12px;background:var(--surface);padding:3px 10px;border-radius:6px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+portalUrl+'</code>'
     +'<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(\''+portalUrl+'\').then(function(){toast(\'Link copiado\')})">📋 Copiar</button>'
-    +'<button class="btn btn-secondary btn-sm" onclick="renderTallerSolicitudes()">↺ Actualizar</button>'
+    +'<button class="btn btn-secondary btn-sm" onclick="_tsCacheRemoto=null;renderTallerSolicitudes()">↺ Actualizar</button>'
     +'</div>'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
     +tabBtn('nueva','🟡 Nuevas',counts.nueva||0)
@@ -19737,6 +19800,7 @@ function tallerSolConfAsignar(solId){
       firebase.firestore().collection('solicitudesTaller').doc(solId).get().then(function(doc){
         if(doc.exists) tjCrearDesdeSolicitud(Object.assign({id:doc.id},doc.data()));
       });
+      _tsCacheRemoto=null;
       renderTallerSolicitudes();
     }).catch(function(e){toast('Error: '+e.message,true);});
 }
@@ -19747,6 +19811,7 @@ function tallerSolAvanzar(solId, nuevoEstado){
   firebase.firestore().collection('solicitudesTaller').doc(solId)
     .update({estado:nuevoEstado}).then(function(){
       toast('Estado actualizado: '+est.label);
+      _tsCacheRemoto=null;
       renderTallerSolicitudes();
     }).catch(function(e){toast('Error: '+e.message,true);});
 }
@@ -19756,6 +19821,7 @@ function tallerSolRechazar(solId){
   firebase.firestore().collection('solicitudesTaller').doc(solId)
     .update({estado:'rechazada'}).then(function(){
       toast('Solicitud rechazada');
+      _tsCacheRemoto=null;
       renderTallerSolicitudes();
     }).catch(function(e){toast('Error: '+e.message,true);});
 }
@@ -19847,6 +19913,7 @@ function solRechazar(solId){
   saveData();
   logAction('RECHAZAR','chofer_solicitud','Solicitud: '+solCatLabel(s.categoria));
   document.getElementById('modalSolDet').remove();
+  _tsCacheRemoto=null;
   renderTallerSolicitudes();
   toast('Solicitud rechazada');
 }
@@ -19910,6 +19977,7 @@ function solAprobarYCrearOT(solId){
   saveData();
   logAction('APROBAR','chofer_solicitud','Solicitud aprobada → OT-'+ot.numero);
   document.getElementById('modalSolDet').remove();
+  _tsCacheRemoto=null;
   renderTallerSolicitudes();
   toast('✓ Solicitud aprobada y OT-'+ot.numero+' creada con servicio pre-cargado');
 }
@@ -19925,6 +19993,7 @@ function solMarcarResuelta(solId){
   saveData();
   logAction('RESOLVER','chofer_solicitud','Solicitud resuelta');
   document.getElementById('modalSolDet').remove();
+  _tsCacheRemoto=null;
   renderTallerSolicitudes();
   toast('✓ Solicitud resuelta');
 }
@@ -19940,6 +20009,7 @@ function solEliminar(solId){
   saveData();
   logAction('ELIMINAR','chofer_solicitud','Solicitud '+solId.slice(0,8)+' eliminada');
   toast('✓ Solicitud eliminada');
+  _tsCacheRemoto=null;
   renderTallerSolicitudes();
 }
 
@@ -19957,6 +20027,7 @@ function solBorrarTodas(){
   saveData();
   logAction('ELIMINAR_MASIVO','chofer_solicitud',total+' solicitudes eliminadas');
   toast('✓ '+total+' solicitudes eliminadas');
+  _tsCacheRemoto=null;
   renderTallerSolicitudes();
 }
 
@@ -20005,6 +20076,9 @@ function _diasSinRevision(vehId){
 // Lee de colección Firestore 'tallerTrabajos' — no toca
 // t.ots, t.solicitudes ni t.programado
 // ══════════════════════════════════════════════════════
+var _tjCacheRemoto=null; // {solicitudesTaller:[...], tallerTrabajos:[...], ts:...}
+var _rdcCacheRemoto=null; // {docs:[...], ts:...} — cache de reportesMotoristas
+var TJ_CACHE_MS=20000;
 function renderTallerTrabajos(){
   S._activeModule='taller';
   var content=document.getElementById('content');
@@ -20063,53 +20137,63 @@ function renderTallerTrabajos(){
       vistos['sol_'+s.id]=true;
     });
 
+    function _procesarRemoto(docsSolTaller, docsTallerTrabajos){
+      docsSolTaller.forEach(function(s){
+        var est=solEstNorm(s.estado||'nueva');
+        if(est==='nueva'||est==='rechazada')return;
+        var etapa='asignado';
+        if(est==='en_proceso')etapa='en_proceso';
+        if(est==='finalizada')etapa='finalizado';
+        if(!vistos['sol_'+s._id]){
+          trabajos.push({
+            _docId:'sol_'+s._id, _local:true,
+            origen:'solicitud', solicitudId:s._id,
+            vehiculoId:s.vehiculoId||'',
+            mecanicoId:s.mecanicoId||'',
+            descripcion:s.descripcion||'Revisión solicitada por motorista',
+            etapa:etapa,
+            fechaCreacion:s.ts?localDate(new Date(s.ts)):'',
+            creadoPor:s.motoristaNombre||'Portal motorista',
+            motoristaNombre:s.motoristaNombre||'',
+            ts:s.ts||0
+          });
+        }
+      });
+      docsTallerTrabajos.forEach(function(j){
+        var yaEsta=false;
+        if(j.otId) yaEsta=trabajos.some(function(x){return x.otId===j.otId&&x._local;});
+        if(j.solicitudId) yaEsta=yaEsta||trabajos.some(function(x){return x.solicitudId===j.solicitudId&&x._local;});
+        if(!yaEsta) trabajos.push(j);
+      });
+      trabajos.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+      _renderTrabajosLista(trabajos);
+    }
+
+    // Reusar la ultima consulta remota si es reciente — antes esto se
+    // volvia a consultar (2 lecturas sin filtro de fecha, que solo crecen
+    // con el tiempo) cada vez que se repintaba esta pantalla, y eso pasa
+    // con CADA guardado de CUALQUIER persona mientras esta pestaña esta
+    // activa. Ahora, como maximo, se vuelve a consultar cada 20 segundos.
+    if(_tjCacheRemoto&&(Date.now()-_tjCacheRemoto.ts)<TJ_CACHE_MS){
+      _procesarRemoto(_tjCacheRemoto.solicitudesTaller, _tjCacheRemoto.tallerTrabajos);
+      return Promise.resolve();
+    }
+
     // 3. Solicitudes externas (Firestore solicitudesTaller) asignadas
     return firebase.firestore().collection('solicitudesTaller')
       .where('empresa','==',S.empresa)
       .get().then(function(snap){
-        snap.forEach(function(d){
-          var s=d.data();
-          var est=solEstNorm(s.estado||'nueva');
-          if(est==='nueva'||est==='rechazada')return;
-          var etapa='asignado';
-          if(est==='en_proceso')etapa='en_proceso';
-          if(est==='finalizada')etapa='finalizado';
-          if(!vistos['sol_'+d.id]){
-            trabajos.push({
-              _docId:'sol_'+d.id, _local:true,
-              origen:'solicitud', solicitudId:d.id,
-              vehiculoId:s.vehiculoId||'',
-              mecanicoId:s.mecanicoId||'',
-              descripcion:s.descripcion||'Revisión solicitada por motorista',
-              etapa:etapa,
-              fechaCreacion:s.ts?localDate(new Date(s.ts)):'',
-              creadoPor:s.motoristaNombre||'Portal motorista',
-              motoristaNombre:s.motoristaNombre||'',
-              ts:s.ts||0
-            });
-          }
-        });
-
-        // 4. Programados vencidos o próximos (solo si el mecánico los activó via tallerTrabajos)
-        // Los no activados no aparecen aquí — se activan desde la página de Programados
-
-        // Obtener también los de tallerTrabajos (los recién creados)
+        var docsSolTaller=[];
+        snap.forEach(function(d){docsSolTaller.push(Object.assign({_id:d.id},d.data()));});
+        // 4. Obtener también los de tallerTrabajos (los recién creados)
         return firebase.firestore().collection('tallerTrabajos')
           .where('empresa','==',S.empresa)
-          .get();
-      }).then(function(snapTJ){
-        // Agregar los de tallerTrabajos que no estén ya en la lista
-        snapTJ.forEach(function(d){
-          var j=Object.assign({_docId:d.id},d.data());
-          // Evitar duplicar OTs que ya están por local
-          var yaEsta=false;
-          if(j.otId) yaEsta=trabajos.some(function(x){return x.otId===j.otId&&x._local;});
-          if(j.solicitudId) yaEsta=yaEsta||trabajos.some(function(x){return x.solicitudId===j.solicitudId&&x._local;});
-          if(!yaEsta) trabajos.push(j);
-        });
-
-        trabajos.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
-        _renderTrabajosLista(trabajos);
+          .get().then(function(snapTJ){
+            var docsTallerTrabajos=[];
+            snapTJ.forEach(function(d){docsTallerTrabajos.push(Object.assign({_docId:d.id},d.data()));});
+            _tjCacheRemoto={solicitudesTaller:docsSolTaller,tallerTrabajos:docsTallerTrabajos,ts:Date.now()};
+            _procesarRemoto(docsSolTaller, docsTallerTrabajos);
+          });
       });
   }
 
@@ -20216,7 +20300,7 @@ function tjAvanzar(docId, nuevaEtapa){
       if(nuevaEtapa==='finalizado') o.fechaSalida=updates.fechaFin;
       markDirty('taller'); saveData();
       toast('✓ Estado actualizado');
-      renderTallerTrabajos();
+      _tjCacheRemoto=null; renderTallerTrabajos();
     }
     return;
   }
@@ -20226,13 +20310,13 @@ function tjAvanzar(docId, nuevaEtapa){
     // Intentar Firestore primero, luego local
     firebase.firestore().collection('solicitudesTaller').doc(solId)
       .update({estado:nuevoEst2}).then(function(){
-        toast('✓ Estado actualizado'); renderTallerTrabajos();
+        toast('✓ Estado actualizado'); _tjCacheRemoto=null; renderTallerTrabajos();
       }).catch(function(){
         // Fallback a local
         var t2=tallerData();
         var s=(t2.solicitudes||[]).find(function(x){return x.id===solId;});
         if(s){s.estado=nuevoEst2; markDirty('taller'); saveData();}
-        toast('✓ Estado actualizado'); renderTallerTrabajos();
+        toast('✓ Estado actualizado'); _tjCacheRemoto=null; renderTallerTrabajos();
       });
     return;
   }
@@ -20241,7 +20325,7 @@ function tjAvanzar(docId, nuevaEtapa){
   firebase.firestore().collection('tallerTrabajos').doc(docId)
     .update(updates).then(function(){
       toast('✓ Estado actualizado');
-      renderTallerTrabajos();
+      _tjCacheRemoto=null; renderTallerTrabajos();
     }).catch(function(e){toast('Error: '+e.message,true);});
 }
 
@@ -20274,7 +20358,7 @@ function tjAsignarMec(docId, mecId){
 function tjEliminar(docId){
   if(!confirm('¿Eliminar este trabajo de la lista?'))return;
   firebase.firestore().collection('tallerTrabajos').doc(docId)
-    .delete().then(function(){toast('Eliminado');renderTallerTrabajos();})
+    .delete().then(function(){toast('Eliminado');_tjCacheRemoto=null;renderTallerTrabajos();})
     .catch(function(e){toast('Error: '+e.message,true);});
 }
 
@@ -20380,6 +20464,7 @@ function tjGuardarNuevo(){
   }).then(function(){
     closeModal('modalGenerico');
     toast('✓ Trabajo creado');
+    _tjCacheRemoto=null;
     renderTallerTrabajos();
   }).catch(function(e){toast('Error: '+e.message,true);});
 }
@@ -20835,20 +20920,7 @@ function renderTallerReportesChoferes(){
   });
 
   // Cargar también de Firestore (portal motoristas)
-  firebase.firestore().collection('reportesMotoristas')
-    .where('empresa','==',S.empresa)
-    .get().then(function(snap){
-      var repFirestore=[];
-      snap.forEach(function(d){
-        var r=d.data();
-        repFirestore.push({
-          id:r.id||d.id, vehiculoId:r.vehiculoId, vehiculoPlaca:r.vehiculoPlaca||'',
-          motoristaNombre:r.motoristaNombre||'', fecha:r.fecha||(r.ts?localDate(new Date(r.ts)):''),
-          kmOdometro:r.kmOdometro||0, kmRecorridos:r.kmRecorridos||0,
-          galonesCargados:r.galonesCargados||0, costoGasolina:r.costoGasolina||0,
-          novedad:r.novedad||'', origen:'portal'
-        });
-      });
+  var _procesarReportesRemoto=function(repFirestore){
       // Unir ambas fuentes. Firestore (portal) tiene prioridad sobre el
       // local legacy, EXCEPTO cuando el local es una correccion hecha por
       // un administrador: en ese caso manda la correccion, o el km
@@ -20881,6 +20953,34 @@ function renderTallerReportesChoferes(){
       // todos los del portal, que son la mayoria.
       S._rdcVisibles=todosRep;
       _renderReportesChoferes(todosRep);
+  };
+
+  // Reusar la ultima consulta remota si es reciente — antes esto se
+  // volvia a consultar (sin filtro de fecha, crece para siempre) cada vez
+  // que se repintaba esta pantalla, y eso pasa con CADA guardado de
+  // CUALQUIER persona mientras esta pestaña esta activa. Ahora, como
+  // maximo, se vuelve a consultar cada 20 segundos.
+  if(_rdcCacheRemoto&&(Date.now()-_rdcCacheRemoto.ts)<TJ_CACHE_MS){
+    _procesarReportesRemoto(_rdcCacheRemoto.docs);
+    return;
+  }
+
+  firebase.firestore().collection('reportesMotoristas')
+    .where('empresa','==',S.empresa)
+    .get().then(function(snap){
+      var repFirestore=[];
+      snap.forEach(function(d){
+        var r=d.data();
+        repFirestore.push({
+          id:r.id||d.id, vehiculoId:r.vehiculoId, vehiculoPlaca:r.vehiculoPlaca||'',
+          motoristaNombre:r.motoristaNombre||'', fecha:r.fecha||(r.ts?localDate(new Date(r.ts)):''),
+          kmOdometro:r.kmOdometro||0, kmRecorridos:r.kmRecorridos||0,
+          galonesCargados:r.galonesCargados||0, costoGasolina:r.costoGasolina||0,
+          novedad:r.novedad||'', origen:'portal'
+        });
+      });
+      _rdcCacheRemoto={docs:repFirestore,ts:Date.now()};
+      _procesarReportesRemoto(repFirestore);
     }).catch(function(err){
       console.error('[ReportesMotoristas] Firestore error:', err);
       // Si falla Firestore, mostrar locales con aviso

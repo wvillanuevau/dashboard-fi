@@ -2662,8 +2662,14 @@ function paAfterAuth() {
         paUpdateDash();
         // Cargar notificaciones de dispositivo
         setTimeout(_paCargarNotificaciones, 600);
-        // Cargar ausencias del período para resumen
-        setTimeout(_paCargarAusenciasPeriodo, 800);
+        // _paCargarAusenciasPeriodo() se ELIMINO de aqui — ya se llama
+        // correctamente desde paAdminHoy() y paAdminEmps(), las UNICAS
+        // dos pantallas que usan ese dato (ambas exclusivas de admin).
+        // Dispararla en el login de CADA empleado normal era desperdicio
+        // puro: leia todas las marcaciones de TODA la empresa para la
+        // quincena actual — el propio codigo la señalaba como "la mayor
+        // fuente de consumo de cuota de lectura del sistema" — para un
+        // dato que un empleado normal nunca iba a ver.
         // Verificar compensatorios de fin de semana (solo admin)
         setTimeout(_paCheckCompensatorioFDS, 1500);
         paShow('scDash');
@@ -3581,12 +3587,30 @@ function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
   var _empAR = (PA.empleados||[]).find(function(e){ return e.id === empId; });
   if (_empAR && _empAR.activo === false) { if (typeof callback === 'function') callback(null); return; }
 
-  // Buscar en marcaciones locales primero
-  var mEntrada = PA.marcacionesHoy.find(function(m){ return m.tipo === entradaTipo && m.fecha === hoy; });
+  // Buscar en marcaciones locales primero. Un turno que cruza la
+  // medianoche (entra de noche, sale de madrugada — el caso tipico de
+  // horas extra nocturnas) tiene su ENTRADA fechada el dia calendario
+  // ANTERIOR a la salida. Antes esta busqueda solo miraba `hoy` (la
+  // fecha de la salida), asi que para estos turnos nunca encontraba la
+  // entrada — ni aqui ni en el respaldo de Firestore mas abajo, que
+  // tenia el mismo error — y el sistema se rendia en silencio sin crear
+  // ningun registro de hora extra para todo el turno.
+  var _diaAntesHoy = (function(){
+    var d = new Date(hoy + 'T12:00:00');
+    d.setDate(d.getDate() - 1);
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  })();
+  var mEntrada = PA.marcacionesHoy.find(function(m){ return m.tipo === entradaTipo && m.fecha === hoy; })
+              || PA.marcacionesHoy.find(function(m){ return m.tipo === entradaTipo && m.fecha === _diaAntesHoy; });
 
-  var registrar = function(entradaTs) {
-    // _empAR es el dueno de la marcacion (no la sesion del dispositivo)
-    var calc = paCalcularHorasExtra(entradaTs, salidaDocData.ts, hoy, null, _empAR || null);
+  var registrar = function(entradaTs, fechaEntradaReal) {
+    // Usar el dia en que EMPEZO el turno para el horario/dia de la semana
+    // — no el dia de la salida. Un turno que cruza la medianoche (viernes
+    // de noche a sabado de madrugada) debe clasificarse con el horario
+    // del viernes, no con el del sabado (que puede ser distinto o mas
+    // corto), o el calculo de horas extra sale mal aunque la entrada ya
+    // se haya encontrado bien.
+    var calc = paCalcularHorasExtra(entradaTs, salidaDocData.ts, fechaEntradaReal || hoy, null, _empAR || null);
 
     // ── Amonestación en la 4ª tardanza de la quincena ────────────────
     // La llegada tarde siempre cuenta, sin exención por horas extra.
@@ -3765,21 +3789,25 @@ function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
 
   if (mEntrada) {
     // Normalizar ts antes de calcular HE (puede ser Firestore Timestamp)
-    registrar(_paToMs(mEntrada.ts));
+    registrar(_paToMs(mEntrada.ts), mEntrada.fecha);
   } else {
-    // Single WHERE para evitar índice compuesto; filtrar cliente por empresa/fecha/tipo
+    // Single WHERE para evitar índice compuesto; filtrar cliente por empresa/fecha/tipo.
+    // Igual que la busqueda local: la entrada puede estar fechada hoy o
+    // el dia calendario anterior (turno que cruza la medianoche).
     paDb.collection('paMarcaciones')
       .where('empleadoId', '==', empId)
       .get().then(function(snap) {
         var entradaDoc = null;
+        var entradaDocPrevio = null;
         snap.forEach(function(d) {
           var r = d.data();
-          if (r.empresa === PA.empresa && r.fecha === hoy && r.tipo === 'entrada') {
-            entradaDoc = r;
-          }
+          if (r.empresa !== PA.empresa || r.tipo !== 'entrada') return;
+          if (r.fecha === hoy) entradaDoc = r;
+          else if (r.fecha === _diaAntesHoy) entradaDocPrevio = r;
         });
-        if (entradaDoc) {
-          registrar(_paToMs(entradaDoc.ts));
+        var elegida = entradaDoc || entradaDocPrevio;
+        if (elegida) {
+          registrar(_paToMs(elegida.ts), elegida.fecha);
         } else {
           if (callback) callback(null);
         }
@@ -10422,10 +10450,16 @@ function paGenerarReporte() {
   if (!rcontent) return;
   rcontent.innerHTML = '<div class="spinner"></div>';
 
-  // Cargar horas extra Y marcaciones del período
+  // Cargar horas extra Y marcaciones del período — acotado por fecha en
+  // la propia consulta. Antes traia TODO el historial de la empresa
+  // (meses de marcaciones y horas extra de todos los empleados) y
+  // filtraba el rango deseado despues, en el navegador — un solo clic
+  // en "Generar" podia costar miles de lecturas.
   Promise.all([
-    paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).get(),
-    paDb.collection('paMarcaciones').where('empresa','==',PA.empresa).get(),
+    paDb.collection('paHorasExtra').where('empresa','==',PA.empresa)
+      .where('fecha','>=',desde).where('fecha','<=',hasta).get(),
+    paDb.collection('paMarcaciones').where('empresa','==',PA.empresa)
+      .where('fecha','>=',desde).where('fecha','<=',hasta).get(),
     paDb.collection('paCanjes').where('empresa','==',PA.empresa).get()
   ]).then(function(results) {
     var snapHE = results[0], snapM = results[1], snapCanjes = results[2];
@@ -11535,7 +11569,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-09-03-A';
+var PA_VERSION = 'v2026-09-09-C';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);

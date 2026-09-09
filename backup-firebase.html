@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Backup Firebase — Dashboard FI</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #111928;
+    --surface2: #1a2436;
+    --border: #1e2d42;
+    --text: #e4e2dd;
+    --muted: #6b7a90;
+    --accent: #4ea8de;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --red: #f85149;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Courier New', monospace;
+    min-height: 100vh;
+    padding: 32px 16px;
+  }
+  .container { max-width: 680px; margin: 0 auto; }
+
+  .header {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+  .header h1 {
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: .04em;
+  }
+  .header p {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 6px;
+  }
+  .badge {
+    display: inline-block;
+    background: rgba(78,168,222,.12);
+    border: 1px solid rgba(78,168,222,.25);
+    color: var(--accent);
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    margin-top: 10px;
+    letter-spacing: .06em;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+
+  label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 5px; }
+  input[type="email"], input[type="password"] {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 14px;
+    padding: 10px 12px;
+    outline: none;
+    transition: border-color .2s;
+    margin-bottom: 12px;
+  }
+  input:focus { border-color: var(--accent); }
+
+  .btn {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity .15s;
+    letter-spacing: .02em;
+  }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #000; }
+  .btn-green { background: var(--green); color: #000; }
+  .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+
+  #loginErr {
+    color: var(--red);
+    font-size: 12px;
+    margin-top: 8px;
+    min-height: 16px;
+  }
+
+  .col-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .col-item {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .col-item .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex-shrink: 0;
+    transition: background .3s;
+  }
+  .col-item.ok .dot { background: var(--green); }
+  .col-item.err .dot { background: var(--red); }
+  .col-item.loading .dot { background: var(--yellow); animation: pulse .8s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  .col-count {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  #logBox {
+    background: #080d14;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 12px;
+    line-height: 1.7;
+    max-height: 200px;
+    overflow-y: auto;
+    color: #7ec8e3;
+  }
+  .log-ok { color: var(--green); }
+  .log-err { color: var(--red); }
+  .log-warn { color: var(--yellow); }
+  .log-info { color: #7ec8e3; }
+
+  .progress-bar {
+    height: 4px;
+    background: var(--border);
+    border-radius: 4px;
+    margin: 12px 0;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 4px;
+    transition: width .3s;
+    width: 0%;
+  }
+
+  .summary {
+    display: grid;
+    grid-template-columns: repeat(3,1fr);
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .summary-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+  }
+  .summary-num { font-size: 22px; font-weight: 700; color: #fff; }
+  .summary-lbl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  #step-login { display: block; }
+  #step-backup { display: none; }
+  #step-done { display: none; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>🗄️ Backup Firebase</h1>
+    <p>Dashboard FI — pf-construccion</p>
+    <span class="badge">SOLO LECTURA — nunca escribe</span>
+  </div>
+
+  <!-- STEP 1: Login -->
+  <div id="step-login">
+    <div class="card">
+      <div class="card-title">🔐 Autenticación</div>
+      <label>Email administrador</label>
+      <input type="email" id="loginEmail" placeholder="admin@empresa.com" />
+      <label>Contraseña</label>
+      <input type="password" id="loginPass" placeholder="••••••••" />
+      <button class="btn btn-primary" onclick="doLogin()">Iniciar sesión y preparar backup</button>
+      <div id="loginErr"></div>
+    </div>
+  </div>
+
+  <!-- STEP 2: Backup en progreso -->
+  <div id="step-backup">
+    <div class="card">
+      <div class="card-title">📦 Colecciones a respaldar</div>
+      <div class="col-list" id="colList"></div>
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+      <div id="logBox"></div>
+      <div style="margin-top:14px">
+        <button class="btn btn-green" id="btnDescargar" onclick="descargarBackup()" disabled>
+          ⬇️ Descargar backup JSON
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 3: Listo -->
+  <div id="step-done">
+    <div class="card">
+      <div class="card-title">✅ Backup completado</div>
+      <div class="summary" id="summaryBox"></div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6">
+        El archivo JSON contiene todos tus datos. Guárdalo en Google Drive, USB o donde prefieras.<br>
+        Para restaurar: abre una conversación con Claude y adjunta este archivo.
+      </p>
+      <button class="btn btn-green" onclick="descargarBackup()">⬇️ Descargar de nuevo</button>
+      <button class="btn btn-secondary" style="margin-top:8px" onclick="location.reload()">🔄 Nuevo backup</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+
+<script>
+firebase.initializeApp({
+  apiKey: "AIzaSyC0R7573cB76FzC6qPZhLmvKhVT46PN3RM",
+  authDomain: "pf-construccion.firebaseapp.com",
+  projectId: "pf-construccion",
+  storageBucket: "pf-construccion.firebasestorage.app",
+  messagingSenderId: "768666711160",
+  appId: "1:768666711160:web:11dfd8cf50ab19dddc298d"
+});
+
+var db   = firebase.firestore();
+var auth = firebase.auth();
+
+// Colecciones a respaldar
+var COLECCIONES = [
+  { id: 'empresas',           label: 'empresas' },
+  { id: 'gastos_chunks',      label: 'gastos_chunks' },
+  { id: 'comprobantes',       label: 'comprobantes' },
+  { id: 'portalesPublicos',   label: 'portalesPublicos' },
+  { id: 'reportesMotoristas', label: 'reportesMotoristas' },
+  { id: 'solicitudesTaller',  label: 'solicitudesTaller' },
+  { id: 'solicitudesMant',    label: 'solicitudesMant' },
+  { id: 'tallerTrabajos',     label: 'tallerTrabajos' },
+  { id: 'tecActualizaciones', label: 'tecActualizaciones' },
+  { id: 'usuariosApp',        label: 'usuariosApp' },
+  { id: 'paPins',             label: 'paPins' },
+  { id: 'paMarcaciones',      label: 'paMarcaciones' },
+  { id: 'paHorasExtra',       label: 'paHorasExtra' },
+  { id: 'paCanjes',           label: 'paCanjes' },
+  { id: 'paVacaciones',       label: 'paVacaciones' },
+  { id: 'paConfig',           label: 'paConfig' },
+  { id: 'paIncapacidades',    label: 'paIncapacidades' },
+  { id: '_config',            label: '_config' },
+  { id: '_empresas',          label: '_empresas' },
+  { id: 'logs',               label: 'logs' },
+];
+
+var _backupData = null;
+var _totalDocs  = 0;
+var _totalCols  = 0;
+
+function log(msg, tipo) {
+  var box = document.getElementById('logBox');
+  if(!box) return;
+  var line = document.createElement('div');
+  line.className = 'log-' + (tipo||'info');
+  var ts = new Date().toLocaleTimeString('es-SV');
+  line.textContent = '[' + ts + '] ' + msg;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+
+function setColState(colId, estado, count) {
+  var el = document.getElementById('col-' + colId);
+  if(!el) return;
+  el.className = 'col-item ' + estado;
+  if(count !== undefined) {
+    var countEl = el.querySelector('.col-count');
+    if(countEl) countEl.textContent = count + ' docs';
+  }
+}
+
+function setProgress(pct) {
+  var el = document.getElementById('progressFill');
+  if(el) el.style.width = pct + '%';
+}
+
+function doLogin() {
+  var email = (document.getElementById('loginEmail').value||'').trim();
+  var pass  = (document.getElementById('loginPass').value||'').trim();
+  var errEl = document.getElementById('loginErr');
+  errEl.textContent = '';
+  if(!email || !pass) { errEl.textContent = 'Ingresa email y contraseña'; return; }
+
+  var btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'Verificando...';
+
+  auth.signInWithEmailAndPassword(email, pass).then(function() {
+    log('✓ Sesión iniciada como ' + email, 'ok');
+    mostrarPanelBackup();
+    iniciarBackup();
+  }).catch(function(e) {
+    errEl.textContent = 'Error: ' + e.message;
+    btn.disabled = false;
+    btn.textContent = 'Iniciar sesión y preparar backup';
+  });
+}
+
+function mostrarPanelBackup() {
+  document.getElementById('step-login').style.display = 'none';
+  document.getElementById('step-backup').style.display = 'block';
+
+  var list = document.getElementById('colList');
+  list.innerHTML = '';
+  COLECCIONES.forEach(function(c) {
+    var div = document.createElement('div');
+    div.className = 'col-item';
+    div.id = 'col-' + c.id;
+    div.innerHTML = '<span class="dot"></span><span>' + c.label + '</span><span class="col-count"></span>';
+    list.appendChild(div);
+  });
+}
+
+function iniciarBackup() {
+  log('Iniciando backup de ' + COLECCIONES.length + ' colecciones...', 'info');
+  _backupData = {
+    meta: {
+      fecha: new Date().toISOString(),
+      proyecto: 'pf-construccion',
+      generadoPor: 'backup-firebase.html',
+      totalColecciones: COLECCIONES.length
+    },
+    datos: {}
+  };
+
+  var total = COLECCIONES.length;
+  var completadas = 0;
+  _totalDocs = 0;
+  _totalCols = 0;
+
+  // Procesar en serie para no saturar Firestore
+  function procesarSiguiente(i) {
+    if(i >= COLECCIONES.length) {
+      // Todas listas
+      _backupData.meta.totalDocumentos = _totalDocs;
+      _backupData.meta.coleccionesExitosas = _totalCols;
+
+      log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'info');
+      log('✓ Backup completado: ' + _totalDocs + ' documentos en ' + _totalCols + ' colecciones', 'ok');
+      setProgress(100);
+
+      document.getElementById('btnDescargar').disabled = false;
+      mostrarResumen();
+      return;
+    }
+
+    var col = COLECCIONES[i];
+    setColState(col.id, 'loading');
+    setProgress(Math.round((i / total) * 95));
+
+    // gastos_chunks vive DENTRO de cada empresa (empresas/{empresa}/gastos_chunks),
+    // no es una coleccion de nivel superior. Una consulta de "grupo de
+    // colecciones" (collectionGroup) encontraria esto, pero Firestore exige
+    // una regla de seguridad aparte para ese tipo de consulta — con la
+    // cuenta normal de la app, sin esa regla, da "permission denied" en
+    // silencio dentro del backup (sin tumbar la herramienta), pareciendo
+    // que la coleccion esta vacia. En vez de pedir tocar las reglas de
+    // seguridad, se recorre cada empresa (ya se leyeron primero, arriba en
+    // esta misma lista) por su ruta normal — el mismo acceso que el
+    // sistema ya usa todos los dias para leer y escribir sus propios gastos.
+    if(col.id === 'gastos_chunks') {
+      var empresasIds = Object.keys((_backupData.datos && _backupData.datos.empresas) || {});
+      var docs = {};
+      var count = 0;
+      var pendientes = empresasIds.length;
+      if(pendientes === 0) {
+        _backupData.datos[col.id] = docs;
+        setColState(col.id, 'ok', 0);
+        log('✓ ' + col.label + ' — 0 docs (no hay empresas para recorrer)', 'ok');
+        completadas++;
+        procesarSiguiente(i + 1);
+        return;
+      }
+      empresasIds.forEach(function(empId) {
+        db.collection('empresas').doc(empId).collection('gastos_chunks').get()
+          .then(function(subSnap) {
+            subSnap.forEach(function(d) {
+              docs[empId + '/gastos_chunks/' + d.id] = d.data();
+              count++;
+            });
+          })
+          .catch(function(errSub) {
+            log('  ⚠ gastos_chunks de "' + empId + '": ' + errSub.message, 'warn');
+          })
+          .then(function() {
+            pendientes--;
+            if(pendientes === 0) {
+              _backupData.datos[col.id] = docs;
+              _totalDocs += count;
+              _totalCols++;
+              setColState(col.id, 'ok', count);
+              log('✓ ' + col.label + ' — ' + count + ' docs (' + empresasIds.length + ' empresas recorridas)', 'ok');
+              completadas++;
+              procesarSiguiente(i + 1);
+            }
+          });
+      });
+      return;
+    }
+
+    db.collection(col.id).get().then(function(snap) {
+      var docs = {};
+      snap.forEach(function(d) { docs[d.id] = d.data(); });
+      var count = snap.size;
+      _backupData.datos[col.id] = docs;
+      _totalDocs += count;
+      _totalCols++;
+      setColState(col.id, 'ok', count);
+      log('✓ ' + col.label + ' — ' + count + ' docs', 'ok');
+      completadas++;
+      procesarSiguiente(i + 1);
+    }).catch(function(err) {
+      setColState(col.id, 'err', 0);
+      log('✗ ' + col.label + ' — ' + err.message, 'err');
+      _backupData.datos[col.id] = { _error: err.message };
+      completadas++;
+      procesarSiguiente(i + 1);
+    });
+  }
+
+  procesarSiguiente(0);
+}
+
+function mostrarResumen() {
+  document.getElementById('step-backup').style.display = 'none';
+  document.getElementById('step-done').style.display = 'block';
+
+  var meta = _backupData.meta;
+  var fecha = new Date(meta.fecha).toLocaleString('es-SV');
+  var kb = Math.round(JSON.stringify(_backupData).length / 1024);
+
+  document.getElementById('summaryBox').innerHTML =
+    '<div class="summary-box"><div class="summary-num">' + meta.totalDocumentos + '</div><div class="summary-lbl">Documentos</div></div>'
+    +'<div class="summary-box"><div class="summary-num">' + meta.coleccionesExitosas + '</div><div class="summary-lbl">Colecciones</div></div>'
+    +'<div class="summary-box"><div class="summary-num">' + kb + ' KB</div><div class="summary-lbl">Tamaño</div></div>';
+}
+
+function descargarBackup() {
+  if(!_backupData) { alert('No hay datos para descargar'); return; }
+  var fecha = new Date().toISOString().slice(0,10);
+  var nombre = 'backup-dashboard-fi-' + fecha + '.json';
+  var json   = JSON.stringify(_backupData, null, 2);
+  var blob   = new Blob([json], { type: 'application/json' });
+  var url    = URL.createObjectURL(blob);
+  var a      = document.createElement('a');
+  a.href     = url;
+  a.download = nombre;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// Enter en campos de login
+document.addEventListener('keydown', function(e) {
+  if(e.key === 'Enter') {
+    var step = document.getElementById('step-login');
+    if(step && step.style.display !== 'none') doLogin();
+  }
+});
+</script>
+</body>
+</html>
