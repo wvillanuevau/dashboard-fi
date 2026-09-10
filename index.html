@@ -81,10 +81,8 @@
 
     function _colDeQuery(q){
       try{
-        if(q && q.id) return q.id; // CollectionReference expone .id
-        if(q && q._query && q._query.path && q._query.path.segments){
-          return q._query.path.segments.join('/');
-        }
+        if(q && q.__fsColeccion) return q.__fsColeccion; // etiquetada por la propagacion de abajo
+        if(q && q.id) return q.id; // CollectionReference expone .id directamente
       }catch(e){}
       return 'coleccion?';
     }
@@ -95,6 +93,27 @@
     var QP = firebase.firestore.Query.prototype;
     var DP = firebase.firestore.DocumentReference.prototype;
     var CP = firebase.firestore.CollectionReference.prototype;
+
+    // Propagar el nombre de coleccion a traves de la cadena de metodos que
+    // devuelven un nuevo Query (.where().where().limit()...). Antes se
+    // intentaba leer la estructura INTERNA no documentada de la SDK
+    // (q._query.path.segments), que no coincidia con esta version — asi
+    // que cualquier consulta con mas de un .where() encadenado mostraba
+    // 'coleccion?' en vez del nombre real. Ahora se marca el objeto desde
+    // que se crea (una CollectionReference ya trae .id) y ese nombre
+    // viaja con cada metodo encadenado subsiguiente.
+    ['where','limit','limitToLast','orderBy','startAt','startAfter','endAt','endBefore','offset'].forEach(function(metodo){
+      var _orig = QP[metodo];
+      if(typeof _orig !== 'function') return;
+      QP[metodo] = function(){
+        var colConocida = this.__fsColeccion || this.id;
+        var resultado = _orig.apply(this, arguments);
+        if(colConocida && resultado && typeof resultado==='object'){
+          try{ resultado.__fsColeccion = colConocida; }catch(e){}
+        }
+        return resultado;
+      };
+    });
 
     var _origQGet = QP.get;
     QP.get = function(){
@@ -1948,7 +1967,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-09-10-A'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-09-10-B'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
