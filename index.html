@@ -21,6 +21,163 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 <script>
+// ═══════════════════════════════════════════════════════════════════
+// INSTRUMENTO DE DIAGNOSTICO DE FIRESTORE — cuenta lecturas/escrituras
+// reales, identifica que funcion las dispara, y a que hora. Se instala
+// sobre los PROTOTIPOS de la SDK antes de crear cualquier instancia,
+// asi que captura todo automaticamente sin tocar cada llamada una por
+// una — incluye cosas que una revision manual del codigo podria pasar
+// por alto. Consultable desde la consola del navegador (F12):
+//   verLecturasFirestore()   → tabla agregada, ordenada por mas frecuente
+//   verLogFirestore(50)      → las ultimas 50 operaciones, con hora exacta
+//   limpiarStatsFirestore()  → reinicia los contadores (util antes de
+//                              reproducir un escenario especifico)
+// No cambia el comportamiento de la app — solo observa. Si algo falla
+// al instalarlo, se queda callado y la app sigue funcionando normal.
+(function(){
+  try{
+    if(!window.firebase || !firebase.firestore || firebase.firestore.__monitorInstalado) return;
+    firebase.firestore.__monitorInstalado = true;
+
+    var _fsLog = [];
+    var _fsStats = {};
+    var MAX_LOG = 800;
+
+    function _origenDesdeStack(){
+      try{
+        var stack = new Error().stack || '';
+        var lineas = stack.split('\n');
+        for(var i=2; i<lineas.length && i<14; i++){
+          var l = lineas[i];
+          if(!l) continue;
+          if(l.indexOf('__monitorInstalado')>=0) continue;
+          var m = l.match(/at\s+([A-Za-z0-9_$.<>]+)\s*\(/);
+          if(m && m[1]){
+            var nombre = m[1];
+            if(nombre.indexOf('Query.')===0 || nombre.indexOf('DocumentReference.')===0 ||
+               nombre.indexOf('CollectionReference.')===0 || nombre==='<anonymous>') continue;
+            return nombre;
+          }
+        }
+        return (lineas[3]||'?').trim().slice(0,90);
+      }catch(e){ return '?'; }
+    }
+
+    function _registrar(tipo, coleccion, origen, nDocs){
+      var ahora = new Date();
+      var entrada = {
+        hora: ahora.toLocaleTimeString('es-SV',{hour12:false})+'.'+String(ahora.getMilliseconds()).padStart(3,'0'),
+        tipo: tipo, coleccion: coleccion, origen: origen, docs: nDocs||0
+      };
+      _fsLog.push(entrada);
+      if(_fsLog.length > MAX_LOG) _fsLog.shift();
+      var firma = tipo+'|'+coleccion+'|'+origen;
+      if(!_fsStats[firma]){
+        _fsStats[firma] = {tipo:tipo,coleccion:coleccion,origen:origen,veces:0,docsTotales:0,primeraVez:entrada.hora,ultimaVez:entrada.hora};
+      }
+      var s = _fsStats[firma];
+      s.veces++; s.ultimaVez = entrada.hora; s.docsTotales += (nDocs||0);
+    }
+
+    function _colDeQuery(q){
+      try{
+        if(q && q.id) return q.id; // CollectionReference expone .id
+        if(q && q._query && q._query.path && q._query.path.segments){
+          return q._query.path.segments.join('/');
+        }
+      }catch(e){}
+      return 'coleccion?';
+    }
+    function _colDeDoc(ref){
+      try{ return (ref.parent && ref.parent.id) || 'doc?'; }catch(e){ return 'doc?'; }
+    }
+
+    var QP = firebase.firestore.Query.prototype;
+    var DP = firebase.firestore.DocumentReference.prototype;
+    var CP = firebase.firestore.CollectionReference.prototype;
+
+    var _origQGet = QP.get;
+    QP.get = function(){
+      var origen=_origenDesdeStack(), col=_colDeQuery(this);
+      return _origQGet.apply(this,arguments).then(function(snap){
+        _registrar('GET', col, origen, snap.size); return snap;
+      }).catch(function(err){ _registrar('GET-ERROR', col, origen, 0); throw err; });
+    };
+
+    var _origDGet = DP.get;
+    DP.get = function(){
+      var origen=_origenDesdeStack(), col=_colDeDoc(this);
+      return _origDGet.apply(this,arguments).then(function(doc){
+        _registrar('GET-DOC', col, origen, 1); return doc;
+      }).catch(function(err){ _registrar('GET-DOC-ERROR', col, origen, 0); throw err; });
+    };
+
+    [[QP,false],[DP,true]].forEach(function(par){
+      var proto=par[0], esDoc=par[1];
+      var _origOn = proto.onSnapshot;
+      proto.onSnapshot = function(){
+        var origen=_origenDesdeStack();
+        var col = esDoc ? _colDeDoc(this) : _colDeQuery(this);
+        _registrar('LISTEN-INICIO', col, origen, 0);
+        var args=Array.prototype.slice.call(arguments), envuelto=false;
+        for(var i=0;i<args.length;i++){
+          if(typeof args[i]==='function' && !envuelto){
+            var original=args[i];
+            args[i]=function(snap){
+              var n=(snap&&typeof snap.size==='number')?snap.size:((snap&&snap.exists)?1:0);
+              _registrar('LISTEN-EVENTO', col, origen, n);
+              return original.apply(this,arguments);
+            };
+            envuelto=true;
+          }
+        }
+        return _origOn.apply(this,args);
+      };
+    });
+
+    ['set','update','delete'].forEach(function(metodo){
+      var _orig=DP[metodo];
+      DP[metodo]=function(){
+        var origen=_origenDesdeStack(), col=_colDeDoc(this), args=arguments;
+        return _orig.apply(this,args).then(function(r){
+          _registrar('WRITE-'+metodo.toUpperCase(), col, origen, 1); return r;
+        }).catch(function(err){ _registrar('WRITE-'+metodo.toUpperCase()+'-ERROR', col, origen, 0); throw err; });
+      };
+    });
+    var _origAdd = CP.add;
+    CP.add = function(){
+      var origen=_origenDesdeStack(), col=this.id||'coleccion?';
+      return _origAdd.apply(this,arguments).then(function(ref){
+        _registrar('WRITE-ADD', col, origen, 1); return ref;
+      }).catch(function(err){ _registrar('WRITE-ADD-ERROR', col, origen, 0); throw err; });
+    };
+
+    window.verLecturasFirestore = function(){
+      var filas = Object.keys(_fsStats).map(function(k){return _fsStats[k];});
+      filas.sort(function(a,b){ return b.veces - a.veces; });
+      console.table(filas);
+      var totalGet = filas.filter(function(f){return f.tipo==='GET'||f.tipo==='GET-DOC';})
+                          .reduce(function(s,f){return s+f.docsTotales;},0);
+      var totalListen = filas.filter(function(f){return f.tipo==='LISTEN-EVENTO';})
+                          .reduce(function(s,f){return s+f.docsTotales;},0);
+      console.log('%cTotal documentos leidos via GET: '+totalGet+' | via LISTEN: '+totalListen, 'font-weight:bold');
+      return filas;
+    };
+    window.verLogFirestore = function(n){
+      n = n||50;
+      var ultimos = _fsLog.slice(-n);
+      console.table(ultimos);
+      return ultimos;
+    };
+    window.limpiarStatsFirestore = function(){
+      _fsLog.length=0; Object.keys(_fsStats).forEach(function(k){delete _fsStats[k];});
+      console.log('[FSMonitor] Estadisticas limpiadas.');
+    };
+    console.log('%c[FSMonitor] Activo — usa verLecturasFirestore() o verLogFirestore() en la consola para ver el detalle de lecturas/escrituras.', 'color:#3b82f6;font-weight:bold');
+  }catch(e){ console.warn('[FSMonitor] No se pudo instalar:', e.message); }
+})();
+</script>
+<script>
 const _fbApp=firebase.initializeApp({
   apiKey:"AIzaSyC0R7573cB76FzC6qPZhLmvKhVT46PN3RM",
   authDomain:"pf-construccion.firebaseapp.com",
@@ -1791,7 +1948,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-09-09-C'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-09-10-A'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);

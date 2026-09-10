@@ -622,7 +622,7 @@ function addDays(dateStr,days){
 function escapeAttr(s){ return String(s).replace(/"/g,"&quot;"); }
 function escapeHtml(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 
-var CRONO_VERSION = 'v2026-09-08-A'; // Actualizar en cada entrega
+var CRONO_VERSION = 'v2026-09-10-A'; // Actualizar en cada entrega
 
 var STATE = {
   activeProjectId: "p1",
@@ -748,22 +748,44 @@ function resetFechas(){
 function recalcularFechas(){
   var p=currentProject();
   var start = p.inicio || todayStr();
-  p.actividades.forEach(function(a){
-    var maxDepEnd = start;
-    a.dep.forEach(function(depId){
-      var depAct = p.actividades.find(function(x){return x.id===depId;});
-      if(depAct && depAct.fin && depAct.fin > maxDepEnd) maxDepEnd = depAct.fin;
+  // Antes esto hacia UNA sola pasada en el orden del arreglo — si la
+  // actividad B (que depende de A) aparecia ANTES que A en la lista
+  // (facil que pase: se creo B primero y despues se le agrego A como
+  // dependencia, o el usuario reordeno actividades), B se calculaba con
+  // la fecha de fin VIEJA de A, todavia no recalculada en esa misma
+  // pasada — dando una fecha de inicio incorrecta para B. Repetir el
+  // calculo hasta que se estabiliza garantiza el resultado correcto sin
+  // importar el orden del arreglo. El limite de vueltas (numero de
+  // actividades + 2) tambien evita quedarse pegado si hay una
+  // dependencia circular (A depende de B y B depende de A, un error del
+  // usuario) — en ese caso el calculo simplemente se detiene con lo
+  // ultimo que logro estabilizar, en vez de repetir para siempre.
+  var maxVueltas = p.actividades.length + 2;
+  for(var vuelta=0; vuelta<maxVueltas; vuelta++){
+    var huboCambio = false;
+    p.actividades.forEach(function(a){
+      var maxDepEnd = start;
+      a.dep.forEach(function(depId){
+        var depAct = p.actividades.find(function(x){return x.id===depId;});
+        if(depAct && depAct.fin && depAct.fin > maxDepEnd) maxDepEnd = depAct.fin;
+      });
+      // Fecha anclada manualmente (📌): se respeta el inicio que el usuario
+      // fijó; solo se recalcula su fin según la duración. Las automáticas
+      // siguen la cascada de dependencias como siempre.
+      var nuevoInicio, nuevoFin;
+      if(a.fijo && a.inicio){
+        nuevoInicio = a.inicio;
+        nuevoFin = addDays(a.inicio, a.dur);
+      } else {
+        nuevoInicio = maxDepEnd;
+        nuevoFin = addDays(maxDepEnd, a.dur);
+      }
+      if(nuevoInicio!==a.inicio || nuevoFin!==a.fin) huboCambio=true;
+      a.inicio = nuevoInicio;
+      a.fin = nuevoFin;
     });
-    // Fecha anclada manualmente (📌): se respeta el inicio que el usuario
-    // fijó; solo se recalcula su fin según la duración. Las automáticas
-    // siguen la cascada de dependencias como siempre.
-    if(a.fijo && a.inicio){
-      a.fin = addDays(a.inicio, a.dur);
-    } else {
-      a.inicio = maxDepEnd;
-      a.fin = addDays(maxDepEnd, a.dur);
-    }
-  });
+    if(!huboCambio) break; // ya se estabilizo, no hace falta seguir
+  }
   markEdited();
   renderAll();
 }

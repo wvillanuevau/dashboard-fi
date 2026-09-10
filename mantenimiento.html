@@ -264,7 +264,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script>
 var ACCESS_CODE = "MANT2026";
-var MANT_VERSION = 'v2026-09-08-A'; // Actualizar en cada entrega
+var MANT_VERSION = 'v2026-09-09-A'; // Actualizar en cada entrega
 
 var DB = null;
 var D = { centros:[], equipos:[], tecnicos:[], registros:[], marcas:[] };
@@ -283,6 +283,21 @@ function addDias(f,n){var d=new Date(f+'T12:00:00');d.setDate(d.getDate()+n);ret
 // El ciclo dura SIEMPRE 3 meses: definida una punta, la otra se calcula.
 var CICLO_MESES = 3;
 function finDeCiclo(desde){ return addDias(addMeses(desde,CICLO_MESES),-1); }
+// Fecha de referencia fija — igual para todos los dispositivos, no depende
+// de cuando cada uno cargo esta pagina por primera vez.
+var CICLO_ANCHOR='2024-01-01';
+function inicioCicloActual(fechaRef){
+  var anchor=new Date(CICLO_ANCHOR+'T12:00:00');
+  var ref=new Date(fechaRef+'T12:00:00');
+  var mesesDesdeAnchor=(ref.getFullYear()-anchor.getFullYear())*12+(ref.getMonth()-anchor.getMonth());
+  var bloques=Math.floor(mesesDesdeAnchor/CICLO_MESES);
+  var inicio=new Date(anchor);
+  inicio.setMonth(anchor.getMonth()+bloques*CICLO_MESES);
+  // Si el dia-del-mes de la referencia es menor al del ancla, retroceder
+  // un bloque (evita adelantar el ciclo un dia en meses con menos dias)
+  if(ref.getDate()<inicio.getDate()) inicio.setMonth(inicio.getMonth()-CICLO_MESES);
+  return inicio.getFullYear()+'-'+String(inicio.getMonth()+1).padStart(2,'0')+'-'+String(inicio.getDate()).padStart(2,'0');
+}
 function inicioDeCiclo(hasta){ return addMeses(addDias(hasta,1),-CICLO_MESES); }
 // Al vencer el ciclo, avanza solo al siguiente periodo de 3 meses.
 // Devuelve cuantos ciclos avanzo (0 = seguimos en el mismo).
@@ -309,8 +324,29 @@ function toast(t){
 function guardarCfg(){ try{localStorage.setItem('mant_cfg',JSON.stringify(CFG));}catch(e){} }
 function cargarCfg(){
   try{ var r=localStorage.getItem('mant_cfg'); if(r) CFG=Object.assign(CFG,JSON.parse(r)); }catch(e){}
-  if(!CFG.desde){ CFG.desde=hoyStr(); }
+  var hoy=hoyStr();
+  var _cicloCorrecto=inicioCicloActual(hoy);
+  // Antes, un dispositivo sin ciclo guardado (localStorage vacio, primera
+  // vez que abre esta pagina) inicializaba su propio ciclo con "hoy" segun
+  // SU reloj en ESE momento — asi que dos dispositivos que abrieran esta
+  // pagina por primera vez en dias distintos terminaban viendo ciclos
+  // corridos entre si (cada uno "el suyo"), aunque logicamente deberian
+  // compartir el mismo periodo de 3 meses. Ahora se calcula con una
+  // formula fija (ver inicioCicloActual) que da el mismo resultado sin
+  // importar el dispositivo ni cuando cargo la pagina por primera vez.
+  if(!CFG.desde){
+    CFG.desde=_cicloCorrecto;
+  } else if(CFG.desde!==inicioCicloActual(CFG.desde)){
+    // CFG.desde no coincide con el inicio de SU PROPIO bloque de 3 meses
+    // — esta desalineado de la cuadricula fija, sin importar si el
+    // periodo ya vencio o sigue vigente. Una navegacion intencional
+    // (flechas ◀▶) siempre cae exacta en un limite de bloque una vez que
+    // el dispositivo esta alineado, asi que esto solo detecta el drift
+    // original, nunca navegacion legitima.
+    CFG.desde=_cicloCorrecto;
+  }
   CFG.hasta=finDeCiclo(CFG.desde); // la duracion no es editable: siempre 3 meses
+  guardarCfg();
 }
 
 /* ---------- estado de cada equipo ---------- */
