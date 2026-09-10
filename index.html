@@ -1967,7 +1967,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-09-10-B'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-09-10-C'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -5759,10 +5759,10 @@ function tplCron(p){
     const partidaFechaFin=addDias(partidaFechaInicio,dp);
 
     html+=`<tr style="background:var(--surface2)">
-      <td>
+      <td style="overflow:hidden">
         ${(!isCerrado&&!esContratista)
           ?`<input value="${esc(m.nombre)}" style="font-weight:700;background:transparent;border:none;color:var(--text);width:100%;font-size:13px" onchange="updPartida('${p.id}',${mi},'nombre',this.value)">`
-          :`<span style="font-weight:700;font-size:13px">${esc(m.nombre)}</span>`}
+          :`<span style="font-weight:700;font-size:13px;word-wrap:break-word;overflow-wrap:break-word">${esc(m.nombre)}</span>`}
         <div style="font-size:10px;color:var(--muted);margin-top:2px">${m.sub.length} subpartida(s)</div>
       </td>
       <td></td><td></td><td></td>
@@ -5793,13 +5793,13 @@ function tplCron(p){
 
       const subFechaInicio=sub.fechaInicio||partidaFechaInicio||cr.fechaInicio||'';
       html+=`<tr style="background:${rowBg}">
-        <td style="padding-left:16px">
-          <div style="display:flex;align-items:center;gap:6px">
+        <td style="padding-left:16px;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:6px;min-width:0">
             <input type="checkbox" ${isDone?'checked':''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--green);flex-shrink:0"
               onchange="marcarSubhecha('${p.id}',${mi},${si},this.checked)">
             ${(!isCerrado&&!esContratista)
-              ?`<input value="${esc(sub.desc||'')}" placeholder="Actividad..." style="color:${textColor};font-size:13px" onchange="updSub('${p.id}',${mi},${si},'desc',this.value)">`
-              :`<span style="color:${textColor};font-size:13px">${esc(sub.desc||'—')}</span>`}
+              ?`<input value="${esc(sub.desc||'')}" placeholder="Actividad..." style="color:${textColor};font-size:13px;min-width:0;flex:1" onchange="updSub('${p.id}',${mi},${si},'desc',this.value)">`
+              :`<span style="color:${textColor};font-size:13px;min-width:0;flex:1;white-space:normal;word-wrap:break-word;overflow-wrap:break-word">${esc(sub.desc||'—')}</span>`}
             ${isDone?`<span style="color:var(--green);font-size:11px;flex-shrink:0;font-weight:700">✓</span>`:''}
           </div>
         </td>
@@ -7404,7 +7404,7 @@ function renderReporteOutput(){
         m.sub.forEach((sub,si)=>{
           const t=(parseFloat(sub.cantidad)||0)*(parseFloat(sub.precio)||0);
           bloque+=`<tr style="background:${sub.done?'var(--surface2)':'var(--surface)'}">
-            <td style="padding-left:24px;font-size:13px">
+            <td style="padding-left:24px;font-size:13px;word-wrap:break-word;overflow-wrap:break-word">
               ${sub.done?'<span style="color:var(--green)">✅</span>':'<span style="color:var(--muted)">⬜</span>'}
               <span style="color:${sub.done?'var(--green)':'var(--text)'};margin-left:6px">${esc(sub.desc||'—')}</span>
             </td>
@@ -9143,10 +9143,10 @@ function renderInventario(){
       if(tec)asignBadge=`<div style="font-size:10px;color:#c084fc;margin-top:2px">🔧 ${esc(tec.nombre)}</div>`;
     }
     prodRows+=`<tr>
-      <td>
-        <div style="display:flex;align-items:center;gap:10px">
+      <td style="overflow:hidden">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0">
           ${p.foto?`<img src="${p.foto}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;flex-shrink:0;cursor:pointer" onclick="verImagen('${p.foto}','${esc(p.nombre)}')">`:'<div style="width:36px;height:36px;background:var(--surface2);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📦</div>'}
-          <div>
+          <div style="min-width:0;word-wrap:break-word;overflow-wrap:break-word">
             <div style="font-weight:600">${esc(p.nombre)}</div>
             <div style="font-size:11px;color:var(--muted)">${esc(p.categoria||'—')}${p.numActivo?` · Activo: <strong>${esc(p.numActivo)}</strong>`:''}</div>
             ${fmtCaObj(p)}
@@ -12039,8 +12039,8 @@ function renderMantEquipos(){
       var btnRegistrar='<button class="btn btn-primary btn-xs" data-id="'+eq.id+'" onclick="registrarMantModal(this.dataset.id)" title="Registrar mantenimiento">&#10003; Registrar</button>';
 
       rows+='<tr>'
-        +'<td><div style="display:flex;align-items:flex-start">'+dot
-        +'<div><div style="font-weight:600;font-size:13px">'+esc(eq.nombre)+'</div>'
+        +'<td style="overflow:hidden"><div style="display:flex;align-items:flex-start;min-width:0">'+dot
+        +'<div style="min-width:0;word-wrap:break-word;overflow-wrap:break-word"><div style="font-weight:600;font-size:13px">'+esc(eq.nombre)+'</div>'
         +'<div style="font-size:11px;color:var(--muted)">'+esc(getUbLabel(eq))+'</div>'
         +fmtCaObj(eq)+'</div></div></td>'
         +'<td><span class="badge b-neu">'+esc(catAreaLabel(eq.categoria)||eq.categoria||'—')+'</span></td>'
