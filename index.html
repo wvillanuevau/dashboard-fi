@@ -1967,7 +1967,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-09-10-C'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-09-10-E'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -2296,6 +2296,22 @@ function applyMobileTableFix(){
 }
 
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+// Ajusta la altura de un textarea a su contenido — se ve como un input
+// normal de una sola linea cuando el texto es corto, y crece solo cuando
+// hace falta, sin que el usuario tenga que hacer nada.
+function autoAjustarTextarea(el){
+  if(!el)return;
+  el.style.height='auto';
+  el.style.height=(el.scrollHeight)+'px';
+}
+// Ajusta TODOS los textareas de auto-crecimiento dentro de un contenedor
+// de una sola vez — usado justo despues de insertar HTML nuevo al DOM,
+// para que los que ya traen texto largo se vean expandidos desde el
+// principio, no solo cuando el usuario empieza a escribir en ellos.
+function autoAjustarTodosTextareas(contenedor){
+  if(!contenedor)return;
+  contenedor.querySelectorAll('textarea.auto-grow').forEach(autoAjustarTextarea);
+}
 
 // ── Mini Calendario Reutilizable ─────────────────────────
 function miniCalHTML(currentDate, onSelectFn, markedDates, maxDate){
@@ -5478,7 +5494,7 @@ function swTab(tab,id){
   const panel=document.getElementById('dpPanel');if(!panel)return;
   if(tab==='gen')panel.innerHTML=tplGen(p);
   else if(tab==='plan')panel.innerHTML=tplPlan(p);
-  else if(tab==='cron')panel.innerHTML=tplCron(p);
+  else if(tab==='cron'){panel.innerHTML=tplCron(p);autoAjustarTodosTextareas(panel);}
   else if(tab==='pagosygastos')panel.innerHTML=tplPagosYGastos(p);
 }
 function reloadTab(tab,id){const active=document.querySelector('#dpTabs .tab.active');if(active&&active.dataset.t===tab)swTab(tab,id)}
@@ -5725,17 +5741,17 @@ function tplCron(p){
 
   <!-- Tabla partidas — scroll horizontal en mobile -->
   <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;overflow-x:auto;margin-bottom:16px;-webkit-overflow-scrolling:touch">
-  <table class="cron-table" style="table-layout:fixed;width:100%;min-width:580px">
+  <table class="cron-table" style="table-layout:fixed;width:100%;min-width:680px">
     <colgroup>
-      <col style="width:${isCerrado?'24':'22'}%">
-      <col style="width:9%">
+      <col style="width:${isCerrado?'32':'30'}%">
       <col style="width:7%">
-      <col style="width:9%">
       <col style="width:6%">
-      <col style="width:6%">
-      <col style="width:9%">
-      <col style="width:${isCerrado?'15':'12'}%">
-      ${!isCerrado?'<col style="width:8%">':''}
+      <col style="width:7%">
+      <col style="width:5%">
+      <col style="width:5%">
+      <col style="width:8%">
+      <col style="width:${isCerrado?'13':'11'}%">
+      ${!isCerrado?'<col style="width:6%">':''}
     </colgroup>
     <thead><tr style="background:var(--surface2)">
       <th>Partida / Subpartida</th>
@@ -5798,8 +5814,8 @@ function tplCron(p){
             <input type="checkbox" ${isDone?'checked':''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--green);flex-shrink:0"
               onchange="marcarSubhecha('${p.id}',${mi},${si},this.checked)">
             ${(!isCerrado&&!esContratista)
-              ?`<input value="${esc(sub.desc||'')}" placeholder="Actividad..." style="color:${textColor};font-size:13px;min-width:0;flex:1" onchange="updSub('${p.id}',${mi},${si},'desc',this.value)">`
-              :`<span style="color:${textColor};font-size:13px;min-width:0;flex:1;white-space:normal;word-wrap:break-word;overflow-wrap:break-word">${esc(sub.desc||'—')}</span>`}
+              ?`<textarea rows="1" class="auto-grow" placeholder="Actividad..." title="${esc(sub.desc||'')}" style="color:${textColor};font-size:13px;min-width:0;flex:1;resize:none;overflow:hidden;font-family:inherit;line-height:1.3" oninput="autoAjustarTextarea(this)" onchange="updSub('${p.id}',${mi},${si},'desc',this.value)">${esc(sub.desc||'')}</textarea>`
+              :`<span title="${esc(sub.desc||'')}" style="color:${textColor};font-size:13px;min-width:0;flex:1;white-space:normal;word-wrap:break-word;overflow-wrap:break-word">${esc(sub.desc||'—')}</span>`}
             ${isDone?`<span style="color:var(--green);font-size:11px;flex-shrink:0;font-weight:700">✓</span>`:''}
           </div>
         </td>
