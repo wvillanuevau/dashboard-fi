@@ -6916,9 +6916,18 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
   var sol      = (document.getElementById('acpSolicita')   ||{}).value || 'WILFREDO VILLANUEVA';
   var aut      = (document.getElementById('acpAutoriza')   ||{}).value || 'Julio de Paul';
   // Salario y fecha de vigencia (opcionales — solo existen en el
-  // formulario manual; las AP automáticas imprimen sin ellos)
-  var salarioActual = parseFloat((document.getElementById('acpSalarioActual')||{}).value) || null;
-  var salarioNuevo  = parseFloat((document.getElementById('acpSalarioNuevo') ||{}).value) || null;
+  // formulario manual; las AP automáticas imprimen sin ellos). Al
+  // reimprimir una AP ya guardada (paImprimirAP), el formulario con estos
+  // campos no esta en el DOM — antes esto siempre daba null en ese caso,
+  // aunque el salario SI estaba guardado correctamente en la AP. Ahora,
+  // si viene de una reimpresion (window._paAccionData ya trae el dato),
+  // se usa eso primero; si no, se lee del formulario como antes.
+  var salarioActual = (window._paAccionData && window._paAccionData.salarioActual!=null)
+    ? window._paAccionData.salarioActual
+    : (parseFloat((document.getElementById('acpSalarioActual')||{}).value) || null);
+  var salarioNuevo  = (window._paAccionData && window._paAccionData.salarioNuevo!=null)
+    ? window._paAccionData.salarioNuevo
+    : (parseFloat((document.getElementById('acpSalarioNuevo') ||{}).value) || null);
   var fechaRige     = (document.getElementById('acpFechaRige')||{}).value || fecha || paHoy();
   // Leer explicación del formulario; si está vacío usar el motivo guardado en la AP
   var exp      = (document.getElementById('acpExplicacion')||{}).value
@@ -7394,6 +7403,8 @@ function paImprimirAP(apId) {
     nombre: ap.empleadoNombre,
     cargo:  ap.cargo||'',
     fecha:  ap.fecha || ap.fechaInicio || ap.fechaEmision || '',
+    salarioActual: (ap.salarioActual!=null?ap.salarioActual:null),
+    salarioNuevo:  (ap.salarioNuevo!=null?ap.salarioNuevo:null),
     motivo: ap.justificacion || ap.concepto || ap.motivo || (
         ap.tipo==='AMONESTACION_TARDANZA'
           ? 'Llegada tardía el '+(ap.fecha||'—')+' con '+(ap.minutosRetraso||0)+' minutos de retraso. Descuento de '+(ap.horasDescuento||'—')+' hora(s) de jornada según cálculo del sistema.'
@@ -11762,7 +11773,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-09-10-C';
+var PA_VERSION = 'v2026-09-11-A';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
