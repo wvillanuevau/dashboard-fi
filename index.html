@@ -295,6 +295,14 @@ window.FB={
   },
   async getFileURL(path){
     try{return await _fbStorage.ref(path).getDownloadURL();}catch(e){return null;}
+  },
+  // Lista los archivos dentro de una carpeta de Storage (usado por el
+  // sistema de respaldos automaticos, para ver que hay y rotar los viejos)
+  async listFiles(path){
+    try{
+      const res=await _fbStorage.ref(path).listAll();
+      return res.items.map(function(item){return {name:item.name, fullPath:item.fullPath};});
+    }catch(e){ console.error('[Storage] listFiles:',e.message); return []; }
   }, // exponer para acceso directo por UID
   async login(email,pw){try{const r=await _fbAuth.signInWithEmailAndPassword(email,pw);return{ok:true,uid:r.user.uid,email:r.user.email}}catch(e){return{ok:false,err:_errMap[e.code]||e.message}}},
   async logout(){try{if(_unsub){_unsub();_unsub=null}await _fbAuth.signOut()}catch(e){console.error(e)}},
@@ -1967,7 +1975,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-09-10-E'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-09-18-A'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -2545,6 +2553,140 @@ function setSyncUI(state,txt){const dot=document.getElementById('syncDot'),stxt=
 //  SYNC
 // ═══════════════════════════════════════════════════════
 function serializeState(){return{_v:4,_ts:Date.now(),proyectos:S.proyectos||[],gastos:S.gastos,proveedores:S.proveedores,centros:S.centros,marcas:S.marcas,usuarios:S.usuarios,config:S.config,inventario:S.inventario||{bodegas:[],productos:[],movimientos:[]},cajachica:S.cajachica||{reintegros:[]},mantenimiento:S.mantenimiento||{tecnicos:[],checklists:[],equipos:[],ots:[],movimientosEquipos:[],registros:[],solicitudesMant:[]},energy:S.energy||{logs:[],alertas:[],checklists:[],tarifa:0.12},gerentesZona:S.gerentesZona||[],asistencia:S.asistencia||{registros:[]},auditorias:S.auditorias||{registros:[]},taller:S.taller||{vehiculos:[],ots:[],servicios:[],repuestos:[],programado:[],rutas:[],combustible:[],solicitudes:[],reportesDiarios:[],revisiones:[]}}}
+
+/* ══════════════════════════════════════════════════════════
+   RESPALDOS AUTOMÁTICOS — sube una copia completa del estado a
+   Firebase Storage cada vez que se guarda algo (con un limite de
+   frecuencia para no generar demasiados). Antes, la unica "copia
+   de respaldo" vivia en el localStorage de cada computadora — si
+   nadie recargaba esa pestaña especifica, sobrevivia; si alguien
+   la recargaba (aunque fuera solo para revisar algo), se
+   sobrescribia con el estado actual y se perdia. Guardarlo en
+   Storage lo hace independiente de cualquier computadora.
+   ══════════════════════════════════════════════════════════ */
+var _ULTIMO_RESPALDO=0;
+var _RESPALDO_INTERVALO_MS=15*60*1000; // maximo 1 respaldo cada 15 minutos
+var _RESPALDOS_A_CONSERVAR=40; // ~10 dias si se respalda cada 15 min con uso normal
+
+async function _respaldarAhora(forzar){
+  try{
+    var ahora=Date.now();
+    if(!forzar && (ahora-_ULTIMO_RESPALDO)<_RESPALDO_INTERVALO_MS) return; // aun no toca
+    if(!S.empresa) return;
+    _ULTIMO_RESPALDO=ahora; // marcar de una vez, para no disparar dos respaldos en paralelo
+    var snapshot=serializeState();
+    var json=JSON.stringify(snapshot);
+    var base64='data:application/json;base64,'+btoa(unescape(encodeURIComponent(json)));
+    var carpeta='respaldos/'+S.empresa+'/';
+    var nombre=ahora+'.json';
+    var r=await window.FB.uploadFile(carpeta+nombre, base64);
+    if(!r||!r.ok){ console.warn('[Respaldo] no se pudo subir:', r&&r.err); return; }
+    console.log('[Respaldo] snapshot guardado:', carpeta+nombre, '('+(json.length/1024).toFixed(0)+'KB)');
+    _rotarRespaldosViejos(carpeta);
+  }catch(e){ console.warn('[Respaldo] error:', e.message); }
+}
+
+async function _rotarRespaldosViejos(carpeta){
+  try{
+    var archivos=await window.FB.listFiles(carpeta);
+    if(archivos.length<=_RESPALDOS_A_CONSERVAR) return;
+    // Los nombres son timestamps (ms desde epoch) + '.json' — ordenar
+    // numericamente y borrar los mas viejos, dejando solo los ultimos N
+    archivos.sort(function(a,b){
+      return parseInt(a.name)-parseInt(b.name);
+    });
+    var aBorrar=archivos.slice(0, archivos.length-_RESPALDOS_A_CONSERVAR);
+    for(var i=0;i<aBorrar.length;i++){
+      await window.FB.deleteFile(aBorrar[i].fullPath);
+    }
+    if(aBorrar.length) console.log('[Respaldo] rotados '+aBorrar.length+' respaldo(s) viejo(s)');
+  }catch(e){ console.warn('[Respaldo] error al rotar:', e.message); }
+}
+
+// Leer un respaldo especifico (para el panel de restauracion)
+async function _leerRespaldo(fullPath){
+  try{
+    var url=await window.FB.getFileURL(fullPath);
+    if(!url) return null;
+    var resp=await fetch(url);
+    return await resp.json();
+  }catch(e){ console.warn('[Respaldo] error al leer:', e.message); return null; }
+}
+
+var _respaldoCache={}; // fullPath -> contenido ya descargado, para no re-bajarlo al restaurar
+
+async function verRespaldosNube(){
+  var el=document.getElementById('diagResult');
+  if(el)el.innerHTML='Buscando respaldos en la nube...';
+  var carpeta='respaldos/'+S.empresa+'/';
+  var archivos=await window.FB.listFiles(carpeta);
+  if(!archivos.length){
+    if(el)el.innerHTML='<span style="color:var(--muted)">Sin respaldos en la nube todavía — se generan automáticamente cada vez que se guarda algo (máximo 1 cada 15 minutos). Si el sistema recién se actualizó, espera al próximo guardado.</span>';
+    return;
+  }
+  archivos.sort(function(a,b){ return parseInt(b.name)-parseInt(a.name); }); // mas reciente primero
+  var html='<div style="font-weight:700;margin-bottom:8px">☁ '+archivos.length+' respaldo(s) disponible(s) — el más reciente arriba:</div>';
+  archivos.forEach(function(a){
+    var ts=parseInt(a.name);
+    var fecha=new Date(ts).toLocaleString('es-SV');
+    html+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">'
+      +'<span style="flex:1;font-size:13px">'+fecha+'</span>'
+      +'<button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="verContenidoRespaldo(\''+a.fullPath+'\')">Ver contenido</button>'
+      +'</div>';
+  });
+  if(el)el.innerHTML=html;
+}
+
+async function verContenidoRespaldo(fullPath){
+  var el=document.getElementById('diagResult');
+  if(el)el.innerHTML='Descargando ese respaldo...';
+  var data=_respaldoCache[fullPath] || await _leerRespaldo(fullPath);
+  if(!data){
+    if(el)el.innerHTML='<span style="color:var(--red)">❌ No se pudo descargar ese respaldo.</span>';
+    return;
+  }
+  _respaldoCache[fullPath]=data;
+  var proyectos=data.proyectos||[];
+  var fecha=new Date(data._ts||0).toLocaleString('es-SV');
+  var html='<div style="font-weight:700;margin-bottom:8px">Respaldo del '+fecha+' — '+proyectos.length+' proyecto(s):</div>';
+  if(!proyectos.length){
+    html+='<div style="color:var(--muted)">Sin proyectos en este respaldo.</div>';
+  }
+  proyectos.forEach(function(p){
+    var nPartidas=(p.cronograma&&p.cronograma.partidas&&p.cronograma.partidas.length)||0;
+    html+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">'
+      +'<span style="flex:1;font-size:13px">'+esc(p.nombre)+' <span style="color:var(--muted);font-size:11px">('+nPartidas+' partida(s))</span></span>'
+      +'<button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;color:var(--green);border-color:var(--green)" onclick="restaurarProyectoDesdeRespaldo(\''+fullPath+'\',\''+p.id+'\')">♻ Restaurar este proyecto</button>'
+      +'</div>';
+  });
+  html+='<button class="btn btn-secondary" style="margin-top:10px;font-size:11px" onclick="verRespaldosNube()">← Volver a la lista</button>';
+  if(el)el.innerHTML=html;
+}
+
+async function restaurarProyectoDesdeRespaldo(fullPath,proyectoId){
+  var el=document.getElementById('diagResult');
+  var data=_respaldoCache[fullPath] || await _leerRespaldo(fullPath);
+  if(!data){ toast('No se pudo leer ese respaldo',true); return; }
+  var proyecto=(data.proyectos||[]).find(function(p){return p.id===proyectoId;});
+  if(!proyecto){ toast('Ese proyecto ya no está en el respaldo',true); return; }
+  var yaExiste=(S.proyectos||[]).find(function(p){return p.id===proyectoId;});
+  var msg=yaExiste
+    ? '¿Reemplazar "'+proyecto.nombre+'" con la versión de este respaldo?\n\nEsto no combina — sobrescribe ese proyecto completo con la copia del respaldo.'
+    : '¿Restaurar "'+proyecto.nombre+'" desde este respaldo? No existe actualmente en el sistema, se agregará de nuevo.';
+  if(!confirm(msg)) return;
+  S.proyectos=S.proyectos||[];
+  if(yaExiste){
+    S.proyectos=S.proyectos.map(function(p){ return p.id===proyectoId ? proyecto : p; });
+  } else {
+    S.proyectos.push(proyecto);
+  }
+  markDirty('proyectos');
+  await saveData();
+  if(el)el.innerHTML='<span style="color:var(--green)">✅ "'+esc(proyecto.nombre)+'" restaurado y guardado.</span>';
+  render();
+  toast('✅ Proyecto restaurado');
+}
+
 
 // Versión limpia para Firestore — elimina base64 pesados que van en colección separada
 function serializeForFirestore(){
@@ -3577,6 +3719,59 @@ async function _guardarConTransaccion(camposMant,eliminadosMant,otrasSecciones,d
     borrados.forEach(function(id){ delete porId[id]; });        // borrado explicito manda
     return Object.keys(porId).map(function(k){return porId[k];});
   }
+  // Fusion profunda de proyectos: antes, dos proyectos con el MISMO id
+  // (mismo proyecto, editado en dos sesiones distintas) se fusionaban
+  // "todo o nada" — el objeto proyecto completo de quien guardara
+  // ganaba, sin mirar adentro. Si una persona agregaba partidas y otra
+  // (con una copia local mas vieja de ese mismo proyecto) despues solo
+  // cambiaba un precio y guardaba, su copia completa —sin las partidas
+  // nuevas— se convertia en la version final, borrandolas. Ahora se
+  // fusiona partida por partida (por su propio id), y dentro de cada
+  // partida, subpartida por subpartida — igual que ya se hace para los
+  // equipos de mantenimiento.
+  function fusionarPartidas(localsP,remotasP){
+    localsP=localsP||[]; remotasP=remotasP||[];
+    var porId={};
+    remotasP.forEach(function(m){ if(m&&m.id) porId[m.id]=m; });
+    localsP.forEach(function(m){
+      if(!m||!m.id)return;
+      var remotaMisma=porId[m.id];
+      if(remotaMisma){
+        // Misma partida en ambos lados: fusionar tambien sus subpartidas
+        // por id, en vez de que el array 'sub' completo de un lado
+        // sobrescriba al otro.
+        var subPorId={};
+        (remotaMisma.sub||[]).forEach(function(s){ if(s&&s.id) subPorId[s.id]=s; });
+        (m.sub||[]).forEach(function(s){ if(s&&s.id) subPorId[s.id]=s; }); // local gana en conflicto
+        porId[m.id]=Object.assign({},remotaMisma,m,{sub:Object.keys(subPorId).map(function(k){return subPorId[k];})});
+      } else {
+        porId[m.id]=m; // partida nueva, agregada en esta sesion
+      }
+    });
+    return Object.keys(porId).map(function(k){return porId[k];});
+  }
+  function fusionarProyectos(locales,remotos){
+    locales=locales||[]; remotos=remotos||[];
+    var porId={};
+    remotos.forEach(function(p){ if(p&&p.id) porId[p.id]=p; });
+    locales.forEach(function(p){
+      if(!p||!p.id)return;
+      var remotoMismo=porId[p.id];
+      if(remotoMismo && p.cronograma && remotoMismo.cronograma){
+        // Mismo proyecto en ambos lados: los campos simples los gana lo
+        // local (lo que esta sesion edito a proposito), pero el
+        // cronograma se fusiona partida por partida en vez de
+        // sobrescribirse completo.
+        var cronFusionado=Object.assign({},remotoMismo.cronograma,p.cronograma,{
+          partidas:fusionarPartidas(p.cronograma.partidas,remotoMismo.cronograma.partidas)
+        });
+        porId[p.id]=Object.assign({},remotoMismo,p,{cronograma:cronFusionado});
+      } else {
+        porId[p.id]=p; // proyecto nuevo, o uno de los dos lados no tiene cronograma todavia
+      }
+    });
+    return Object.keys(porId).map(function(k){return porId[k];});
+  }
   // Si una seccion se volvio a editar (markDirty subio su generacion) DESPUES
   // de que este guardado tomo su foto de datos, esa seccion ya tiene algo
   // nuevo en memoria que esta escritura nunca vio. No es seguro darla por
@@ -3614,7 +3809,9 @@ async function _guardarConTransaccion(camposMant,eliminadosMant,otrasSecciones,d
         if(_SPEC_FUSION.hasOwnProperty(sec)){
           var subcampos=_SPEC_FUSION[sec];
           if(!subcampos){
-            var merged=fusionarArreglo(S[sec],remoto[sec],null);
+            var merged=(sec==='proyectos')
+              ? fusionarProyectos(S[sec],remoto[sec])
+              : fusionarArreglo(S[sec],remoto[sec],null);
             dotUpdates[sec]=merged;
             aplicarLocal[sec]=merged;
           } else {
@@ -3884,6 +4081,7 @@ async function _doSaveFirebase(){
     var errMsg=(result&&result.err)?result.err:null;
     if(ok){
       setSyncUI('ok','Sincronizado');
+      _respaldarAhora(false);
     } else {
       setSyncUI('err','Error al guardar');
       console.error('[PP] Firebase save failed — sz:'+(sz/1024).toFixed(0)+'KB',errMsg||'');
@@ -8707,6 +8905,7 @@ function renderConfig(){
       <button class="btn btn-secondary" onclick="diagForceSave()" style="color:var(--green);border-color:var(--green)">⬆ Forzar guardado en Firebase</button>
       <button class="btn btn-secondary" onclick="recuperarDesdeLocalStorage()" style="color:#e84040;border-color:#e84040;font-weight:700">🚨 Recuperar data perdida</button>
       <button class="btn btn-secondary" onclick="recuperarDesdeLogs()" style="color:#8b5cf6;border-color:#8b5cf6;font-weight:700">📋 Reconstruir desde Logs</button>
+      <button class="btn btn-secondary" onclick="verRespaldosNube()" style="color:#0e7490;border-color:#0e7490;font-weight:700">☁ Ver Respaldos en la Nube</button>
     </div>
   </div>
   <div class="card" style="border-color:#e8404033;margin-top:14px">
