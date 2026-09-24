@@ -1975,7 +1975,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-09-18-A'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-09-20-A'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -3758,14 +3758,31 @@ async function _guardarConTransaccion(camposMant,eliminadosMant,otrasSecciones,d
       if(!p||!p.id)return;
       var remotoMismo=porId[p.id];
       if(remotoMismo && p.cronograma && remotoMismo.cronograma){
-        // Mismo proyecto en ambos lados: los campos simples los gana lo
-        // local (lo que esta sesion edito a proposito), pero el
-        // cronograma se fusiona partida por partida en vez de
-        // sobrescribirse completo.
+        // "aceptado"/"cerrado" son decisiones deliberadas de una persona
+        // (aceptar o cerrar una oferta) — una vez en true en CUALQUIER
+        // lado, se quedan en true. Antes se trataban como cualquier campo
+        // simple ("gana la copia local de quien guarde al final"), asi
+        // que una sesion con una copia vieja del proyecto (que todavia no
+        // sabia que se habia aceptado) podia, al guardar cualquier OTRA
+        // cosa sin relacion, revertir la aceptacion sin que nadie lo
+        // pidiera. El lado que SI tiene cerrado:true tambien es la fuente
+        // correcta para lo que va de la mano con el cierre (fecha,
+        // total, monto de obra civil) — ese lado fue el que los calculo.
+        var remotoCerrado=!!remotoMismo.cronograma.cerrado;
+        var localCerrado=!!p.cronograma.cerrado;
+        var baseCierre = localCerrado ? p.cronograma : (remotoCerrado ? remotoMismo.cronograma : p.cronograma);
         var cronFusionado=Object.assign({},remotoMismo.cronograma,p.cronograma,{
-          partidas:fusionarPartidas(p.cronograma.partidas,remotoMismo.cronograma.partidas)
+          partidas:fusionarPartidas(p.cronograma.partidas,remotoMismo.cronograma.partidas),
+          aceptado: !!(p.cronograma.aceptado || remotoMismo.cronograma.aceptado),
+          cerrado: !!(localCerrado || remotoCerrado),
+          fechaCierre: baseCierre.fechaCierre || p.cronograma.fechaCierre || remotoMismo.cronograma.fechaCierre || '',
+          totalAlCierre: baseCierre.totalAlCierre!=null ? baseCierre.totalAlCierre : (p.cronograma.totalAlCierre!=null?p.cronograma.totalAlCierre:remotoMismo.cronograma.totalAlCierre)
         });
-        porId[p.id]=Object.assign({},remotoMismo,p,{cronograma:cronFusionado});
+        var proyectoBase = localCerrado ? p : (remotoCerrado ? remotoMismo : p);
+        porId[p.id]=Object.assign({},remotoMismo,p,{
+          cronograma:cronFusionado,
+          montoObraCivil: (localCerrado||remotoCerrado) ? proyectoBase.montoObraCivil : p.montoObraCivil
+        });
       } else {
         porId[p.id]=p; // proyecto nuevo, o uno de los dos lados no tiene cronograma todavia
       }

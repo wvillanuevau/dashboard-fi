@@ -2845,6 +2845,10 @@ function paAfterAuth() {
         // dato que un empleado normal nunca iba a ver.
         // Verificar compensatorios de fin de semana (solo admin)
         setTimeout(_paCheckCompensatorioFDS, 1500);
+        // Verificar compensatorios de turno individual pendientes de
+        // aprobar (viernes-turno, etc.) — mismo patron que el de arriba,
+        // separado en el tiempo para no competir por el mismo modal.
+        setTimeout(_paCheckCompensatorioTurno, 2200);
         paShow('scDash');
       });
     }).catch(function() {
@@ -4899,7 +4903,15 @@ function _paMostrarExito(docData, calc) {
         compensaEn:_ce, diasLibres:1, horasLibres:8,
         fechaOrigen:docData.fecha, tipoTurno:_tj,
         motivo:'Compensatorio automático por turno '+_tl+' '+docData.fecha,
-        ts:Date.now(), estado:'pendiente_compensatorio',
+        // Antes esto se creaba directo como 'pendiente_compensatorio' —
+        // un estado que el empleado YA veia en su propia pantalla
+        // (aunque etiquetado "pendiente"), antes de que ningun admin lo
+        // hubiera revisado. Ahora queda invisible para el empleado hasta
+        // que el admin lo aprueba desde el popup que aparece a su login
+        // (_paCheckCompensatorioTurno) — evita que el empleado asuma que
+        // ya tiene el dia libre resuelto cuando todavia no hay ninguna
+        // decision humana de por medio.
+        ts:Date.now(), estado:'pendiente_aprobacion_admin',
         folio:'COMP-'+paGenId().toUpperCase()
       }).catch(function(e){console.warn('[Compensatorio]',e.message);});
     }
@@ -5304,14 +5316,22 @@ function paLoadHistorial() {
       }
       
       if (tab === 'canje') {
-        docs.slice(0, 30).forEach(function(d) {
-          var estados = { pendiente: '⏳ Pendiente', aprobado: '✅ Aprobado', rechazado: '❌ Rechazado' };
-          html += '<div class="hist-item">'
-            + '<div class="hist-header"><div class="hist-date">'+d.fechaInicio+'</div></div>'
-            + '<div style="font-size:14px;font-weight:700;color:var(--accent2)">'+d.horasCanje+' horas → '+d.diasLibres+' día(s)</div>'
-            + '<div style="font-size:11px;color:var(--muted);margin-top:4px">'+d.motivo+'</div>'
-            + '<div style="font-size:11px;margin-top:6px">'+(estados[d.estado]||d.estado)+'</div></div>';
-        });
+        var estadosCanje = { pendiente: '⏳ Pendiente', pendiente_aprobacion: '⏳ Pendiente', aprobado: '✅ Aprobado', asignado: '✅ Asignado', rechazado: '❌ Rechazado' };
+        docs
+          // Los que aun esperan revision del admin, o que el admin ya
+          // rechazo, no deben aparecer aqui — el empleado no debe verlos
+          // hasta que haya una aprobacion explicita, y nunca si se
+          // rechazaron (mismo criterio que el panel principal).
+          .filter(function(d){ return d.estado!=='pendiente_aprobacion_admin' && d.estado!=='rechazado_admin'; })
+          .slice(0, 30).forEach(function(d) {
+            var fechaMostrar = d.fechaInicio || d.fechaLibre || '';
+            var horasMostrar = (d.horasCanje!=null ? d.horasCanje : d.horasLibres);
+            html += '<div class="hist-item">'
+              + '<div class="hist-header"><div class="hist-date">'+fechaMostrar+'</div></div>'
+              + '<div style="font-size:14px;font-weight:700;color:var(--accent2)">'+(horasMostrar!=null?horasMostrar:'—')+' horas → '+(d.diasLibres!=null?d.diasLibres:0)+' día(s)</div>'
+              + '<div style="font-size:11px;color:var(--muted);margin-top:4px">'+(d.motivo||'')+'</div>'
+              + '<div style="font-size:11px;margin-top:6px">'+(estadosCanje[d.estado]||d.estado)+'</div></div>';
+          });
       }
       
       if (tab === 'vac') {
@@ -8697,6 +8717,124 @@ function _paConfirmarCompFDS(semKey) {
   }).catch(function(e){ paToast('Error: '+e.message, true); });
 }
 
+// ══════════════════════════════════════════════════════
+// Compensatorio de TURNO INDIVIDUAL (viernes-turno, etc.) —
+// pendiente de aprobación del admin antes de que el empleado lo vea.
+// ══════════════════════════════════════════════════════
+// Calcula el limite del periodo quincenal (15, o fin de mes) que le
+// corresponde a una fecha de origen — el plazo que tiene el admin para
+// aprobar o rechazar antes de que ese periodo de nomina se cierre.
+function _paLimiteQuincena(fechaOrigenStr) {
+  var f = new Date((fechaOrigenStr||paHoy()) + 'T12:00:00');
+  var dia = f.getDate();
+  var limite;
+  if (dia <= 15) {
+    limite = new Date(f.getFullYear(), f.getMonth(), 15, 12);
+  } else {
+    limite = new Date(f.getFullYear(), f.getMonth()+1, 0, 12); // ultimo dia del mes
+  }
+  return limite;
+}
+
+function _paCheckCompensatorioTurno() {
+  if (!paDb || !PA.empresa) return;
+  if (document.getElementById('paModalCompFDS')) {
+    // Ya hay un modal de fin de semana abierto — reintentar en unos
+    // segundos en vez de competir por la pantalla al mismo tiempo.
+    setTimeout(_paCheckCompensatorioTurno, 4000);
+    return;
+  }
+  paDb.collection('paCanjes')
+    .where('empresa','==',PA.empresa)
+    .where('estado','==','pendiente_aprobacion_admin')
+    .get().then(function(snap) {
+      var candidatos = [];
+      snap.forEach(function(d){ candidatos.push(Object.assign({id:d.id}, d.data())); });
+      if (candidatos.length === 0) return;
+      // Los mas urgentes (plazo mas cercano o ya vencido) primero — el
+      // admin tiene que verlos sin tener que hacer scroll para toparse
+      // con el que ya se le esta pasando.
+      candidatos.sort(function(a,b){
+        return _paLimiteQuincena(a.fechaOrigen) - _paLimiteQuincena(b.fechaOrigen);
+      });
+      _paMostrarModalCompTurno(candidatos);
+    }).catch(function(e){ console.warn('[CompTurno]', e.message); });
+}
+
+function _paMostrarModalCompTurno(candidatos) {
+  if (document.getElementById('paModalCompTurno')) return;
+
+  var ov = document.createElement('div');
+  ov.id = 'paModalCompTurno';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:800;background:rgba(0,0,0,.92);display:flex;align-items:flex-end;justify-content:center;padding:0';
+
+  var ahora = new Date();
+  var itemsHtml = candidatos.map(function(c) {
+    var etiquetaTurno = c.tipoTurno==='turno-viernes' ? 'Turno de viernes' : ('Turno '+(c.tipoTurno||'especial'));
+    var etiquetaCompensa = c.compensaEn==='friday' ? 'el próximo viernes' : 'un día a definir';
+    var limite = _paLimiteQuincena(c.fechaOrigen);
+    var limiteStr = limite.toLocaleDateString('es-SV', {day:'numeric', month:'short'});
+    var vencido = ahora > limite;
+    var plazoHtml = vencido
+      ? '<div style="font-size:11px;color:#e84040;font-weight:700;margin-top:3px">⚠ Venció el '+limiteStr+' — decide cuanto antes</div>'
+      : '<div style="font-size:11px;color:var(--muted);margin-top:3px">Plazo para decidir: '+limiteStr+'</div>';
+    return '<div id="compTurno_'+c.id+'" style="padding:12px;background:var(--surface2);border-radius:10px;margin-bottom:8px'+(vencido?';border:1px solid #e84040':'')+'">'
+      + '<div style="font-weight:700;font-size:13px">'+esc(c.empleadoNombre||'?')+'</div>'
+      + '<div style="font-size:11px;color:#e8a020;margin-top:3px">⏱ '+etiquetaTurno+' — '+esc(c.fechaOrigen||'')+'</div>'
+      + '<div style="font-size:11px;color:var(--accent);margin-top:3px">🗓 Compensaría '+etiquetaCompensa+'</div>'
+      + plazoHtml
+      + '<div style="display:flex;gap:8px;margin-top:10px">'
+      + '<button onclick="_paAprobarCompTurno(\''+c.id+'\')" style="flex:1;padding:8px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-weight:700;font-size:12px;font-family:inherit;cursor:pointer">✅ Aprobar</button>'
+      + '<button onclick="_paRechazarCompTurno(\''+c.id+'\')" style="flex:1;padding:8px;background:transparent;color:#e84040;border:1px solid #e84040;border-radius:8px;font-weight:700;font-size:12px;font-family:inherit;cursor:pointer">❌ Rechazar</button>'
+      + '</div></div>';
+  }).join('');
+
+  ov.innerHTML = '<div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:520px;'
+    + 'padding:20px 16px 40px;max-height:90vh;overflow-y:auto">'
+    + '<span style="display:block;width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px"></span>'
+    + '<div style="font-size:18px;font-weight:700;margin-bottom:4px">📅 Compensatorios de turno pendientes</div>'
+    + '<div style="font-size:12px;color:var(--muted);margin-bottom:14px">'
+    + 'Estos empleados trabajaron un turno especial. El empleado no ve nada de esto todavía — decide uno por uno. '
+    + 'Este aviso va a seguir apareciendo cada vez que inicies sesión hasta que decidas cada uno.</div>'
+    + '<div id="compTurnoLista">' + itemsHtml + '</div>'
+    + '<button onclick="document.getElementById(\'paModalCompTurno\').remove()" '
+    + 'style="width:100%;margin-top:8px;padding:12px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:12px;font-weight:600;font-size:13px;font-family:inherit;cursor:pointer">Revisar después</button>'
+    + '</div>';
+
+  document.body.appendChild(ov);
+}
+
+function _paAprobarCompTurno(id) {
+  paDb.collection('paCanjes').doc(id).update({
+    estado: 'asignado', aprobadoTs: Date.now()
+  }).then(function(){
+    var row = document.getElementById('compTurno_'+id);
+    if (row) row.remove();
+    paToast('✅ Compensatorio aprobado');
+    _paCerrarModalCompTurnoSiVacio();
+  }).catch(function(e){ paToast('Error: '+e.message, true); });
+}
+
+function _paRechazarCompTurno(id) {
+  if (!confirm('¿Rechazar este compensatorio? El empleado no lo verá en ningún momento.')) return;
+  paDb.collection('paCanjes').doc(id).update({
+    estado: 'rechazado_admin', rechazadoTs: Date.now()
+  }).then(function(){
+    var row = document.getElementById('compTurno_'+id);
+    if (row) row.remove();
+    paToast('Compensatorio rechazado');
+    _paCerrarModalCompTurnoSiVacio();
+  }).catch(function(e){ paToast('Error: '+e.message, true); });
+}
+
+function _paCerrarModalCompTurnoSiVacio() {
+  var lista = document.getElementById('compTurnoLista');
+  if (lista && lista.children.length === 0) {
+    var ov = document.getElementById('paModalCompTurno');
+    if (ov) ov.remove();
+  }
+}
+
 // ── Corrige la HE ya auto-generada del sábado cuando se confirma turno
 // completo (sábado+domingo): usa el horario normal de semana como
 // referencia en vez del horario corto de sábado. No toca HE ya
@@ -11773,7 +11911,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-09-11-A';
+var PA_VERSION = 'v2026-09-25-A';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
