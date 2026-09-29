@@ -1772,7 +1772,10 @@ function paGoAdmin() {
   div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:600;display:flex;align-items:center;justify-content:center;padding:24px';
   div.innerHTML = '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:20px;padding:28px 24px;width:100%;max-width:340px">'
     +'<div style="font-size:18px;font-weight:700;margin-bottom:6px;text-align:center">🔐 Administración</div>'
-    +'<div style="font-size:12px;color:var(--muted);margin-bottom:20px;text-align:center">Ingresa la contraseña de administrador</div>'
+    +'<div style="font-size:12px;color:var(--muted);margin-bottom:20px;text-align:center">Ingresa tu nombre y la contraseña de administrador</div>'
+    +'<input id="adminNombreInput" type="text" placeholder="Tu nombre"'
+    +' autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false"'
+    +' style="width:100%;padding:14px 16px;background:var(--surface2);border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:inherit;font-size:16px;outline:none;margin-bottom:8px;-webkit-user-select:text">'
     +'<input id="adminPwdInput" type="password" placeholder="Contraseña"'
     +' autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"'
     +' style="width:100%;padding:14px 16px;background:var(--surface2);border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:inherit;font-size:16px;outline:none;margin-bottom:8px;-webkit-user-select:text">'
@@ -1792,22 +1795,32 @@ function paGoAdmin() {
   document.getElementById('adminPwdInput').addEventListener('keyup', function(e){
     if (e.key === 'Enter') setTimeout(paVerifyAdminPwd, 50);
   });
+  document.getElementById('adminNombreInput').addEventListener('keyup', function(e){
+    if (e.key === 'Enter') document.getElementById('adminPwdInput').focus();
+  });
 
   setTimeout(function(){ 
-    var inp = document.getElementById('adminPwdInput'); 
+    var inp = document.getElementById('adminNombreInput'); 
     if (inp) inp.focus(); 
   }, 300);
 }
 
 function paVerifyAdminPwd() {
+  var nombreInp = document.getElementById('adminNombreInput');
   var inp = document.getElementById('adminPwdInput');
   var err = document.getElementById('adminPwdError');
-  if (!inp) { paToast('Error: campo no encontrado', true); return; }
+  if (!inp || !nombreInp) { paToast('Error: campo no encontrado', true); return; }
+  var nombre = (nombreInp.value || '').trim();
   var entered = inp.value || '';
   if (err) err.textContent = '';
 
+  if (!nombre) {
+    if (err) err.textContent = '⚠ Escribe tu nombre primero';
+    nombreInp.focus();
+    return;
+  }
   if (!entered || entered.length === 0) {
-    if (err) err.textContent = '⚠ Escribe la contraseña primero';
+    if (err) err.textContent = '⚠ Escribe la contraseña';
     inp.focus();
     return;
   }
@@ -1815,9 +1828,10 @@ function paVerifyAdminPwd() {
   var match = _paTimingSafeEqual(entered, PA.adminPin);
   // No loguear las credenciales — solo el resultado (el log anterior
   // exponía la contraseña admin en texto plano en la consola).
-  console.log('[Admin] intento de login | match:', match);
+  console.log('[Admin] intento de login | nombre:', nombre, '| match:', match);
 
   if (match) {
+    PA.adminNombre = nombre;
     // Remove ALL admin login modals (handles multiple taps)
     document.querySelectorAll('#modalAdminLogin').forEach(function(m){ m.remove(); });
     window.scrollTo(0,0);
@@ -8671,7 +8685,7 @@ function _paConfirmarCompFDS(semKey) {
         esCompensatorio: true, esAutoTurno: true, tipoComp: 'viernes',
         fechaLibre: nextFri, diasLibres: 1, horasLibres: 8,
         motivo: 'Compensatorio por trabajo dominical — descanso viernes '+nextFri,
-        estado: 'asignado', aprobadoTs: Date.now(),
+        estado: 'asignado', aprobadoTs: Date.now(), aprobadoPor: PA.adminNombre||'Admin (sin identificar)',
         semanaOrigen: semKey, ts: Date.now(),
         folio: 'COMP-VIE-'+paGenId().toUpperCase()
       });
@@ -8686,7 +8700,7 @@ function _paConfirmarCompFDS(semKey) {
         esCompensatorio: true, esAutoTurno: true, tipoComp: 'sabado_completo',
         fechaLibre: nextSat, diasLibres: 1, horasLibres: 8,
         motivo: 'Compensatorio por trabajo sábado tarde — descanso sábado completo '+nextSat,
-        estado: 'asignado', aprobadoTs: Date.now(),
+        estado: 'asignado', aprobadoTs: Date.now(), aprobadoPor: PA.adminNombre||'Admin (sin identificar)',
         semanaOrigen: semKey, ts: Date.now(),
         folio: 'COMP-SAB-'+paGenId().toUpperCase()
       });
@@ -8806,7 +8820,7 @@ function _paMostrarModalCompTurno(candidatos) {
 
 function _paAprobarCompTurno(id) {
   paDb.collection('paCanjes').doc(id).update({
-    estado: 'asignado', aprobadoTs: Date.now()
+    estado: 'asignado', aprobadoTs: Date.now(), aprobadoPor: PA.adminNombre||'Admin (sin identificar)'
   }).then(function(){
     var row = document.getElementById('compTurno_'+id);
     if (row) row.remove();
@@ -8818,7 +8832,7 @@ function _paAprobarCompTurno(id) {
 function _paRechazarCompTurno(id) {
   if (!confirm('¿Rechazar este compensatorio? El empleado no lo verá en ningún momento.')) return;
   paDb.collection('paCanjes').doc(id).update({
-    estado: 'rechazado_admin', rechazadoTs: Date.now()
+    estado: 'rechazado_admin', rechazadoTs: Date.now(), rechazadoPor: PA.adminNombre||'Admin (sin identificar)'
   }).then(function(){
     var row = document.getElementById('compTurno_'+id);
     if (row) row.remove();
@@ -11911,7 +11925,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-09-25-A';
+var PA_VERSION = 'v2026-09-25-B';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
