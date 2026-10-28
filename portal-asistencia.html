@@ -11962,7 +11962,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-10-28-C';
+var PA_VERSION = 'v2026-10-28-D';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -12369,6 +12369,7 @@ window.addEventListener('DOMContentLoaded', function() {
         PA._cierres     = x.cierresQuincena || {};
         PA._revCierre   = x.revisionesCierre || {};
         PA._llaveCierre = x.llaveCierre || null;
+        if (x.periodoHE && x.periodoHE.desde) PA.periodoHE = x.periodoHE;   // período configurado, fresco
         PA._cierresTs   = Date.now();
         return PA._cierres;
       });
@@ -12697,6 +12698,18 @@ window.addEventListener('DOMContentLoaded', function() {
     return (dd === 1 && hh === 15) || (dd === 16 && hh === ultimo);
   }
   function _cierreDe(d, h){ var c = (PA._cierres || {})[_keyQ(d, h)]; return c || null; }
+  // El reporte solo se genera si el período configurado (Configuración →
+  // Período HE) es exactamente el mismo rango que se está solicitando.
+  function _htmlPeriodoNoCoincide(desde, hasta){
+    var p = PA.periodoHE || {};
+    if (p.desde === desde && p.hasta === hasta) return '';
+    return '<div style="border:1.5px solid rgba(227,179,65,.55);background:rgba(227,179,65,.08);border-radius:12px;padding:14px">'
+      + '<div style="font-weight:800;font-size:14px;margin-bottom:6px">⚠️ El período configurado no coincide con el reporte</div>'
+      + '<div style="font-size:12.5px;line-height:1.7">Reporte solicitado: <b>' + desde + ' al ' + hasta + '</b><br>'
+      + 'Período configurado: <b>' + (p.desde ? p.desde + ' al ' + p.hasta : 'sin configurar') + '</b></div>'
+      + '<div style="font-size:12px;color:var(--muted);margin:8px 0 12px">Ajusta el período en Configuración para que sea igual al reporte, o cambia las fechas del reporte.</div>'
+      + '<button onclick="paAdminTab(\'config\')" style="width:100%;padding:11px;background:#d29922;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Ir a Configuración</button></div>';
+  }
 
   function _btn(txt, onclick, color){
     return '<button onclick="' + onclick + '" style="padding:5px 9px;border-radius:7px;border:none;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;'
@@ -12838,6 +12851,8 @@ window.addEventListener('DOMContentLoaded', function() {
   window._paCerrarQuincena = function(desde, hasta){
     if (!_esQuincena(desde, hasta)) { paToast('Solo se puede cerrar una quincena (1-15 o 16-fin de mes)', true); return; }
     if (hasta >= paHoy()) { paToast('La quincena aún no termina — se puede cerrar a partir del día siguiente a ' + hasta, true); return; }
+    var _p = PA.periodoHE || {};
+    if (_p.desde !== desde || _p.hasta !== hasta) { paToast('El período configurado (' + (_p.desde || '—') + ' al ' + (_p.hasta || '—') + ') no coincide con la quincena a cerrar', true); return; }
     paToast('Verificando que no queden pendientes…');
     _precierre(desde, hasta).then(function(res){
       if (res.total) { paToast('Todavía hay ' + res.total + ' pendiente(s)', true); _renderPanel(res); return; }
@@ -12965,6 +12980,8 @@ window.addEventListener('DOMContentLoaded', function() {
         }, 1200);
         return;
       }
+      var avisoPeriodo = _htmlPeriodoNoCoincide(desde, hasta);
+      if (avisoPeriodo) { rc.innerHTML = avisoPeriodo; return; }
       return _precierre(desde, hasta).then(function(res){
         _ultimo = res;
         var reab = cq && cq.estado === 'reabierta'
