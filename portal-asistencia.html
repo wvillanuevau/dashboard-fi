@@ -5375,155 +5375,143 @@ function paLoadHistorial() {
 // ══════════════════════════════════════════════════════════════════
 
 // ══════════════════════════════════════════════════════════════════
-// Verificación automática — Falta Injustificada al corte de 7:00 PM
+// Verificación automática — Falta Injustificada al CORTE DE MEDIANOCHE
 // ══════════════════════════════════════════════════════════════════
+// Antes el corte era a las 7:00 PM del mismo día. Si una tablet estaba
+// sin internet, sus marcaciones subían DESPUÉS del corte y el sistema
+// generaba faltas falsas (caso real: 14-oct-2026, 23 faltas inválidas).
+// Ahora, pasada la medianoche, el primer dispositivo que esté abierto
+// revisa el día que TERMINÓ (ayer). Si ningún dispositivo estuvo abierto
+// varios días, se ponen al día hasta 7 días hacia atrás.
+function _paFechaMasDias(f, n) {
+  var p = f.split('-'), d = new Date(Date.UTC(+p[0], +p[1]-1, +p[2], 12));
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
 function _paVerificarFaltasAutomaticas() {
   if (!paDb || !PA.empresa) return;
-
-  var ahora = new Date();
-  var _horaES = _hmsDesdeMedianocheES(ahora.getTime());
-  // Corte a las 19:00 hora El Salvador (no del dispositivo)
-  if (_horaES.horas < 19) return; // aún no es el corte de las 7:00 PM
-
-  var hoy = paHoy();
+  var ayer = _paFechaMasDias(paHoy(), -1);
+  // Este dispositivo ya vio el corte de ayer → no gastar ni una lectura
+  if (PA._faltasCorteVisto === ayer) return;
   var cfgRef = paDb.collection('paConfig').doc(PA.empresa);
+  var previo = null;
 
-  // Reclamar atómicamente la ejecución de hoy vía transacción — si varios
-  // dispositivos abren la app casi al mismo tiempo después de las 7pm,
-  // solo el primero en llegar aquí continúa; el resto se detiene de
-  // inmediato. Antes esto se hacía con una simple lectura+comparación,
-  // lo que permitía que varios dispositivos pasaran el check a la vez
-  // (condición de carrera) y generaran faltas duplicadas.
+  // Reclamo atómico: solo el primer dispositivo procesa los días pendientes.
   paDb.runTransaction(function(tx) {
     return tx.get(cfgRef).then(function(cfgDoc) {
       var cfg = cfgDoc.exists ? cfgDoc.data() : {};
-      if (cfg.ultimaVerifFaltas === hoy) return false; // ya reclamado por otro dispositivo
-      tx.set(cfgRef, { ultimaVerifFaltas: hoy }, { merge: true });
-      return true;
+      previo = cfg.ultimaVerifFaltas || null;
+      if (previo && previo >= ayer) return [];                     // ya procesado
+      var desde = previo ? _paFechaMasDias(previo, 1) : ayer;
+      var tope  = _paFechaMasDias(ayer, -6);                        // máximo 7 días de rezago
+      if (desde < tope) desde = tope;
+      var dias = [];
+      for (var f = desde; f <= ayer; f = _paFechaMasDias(f, 1)) dias.push(f);
+      tx.set(cfgRef, { ultimaVerifFaltas: ayer }, { merge: true });
+      return dias;
     });
-  }).then(function(gano) {
-    if (!gano) return; // otro dispositivo ya está (o ya terminó) generando las faltas de hoy
+  }).then(function(dias) {
+    PA._faltasCorteVisto = ayer;
+    if (!dias.length) return;
+    // Datos que no dependen del día: se leen UNA vez, del servidor
+    // (nunca de la copia local), y sin tope de cantidad.
+    var S = { source: 'server' };
+    return Promise.all([
+      paDb.collection('paIncapacidades').where('empresa','==',PA.empresa).get(S),
+      paDb.collection('paCanjes').where('empresa','==',PA.empresa).where('esCompensatorio','==',true).get(S),
+      paDb.collection('paVacaciones').where('empresa','==',PA.empresa).get(S),
+      // Estado activo FRESCO — paPins.activo es la fuente autoritativa;
+      // portalesPublicos solo de respaldo (index.html lo re-sincroniza sin activo).
+      paDb.collection('portalesPublicos').doc(PA.empresa).get(S),
+      paDb.collection('paPins').where('empresa','==',PA.empresa).get(S)
+    ]).then(function(base) {
+      var activoFresco = {};
+      if (base[3] && base[3].exists) ((base[3].data() || {}).tecnicos || []).forEach(function(t){ activoFresco[t.id] = (t.activo !== false); });
+      base[4].forEach(function(d){ var x = d.data(); if (x.empleadoId && x.activo !== undefined) activoFresco[x.empleadoId] = (x.activo !== false); });
+      var incs = [], comps = [], vacs = [];
+      base[0].forEach(function(d){ incs.push(d.data()); });
+      base[1].forEach(function(d){ comps.push(d.data()); });
+      base[2].forEach(function(d){ vacs.push(d.data()); });
+      // Un día a la vez, en orden
+      return dias.reduce(function(p, fecha) {
+        return p.then(function(){ return _paFaltasDelDia(fecha, incs, comps, vacs, activoFresco); });
+      }, Promise.resolve());
+    });
+  }).catch(function(e) {
+    console.warn('[FaltasAuto]', e.message);
+    // Si falló la revisión después de reclamarla, se devuelve el reclamo
+    // para que el próximo intento (5 min) la vuelva a hacer.
+    PA._faltasCorteVisto = null;
+    paDb.runTransaction(function(tx){
+      return tx.get(cfgRef).then(function(d){
+        if (d.exists && d.data().ultimaVerifFaltas === ayer) tx.set(cfgRef, { ultimaVerifFaltas: previo || '' }, { merge: true });
+      });
+    }).catch(function(){});
+  });
+}
 
-    var diaSemana = _diaSemanaES(ahora.getTime()); // día en El Salvador, no del dispositivo // 0=domingo ... 6=sábado
+function _paFaltasDelDia(fecha, incs, comps, vacs, activoFresco) {
+  var S = { source: 'server' };
+  var p = fecha.split('-');
+  var diaSemana = _diaSemanaES(Date.UTC(+p[0], +p[1]-1, +p[2], 18)); // mediodía El Salvador de ESA fecha
+  return Promise.all([
+    paDb.collection('paMarcaciones').where('empresa','==',PA.empresa).where('fecha','==',fecha).get(S),
+    paDb.collection('paAccionesPersonal').where('empresa','==',PA.empresa).where('tipo','==','FALTA_INJUSTIFICADA').where('fecha','==',fecha).get(S)
+  ]).then(function(res) {
+    var marcoEntrada = {};
+    res[0].forEach(function(d){ var r = d.data(); if (r.tipo === 'entrada') marcoEntrada[r.empleadoId] = true; });
+    var yaGenerada = {};
+    res[1].forEach(function(d){ yaGenerada[d.data().empleadoId] = true; });
+    var incapacitado = {};
+    incs.forEach(function(r){
+      if (r.estado === 'rechazada' || r.estado === 'cancelada') return;
+      if (r.fechaInicio && fecha >= r.fechaInicio && fecha <= (r.fechaFin || r.fechaInicio)) incapacitado[r.empleadoId] = true;
+    });
+    var compensatorio = {};
+    comps.forEach(function(r){ if ((r.estado === 'asignado' || r.estado === 'aprobado') && r.fechaLibre === fecha) compensatorio[r.empleadoId] = true; });
+    var vacaciones = {};
+    vacs.forEach(function(v){ if (v.estado === 'aprobada' && v.fechaInicio && fecha >= v.fechaInicio && fecha <= (v.fechaFin || v.fechaInicio)) vacaciones[v.empleadoId] = true; });
 
-    Promise.all([
-      // Solo 2 filtros para evitar requerir índice compuesto — tipo se filtra client-side
-      paDb.collection('paMarcaciones').where('empresa','==',PA.empresa).where('fecha','==',hoy).get(),
-      paDb.collection('paIncapacidades').where('empresa','==',PA.empresa).limit(500).get(),
-      paDb.collection('paAccionesPersonal').where('empresa','==',PA.empresa).where('tipo','==','FALTA_INJUSTIFICADA').where('fecha','==',hoy).get(),
-      paDb.collection('paCanjes').where('empresa','==',PA.empresa).where('esCompensatorio','==',true).get(),
-      // Estado activo/inactivo FRESCO — no confiar en PA.empleados, que puede
-      // estar desactualizado si el dispositivo lleva rato abierto sin recargar.
-      // AUTORITATIVO: paPins.activo (propiedad del portal). El sistema
-      // principal re-sincroniza portalesPublicos SIN el campo activo, así
-      // que su valor solo sirve de respaldo cuando no hay pin doc.
-      paDb.collection('portalesPublicos').doc(PA.empresa).get(),
-      paDb.collection('paPins').where('empresa','==',PA.empresa).get()
-    ]).then(function(res) {
-      var activoFrescoPorEmp = {};
-      if (res[4] && res[4].exists) {
-        var _tecnicosFrescos = (res[4].data() || {}).tecnicos || [];
-        _tecnicosFrescos.forEach(function(t){ activoFrescoPorEmp[t.id] = (t.activo !== false); });
+    var escrituras = [], generadas = 0;
+    (PA.empleados || []).filter(function(e){
+      var fr = activoFresco[e.id];
+      return fr !== undefined ? fr : (e.activo !== false);
+    }).forEach(function(emp) {
+      if (marcoEntrada[emp.id]) return;          // sí marcó
+      if (incapacitado[emp.id]) return;          // incapacidad/permiso no rechazado
+      if (compensatorio[emp.id]) return;         // día compensatorio
+      if (vacaciones[emp.id]) return;            // vacaciones aprobadas
+      if (yaGenerada[emp.id]) return;            // ya existe
+      var ingreso = emp.fechaIngreso || emp.fechaContratacion || '';
+      if (ingreso && fecha < ingreso) return;    // aún no trabajaba aquí
+      var horEmp = _horarioDeEmp(emp, diaSemana);
+      if (!horEmp || !horEmp.horaEntrada) return;
+      if (horEmp.trabaja === false) return;
+      if (diaSemana === 6 && horEmp.trabajaSabado === false) return;
+      if (diaSemana === 0 && !(horEmp.trabaja === true || horEmp.trabajaDomingo === true)) return;
+
+      var motivo = 'Generado automáticamente: el empleado no registró marcación de entrada '
+        + 'y no cuenta con incapacidad, vacaciones ni compensatorio registrados al corte de medianoche del ' + fecha + '.';
+      escrituras.push(paDb.collection('paAccionesPersonal').add({
+        empresa: PA.empresa, empleadoId: emp.id, empleadoNombre: emp.nombre,
+        cargo: emp.cargo || '', tipo: 'FALTA_INJUSTIFICADA', fecha: fecha,
+        fechaEmision: paHoy(), motivo: motivo, concepto: 'Falta injustificada',
+        justificacion: motivo + ' Se descuenta únicamente el día.',
+        solicita: 'Sistema automático', autoriza: '',
+        opcionMarcada: 9, estado: 'emitida',
+        creadoPor: 'sistema-automatico', corte: 'medianoche', ts: Date.now()
+      }));
+      generadas++;
+    });
+    return Promise.all(escrituras).then(function(){
+      if (generadas > 0) {
+        console.log('[FaltasAuto] ' + generadas + ' falta(s) generada(s) para ' + fecha);
+        if (typeof _paCargarPendientesGlobal === 'function') _paCargarPendientesGlobal();
+        paToast('⚠️ Corte del ' + fecha + ': ' + generadas + ' falta(s) injustificada(s) generada(s)');
       }
-      // paPins pisa el valor de portalesPublicos cuando existe — es la
-      // fuente que el admin realmente controla desde este portal.
-      if (res[5]) {
-        res[5].forEach(function(d){
-          var _pf = d.data();
-          if (_pf.empleadoId && _pf.activo !== undefined) {
-            activoFrescoPorEmp[_pf.empleadoId] = (_pf.activo !== false);
-          }
-        });
-      }
-      var marcaronHoy = {};
-      res[0].forEach(function(d) {
-        var _r = d.data();
-        // Filtrar por tipo client-side (antes era .where que requería índice compuesto)
-        if (_r.tipo === 'entrada') marcaronHoy[_r.empleadoId] = true;
-      });
-
-      var incapacitadosHoy = {};
-      res[1].forEach(function(d){
-        var r = d.data();
-        if (r.estado === 'rechazada' || r.estado === 'cancelada') return;
-        if (r.fechaInicio && r.fechaFin && hoy >= r.fechaInicio && hoy <= r.fechaFin) {
-          incapacitadosHoy[r.empleadoId] = true;
-        }
-      });
-
-      var yaGeneradaHoy = {};
-      res[2].forEach(function(d){ yaGeneradaHoy[d.data().empleadoId] = true; });
-
-      // Días compensatorios asignados/aprobados para hoy — el empleado
-      // tiene el día libre legítimamente, no debe generarse falta.
-      var compensatorioHoy = {};
-      res[3].forEach(function(d){
-        var r = d.data();
-        if (r.estado !== 'asignado' && r.estado !== 'aprobado') return;
-        if (r.fechaLibre === hoy) compensatorioHoy[r.empleadoId] = true;
-      });
-
-      var generadas = 0;
-      var pendientesEscritura = [];
-
-      (PA.empleados || []).filter(function(e){
-        // Usar el estado activo FRESCO recién leído si está disponible;
-        // si por algo no se pudo leer, caer al valor en memoria como respaldo.
-        var fresco = activoFrescoPorEmp[e.id];
-        return fresco !== undefined ? fresco : (e.activo !== false);
-      }).forEach(function(emp) {
-        if (marcaronHoy[emp.id]) return;          // sí marcó
-        if (incapacitadosHoy[emp.id]) return;      // tiene incapacidad
-        if (compensatorioHoy[emp.id]) return;      // tiene día compensatorio asignado hoy
-        if (yaGeneradaHoy[emp.id]) return;         // ya se generó
-
-        // Verificar si hoy es día laboral para este empleado
-        // Usar _horarioDeEmp para respetar la jerarquía configurada.
-        // IMPORTANTE: hay dos formas de marcar "no laborable" según de
-        // dónde viene el horario — el chequeo anterior (horEmp.diasLaborales)
-        // buscaba un campo que no existe en ninguna de las dos, así que
-        // nunca excluía correctamente los días libres de nadie.
-        var horEmp = _horarioDeEmp(emp, diaSemana);
-        if (!horEmp || !horEmp.horaEntrada) return; // sin horario configurado → no marcar falta automática
-        if (horEmp.trabaja === false) return; // horario individual: día desmarcado explícitamente
-        if (diaSemana === 6 && horEmp.trabajaSabado === false) return; // horario general: no trabaja sábado
-        // Domingo es conservador a propósito: solo se genera falta si hay
-        // confirmación explícita de que sí trabaja domingo — ya sea por
-        // horario individual (trabaja:true) o general (trabajaDomingo:true).
-        // Sin esa confirmación, no se sanciona — es preferible no
-        // sancionar de más que sancionar a alguien que no debía trabajar.
-        if (diaSemana === 0) {
-          var _siTrabajaDomingo = (horEmp.trabaja === true) || (horEmp.trabajaDomingo === true);
-          if (!_siTrabajaDomingo) return;
-        }
-
-        var motivo = 'Generado automáticamente: el empleado no registró marcación de entrada '
-          + 'y no cuenta con incapacidad registrada al corte de las 7:00 PM del ' + hoy + '.';
-
-        pendientesEscritura.push(
-          paDb.collection('paAccionesPersonal').add({
-            empresa: PA.empresa, empleadoId: emp.id, empleadoNombre: emp.nombre,
-            cargo: emp.cargo || '', tipo: 'FALTA_INJUSTIFICADA', fecha: hoy,
-            fechaEmision: hoy, motivo: motivo,
-            concepto: 'Falta injustificada',
-            justificacion: motivo + ' Se descuenta únicamente el día.',
-            solicita: 'Sistema automático', autoriza: '',
-            opcionMarcada: 9, estado: 'emitida',
-            creadoPor: 'sistema-automatico', ts: Date.now()
-          })
-        );
-        generadas++;
-      });
-
-      Promise.all(pendientesEscritura).then(function() {
-        if (generadas > 0) {
-          console.log('[FaltasAuto] ' + generadas + ' falta(s) injustificada(s) generada(s) automáticamente para ' + hoy);
-          if (typeof _paCargarPendientesGlobal === 'function') _paCargarPendientesGlobal();
-          paToast('⚠️ Se generaron ' + generadas + ' Falta(s) Injustificada(s) automáticamente (sin marcar hoy)');
-        }
-      }).catch(function(e){ console.warn('[FaltasAuto]', e.message); });
-    }).catch(function(e){ console.warn('[FaltasAuto]', e.message); });
-  }).catch(function(e){ console.warn('[FaltasAuto] transaction', e.message); });
+    });
+  });
 }
 
 function _paCargarPendientesGlobal(callback) {
@@ -6970,9 +6958,12 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
                || '';
   var SELECTED = window._paAPOpcion || 9;
   window._paAPOpcion = null;
+  var _reimpId = (PA._apCtx && PA._apCtx.reimpresionId) || null;
+  if (PA._apCtx) { PA._apCtx.reimpresionId = null; PA._apCtx.apImpresoId = _reimpId; }
 
   // Guardar en Firestore — usa mapeo canónico para CUALQUIER tipo seleccionado
-  if (PA.empresa && paDb) {
+  // (solo si es una AP NUEVA; una reimpresión no se vuelve a guardar)
+  if (PA.empresa && paDb && !_reimpId) {
     var _apInfo = (typeof PA_AP_TIPOS !== 'undefined' && PA_AP_TIPOS[SELECTED]) || { tipo:'OTROS', concepto:'Otros' };
     // Override opcional de tipo/concepto (usado por tardanzas: opción 5 y 7
     // necesitan un concepto específico distinto del genérico de su número)
@@ -6997,8 +6988,9 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
       solicita:sol, autoriza:aut,
       salarioActual: salarioActual, salarioNuevo: salarioNuevo,
       fechaRige: fechaRige,
-      opcionMarcada:SELECTED, estado:'emitida', creadoPor:'admin', ts:Date.now()
-    }).catch(function(e){ console.warn('[AP]',e.message); });
+      opcionMarcada:SELECTED, estado:'emitida', creadoPor:(PA.adminNombre||'admin'), ts:Date.now()
+    }).then(function(ref){ if (PA._apCtx && ref) PA._apCtx.apImpresoId = ref.id; })
+      .catch(function(e){ console.warn('[AP]',e.message); });
   }
 
   var emp   = (PA.empleados||[]).find(function(e){ return e.id===empId; }) || {};
@@ -7174,7 +7166,11 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
   document.body.appendChild(ov);
   ov.scrollTop = 0;
 
-  document.getElementById('paAPBtnPrint').onclick = function(){ window.print(); };
+  document.getElementById('paAPBtnPrint').onclick = function(){
+    window.print();
+    var _idImp = PA._apCtx && PA._apCtx.apImpresoId;
+    if (_idImp && typeof _paPreguntarHistorico === 'function') setTimeout(function(){ _paPreguntarHistorico(_idImp); }, 400);
+  };
   document.getElementById('paAPBtnClose').onclick = function(){
     var o = document.getElementById('paAPPrintOverlay');
     if (o) o.remove();
@@ -7420,6 +7416,7 @@ function paAdminAcciones(content) {
     +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(232,160,32,.12);border-color:rgba(232,160,32,.3);color:#e8a020" onclick="paCargarAPsAmonestaciones()">⚠️ Amonestaciones</button>'
     +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(232,160,32,.12);border-color:rgba(232,160,32,.3);color:#e8a020" onclick="paCargarAPsTardanzas()">⏰ Desc. Día/7° (tard.)</button>'
     +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(0,107,63,.12);border-color:rgba(0,107,63,.3);color:#006B3F" onclick="paCargarAPsIncapacidades()">🏥 Incapacidades</button>'
+    +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(137,87,229,.12);border-color:rgba(137,87,229,.35);color:#a371f7" onclick="paCargarAPsHistoricas()">🗄 Históricas</button>'
     +'</div>'
     +'<button id="btnGenerarAPsHist" onclick="paGenerarAPsHistoricas()" style="width:100%;padding:12px;margin-bottom:2px;background:rgba(56,139,253,.12);border:1.5px solid rgba(56,139,253,.4);border-radius:10px;color:#58a6ff;cursor:pointer;font-size:13px;font-family:inherit;font-weight:700">⚡ Generar APs del período activo (sin repetir)</button>'
     +'<div id="apLista"><div class="spinner"></div></div>';
@@ -7464,6 +7461,10 @@ function paImprimirAP(apId) {
   var opcion = _tipoOpMap[ap.tipo] || ap.opcionMarcada || 9;
   // Guardar opcion temporalmente para que paGenerarAccionPersonal la use
   window._paAPOpcion = opcion;
+  // Es una REIMPRESIÓN de una AP ya guardada: paGenerarAccionPersonal no
+  // debe guardarla otra vez (antes cada "Ver/Imprimir" creaba una copia
+  // nueva con creadoPor:'admin').
+  PA._apCtx.reimpresionId = apId;
   paGenerarAccionPersonal(ap.empleadoId, ap.empleadoNombre, ap.cargo||'', ap.fecha||ap.fechaEmision);
   return; // Lo siguiente ya no se usa
 
@@ -7683,11 +7684,13 @@ function paGenerarAPsHistoricas() {
 }
 
 
-function paCargarAPsTodos()     { paCargarAPs('todos'); }
-function paCargarAPsFaltas()    { paCargarAPs('FALTAS'); } // incluye FALTA+DESCUENTO
-function paCargarAPsAmonestaciones() { paCargarAPs('AMONESTACION_TARDANZA'); }
-function paCargarAPsTardanzas()      { paCargarAPs('DESCUENTO_DIA_SEPTIMO','origenTardanzas'); }
-function paCargarAPsIncapacidades()  { paCargarAPs('INCAPACIDAD'); }
+function paCargarAPsTodos()     { PA._apModoHist = false; paCargarAPs('todos'); }
+function paCargarAPsFaltas()    { PA._apModoHist = false; paCargarAPs('FALTAS'); } // incluye FALTA+DESCUENTO
+function paCargarAPsAmonestaciones() { PA._apModoHist = false; paCargarAPs('AMONESTACION_TARDANZA'); }
+function paCargarAPsTardanzas()      { PA._apModoHist = false; paCargarAPs('DESCUENTO_DIA_SEPTIMO','origenTardanzas'); }
+function paCargarAPsIncapacidades()  { PA._apModoHist = false; paCargarAPs('INCAPACIDAD'); }
+// Históricas: APs de quincenas ya cerradas, agrupadas por quincena y ordenadas por fecha
+function paCargarAPsHistoricas()     { PA._apModoHist = true;  paCargarAPs('todos'); }
 
 function paCargarAPs(tipo) {
   var lista = document.getElementById('apLista');
@@ -7701,17 +7704,25 @@ function paCargarAPs(tipo) {
   var desde = (document.getElementById('apDesde')||{}).value || _defDesde;
   var hasta  = (document.getElementById('apHasta')||{}).value || _defHasta;
   var filtroTipo = tipo || 'todos';
+  // Históricas: APs que el admin pasó a histórico al imprimirlas
+  // (campo historica:true). Salen de la lista activa y se muestran
+  // aparte, clasificadas por la quincena de la fecha de la acción.
+  var modoHist = PA._apModoHist === true;
 
-  paDb.collection('paAccionesPersonal')
-    .where('empresa','==', PA.empresa)
-    .get()
+  paDb.collection('paAccionesPersonal').where('empresa','==', PA.empresa).get()
     .then(function(snap) {
       var docs = [];
       snap.forEach(function(d) {
         var r = Object.assign({ _id: d.id }, d.data());
         // Usar fecha de la acción (cuando ocurrió), no fecha de emisión del AP
         var fDoc = r.fecha || r.fechaEmision || '';
-        if (fDoc < desde || fDoc > hasta) return;
+        if (modoHist) {
+          if (r.historica !== true) return;
+          r._qHist = _paQuincenaDe(r.fecha || r.fechaInicio || r.quincenaDesde || r.fechaEmision || '');
+        } else {
+          if (r.historica === true) return;
+          if (fDoc < desde || fDoc > hasta) return;
+        }
         if (filtroTipo !== 'todos') {
           if (filtroTipo === 'FALTAS') {
             if (r.tipo !== 'FALTA_INJUSTIFICADA' && r.tipo !== 'DESCUENTO_DIA_SEPTIMO') return;
@@ -7719,7 +7730,17 @@ function paCargarAPs(tipo) {
         }
         docs.push(r);
       });
-      docs.sort(function(a,b){
+      if (modoHist) {
+        // Quincena más reciente primero; dentro de cada una, por fecha y luego por nombre
+        docs.sort(function(a,b){
+          var qa = a._qHist.desde, qb = b._qHist.desde;
+          if (qa !== qb) return qa < qb ? 1 : -1;
+          var fa = a.fecha || a.fechaInicio || a.quincenaDesde || a.fechaEmision || '';
+          var fb = b.fecha || b.fechaInicio || b.quincenaDesde || b.fechaEmision || '';
+          if (fa !== fb) return fa < fb ? -1 : 1;
+          return (a.empleadoNombre||'').localeCompare(b.empleadoNombre||'','es',{sensitivity:'base'});
+        });
+      } else docs.sort(function(a,b){
         // Primero por nombre de empleado, luego por fecha descendente
         var nameCmp = (a.empleadoNombre||'').localeCompare(b.empleadoNombre||'','es',{sensitivity:'base'});
         if (nameCmp !== 0) return nameCmp;
@@ -7730,7 +7751,8 @@ function paCargarAPs(tipo) {
       docs.forEach(function(ap){ window._paAPMap[ap._id] = ap; });
 
       if (!docs.length) {
-        lista.innerHTML = '<div style="text-align:center;color:var(--muted);padding:32px">Sin acciones de personal en el período</div>';
+        lista.innerHTML = '<div style="text-align:center;color:var(--muted);padding:32px">'
+          + (modoHist ? 'Todavía no hay acciones de personal en Históricas — pasan aquí al imprimirlas y confirmar' : 'Sin acciones de personal en el período') + '</div>';
         return;
       }
 
@@ -7753,8 +7775,20 @@ function paCargarAPs(tipo) {
         + '<button id="apBtnElimSel" onclick="paEliminarAPsSeleccionadas()" disabled style="margin-left:auto;background:#f85149;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;opacity:.4">🗑 Eliminar sel.</button>'
         + '<button onclick="paAuditarAPs()" style="background:#e8a020;color:#000;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer">🔍 Auditar</button>'
         + '</div>';
+      if (modoHist) {
+        _barHtml = '<div style="padding:10px 12px;background:rgba(137,87,229,.10);border:1.5px solid rgba(137,87,229,.35);border-radius:10px;margin-bottom:10px;font-size:12px">'
+          + '🗄 <b>Históricas</b> — ' + docs.length + ' acción(es) de personal ya impresas y archivadas, clasificadas por quincena.</div>';
+      }
       var html = _barHtml;
+      var _qActual = '';
       docs.forEach(function(ap) {
+        if (modoHist && ap._qHist && ap._qHist.desde !== _qActual) {
+          _qActual = ap._qHist.desde;
+          var _cntQ = docs.filter(function(x){ return x._qHist && x._qHist.desde === _qActual; }).length;
+          html += '<div style="margin:14px 0 6px;font-size:12px;font-weight:800;color:#a371f7;text-transform:uppercase;letter-spacing:.4px">📁 Quincena '
+            + (ap._qHist.desde ? paFechaCorta(ap._qHist.desde) + ' al ' + paFechaCorta(ap._qHist.hasta) : 'sin fecha')
+            + ' <span style="font-weight:500;text-transform:none;color:var(--muted)">· ' + _cntQ + ' AP(s)</span></div>';
+        }
         var ti = TIPO_LABEL[ap.tipo] || { icon:'📋', label: ap.tipo||'Desconocido', color:'#7d8590' };
         var _nom = ap.empleadoNombre || ap.nombre || '(sin nombre)';
         var _con = ap.concepto || ap.justificacion || ap.motivo || '(sin descripción)';
@@ -7785,11 +7819,14 @@ function paCargarAPs(tipo) {
           + '<div style="font-size:12px;color:'+ti.color+';font-weight:600">'+ti.label+' <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;'+(ti.cat==='Sanción'?'background:rgba(248,81,73,.15);color:#f85149':'background:rgba(56,139,253,.15);color:#388bfd')+'">'+(ti.cat||'')+'</span></div>'
           + '<div style="font-size:10px;color:var(--muted);margin-top:1px">Acción: '+paFechaCorta(ap.fecha||ap.fechaEmision||'')+' · '+esc(_con.substring(0,70))+(_con.length>70?'…':'')+'</div>'
           + detalleHtml
+          + (modoHist ? '<div style="font-size:10px;color:#a371f7;margin-top:3px">🗄 Archivada por '+esc(ap.historicaPor||'—')+(ap.historicaTs?' el '+new Date(ap.historicaTs).toLocaleString('es-SV',{timeZone:'America/El_Salvador'}):'')+'</div>' : '')
           + '</div>'
           + '<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex-shrink:0">'
           + '<span style="font-size:9px;padding:2px 6px;border-radius:20px;background:rgba(46,160,67,.15);color:#3fb950">'+esc(ap.estado||'emitida')+'</span>'
           + '<button data-apid="'+ap._id+'" onclick="paImprimirAP(this.dataset.apid)" style="background:rgba(56,139,253,.12);border:1px solid rgba(0,107,63,.3);color:#006B3F;border-radius:8px;padding:4px 8px;cursor:pointer;font-size:10px">🖨️ Ver</button>'
-          + '<button onclick="paEliminarAP(\''+ap._id+'\')" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:4px 8px;cursor:pointer;font-size:10px">🗑</button>'
+          + (modoHist
+              ? '<button onclick="paRegresarAPActiva(\''+ap._id+'\')" title="Regresar a la lista activa" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:4px 8px;cursor:pointer;font-size:10px">↩ Activas</button>'
+              : '<button onclick="paEliminarAP(\''+ap._id+'\')" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:4px 8px;cursor:pointer;font-size:10px">🗑</button>')
           + '</div>'
           + '</div>';
       });
@@ -10644,7 +10681,7 @@ function paAdminReporte(content) {
   var _q   = _quincenaActual(); // ya usa PA.periodoHE internamente
   var defDesde = _q.desde;
   var defHasta = _q.hasta;
-  var html = '<div class="info-box">Reporte de horas extra aprobadas por período. Puedes definir cualquier rango de fechas — quincenal, semanal, mensual, etc.</div>';
+  var html = '<div class="info-box">Reporte de horas extra aprobadas por período. Antes de generarlo se revisa que no quede nada pendiente en el rango (horas extra, permisos, vacaciones, canjes, compensatorios, acciones de personal, marcaciones y ausencias). Una quincena terminada y sin pendientes se puede cerrar con candado.</div>';
     html += '<div style="position:sticky;top:0;z-index:10;background:var(--bg);padding-bottom:10px;border-bottom:1px solid var(--border)">'
     +'<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px">'
     +'<div class="fg" style="margin:0;flex:1;min-width:120px"><label>Desde</label><input type="date" id="rptDesde" value="'+defDesde+'" max="'+hoy+'" style="font-size:16px"></div>'
@@ -11925,7 +11962,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-09-25-B';
+var PA_VERSION = 'v2026-10-28-C';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -12064,7 +12101,7 @@ var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
     if (!_overlayShown) _verificarVersion();
   }, 5 * 60 * 1000);
 
-  // 2b. Verificación de faltas automáticas (corte 7:00 PM) — cada 5 min
+  // 2b. Verificación de faltas automáticas (corte de medianoche) — cada 5 min
   setInterval(function() {
     if (typeof _paVerificarFaltasAutomaticas === 'function') _paVerificarFaltasAutomaticas();
   }, 5 * 60 * 1000);
@@ -12286,6 +12323,730 @@ window.addEventListener('DOMContentLoaded', function() {
   }
   paShow('scLanding');
 });
+</script>
+<script>
+// ══════════════════════════════════════════════════════════════════
+// CIERRE DE QUINCENA
+// 1) Revisión pre-cierre: el reporte NO se genera mientras haya
+//    pendientes en el período (bloqueo total).
+// 2) Cierre: queda registrado quién cerró y cuándo (paConfig.cierresQuincena).
+// 3) Candado: nada con fecha dentro de una quincena cerrada se puede
+//    crear, editar, aprobar ni borrar (intercepta todas las escrituras).
+// 4) Reapertura: solo con la llave personal WVillanuevaU + su contraseña.
+// ══════════════════════════════════════════════════════════════════
+(function(){
+  if (!window.firebase || !firebase.firestore || firebase.firestore.__candadoInstalado) return;
+  firebase.firestore.__candadoInstalado = true;
+
+  var NOMBRE_LLAVE = 'WVillanuevaU';
+  var TTL_CIERRES  = 5 * 60 * 1000;
+  var COLS_CANDADO = { paMarcaciones:1, paHorasExtra:1, paAccionesPersonal:1, paIncapacidades:1, paVacaciones:1, paCanjes:1 };
+
+  var DP = firebase.firestore.DocumentReference.prototype;
+  var CP = firebase.firestore.CollectionReference.prototype;
+  var _get = DP.get, _set = DP.set, _upd = DP.update, _del = DP.delete, _add = CP.add;
+
+  PA._cierres = PA._cierres || null;
+  PA._cierresTs = 0;
+  PA._revCierre = PA._revCierre || {};
+  PA._llaveCierre = PA._llaveCierre || null;
+
+  var _esFecha = function(s){ return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s); };
+  function _conTimeout(p, ms, valor){
+    return Promise.race([p, new Promise(function(res){ setTimeout(function(){ res(valor); }, ms); })]);
+  }
+  function _cfgRef(){ return paDb.collection('paConfig').doc(PA.empresa); }
+  function _keyQ(d, h){ return d + '_' + h; }
+
+  // ── Registro de cierres (cache 5 min, lectura fresca del servidor) ──
+  function _refrescarCierres(forzar){
+    if (!paDb || !PA.empresa) return Promise.resolve(PA._cierres || {});
+    if (!forzar && PA._cierres && (Date.now() - PA._cierresTs) < TTL_CIERRES) return Promise.resolve(PA._cierres);
+    return _conTimeout(_get.call(_cfgRef(), { source:'server' }).catch(function(){ return null; }), 5000, null)
+      .then(function(d){
+        if (!d) return PA._cierres || {};          // sin conexión: se usa lo último conocido
+        var x = d.exists ? (d.data() || {}) : {};
+        PA._cierres     = x.cierresQuincena || {};
+        PA._revCierre   = x.revisionesCierre || {};
+        PA._llaveCierre = x.llaveCierre || null;
+        PA._cierresTs   = Date.now();
+        return PA._cierres;
+      });
+  }
+  window._paRefrescarCierres = _refrescarCierres;
+
+  // ── Fechas que toca un documento, por colección ─────────────────
+  function _rangosDe(col, x){
+    var r = [];
+    if (!x || typeof x !== 'object') return r;
+    function add(a, b){ if (_esFecha(a)) r.push([a, (_esFecha(b) && b >= a) ? b : a]); }
+    if (col === 'paCanjes') { add(x.fechaLibre); add(x.fechaOrigen); return r; }
+    add(x.fecha);
+    if (x.fechaInicio)   add(x.fechaInicio, x.fechaFin);
+    if (x.quincenaDesde) add(x.quincenaDesde, x.quincenaHasta);
+    return r;
+  }
+  function _cierreQueBloquea(rangos){
+    var c = PA._cierres || {};
+    var ks = Object.keys(c);
+    for (var i = 0; i < ks.length; i++) {
+      var q = c[ks[i]];
+      if (!q || q.estado !== 'cerrada') continue;
+      for (var j = 0; j < rangos.length; j++) {
+        if (rangos[j][0] <= q.hasta && rangos[j][1] >= q.desde) return q;
+      }
+    }
+    return null;
+  }
+  window._paCierreQueBloquea = _cierreQueBloquea;
+  function _hayCerradas(){
+    var c = PA._cierres || {};
+    return Object.keys(c).some(function(k){ return c[k] && c[k].estado === 'cerrada'; });
+  }
+  function _errCandado(q){
+    var m = '🔒 La quincena del ' + q.desde + ' al ' + q.hasta + ' está cerrada. Solo ' + NOMBRE_LLAVE + ' puede reabrirla.';
+    try { paToast(m, true); } catch(e) {}
+    var err = new Error(m); err.code = 'quincena-cerrada';
+    return err;
+  }
+  function _colDe(ref){ try { return (ref.parent && ref.parent.id) || ''; } catch(e) { return ''; } }
+
+  // Verifica un documento contra los cierres. leerExistente: además del
+  // dato nuevo, revisa las fechas que el documento YA tiene (para
+  // update/delete/set). Sin conexión → no bloquea (no se puede saber).
+  function _verificar(col, ref, nuevo, leerExistente){
+    if (!COLS_CANDADO[col]) return Promise.resolve();
+    var rangosNuevos = _rangosDe(col, nuevo);
+    var hoy = paHoy();
+    // Una quincena solo se puede cerrar cuando ya terminó, así que lo de
+    // hoy en adelante nunca está cerrado: las marcaciones del día no
+    // pagan ninguna lectura extra.
+    if (!leerExistente && (!rangosNuevos.length || rangosNuevos.every(function(r){ return r[0] >= hoy; }))) return Promise.resolve();
+    return _refrescarCierres(false).then(function(){
+      if (!_hayCerradas()) return;
+      var q = _cierreQueBloquea(rangosNuevos);
+      if (q) throw _errCandado(q);
+      if (!leerExistente || !ref) return;
+      return _conTimeout(_get.call(ref).catch(function(){ return null; }), 5000, null).then(function(d){
+        if (!d || !d.exists) return;
+        var q2 = _cierreQueBloquea(_rangosDe(col, d.data()));
+        if (q2) throw _errCandado(q2);
+      });
+    });
+  }
+
+  // ── Candado sobre todas las escrituras ──────────────────────────
+  CP.add = function(data){
+    var self = this, args = arguments;
+    return _verificar(self.id, null, data, false).then(function(){ return _add.apply(self, args); });
+  };
+  DP.set = function(data){
+    var self = this, args = arguments;
+    return _verificar(_colDe(self), self, data, true).then(function(){ return _set.apply(self, args); });
+  };
+  DP.update = function(data){
+    var self = this, args = arguments;
+    // Pasar a Históricas (o regresar) solo cambia la clasificación, no el
+    // contenido de la AP — se permite aunque su quincena esté cerrada.
+    if (_colDe(self) === 'paAccionesPersonal' && data && typeof data === 'object'
+        && Object.keys(data).length && Object.keys(data).every(function(k){ return k.indexOf('historica') === 0; }))
+      return _upd.apply(self, args);
+    return _verificar(_colDe(self), self, (data && typeof data === 'object') ? data : null, true)
+      .then(function(){ return _upd.apply(self, args); });
+  };
+  DP['delete'] = function(){
+    var self = this, args = arguments;
+    return _verificar(_colDe(self), self, null, true).then(function(){ return _del.apply(self, args); });
+  };
+  try {
+    var BP = Object.getPrototypeOf(paDb.batch());
+    var _bSet = BP.set, _bUpd = BP.update, _bDel = BP['delete'], _bCommit = BP.commit;
+    BP.set    = function(ref, data){ (this.__ops = this.__ops || []).push([ref, data]); return _bSet.apply(this, arguments); };
+    BP.update = function(ref, data){ (this.__ops = this.__ops || []).push([ref, (data && typeof data === 'object') ? data : null]); return _bUpd.apply(this, arguments); };
+    BP['delete'] = function(ref){ (this.__ops = this.__ops || []).push([ref, null]); return _bDel.apply(this, arguments); };
+    BP.commit = function(){
+      var self = this, args = arguments;
+      var ops = (this.__ops || []).filter(function(o){ return COLS_CANDADO[_colDe(o[0])]; });
+      if (!ops.length) return _bCommit.apply(self, args);
+      return Promise.all(ops.map(function(o){ return _verificar(_colDe(o[0]), o[0], o[1], true); }))
+        .then(function(){ return _bCommit.apply(self, args); });
+    };
+  } catch(e) { console.warn('[Candado] batch:', e.message); }
+
+  // ══════════════════════════════════════════════════════════════════
+  // REVISIÓN PRE-CIERRE
+  // ══════════════════════════════════════════════════════════════════
+  var DIAS = ['dom','lun','mar','mié','jue','vie','sáb'];
+  function _dow(f){ var p = f.split('-'); return _diaSemanaES(Date.UTC(+p[0], +p[1]-1, +p[2], 18)); }
+  function _enRango(f, a, b){ return !!(f && a && f >= a && f <= (b || a)); }
+  function _solapa(a1, b1, a2, b2){ return !!(a1 && a2 && a1 <= b2 && (b1 || a1) >= a2); }
+  function _diasEntre(a, b){
+    var out = [], p = a.split('-'), d = new Date(Date.UTC(+p[0], +p[1]-1, +p[2], 12));
+    while (true) {
+      var s = d.toISOString().slice(0, 10);
+      if (s > b) break;
+      out.push(s); d.setUTCDate(d.getUTCDate() + 1);
+    }
+    return out;
+  }
+  function _hm(t){ return t ? new Date(_paToMs(t)).toLocaleTimeString('es-SV', { timeZone:'America/El_Salvador', hour:'2-digit', minute:'2-digit' }) : '—'; }
+  function _nomEmp(id, fallback){ var e = (PA.empleados || []).find(function(x){ return x.id === id; }); return (e && e.nombre) || fallback || id; }
+  function _laborable(emp, f){
+    if (typeof _horarioDeEmp !== 'function') return true;
+    var d = _dow(f), h = _horarioDeEmp(emp, d);
+    if (!h || !h.horaEntrada) return false;
+    if (h.trabaja === false) return false;
+    if (d === 6 && h.trabajaSabado === false) return false;
+    if (d === 0 && !(h.trabaja === true || h.trabajaDomingo === true)) return false;
+    return true;
+  }
+
+  function _precierre(desde, hasta){
+    var E = PA.empresa, hoy = paHoy();
+    var S = { source:'server' };
+    return Promise.all([
+      paDb.collection('paHorasExtra').where('empresa','==',E).where('fecha','>=',desde).where('fecha','<=',hasta).get(S),
+      paDb.collection('paMarcaciones').where('empresa','==',E).where('fecha','>=',desde).where('fecha','<=',hasta).get(S),
+      paDb.collection('paIncapacidades').where('empresa','==',E).get(S),
+      paDb.collection('paVacaciones').where('empresa','==',E).get(S),
+      paDb.collection('paCanjes').where('empresa','==',E).get(S),
+      paDb.collection('paAccionesPersonal').where('empresa','==',E).get(S),
+      _refrescarCierres(true)
+    ]).then(function(r){
+      var lista = function(snap){ var a = []; snap.forEach(function(d){ var x = d.data(); x._id = d.id; a.push(x); }); return a; };
+      var HE = lista(r[0]), MC = lista(r[1]), INC = lista(r[2]), VAC = lista(r[3]), CJ = lista(r[4]), AP = lista(r[5]);
+      var REV = PA._revCierre || {};
+      var cats = {
+        he:    { titulo:'Horas extra pendientes', icono:'⏰', items:[] },
+        inc:   { titulo:'Incapacidades / permisos pendientes', icono:'🏥', items:[] },
+        vac:   { titulo:'Vacaciones pendientes', icono:'🏖️', items:[] },
+        canje: { titulo:'Canjes pendientes', icono:'🔁', items:[] },
+        comp:  { titulo:'Compensatorios por aprobar', icono:'📆', items:[] },
+        ap:    { titulo:'Acciones de personal inválidas o por revisar', icono:'📋', items:[] },
+        marc:  { titulo:'Marcaciones incompletas', icono:'🕘', items:[] },
+        aus:   { titulo:'Ausencias sin resolver', icono:'❓', items:[] }
+      };
+
+      // 1. Horas extra
+      HE.forEach(function(h){
+        if (h.estado !== 'pendiente') return;
+        cats.he.items.push({ id:h._id, empId:h.empleadoId, emp:h.empleadoNombre || _nomEmp(h.empleadoId), fecha:h.fecha,
+          det:(paHorasLegible ? paHorasLegible(h.horas || 0) : (h.horas || 0) + 'h') + ' ' + (h.tipo || ''), h:h });
+      });
+      // 2. Incapacidades / permisos
+      INC.forEach(function(x){
+        if (x.estado !== 'pendiente') return;
+        if (!_solapa(x.fechaInicio, x.fechaFin, desde, hasta)) return;
+        cats.inc.items.push({ id:x._id, empId:x.empleadoId, emp:x.empleadoNombre || _nomEmp(x.empleadoId), fecha:x.fechaInicio,
+          det:(x.fechaInicio || '') + ' → ' + (x.fechaFin || x.fechaInicio || '') + ' · ' + (x.tipoIncapacidad || '') + (x.motivo ? ' · ' + x.motivo : '') });
+      });
+      // 3. Vacaciones
+      VAC.forEach(function(v){
+        if (v.estado !== 'pendiente') return;
+        if (!_solapa(v.fechaInicio, v.fechaFin, desde, hasta)) return;
+        cats.vac.items.push({ id:v._id, empId:v.empleadoId, emp:v.empleadoNombre || _nomEmp(v.empleadoId), fecha:v.fechaInicio,
+          det:(v.fechaInicio || '') + ' → ' + (v.fechaFin || '') + ' · ' + (v.dias || '?') + ' día(s)', v:v });
+      });
+      // 4/5. Canjes y compensatorios
+      CJ.forEach(function(c){
+        if (c.estado === 'pendiente_aprobacion' || c.estado === 'pendiente_compensatorio') {
+          var f = c.fechaLibre || '';
+          var creado = c.ts ? new Date(_paToMs(c.ts)).toLocaleDateString('sv-SE', { timeZone:'America/El_Salvador' }) : '';
+          if (f ? !_enRango(f, desde, hasta) : !(creado && creado <= hasta)) return;
+          cats.canje.items.push({ id:c._id, empId:c.empleadoId, emp:c.empleadoNombre || _nomEmp(c.empleadoId), fecha:f || creado,
+            det:(c.motivo || 'Solicitud de canje') + (f ? ' · día libre ' + f : ' · sin fecha'), c:c });
+        } else if (c.estado === 'pendiente_aprobacion_admin') {
+          if (!_enRango(c.fechaOrigen, desde, hasta)) return;
+          cats.comp.items.push({ id:c._id, empId:c.empleadoId, emp:c.empleadoNombre || _nomEmp(c.empleadoId), fecha:c.fechaOrigen,
+            det:c.motivo || 'Compensatorio automático por turno' });
+        }
+      });
+
+      // Índices para AP, marcaciones y ausencias
+      var marc = {};
+      MC.forEach(function(m){ (marc[m.empleadoId] = marc[m.empleadoId] || {}); (marc[m.empleadoId][m.fecha] = marc[m.empleadoId][m.fecha] || []).push(m); });
+      var tiene = function(emp, f, tipo){ return ((marc[emp] || {})[f] || []).some(function(m){ return m.tipo === tipo; }); };
+      var permisosJust = {};
+      INC.forEach(function(x){
+        if (x.estado === 'aprobada' && x.tipoIncapacidad && x.tipoIncapacidad !== 'completa' && x.fechaInicio)
+          (permisosJust[x.empleadoId] = permisosJust[x.empleadoId] || {})[x.fechaInicio] = true;
+      });
+      var comp = {};
+      CJ.forEach(function(c){ if ((c.estado === 'asignado' || c.estado === 'aprobado') && c.fechaLibre) comp[c.empleadoId + '|' + c.fechaLibre] = true; });
+      var TIPOS_JUST = { GOCE_VACACIONES:1, VACACIONES:1, PERMISO_CON_GOCE:1, PERMISO_SIN_GOCE:1 };
+      var apJust = function(emp, f){
+        return AP.find(function(a){ return TIPOS_JUST[a.tipo] && a.empleadoId === emp && a.estado !== 'anulada' && a.estado !== 'rechazada' &&
+          (_enRango(f, a.fechaInicio, a.fechaFin) || a.fecha === f); });
+      };
+      var vacAprob = function(emp, f){ return VAC.some(function(v){ return v.empleadoId === emp && v.estado === 'aprobada' && _enRango(f, v.fechaInicio, v.fechaFin); }); };
+      var incVigente = function(emp, f){ return INC.find(function(x){ return x.empleadoId === emp && x.estado !== 'rechazada' && x.estado !== 'cancelada' && _enRango(f, x.fechaInicio, x.fechaFin); }); };
+      var feriados = PA.feriados || [];
+
+      // 6. Acciones de personal — mismas reglas de la auditoría
+      var fechaRef = function(a){ return a.fecha || a.fechaInicio || a.quincenaDesde || a.fechaEmision || ''; };
+      var grupos = {}, dup = {};
+      AP.forEach(function(a){
+        var k = a.empleadoId + '|' + (a.quincenaDesde || a.fecha || a.fechaInicio || a.fechaEmision || '') + '|' + a.tipo;
+        (grupos[k] = grupos[k] || []).push(a);
+      });
+      Object.keys(grupos).forEach(function(k){
+        var g = grupos[k]; if (g.length < 2) return;
+        g.sort(function(x, y){ return (_paToMs(x.ts) || 0) - (_paToMs(y.ts) || 0); });
+        g.slice(1).forEach(function(a){ dup[a._id] = true; });
+      });
+      var tardanzas = function(emp, a, b){
+        var src = marc[emp] || {}, sub = {}; sub[emp] = {};
+        Object.keys(src).forEach(function(f){ if (f >= a && f <= b) sub[emp][f] = src[f].map(function(m){ var z = Object.assign({}, m); z.ts = _paToMs(m.ts); return z; }); });
+        try { return paTardanzasEmp(emp, sub, undefined, permisosJust[emp] || {}).dias || []; } catch(e) { return null; }
+      };
+      AP.forEach(function(a){
+        var f0 = fechaRef(a);
+        if (!_enRango(f0, desde, hasta)) return;
+        if (a.revisionCierre) return;                                  // ya validada por un admin
+        var inval = [], rev = [], f = a.fecha || '', emp = a.empleadoId, e = (PA.empleados || []).find(function(x){ return x.id === emp; });
+        var auto = (a.creadoPor === 'sistema-automatico' || a.origen === 'auto' || a.origenTardanzas === true);
+        if (dup[a._id]) inval.push('Duplicada');
+        if (a.tipo === 'FALTA_INJUSTIFICADA' || (a.tipo === 'DESCUENTO_DIA_SEPTIMO' && !a.origenTardanzas && f)) {
+          if (!f) inval.push('Sin fecha');
+          else {
+            if (tiene(emp, f, 'entrada')) {
+              var en = ((marc[emp] || {})[f] || []).filter(function(m){ return m.tipo === 'entrada'; })[0];
+              inval.push('Sí marcó entrada (' + _hm(en.ts) + ')');
+            } else if (((marc[emp] || {})[f] || []).length) rev.push('Tiene marcaciones ese día sin entrada');
+            if (comp[emp + '|' + f]) inval.push('Tenía día compensatorio');
+            var iv = incVigente(emp, f);
+            if (iv && iv.estado === 'aprobada') inval.push('Incapacidad/permiso aprobado ese día');
+            else if (iv) rev.push('Incapacidad/permiso "' + (iv.estado || 'pendiente') + '" ese día');
+            var j = apJust(emp, f); if (j) inval.push('Cubierta por ' + j.tipo);
+            if (vacAprob(emp, f)) inval.push('Estaba de vacaciones aprobadas');
+            if (feriados.indexOf(f) >= 0) rev.push('Fecha es feriado');
+            if (e && !_laborable(e, f)) inval.push('No le tocaba trabajar (' + DIAS[_dow(f)] + ')');
+          }
+        }
+        if (a.tipo === 'AMONESTACION_TARDANZA' || (a.tipo === 'DESCUENTO_DIA_SEPTIMO' && a.origenTardanzas)) {
+          var min = a.tipo === 'AMONESTACION_TARDANZA' ? 4 : 5;
+          if (!a.quincenaDesde || !a.quincenaHasta) rev.push('Sin quincena asignada (criterio viejo)');
+          else {
+            var t = tardanzas(emp, a.quincenaDesde, a.quincenaHasta);
+            if (t === null) rev.push('No se pudo recalcular tardanzas');
+            else if (t.length < min) inval.push('Recalculado: ' + t.length + ' tardanza(s), se requieren ' + min);
+          }
+        }
+        if (a.tipo === 'INCAPACIDAD') {
+          var m0 = INC.find(function(x){ return x.empleadoId === emp && x.fechaInicio === a.fechaInicio; });
+          if (!m0) rev.push('No existe la incapacidad original');
+          else if (m0.estado === 'rechazada' || m0.estado === 'cancelada') inval.push('La incapacidad original fue ' + m0.estado);
+          var trab = Object.keys(marc[emp] || {}).filter(function(fx){ return _enRango(fx, a.fechaInicio, a.fechaFin) && tiene(emp, fx, 'entrada'); });
+          if (trab.length) rev.push('Marcó entrada durante la incapacidad: ' + trab.join(', '));
+        }
+        if (a.tipo === 'PERMISO_ESPECIAL') inval.push('Permiso Especial no debe generar AP');
+        if (a.tipo === 'TARDANZAS') rev.push('Tipo obsoleto TARDANZAS');
+        if (!inval.length && !rev.length) return;
+        cats.ap.items.push({ id:a._id, empId:emp, emp:a.empleadoNombre || _nomEmp(emp), fecha:f0, tipoAP:a.tipo,
+          estado: inval.length ? 'INVÁLIDA' : 'REVISAR', auto:auto, det:a.tipo + ' · ' + inval.concat(rev).join(' · ') });
+      });
+
+      // 7/8. Marcaciones incompletas y ausencias sin resolver
+      var hastaEf = hasta < hoy ? hasta : (function(){ var d = _diasEntre(desde, hoy); return d.length > 1 ? d[d.length - 2] : ''; })();
+      var dias = hastaEf && hastaEf >= desde ? _diasEntre(desde, hastaEf) : [];
+      var faltaAP = {};
+      AP.forEach(function(a){ if ((a.tipo === 'FALTA_INJUSTIFICADA' || a.tipo === 'DESCUENTO_DIA_SEPTIMO') && a.fecha) faltaAP[a.empleadoId + '|' + a.fecha] = true; });
+      (PA.empleados || []).filter(function(e){ return e.activo !== false; }).forEach(function(e){
+        var ingreso = e.fechaIngreso || e.fechaContratacion || '';
+        dias.forEach(function(f){
+          if (ingreso && f < ingreso) return;
+          var md = (marc[e.id] || {})[f] || [];
+          var ent = md.some(function(m){ return m.tipo === 'entrada'; });
+          var sal = md.some(function(m){ return m.tipo === 'salida'; });
+          if (md.length) {
+            if (ent && !sal && !REV['marc|' + e.id + '|' + f])
+              cats.marc.items.push({ empId:e.id, emp:e.nombre, fecha:f, cargo:e.cargo || '', det:'Entrada ' + _hm(md.filter(function(m){ return m.tipo === 'entrada'; })[0].ts) + ' sin salida', clave:'marc|' + e.id + '|' + f });
+            else if (sal && !ent && !REV['marc|' + e.id + '|' + f] && !faltaAP[e.id + '|' + f])
+              cats.marc.items.push({ empId:e.id, emp:e.nombre, fecha:f, cargo:e.cargo || '', det:'Salida sin entrada', clave:'marc|' + e.id + '|' + f });
+            return;
+          }
+          if (!_laborable(e, f)) return;
+          if (feriados.indexOf(f) >= 0) return;
+          if (faltaAP[e.id + '|' + f]) return;
+          if (incVigente(e.id, f)) return;
+          if (comp[e.id + '|' + f]) return;
+          if (apJust(e.id, f) || vacAprob(e.id, f)) return;
+          if (REV['aus|' + e.id + '|' + f]) return;
+          cats.aus.items.push({ empId:e.id, emp:e.nombre, fecha:f, cargo:e.cargo || '', det:'Día laborable (' + DIAS[_dow(f)] + ') sin marcación ni justificación', clave:'aus|' + e.id + '|' + f });
+        });
+      });
+
+      var total = 0;
+      Object.keys(cats).forEach(function(k){
+        cats[k].items.sort(function(a, b){ return (a.fecha || '') < (b.fecha || '') ? -1 : (a.fecha || '') > (b.fecha || '') ? 1 : String(a.emp).localeCompare(String(b.emp)); });
+        total += cats[k].items.length;
+      });
+      return { desde:desde, hasta:hasta, cats:cats, total:total, ts:Date.now() };
+    });
+  }
+  window._paPrecierre = _precierre;
+
+  // ══════════════════════════════════════════════════════════════════
+  // UI — panel de revisión pre-cierre
+  // ══════════════════════════════════════════════════════════════════
+  var _ultimo = null;
+  function _esQuincena(d, h){
+    if (!_esFecha(d) || !_esFecha(h) || d.slice(0, 7) !== h.slice(0, 7)) return false;
+    var dd = +d.slice(8), hh = +h.slice(8);
+    var p = h.split('-'), ultimo = new Date(Date.UTC(+p[0], +p[1], 0)).getUTCDate();
+    return (dd === 1 && hh === 15) || (dd === 16 && hh === ultimo);
+  }
+  function _cierreDe(d, h){ var c = (PA._cierres || {})[_keyQ(d, h)]; return c || null; }
+
+  function _btn(txt, onclick, color){
+    return '<button onclick="' + onclick + '" style="padding:5px 9px;border-radius:7px;border:none;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;'
+      + 'background:' + (color || 'var(--surface2)') + ';color:' + (color ? '#fff' : 'var(--text)') + '">' + txt + '</button>';
+  }
+  function _q(s){ return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+
+  function _accionesDe(cat, it){
+    var V = '#238636', R = '#da3633', A = '#1f6feb';
+    switch (cat) {
+      case 'he':    return _btn('Aprobar', "_paPcAcc(function(){paAprobarHorasExtra('" + _q(it.id) + "','" + _q(it.empId) + "'," + (+it.h.horas || 0) + ",null)})", V)
+                         + _btn('Rechazar', "_paPcAcc(function(){paRechazarHorasExtra('" + _q(it.id) + "',null,'" + _q(it.empId) + "')})", R);
+      case 'inc':   return _btn('Aprobar', "_paPcAcc(function(){paAprobarInc('" + _q(it.id) + "',null)})", V)
+                         + _btn('Rechazar', "_paPcAcc(function(){paRechazarInc('" + _q(it.id) + "',null)})", R);
+      case 'vac':   return _btn('Aprobar', "_paPcVac('" + _q(it.id) + "',true)", V)
+                         + _btn('Rechazar', "_paPcVac('" + _q(it.id) + "',false)", R);
+      case 'canje': return _btn('Aprobar', "_paPcAcc(function(){paAprobarFechaCanje('" + _q(it.id) + "','" + _q(it.c.fechaLibre || '') + "',null)})", V)
+                         + _btn('Rechazar', "_paPcAcc(function(){paRechazarCanje('" + _q(it.id) + "',null)})", R);
+      case 'comp':  return _btn('Aprobar', "_paPcAcc(function(){paAprobarCompensatorioTurno('" + _q(it.id) + "','" + _q(it.emp) + "',null)})", V)
+                         + _btn('Rechazar', "_paPcAcc(function(){paRechazarCompensatorioTurno('" + _q(it.id) + "',null)})", R);
+      case 'ap':    return _btn('Eliminar', "_paPcEliminarAP('" + _q(it.id) + "','" + _q(it.emp) + "','" + _q(it.fecha) + "')", R)
+                         + _btn('Mantener', "_paPcValidarAP('" + _q(it.id) + "')");
+      case 'marc':  return _btn('Agregar marcación', "_paPcAbrir(function(){paAgregarMarcacion('" + _q(it.empId) + "','" + _q(it.emp) + "','" + _q(it.fecha) + "')})", A)
+                         + _btn('Validar', "_paPcValidar('" + _q(it.clave) + "')");
+      case 'aus':   return _btn('Generar falta', "_paPcAbrir(function(){paAccionPersonalFalta('" + _q(it.empId) + "','" + _q(it.emp) + "','" + _q(it.cargo) + "','" + _q(it.fecha) + "')})", R)
+                         + _btn('Agregar marcación', "_paPcAbrir(function(){paAgregarMarcacion('" + _q(it.empId) + "','" + _q(it.emp) + "','" + _q(it.fecha) + "')})", A)
+                         + _btn('Justificar', "_paPcValidar('" + _q(it.clave) + "')");
+    }
+    return '';
+  }
+
+  function _renderPanel(res){
+    _ultimo = res;
+    var old = document.getElementById('paPrecierreOv'); if (old) old.remove();
+    var ov = document.createElement('div');
+    ov.id = 'paPrecierreOv';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:8500;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:10px';
+    var orden = ['he','inc','vac','canje','comp','ap','marc','aus'];
+    var h = '<div style="background:var(--surface);color:var(--text);border-radius:14px;width:min(900px,100%);max-height:94vh;display:flex;flex-direction:column;overflow:hidden">'
+      + '<div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+      + '<div style="flex:1;min-width:180px"><div style="font-weight:800;font-size:15px">Revisión pre-cierre</div>'
+      + '<div style="font-size:11.5px;color:var(--muted)">' + res.desde + ' al ' + res.hasta + ' · '
+      + (res.total ? '<b style="color:#f85149">' + res.total + ' pendiente(s)</b> — el reporte no se genera hasta resolverlos' : '<b style="color:#3fb950">Todo resuelto</b>') + '</div></div>'
+      + _btn('🔄 Actualizar', '_paPcRefrescar()') + _btn('Cerrar', '_paPcCerrar()')
+      + '</div><div style="overflow:auto;padding:10px 14px 16px">';
+    orden.forEach(function(k){
+      var c = res.cats[k], n = c.items.length;
+      h += '<div style="margin-top:8px;border:1px solid var(--border);border-radius:10px;overflow:hidden">'
+        + '<div style="padding:9px 12px;display:flex;align-items:center;gap:8px;background:var(--surface2)">'
+        + '<span>' + c.icono + '</span><b style="font-size:13px;flex:1">' + c.titulo + '</b>'
+        + '<span style="font-size:11px;font-weight:800;padding:2px 8px;border-radius:9px;' + (n ? 'background:rgba(248,81,73,.15);color:#f85149' : 'background:rgba(46,160,67,.15);color:#3fb950') + '">' + (n ? n : '✓') + '</span></div>';
+      if (n) {
+        h += c.items.map(function(it){
+          var tag = it.estado ? '<span style="font-size:10px;font-weight:800;color:' + (it.estado === 'INVÁLIDA' ? '#f85149' : '#e3b341') + '">' + it.estado + (it.auto ? ' · auto' : '') + '</span> ' : '';
+          return '<div style="padding:8px 12px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">'
+            + '<div style="flex:1;min-width:200px"><div style="font-size:12.5px;font-weight:700">' + esc(it.emp) + ' <span style="font-weight:500;color:var(--muted)">· ' + esc(it.fecha || '') + '</span></div>'
+            + '<div style="font-size:11.5px;color:var(--muted);margin-top:2px">' + tag + esc(it.det || '') + '</div></div>'
+            + '<div style="display:flex;gap:5px;flex-wrap:wrap">' + _accionesDe(k, it) + '</div></div>';
+        }).join('');
+      }
+      h += '</div>';
+    });
+    h += '</div></div>';
+    ov.innerHTML = h;
+    document.body.appendChild(ov);
+  }
+
+  function _abrirPanel(desde, hasta){
+    paToast('Revisando pendientes del período…');
+    return _precierre(desde, hasta).then(_renderPanel).catch(function(e){ paToast('Error en revisión: ' + e.message, true); });
+  }
+  window._paAbrirPrecierre = _abrirPanel;
+  window._paPcRefrescar = function(){ if (_ultimo) _abrirPanel(_ultimo.desde, _ultimo.hasta); };
+  window._paPcCerrar = function(){
+    var o = document.getElementById('paPrecierreOv'); if (o) o.remove();
+    if (typeof paAdminTab === 'function') paAdminTab('reporte');
+  };
+  // Acción con paConfirm: refresca el panel cuando el diálogo se cierra
+  window._paPcAcc = function(fn){
+    fn();
+    var vueltas = 0;
+    var t = setInterval(function(){
+      vueltas++;
+      if (!document.getElementById('_paConfOk') || vueltas > 600) {
+        clearInterval(t);
+        setTimeout(window._paPcRefrescar, 1500);
+      }
+    }, 500);
+  };
+  // Acción que abre otro formulario: se cierra el panel; al volver a
+  // Reporte se vuelve a revisar.
+  window._paPcAbrir = function(fn){
+    var o = document.getElementById('paPrecierreOv'); if (o) o.remove();
+    fn();
+  };
+  window._paPcVac = function(id, aprobar){
+    var it = (_ultimo && _ultimo.cats.vac.items.find(function(x){ return x.id === id; })) || null;
+    if (!it) return;
+    var b = document.createElement('button');
+    b.setAttribute('data-vid', id); b.setAttribute('data-eid', it.empId); b.setAttribute('data-nom', it.emp);
+    b.setAttribute('data-cargo', it.v.cargo || ''); b.setAttribute('data-dias', it.v.dias || 0);
+    b.setAttribute('data-inicio', it.v.fechaInicio || ''); b.setAttribute('data-fin', it.v.fechaFin || '');
+    _paPcAcc(function(){ aprobar ? paAprobarVacaciones(b) : paRechazarVacaciones(b); });
+  };
+  window._paPcEliminarAP = function(id, emp, fecha){
+    paConfirm('¿Eliminar esta acción de personal de ' + emp + ' (' + fecha + ')?', function(){
+      paDb.collection('paAccionesPersonal').doc(id).delete()
+        .then(function(){ paToast('Acción de personal eliminada'); window._paPcRefrescar(); })
+        .catch(function(e){ paToast('Error: ' + e.message, true); });
+    });
+  };
+  function _pedirMotivo(titulo){
+    var m = window.prompt(titulo + '\n\nEscribe el motivo (queda registrado con tu nombre):', '');
+    if (m === null) return null;
+    m = m.trim();
+    if (m.length < 5) { paToast('El motivo debe tener al menos 5 caracteres', true); return null; }
+    return m;
+  }
+  window._paPcValidarAP = function(id){
+    var m = _pedirMotivo('Mantener esta acción de personal como válida');
+    if (!m) return;
+    paDb.collection('paAccionesPersonal').doc(id).update({
+      revisionCierre: { por: PA.adminNombre || 'admin', motivo: m, ts: Date.now() }
+    }).then(function(){ paToast('✅ Acción validada'); window._paPcRefrescar(); })
+      .catch(function(e){ paToast('Error: ' + e.message, true); });
+  };
+  window._paPcValidar = function(clave){
+    var m = _pedirMotivo(clave.indexOf('aus|') === 0 ? 'Justificar ausencia' : 'Validar marcación incompleta');
+    if (!m) return;
+    var upd = {}; upd[clave] = { por: PA.adminNombre || 'admin', motivo: m, ts: Date.now() };
+    _set.call(_cfgRef(), { revisionesCierre: upd }, { merge: true })
+      .then(function(){ PA._revCierre[clave] = upd[clave]; paToast('✅ Registrado'); window._paPcRefrescar(); })
+      .catch(function(e){ paToast('Error: ' + e.message, true); });
+  };
+
+  // ══════════════════════════════════════════════════════════════════
+  // CIERRE Y REAPERTURA
+  // ══════════════════════════════════════════════════════════════════
+  window._paCerrarQuincena = function(desde, hasta){
+    if (!_esQuincena(desde, hasta)) { paToast('Solo se puede cerrar una quincena (1-15 o 16-fin de mes)', true); return; }
+    if (hasta >= paHoy()) { paToast('La quincena aún no termina — se puede cerrar a partir del día siguiente a ' + hasta, true); return; }
+    paToast('Verificando que no queden pendientes…');
+    _precierre(desde, hasta).then(function(res){
+      if (res.total) { paToast('Todavía hay ' + res.total + ' pendiente(s)', true); _renderPanel(res); return; }
+      paConfirm('¿Cerrar la quincena del ' + desde + ' al ' + hasta + '?\n\nDespués de cerrarla nadie podrá crear, editar, aprobar ni borrar nada de esas fechas. Solo ' + NOMBRE_LLAVE + ' puede reabrirla.', function(){
+        var key = _keyQ(desde, hasta), ref = _cfgRef();
+        paDb.runTransaction(function(tx){
+          return tx.get(ref).then(function(d){
+            var cq = (d.exists && d.data().cierresQuincena) || {};
+            var prev = cq[key] || {};
+            if (prev.estado === 'cerrada') return false;
+            var hist = (prev.historial || []).concat([{ accion:'cerrada', por: PA.adminNombre || 'admin', ts: Date.now() }]);
+            var nuevo = {}; nuevo[key] = { desde:desde, hasta:hasta, estado:'cerrada', cerradoPor: PA.adminNombre || 'admin', cerradoTs: Date.now(), historial: hist };
+            tx.set(ref, { cierresQuincena: nuevo }, { merge:true });
+            return true;
+          });
+        }).then(function(ok){
+          if (!ok) paToast('Esa quincena ya estaba cerrada');
+          else paToast('🔒 Quincena ' + desde + ' al ' + hasta + ' cerrada');
+          return _refrescarCierres(true);
+        }).then(function(){ paGenerarReporte(); })
+          .catch(function(e){ paToast('Error al cerrar: ' + e.message, true); });
+      });
+    });
+  };
+
+  async function _sha256(txt){
+    var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt));
+    return Array.from(new Uint8Array(buf)).map(function(b){ return b.toString(16).padStart(2, '0'); }).join('');
+  }
+  function _modalLlave(titulo, campos, onOk){
+    var old = document.getElementById('paLlaveOv'); if (old) old.remove();
+    var ov = document.createElement('div'); ov.id = 'paLlaveOv';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:8800;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;padding:16px';
+    ov.innerHTML = '<div style="background:var(--surface);color:var(--text);border-radius:14px;padding:20px;width:min(380px,100%)">'
+      + '<div style="font-weight:800;font-size:15px;margin-bottom:12px">' + titulo + '</div>'
+      + campos.map(function(c){ return '<div class="fg"><label>' + c.label + '</label><input id="' + c.id + '" type="' + (c.type || 'text') + '" autocomplete="off" style="width:100%;font-size:16px"></div>'; }).join('')
+      + '<div id="paLlaveErr" style="color:#f85149;font-size:12px;min-height:16px;margin:4px 0 8px"></div>'
+      + '<div style="display:flex;gap:8px"><button id="paLlaveOk" style="flex:1;padding:11px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-weight:700;cursor:pointer">Continuar</button>'
+      + '<button id="paLlaveCancel" style="flex:1;padding:11px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:10px;cursor:pointer">Cancelar</button></div></div>';
+    document.body.appendChild(ov);
+    ov.querySelector('#paLlaveCancel').onclick = function(){ ov.remove(); };
+    ov.querySelector('#paLlaveOk').onclick = function(){
+      var v = {}; campos.forEach(function(c){ v[c.id] = (document.getElementById(c.id) || {}).value || ''; });
+      var err = function(m){ var e = document.getElementById('paLlaveErr'); if (e) e.textContent = m; };
+      Promise.resolve(onOk(v, err)).then(function(cerrar){ if (cerrar) ov.remove(); });
+    };
+  }
+
+  window._paReabrirQuincena = function(desde, hasta){
+    _refrescarCierres(true).then(function(){
+      var llave = PA._llaveCierre;
+      if (!llave || !llave.hash) {
+        // Primera vez: crear la llave. Requiere la contraseña admin actual.
+        _modalLlave('🔑 Crear llave de reapertura', [
+          { id:'llNom', label:'Nombre autorizado' },
+          { id:'llAdm', label:'Contraseña admin actual del portal', type:'password' },
+          { id:'llP1',  label:'Nueva contraseña de la llave (mín. 8)', type:'password' },
+          { id:'llP2',  label:'Repite la contraseña', type:'password' }
+        ], async function(v, err){
+          if (v.llNom !== NOMBRE_LLAVE) { err('Nombre no autorizado'); return false; }
+          if (!PA.adminPin || v.llAdm !== PA.adminPin) { err('Contraseña admin incorrecta'); return false; }
+          if (v.llP1.length < 8) { err('La contraseña debe tener al menos 8 caracteres'); return false; }
+          if (v.llP1 !== v.llP2) { err('Las contraseñas no coinciden'); return false; }
+          if (v.llP1 === PA.adminPin) { err('Debe ser distinta de la contraseña admin'); return false; }
+          var salt = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(function(b){ return b.toString(16).padStart(2, '0'); }).join('');
+          var hash = await _sha256(salt + '|' + NOMBRE_LLAVE + '|' + v.llP1);
+          await _set.call(_cfgRef(), { llaveCierre: { nombre: NOMBRE_LLAVE, salt: salt, hash: hash, creadaTs: Date.now() } }, { merge:true });
+          PA._llaveCierre = { nombre: NOMBRE_LLAVE, salt: salt, hash: hash };
+          paToast('🔑 Llave creada. Ahora úsala para reabrir.');
+          setTimeout(function(){ window._paReabrirQuincena(desde, hasta); }, 300);
+          return true;
+        });
+        return;
+      }
+      _modalLlave('🔓 Reabrir quincena ' + desde + ' al ' + hasta, [
+        { id:'llNom', label:'Nombre autorizado' },
+        { id:'llPwd', label:'Contraseña de la llave', type:'password' },
+        { id:'llMot', label:'Motivo de la reapertura' }
+      ], async function(v, err){
+        if (v.llNom !== llave.nombre) { err('Nombre o contraseña incorrectos'); return false; }
+        var h = await _sha256(llave.salt + '|' + llave.nombre + '|' + v.llPwd);
+        if (h !== llave.hash) { err('Nombre o contraseña incorrectos'); return false; }
+        if (v.llMot.trim().length < 5) { err('Escribe el motivo'); return false; }
+        var key = _keyQ(desde, hasta), ref = _cfgRef();
+        await paDb.runTransaction(function(tx){
+          return tx.get(ref).then(function(d){
+            var cq = (d.exists && d.data().cierresQuincena) || {};
+            var prev = cq[key]; if (!prev) return;
+            var hist = (prev.historial || []).concat([{ accion:'reabierta', por: NOMBRE_LLAVE, motivo: v.llMot.trim(), ts: Date.now() }]);
+            var nuevo = {}; nuevo[key] = Object.assign({}, prev, { estado:'reabierta', reabiertoPor: NOMBRE_LLAVE, reabiertoTs: Date.now(), motivoReapertura: v.llMot.trim(), historial: hist });
+            tx.set(ref, { cierresQuincena: nuevo }, { merge:true });
+          });
+        });
+        await _refrescarCierres(true);
+        paToast('🔓 Quincena reabierta');
+        paGenerarReporte();
+        return true;
+      });
+    });
+  };
+
+  // ══════════════════════════════════════════════════════════════════
+  // GATE EN EL REPORTE — bloqueo total
+  // ══════════════════════════════════════════════════════════════════
+  var _generarOriginal = window.paGenerarReporte;
+  window.paGenerarReporte = function(){
+    var desde = (document.getElementById('rptDesde') || {}).value || '';
+    var hasta = (document.getElementById('rptHasta') || {}).value || '';
+    var rc = document.getElementById('reporteContent');
+    if (!desde || !hasta || !rc) return;
+    rc.innerHTML = '<div class="spinner"></div>';
+    _refrescarCierres(true).then(function(){
+      var cq = _esQuincena(desde, hasta) ? _cierreDe(desde, hasta) : null;
+      if (cq && cq.estado === 'cerrada') {
+        _generarOriginal();
+        // Banner de quincena cerrada (después de que el reporte pinte)
+        setTimeout(function(){
+          var rc2 = document.getElementById('reporteContent'); if (!rc2) return;
+          var b = document.createElement('div');
+          b.style.cssText = 'background:rgba(46,160,67,.10);border:1.5px solid rgba(46,160,67,.45);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:12.5px;display:flex;gap:8px;align-items:center;flex-wrap:wrap';
+          b.innerHTML = '<div style="flex:1;min-width:180px">🔒 <b>Quincena cerrada</b> por ' + esc(cq.cerradoPor || '—') + ' el '
+            + new Date(cq.cerradoTs || 0).toLocaleString('es-SV', { timeZone:'America/El_Salvador' }) + '</div>'
+            + _btn('🔓 Reabrir', "_paReabrirQuincena('" + desde + "','" + hasta + "')");
+          rc2.insertBefore(b, rc2.firstChild);
+        }, 1200);
+        return;
+      }
+      return _precierre(desde, hasta).then(function(res){
+        _ultimo = res;
+        var reab = cq && cq.estado === 'reabierta'
+          ? '<div style="background:rgba(227,179,65,.10);border:1.5px solid rgba(227,179,65,.45);border-radius:10px;padding:9px 12px;margin-bottom:10px;font-size:12px">🔓 Reabierta por '
+            + esc(cq.reabiertoPor || '') + ' — ' + esc(cq.motivoReapertura || '') + '</div>' : '';
+        if (res.total) {
+          var resumen = ['he','inc','vac','canje','comp','ap','marc','aus'].filter(function(k){ return res.cats[k].items.length; })
+            .map(function(k){ return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px"><span>'
+              + res.cats[k].icono + ' ' + res.cats[k].titulo + '</span><b style="color:#f85149">' + res.cats[k].items.length + '</b></div>'; }).join('');
+          rc.innerHTML = reab + '<div style="border:1.5px solid rgba(248,81,73,.45);background:rgba(248,81,73,.06);border-radius:12px;padding:14px">'
+            + '<div style="font-weight:800;font-size:14px;margin-bottom:4px">⛔ No se puede generar el reporte</div>'
+            + '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Hay ' + res.total + ' pendiente(s) en el período ' + desde + ' al ' + hasta + '. Resuélvelos para continuar.</div>'
+            + resumen
+            + '<button onclick="_paAbrirPrecierre(\'' + desde + '\',\'' + hasta + '\')" style="margin-top:12px;width:100%;padding:11px;background:#da3633;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Ver y resolver pendientes</button></div>';
+          return;
+        }
+        // Sin pendientes: se genera el reporte; si es una quincena terminada, se ofrece cerrarla
+        _generarOriginal();
+        if (_esQuincena(desde, hasta) && hasta < paHoy()) {
+          setTimeout(function(){
+            var rc2 = document.getElementById('reporteContent'); if (!rc2) return;
+            var b = document.createElement('div');
+            b.innerHTML = reab + '<button onclick="_paCerrarQuincena(\'' + desde + '\',\'' + hasta + '\')" style="width:100%;padding:12px;margin-bottom:10px;background:#8957e5;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer">🔒 Cerrar quincena ' + desde + ' al ' + hasta + '</button>';
+            rc2.insertBefore(b, rc2.firstChild);
+          }, 1200);
+        }
+      });
+    }).catch(function(e){ rc.innerHTML = '<div style="color:var(--red);padding:20px">Error: ' + esc(e.message) + '</div>'; });
+  };
+
+  // ══════════════════════════════════════════════════════════════════
+  // HISTÓRICAS DE ACCIONES DE PERSONAL (al imprimir, con confirmación)
+  // ══════════════════════════════════════════════════════════════════
+  window._paQuincenaDe = function(f){
+    if (!_esFecha(f)) return { desde:'', hasta:'' };
+    var p = f.split('-'), d = +p[2];
+    var ultimo = new Date(Date.UTC(+p[0], +p[1], 0)).getUTCDate();
+    var ym = p[0] + '-' + p[1] + '-';
+    return d <= 15 ? { desde: ym + '01', hasta: ym + '15' } : { desde: ym + '16', hasta: ym + String(ultimo).padStart(2, '0') };
+  };
+  window._paPreguntarHistorico = function(apId){
+    if (!apId) return;
+    _get.call(paDb.collection('paAccionesPersonal').doc(apId)).then(function(d){
+      if (!d.exists) return;
+      var ap = d.data();
+      if (ap.historica === true) return;                               // ya está en históricas
+      var old = document.getElementById('paHistOv'); if (old) old.remove();
+      var ov = document.createElement('div'); ov.id = 'paHistOv';
+      // Por encima de la vista de impresión (z-index 99998)
+      ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px';
+      ov.innerHTML = '<div style="background:#fff;color:#1a1a1a;border-radius:16px;padding:22px;max-width:360px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.4);font-family:inherit">'
+        + '<div style="font-size:15px;font-weight:800;margin-bottom:6px">¿Pasar a Históricas?</div>'
+        + '<div style="font-size:13px;line-height:1.5;margin-bottom:16px">' + esc(ap.empleadoNombre || '') + ' · ' + esc(ap.concepto || ap.tipo || '') + ' · ' + esc(ap.fecha || ap.fechaEmision || '')
+        + '<br><span style="color:#666;font-size:12px">Sale de la lista activa y queda archivada en su quincena.</span></div>'
+        + '<div style="display:flex;gap:10px"><button id="paHistSi" style="flex:1;padding:11px;background:#8957e5;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Sí, pasar</button>'
+        + '<button id="paHistNo" style="flex:1;padding:11px;background:#eee;color:#333;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">No</button></div></div>';
+      document.body.appendChild(ov);
+      ov.querySelector('#paHistNo').onclick = function(){ ov.remove(); };
+      ov.querySelector('#paHistSi').onclick = function(){
+        ov.remove();
+        var q = window._paQuincenaDe(ap.fecha || ap.fechaInicio || ap.quincenaDesde || ap.fechaEmision || '');
+        paDb.collection('paAccionesPersonal').doc(apId).update({
+          historica: true, historicaPor: PA.adminNombre || 'admin', historicaTs: Date.now(), historicaQuincena: q.desde ? q.desde + '_' + q.hasta : ''
+        }).then(function(){
+          paToast('🗄 Acción de personal pasada a Históricas');
+          if (PA.adminTab === 'acciones' && document.getElementById('apLista')) paCargarAPs(PA._apModoHist ? 'todos' : undefined);
+        }).catch(function(e){ paToast('Error: ' + e.message, true); });
+      };
+    }).catch(function(e){ console.warn('[Históricas]', e.message); });
+  };
+  window.paRegresarAPActiva = function(apId){
+    paConfirm('¿Regresar esta acción de personal a la lista activa?', function(){
+      paDb.collection('paAccionesPersonal').doc(apId).update({
+        historica: false, historicaRegresadaPor: PA.adminNombre || 'admin', historicaRegresadaTs: Date.now()
+      }).then(function(){ paToast('↩ Regresada a la lista activa'); paCargarAPsHistoricas(); })
+        .catch(function(e){ paToast('Error: ' + e.message, true); });
+    });
+  };
+
+  console.log('%c[Cierre] Candado de quincenas activo', 'color:#8957e5;font-weight:bold');
+})();
+
 </script>
 <div id="versionBadge" style="position:fixed;bottom:8px;left:50%;transform:translateX(-50%);z-index:9000;font-size:9px;color:rgba(204,0,0,.5);pointer-events:none;font-family:monospace;letter-spacing:.5px"></div>
 <script>
