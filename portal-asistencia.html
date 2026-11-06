@@ -1500,6 +1500,7 @@ var PA_MOTORISTAS = ['galileo barrera', 'enrique flores', 'motorista', 'chofer',
 
 function paEsMotorista(emp) {
   if (!emp) return false;
+  if (emp.cargoFuncion === 'motorista') return true;   // función del catálogo de cargos
   var nombre = (emp.nombre || '').toLowerCase();
   var cargo  = (emp.cargo  || '').toLowerCase();
   return PA_MOTORISTAS.some(function(m) {
@@ -2167,7 +2168,8 @@ function paLoadEmpleados(callback) {
           return {
             id:    t.id,
             nombre: t.nombre || '—',
-            cargo:  t.cargo  || '—',
+            cargo:  t.cargoNombre || t.cargo || '—',   // nombre del catálogo de cargos
+            cargoFuncion: t.cargo || '',              // función del sistema (motorista, técnico…)
             ruta:   t.ruta   || '',
             pin:    pins[t.id]  || '',
             credId: creds[t.id] || null,
@@ -2190,7 +2192,7 @@ function paLoadEmpleados(callback) {
       console.warn('[Portal] config/pins error:', e.message);
       PA.empleados = tecnicos
         .map(function(t){
-          return {id:t.id, nombre:t.nombre||'—', cargo:t.cargo||'—',
+          return {id:t.id, nombre:t.nombre||'—', cargo:t.cargoNombre||t.cargo||'—', cargoFuncion:t.cargo||'',
                   ruta:t.ruta||'', pin:'', credId:null, activo: t.activo !== false,
                   diasVacacionesDisponibles:15, horasExtraAcum:0};
         });
@@ -11962,7 +11964,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-10-28-D';
+var PA_VERSION = 'v2026-11-06-A';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
