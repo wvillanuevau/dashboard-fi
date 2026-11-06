@@ -4797,7 +4797,23 @@ function paConfirmarMarca() {
     };
     // Si es salida, auto-completar almuerzo antes de guardar
     function _doGuardarMarca() {
-      paDb.collection('paMarcaciones').add(docData).then(function(ref) {
+      // Se anota como pendiente en este teléfono hasta que el servidor la confirme.
+      // Si no se confirma en 8 s (o no hay internet), aviso grande de "pendiente".
+      var _confirmada = false, _inicioEnvio = Date.now();
+      if (typeof _paPendRegistrar === 'function') _paPendRegistrar(docData);
+      var _avisoPend = setTimeout(function(){
+        if (_confirmada) return;
+        if (btn) btn.textContent = '⏳ Pendiente de envío…';
+        if (typeof _paMostrarPendienteEnvio === 'function') _paMostrarPendienteEnvio(docData);
+      }, (navigator.onLine === false) ? 0 : 8000);
+      // recibidoServidor = hora del SERVIDOR (detecta marcaciones que llegan tarde)
+      var _docSrv = Object.assign({}, docData, { recibidoServidor: firebase.firestore.FieldValue.serverTimestamp() });
+      paDb.collection('paMarcaciones').add(_docSrv).then(function(ref) {
+        _confirmada = true; clearTimeout(_avisoPend);
+        if (typeof _paPendQuitar === 'function') _paPendQuitar(docData.folio);
+        var _dem = Date.now() - _inicioEnvio;
+        if (document.getElementById('paPendEnvioOv') && typeof _paConfirmarPendienteEnvio === 'function') _paConfirmarPendienteEnvio();
+        if (_dem > PA_PEND_LIMITE_MS && typeof _paAvisarLlegadaTarde === 'function') _paAvisarLlegadaTarde(Object.assign({ registrado:_inicioEnvio }, docData), _dem);
         console.log('[Marca] Marcación guardada OK — ref:', ref.id, '| tipo:', docData.tipo);
         PA.marcacionesHoy.push(Object.assign({ id: ref.id, _id: ref.id }, docData));
         if (paStream) { paStream.getTracks().forEach(function(t){ t.stop(); }); paStream = null; }
@@ -4809,6 +4825,9 @@ function paConfirmarMarca() {
           _paMostrarExito(docData, null);
         }
       }).catch(function(e) {
+        _confirmada = true; clearTimeout(_avisoPend);
+        if (typeof _paPendQuitar === 'function') _paPendQuitar(docData.folio);   // rechazada: no queda en cola
+        var _ovP = document.getElementById('paPendEnvioOv'); if (_ovP) _ovP.remove();
         if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
         var errEl2 = document.getElementById('marcarError');
         if (errEl2) { errEl2.textContent = 'Error: ' + e.message; errEl2.style.display = 'block'; }
@@ -4848,6 +4867,16 @@ function paConfirmarMarca() {
 
       // Guardar foto en subcolección separada — no infla el doc de marcación
       var fotoDocRef = paDb.collection('paFotos').doc();
+      // Antes: la marcación esperaba a que el SERVIDOR confirmara la foto.
+      // Sin internet eso nunca pasaba, la marcación ni siquiera se creaba y
+      // si el empleado cerraba la app se perdía. Ahora se espera máx. 4 s y
+      // la marcación se encola igual (la foto sube cuando vuelva la señal).
+      var _fotoListo = false;
+      var _seguirSinEsperar = setTimeout(function(){
+        if (_fotoListo) return; _fotoListo = true;
+        console.warn('[Marca] Foto sin confirmar en 4 s — se encola la marcación igual');
+        _guardarConFotoRef('paFotos/' + fotoDocRef.id);
+      }, 4000);
       fotoDocRef.set({
         empresa: PA.empresa,
         empleadoId: PA.empleado.id,
@@ -4857,9 +4886,13 @@ function paConfirmarMarca() {
         foto: compressed,
         ts: Date.now()
       }).then(function() {
+        clearTimeout(_seguirSinEsperar);
+        if (_fotoListo) return; _fotoListo = true;
         console.log('[Marca] Foto guardada OK — procediendo a guardar marcación');
         _guardarConFotoRef('paFotos/' + fotoDocRef.id);
       }).catch(function(e) {
+        clearTimeout(_seguirSinEsperar);
+        if (_fotoListo) return; _fotoListo = true;
         console.warn('[Marca] Error foto, guardando sin fotoRef:', e.message);
         // Guardar la marcación de todos modos aunque falle la foto
         _guardarConFotoRef(null);
@@ -5637,6 +5670,7 @@ function _paShowAdminPanel() {
   paAdminTab(PA.adminTab || 'hoy');
   _paCargarPendientesGlobal();
   if (typeof _paVerificarFaltasAutomaticas === 'function') _paVerificarFaltasAutomaticas();
+  if (typeof _paMostrarAvisosMarcTarde === 'function') _paMostrarAvisosMarcTarde();
 }
 
 function _paCerrarAdmin() {
@@ -11964,7 +11998,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-11-06-A';
+var PA_VERSION = 'v2026-11-06-B';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -13065,6 +13099,171 @@ window.addEventListener('DOMContentLoaded', function() {
 
   console.log('%c[Cierre] Candado de quincenas activo', 'color:#8957e5;font-weight:bold');
 })();
+
+</script>
+<script>
+// ══════════════════════════════════════════════════════════════════
+// MARCACIONES PENDIENTES DE ENVÍO (teléfono sin conexión)
+// Caso real 3–5 nov 2026: marcaciones que se quedaron en la cola del
+// teléfono y llegaron al servidor después del corte (faltas falsas), o
+// que nunca llegaron porque el empleado cerró la app en "Guardando…".
+// 1) Si la marcación no se confirma en 8 s (o no hay internet), aviso
+//    grande: "quedó pendiente, no cierres la app".
+// 2) Cada marcación pendiente se anota en este teléfono; al abrir el
+//    portal se espera su envío y se verifica en el servidor.
+// 3) Cada marcación guarda recibidoServidor (hora del SERVIDOR).
+// 4) Si una marcación llega tarde (>10 min), se avisa al admin
+//    (paConfig.avisosMarcTarde) indicando si ya tiene falta ese día.
+// ══════════════════════════════════════════════════════════════════
+var PA_PEND_KEY = 'pa_marc_pendientes';
+var PA_PEND_LIMITE_MS = 10 * 60 * 1000;
+
+function _paPendLeer() {
+  try { return JSON.parse(localStorage.getItem(PA_PEND_KEY) || '[]') || []; } catch(e) { return []; }
+}
+function _paPendGuardar(l) {
+  try { localStorage.setItem(PA_PEND_KEY, JSON.stringify(l)); } catch(e) {}
+}
+function _paPendRegistrar(d) {
+  var l = _paPendLeer().filter(function(x){ return x.folio !== d.folio; });
+  l.push({ folio:d.folio, empresa:d.empresa, empleadoId:d.empleadoId, empleadoNombre:d.empleadoNombre,
+           tipo:d.tipo, fecha:d.fecha, ts:d.ts, hora:d.hora || '', registrado:Date.now() });
+  _paPendGuardar(l);
+}
+function _paPendQuitar(folio) {
+  _paPendGuardar(_paPendLeer().filter(function(x){ return x.folio !== folio; }));
+}
+
+function _paTipoMarcaLegible(t) {
+  return ({ entrada:'ENTRADA', salida:'SALIDA', almuerzo_salida:'SALIDA A ALMUERZO', almuerzo_regreso:'REGRESO DE ALMUERZO',
+            entrada_adicional:'ENTRADA ADICIONAL', salida_adicional:'SALIDA ADICIONAL' })[t] || String(t || '').toUpperCase();
+}
+
+// Aviso grande en pantalla (por encima de todo)
+function _paMostrarPendienteEnvio(d, textoExtra) {
+  var ov = document.getElementById('paPendEnvioOv');
+  if (!ov) {
+    ov = document.createElement('div'); ov.id = 'paPendEnvioOv';
+    ov.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:100001;padding:14px 16px;background:#9a6700;color:#fff;'
+      + 'box-shadow:0 4px 18px rgba(0,0,0,.35);font-family:inherit;text-align:center';
+    document.body.appendChild(ov);
+  }
+  ov.style.background = '#9a6700';
+  ov.innerHTML = '<div style="font-size:17px;font-weight:800">⚠️ Sin conexión — tu marcación quedó PENDIENTE</div>'
+    + '<div style="font-size:13.5px;margin-top:4px;line-height:1.45">' + (d ? _paTipoMarcaLegible(d.tipo) + (d.hora ? ' de las ' + d.hora : '') + ' · ' : '')
+    + 'Está guardada en este teléfono pero <b>todavía no llega al sistema</b>.<br><b>NO cierres la app</b> — se enviará sola cuando vuelva el internet.</div>'
+    + (textoExtra ? '<div style="font-size:12.5px;margin-top:6px;opacity:.9">' + textoExtra + '</div>' : '');
+}
+function _paConfirmarPendienteEnvio(msg) {
+  var ov = document.getElementById('paPendEnvioOv');
+  if (!ov) return;
+  ov.style.background = '#1a7f37';
+  ov.innerHTML = '<div style="font-size:16px;font-weight:800">✅ ' + (msg || 'Marcación enviada al sistema') + '</div>';
+  setTimeout(function(){ var o = document.getElementById('paPendEnvioOv'); if (o) o.remove(); }, 3500);
+}
+
+// Aviso al admin cuando una marcación llegó tarde al servidor
+function _paAvisarLlegadaTarde(rec, demoraMs) {
+  if (!paDb || !rec || !rec.empresa) return;
+  paDb.collection('paAccionesPersonal').where('empresa','==',rec.empresa).where('tipo','==','FALTA_INJUSTIFICADA').where('fecha','==',rec.fecha)
+    .get({ source:'server' })
+    .then(function(snap){
+      var hayFalta = false;
+      snap.forEach(function(d){ if (d.data().empleadoId === rec.empleadoId) hayFalta = true; });
+      return hayFalta;
+    }).catch(function(){ return null; })
+    .then(function(hayFalta){
+      var av = {}; av[rec.folio] = {
+        empleadoId: rec.empleadoId, empleadoNombre: rec.empleadoNombre || '', tipo: rec.tipo, fecha: rec.fecha,
+        hora: rec.hora || '', marcadoTs: rec.ts || 0, recibidoTs: Date.now(), demoraMin: Math.round(demoraMs / 60000),
+        hayFalta: hayFalta === true, visto: false
+      };
+      return paDb.collection('paConfig').doc(rec.empresa).set({ avisosMarcTarde: av }, { merge: true });
+    }).catch(function(e){ console.warn('[PendEnvio] aviso:', e.message); });
+}
+
+// Al abrir el portal: esperar el envío de lo que quedó en cola y verificar en el servidor
+function _paRevisarPendientesEnvio() {
+  var l = _paPendLeer();
+  if (!l.length || !paDb) return;
+  _paMostrarPendienteEnvio(null, 'Hay ' + l.length + ' marcación(es) de este teléfono pendientes de enviar. Mantén el portal abierto con internet.');
+  var espera = (typeof paDb.waitForPendingWrites === 'function')
+    ? paDb.waitForPendingWrites().catch(function(){})
+    : new Promise(function(r){ setTimeout(r, 15000); });
+  espera.then(function(){
+    return Promise.all(l.map(function(rec){
+      return paDb.collection('paMarcaciones').where('empresa','==',rec.empresa).where('folio','==',rec.folio).get({ source:'server' })
+        .then(function(s){ return { rec:rec, ok:!s.empty }; })
+        .catch(function(){ return { rec:rec, ok:null }; });               // sin conexión: se reintenta luego
+    }));
+  }).then(function(res){
+    var enviadas = 0, perdidas = [];
+    res.forEach(function(x){
+      if (x.ok === true) {
+        enviadas++; _paPendQuitar(x.rec.folio);
+        var demora = Date.now() - (x.rec.registrado || x.rec.ts || Date.now());
+        if (demora > PA_PEND_LIMITE_MS) _paAvisarLlegadaTarde(x.rec, demora);
+      } else if (x.ok === false) {
+        perdidas.push(x.rec);
+      }
+    });
+    if (perdidas.length) {
+      // El servidor respondió y la marcación NO está: se perdió (caché borrada, etc.)
+      _paMostrarPendienteEnvio(null, '❌ ' + perdidas.length + ' marcación(es) NO llegaron al sistema: '
+        + perdidas.map(function(p){ return _paTipoMarcaLegible(p.tipo) + ' ' + p.fecha + (p.hora ? ' ' + p.hora : ''); }).join(' · ')
+        + '.<br><b>Avisa a tu supervisor</b> para que la registre.');
+      var ov = document.getElementById('paPendEnvioOv'); if (ov) { ov.style.background = '#b42318'; ov.onclick = function(){ ov.remove(); }; }
+      perdidas.forEach(function(p){
+        _paPendQuitar(p.folio);
+        var av = {}; av[p.folio] = { empleadoId:p.empleadoId, empleadoNombre:p.empleadoNombre || '', tipo:p.tipo, fecha:p.fecha,
+          hora:p.hora || '', marcadoTs:p.ts || 0, recibidoTs:0, perdida:true, visto:false };
+        paDb.collection('paConfig').doc(p.empresa).set({ avisosMarcTarde: av }, { merge:true }).catch(function(){});
+      });
+    } else if (enviadas) {
+      _paConfirmarPendienteEnvio(enviadas + ' marcación(es) pendiente(s) enviada(s) al sistema');
+    } else if (!_paPendLeer().length) {
+      var o = document.getElementById('paPendEnvioOv'); if (o) o.remove();
+    }
+  });
+}
+setTimeout(function(){ try { _paRevisarPendientesEnvio(); } catch(e) {} }, 3000);
+window.addEventListener('online', function(){ setTimeout(function(){ try { _paRevisarPendientesEnvio(); } catch(e) {} }, 2000); });
+
+// Panel admin: marcaciones que llegaron tarde al servidor
+function _paMostrarAvisosMarcTarde() {
+  if (!paDb || !PA.empresa) return;
+  paDb.collection('paConfig').doc(PA.empresa).get({ source:'server' }).then(function(d){
+    var av = (d.exists && d.data().avisosMarcTarde) || {};
+    var lista = Object.keys(av).map(function(k){ var x = av[k]; x._folio = k; return x; })
+      .filter(function(x){ return x && x.visto !== true; })
+      .sort(function(a, b){ return (a.fecha || '') < (b.fecha || '') ? -1 : 1; });
+    var old = document.getElementById('paAvisosTardeOv'); if (old) old.remove();
+    if (!lista.length) return;
+    var ov = document.createElement('div'); ov.id = 'paAvisosTardeOv';
+    ov.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:8000;width:min(420px,calc(100% - 24px));max-height:60vh;overflow:auto;'
+      + 'background:#fff;color:#1a1a1a;border:2px solid #d29922;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.3);font-family:inherit';
+    ov.innerHTML = '<div style="padding:11px 14px;background:#fff8e1;border-bottom:1px solid #f0d58c;display:flex;align-items:center;gap:8px">'
+      + '<b style="flex:1;font-size:13.5px">⏳ Marcaciones que llegaron tarde (' + lista.length + ')</b>'
+      + '<button onclick="document.getElementById(\'paAvisosTardeOv\').remove()" style="border:none;background:none;font-size:18px;cursor:pointer">✕</button></div>'
+      + lista.map(function(x){
+          var det = x.perdida
+            ? '<span style="color:#b42318;font-weight:700">❌ NO llegó al sistema</span> — hay que registrarla a mano'
+            : 'Llegó ' + (x.demoraMin >= 60 ? Math.round(x.demoraMin / 60) + ' h' : x.demoraMin + ' min') + ' después' + (x.recibidoTs ? ' (' + new Date(x.recibidoTs).toLocaleString('es-SV', { timeZone:'America/El_Salvador' }) + ')' : '');
+          return '<div style="padding:9px 14px;border-bottom:1px solid #eee;font-size:12.5px">'
+            + '<div><b>' + esc(x.empleadoNombre || x.empleadoId) + '</b> · ' + esc(_paTipoMarcaLegible(x.tipo)) + ' · ' + esc(x.fecha || '') + (x.hora ? ' ' + esc(x.hora) : '') + '</div>'
+            + '<div style="color:#555;margin-top:2px">' + det + '</div>'
+            + (x.hayFalta ? '<div style="color:#b42318;margin-top:2px;font-weight:600">⚠ Tiene falta automática ese día — revisar en la auditoría o en "Ver y resolver pendientes"</div>' : '')
+            + '<button onclick="_paAvisoTardeVisto(\'' + String(x._folio).replace(/'/g, '') + '\')" style="margin-top:6px;padding:5px 10px;border:1px solid #ccc;background:#f6f8fa;border-radius:7px;font-size:11.5px;cursor:pointer">✓ Visto</button></div>';
+        }).join('');
+    document.body.appendChild(ov);
+  }).catch(function(e){ console.warn('[AvisosTarde]', e.message); });
+}
+function _paAvisoTardeVisto(folio) {
+  var upd = {}; upd[folio] = { visto: true, vistoPor: PA.adminNombre || 'admin', vistoTs: Date.now() };
+  paDb.collection('paConfig').doc(PA.empresa).set({ avisosMarcTarde: upd }, { merge:true })
+    .then(function(){ _paMostrarAvisosMarcTarde(); })
+    .catch(function(e){ paToast('Error: ' + e.message, true); });
+}
 
 </script>
 <div id="versionBadge" style="position:fixed;bottom:8px;left:50%;transform:translateX(-50%);z-index:9000;font-size:9px;color:rgba(204,0,0,.5);pointer-events:none;font-family:monospace;letter-spacing:.5px"></div>
