@@ -2859,12 +2859,10 @@ function paAfterAuth() {
         // quincena actual — el propio codigo la señalaba como "la mayor
         // fuente de consumo de cuota de lectura del sistema" — para un
         // dato que un empleado normal nunca iba a ver.
-        // Verificar compensatorios de fin de semana (solo admin)
-        setTimeout(_paCheckCompensatorioFDS, 1500);
-        // Verificar compensatorios de turno individual pendientes de
-        // aprobar (viernes-turno, etc.) — mismo patron que el de arriba,
-        // separado en el tiempo para no competir por el mismo modal.
-        setTimeout(_paCheckCompensatorioTurno, 2200);
+        // Compensatorios automáticos (modal de fin de semana y popup de
+        // turno) ELIMINADOS nov-2026: solo asignación manual desde el
+        // panel de cada empleado. Los que quedaron pendientes de antes
+        // aparecen en Reporte → "Ver y resolver pendientes".
         paShow('scDash');
       });
     }).catch(function() {
@@ -4937,34 +4935,9 @@ function _paMostrarExito(docData, calc) {
     extra+='<div style="font-size:11px;color:var(--muted);margin-top:4px">Pendiente de aprobación</div></div>';
   }
 
-  // ── Auto-compensatorio si es día de turno ───────────────────
-  if (docData && (docData.tipo==='salida'||docData.tipo==='salida_adicional')) {
-    var _ds = new Date(docData.fecha+'T12:00:00').getDay();
-    var _dh = _horarioDeEmp(PA.empleado, _ds);
-    var _tj = _dh && _dh.tipo;
-    if (_tj && _tj !== 'normal') {
-      var _ce = _tj==='turno-viernes' ? 'friday' : 'any';
-      var _tl = _ds===6 ? 'sábado tarde' : 'domingo';
-      paDb.collection('paCanjes').add({
-        empresa:PA.empresa, empleadoId:PA.empleado.id,
-        empleadoNombre:PA.empleado.nombre,
-        esCompensatorio:true, esAutoTurno:true,
-        compensaEn:_ce, diasLibres:1, horasLibres:8,
-        fechaOrigen:docData.fecha, tipoTurno:_tj,
-        motivo:'Compensatorio automático por turno '+_tl+' '+docData.fecha,
-        // Antes esto se creaba directo como 'pendiente_compensatorio' —
-        // un estado que el empleado YA veia en su propia pantalla
-        // (aunque etiquetado "pendiente"), antes de que ningun admin lo
-        // hubiera revisado. Ahora queda invisible para el empleado hasta
-        // que el admin lo aprueba desde el popup que aparece a su login
-        // (_paCheckCompensatorioTurno) — evita que el empleado asuma que
-        // ya tiene el dia libre resuelto cuando todavia no hay ninguna
-        // decision humana de por medio.
-        ts:Date.now(), estado:'pendiente_aprobacion_admin',
-        folio:'COMP-'+paGenId().toUpperCase()
-      }).catch(function(e){console.warn('[Compensatorio]',e.message);});
-    }
-  }
+  // Compensatorio automático por turno: ELIMINADO (nov-2026).
+  // Los criterios eran ambiguos; ahora los compensatorios solo se asignan
+  // a mano desde el panel de cada empleado (paAsignarCompensatorioManual).
 
   paShow('scDash');
 
@@ -5360,6 +5333,7 @@ function paLoadHistorial() {
             + '<div style="font-size:13px;font-weight:700;color:var(--purple)">'+d.horas+' horas</div>'
             + '<div style="font-size:11px;color:var(--muted);margin-top:4px">'+d.descripcion+'</div>'
             + '<div style="font-size:11px;margin-top:6px">'+(estados[d.estado]||d.estado)+'</div>'
+            + _paHtmlDecision(d)
             + '<div style="font-size:10px;color:var(--muted);margin-top:2px">'+d.folio+'</div></div>';
         });
       }
@@ -5379,18 +5353,20 @@ function paLoadHistorial() {
               + '<div class="hist-header"><div class="hist-date">'+fechaMostrar+'</div></div>'
               + '<div style="font-size:14px;font-weight:700;color:var(--accent2)">'+(horasMostrar!=null?horasMostrar:'—')+' horas → '+(d.diasLibres!=null?d.diasLibres:0)+' día(s)</div>'
               + '<div style="font-size:11px;color:var(--muted);margin-top:4px">'+(d.motivo||'')+'</div>'
-              + '<div style="font-size:11px;margin-top:6px">'+(estadosCanje[d.estado]||d.estado)+'</div></div>';
+              + '<div style="font-size:11px;margin-top:6px">'+(estadosCanje[d.estado]||d.estado)+'</div>'
+              + _paHtmlDecision(d) + '</div>';
           });
       }
       
       if (tab === 'vac') {
         docs.slice(0, 30).forEach(function(d) {
-          var estados = { pendiente: '⏳ Pendiente', aprobado: '✅ Aprobado', rechazado: '❌ Rechazado' };
+          var estados = { pendiente: '⏳ Pendiente', aprobado: '✅ Aprobado', aprobada: '✅ Aprobada', rechazado: '❌ Rechazado', rechazada: '❌ Rechazada' };
           html += '<div class="hist-item">'
             + '<div class="hist-header"><div class="hist-date">'+d.fechaInicio+' → '+d.fechaFin+'</div></div>'
             + '<div style="font-size:14px;font-weight:700;color:var(--accent2)">'+d.dias+' día(s)</div>'
-            + '<div style="font-size:11px;color:var(--muted);margin-top:4px">'+d.motivo+'</div>'
-            + '<div style="font-size:11px;margin-top:6px">'+(estados[d.estado]||d.estado)+'</div></div>';
+            + '<div style="font-size:11px;color:var(--muted);margin-top:4px">'+(d.motivo||'')+'</div>'
+            + '<div style="font-size:11px;margin-top:6px">'+(estados[d.estado]||d.estado)+'</div>'
+            + _paHtmlDecision(d) + '</div>';
         });
       }
       
@@ -6344,7 +6320,7 @@ function paAprobarInc(incId, btn) {
   if (btn) btn.disabled = true;
   paDb.collection('paIncapacidades').doc(incId).get().then(function(d){
     var r = d.exists ? d.data() : {};
-    return paDb.collection('paIncapacidades').doc(incId).update({ estado: 'aprobada' }).then(function(){ return r; });
+    return paDb.collection('paIncapacidades').doc(incId).update({ estado: 'aprobada', aprobadoPor: _paQuien(), aprobadoTs: Date.now() }).then(function(){ return r; });
   }).then(function(r) {
     paToast('✅ Incapacidad aprobada');
     // Permiso especial (entrada tardía / salida temprano) — marcar para
@@ -6438,10 +6414,10 @@ function _paFlagAPsPorPermisoRetro(empId, empNombre, fechaJustificada, tipoJust)
 
 function paRechazarInc(incId, btn) {
 
-  paConfirm('¿Rechazar esta incapacidad?', function(){
+  _paPedirMotivoRechazo('Rechazar incapacidad / permiso', '', function(motivo){
 
   if (btn) btn.disabled = true;
-  paDb.collection('paIncapacidades').doc(incId).update({ estado: 'rechazada' })
+  paDb.collection('paIncapacidades').doc(incId).update({ estado: 'rechazada', rechazadoPor: _paQuien(), rechazadoTs: Date.now(), motivoRechazo: motivo })
     .then(function() { paToast('Incapacidad rechazada'); _paPostApproval(btn, 'hoy'); })
     .catch(function(e) { paToast('Error: '+e.message,true); if(btn)btn.disabled=false; });
   });
@@ -9062,7 +9038,7 @@ function paAprobarFechaCanje(canjeId, fecha, btn) {
     var empId   = canje.empleadoId;
     // Validar saldo disponible si hay horasHE
     var doApproval = function() {
-      var upd = { estado:'asignado', aprobadoPor:'admin', fechaAprobacion: paHoy() };
+      var upd = { estado:'asignado', aprobadoPor:_paQuien(), aprobadoTs: Date.now(), fechaAprobacion: paHoy() };
       if (fecha) upd.fechaLibre = fecha;
       return paDb.collection('paCanjes').doc(canjeId).update(upd).then(function() {
         // El saldo se recalcula automáticamente desde paHorasExtra+paCanjes por período
@@ -9093,10 +9069,10 @@ function paAprobarFechaCanje(canjeId, fecha, btn) {
 
 function paRechazarCanje(canjeId, btn) {
 
-  paConfirm('¿Rechazar esta solicitud de canje?', function(){
+  _paPedirMotivoRechazo('Rechazar solicitud de canje', '', function(motivo){
 
   if (btn) btn.disabled = true;
-  paDb.collection('paCanjes').doc(canjeId).update({ estado:'rechazado' })
+  paDb.collection('paCanjes').doc(canjeId).update({ estado:'rechazado', rechazadoPor: _paQuien(), rechazadoTs: Date.now(), motivoRechazo: motivo })
     .then(function(){ paToast('Solicitud de canje rechazada'); _paPostApproval(btn, 'emps'); })
     .catch(function(e){ paToast('Error: '+e.message,true); if(btn)btn.disabled=false; });
   });
@@ -10717,7 +10693,8 @@ function paAdminReporte(content) {
   var _q   = _quincenaActual(); // ya usa PA.periodoHE internamente
   var defDesde = _q.desde;
   var defHasta = _q.hasta;
-  var html = '<div class="info-box">Reporte de horas extra aprobadas por período. Antes de generarlo se revisa que no quede nada pendiente en el rango (horas extra, permisos, vacaciones, canjes, compensatorios, acciones de personal, marcaciones y ausencias). Una quincena terminada y sin pendientes se puede cerrar con candado.</div>';
+  var html = '<div class="info-box">Reporte de horas extra aprobadas por período. Antes de generarlo se revisa que no quede nada pendiente en el rango (horas extra, permisos, vacaciones, canjes, compensatorios, acciones de personal, marcaciones y ausencias). Una quincena terminada y sin pendientes se puede cerrar con candado.</div>'
+    + '<button onclick="paVerRegistroDecisiones()" style="width:100%;margin:0 0 12px;padding:11px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface2);color:var(--text);font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit">📜 Registro de aprobaciones y rechazos del período</button>';
     html += '<div style="position:sticky;top:0;z-index:10;background:var(--bg);padding-bottom:10px;border-bottom:1px solid var(--border)">'
     +'<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px">'
     +'<div class="fg" style="margin:0;flex:1;min-width:120px"><label>Desde</label><input type="date" id="rptDesde" value="'+defDesde+'" max="'+hoy+'" style="font-size:16px"></div>'
@@ -11733,7 +11710,7 @@ function paAprobarCompensatorioTurno(docId, empNombre, btn) {
   paConfirm('¿Aprobar compensatorio para ' + (empNombre||'empleado') + '?', function() {
   if (btn) btn.disabled = true;
   paDb.collection('paCanjes').doc(docId).update({
-    estado: 'asignado', aprobadoTs: Date.now()
+    estado: 'asignado', aprobadoTs: Date.now(), aprobadoPor: _paQuien()
   }).then(function() {
     paToast('✅ Compensatorio aprobado — 1 día libre acreditado');
     _paPostApproval(btn, 'emps');
@@ -11743,11 +11720,11 @@ function paAprobarCompensatorioTurno(docId, empNombre, btn) {
 
 function paRechazarCompensatorioTurno(docId, btn) {
 
-  paConfirm('¿Rechazar este compensatorio?', function(){
+  _paPedirMotivoRechazo('Rechazar compensatorio', '', function(motivo){
 
   if (btn) btn.disabled = true;
   paDb.collection('paCanjes').doc(docId).update({
-    estado: 'rechazado', rechazadoTs: Date.now()
+    estado: 'rechazado', rechazadoTs: Date.now(), rechazadoPor: _paQuien(), motivoRechazo: motivo
   }).then(function() {
     paToast('Compensatorio rechazado');
     _paPostApproval(btn, 'emps');
@@ -11781,7 +11758,7 @@ function paAsignarCompensatorioManual(empId, empNombre, cargo, btn) {
         empresa: PA.empresa, empleadoId: empId, empleadoNombre: empNombre, cargo: cargo,
         esCompensatorio: true, esAutoTurno: false, esManual: true, tipoComp: 'viernes',
         fechaLibre: fechaVie, diasLibres: 1, horasLibres: 8,
-        motivo: motivo, estado: 'asignado', aprobadoTs: Date.now(),
+        motivo: motivo, estado: 'asignado', aprobadoTs: Date.now(), aprobadoPor: PA.adminNombre || 'admin',
         ts: Date.now(), folio: 'COMP-MAN-'+paGenId().toUpperCase()
       });
       n++;
@@ -11791,7 +11768,7 @@ function paAsignarCompensatorioManual(empId, empNombre, cargo, btn) {
         empresa: PA.empresa, empleadoId: empId, empleadoNombre: empNombre, cargo: cargo,
         esCompensatorio: true, esAutoTurno: false, esManual: true, tipoComp: 'sabado_completo',
         fechaLibre: fechaSab, diasLibres: 1, horasLibres: 8,
-        motivo: motivo, estado: 'asignado', aprobadoTs: Date.now(),
+        motivo: motivo, estado: 'asignado', aprobadoTs: Date.now(), aprobadoPor: PA.adminNombre || 'admin',
         ts: Date.now(), folio: 'COMP-MAN-'+paGenId().toUpperCase()
       });
       n++;
@@ -11819,7 +11796,7 @@ function paGoSolicitarComp() {
 
 function paAprobarHorasExtra(docId, empId, horas, btn) {
   paConfirm('¿Aprobar ' + paHorasLegible(horas) + ' de horas extra?', function() {
-  paDb.collection('paHorasExtra').doc(docId).update({ estado: 'aprobado' })
+  paDb.collection('paHorasExtra').doc(docId).update({ estado: 'aprobado', aprobadoPor: _paQuien(), aprobadoTs: Date.now() })
     .then(function() {
       // Sumar al saldo acumulado del empleado — consulta en vivo, no
       // confía en PA._pinsDocMap (puede faltar si el empleado no tiene
@@ -11846,9 +11823,9 @@ function paAprobarHorasExtra(docId, empId, horas, btn) {
 
 function paRechazarHorasExtra(docId, btn, empId) {
 
-  paConfirm('¿Rechazar esta solicitud?', function(){
+  _paPedirMotivoRechazo('Rechazar horas extra', '', function(motivo){
 
-  paDb.collection('paHorasExtra').doc(docId).update({ estado: 'rechazado' })
+  paDb.collection('paHorasExtra').doc(docId).update({ estado: 'rechazado', rechazadoPor: _paQuien(), rechazadoTs: Date.now(), motivoRechazo: motivo })
     .then(function() { paToast('Horas extra rechazadas'); _paQuitarTarjetaHE(btn, empId); })
     .catch(function(e){ paToast('Error: '+e.message, true); });
   });
@@ -11866,7 +11843,7 @@ function paAprobarVacaciones(btn) {
   var fin     = btn.getAttribute('data-fin') || '';
 
   paConfirm('¿Aprobar ' + dias + ' día(s) de vacaciones para ' + nom + '?\n' + paFechaCorta(inicio) + ' al ' + paFechaCorta(fin), function() {
-    paDb.collection('paVacaciones').doc(vacId).update({ estado: 'aprobada', fechaAprobacion: Date.now() })
+    paDb.collection('paVacaciones').doc(vacId).update({ estado: 'aprobada', fechaAprobacion: Date.now(), aprobadoPor: _paQuien(), aprobadoTs: Date.now() })
       .then(function() {
         // Descontar del saldo disponible — consulta en vivo, no confía
         // en PA._pinsDocMap (mismo patrón robusto ya usado para HE y activo).
@@ -11903,8 +11880,8 @@ function paAprobarVacaciones(btn) {
 
 function paRechazarVacaciones(btn) {
   var vacId = btn.getAttribute('data-vid');
-  paConfirm('¿Rechazar esta solicitud de vacaciones?', function(){
-    paDb.collection('paVacaciones').doc(vacId).update({ estado: 'rechazada', fechaRechazo: Date.now() })
+  _paPedirMotivoRechazo('Rechazar vacaciones', (btn.getAttribute('data-nom')||'') + ' · ' + (btn.getAttribute('data-inicio')||'') + ' al ' + (btn.getAttribute('data-fin')||''), function(motivo){
+    paDb.collection('paVacaciones').doc(vacId).update({ estado: 'rechazada', fechaRechazo: Date.now(), rechazadoPor: _paQuien(), rechazadoTs: Date.now(), motivoRechazo: motivo })
       .then(function() { paToast('Solicitud de vacaciones rechazada'); _paPostApproval(btn, 'emps'); })
       .catch(function(e){ paToast('Error: '+e.message, true); });
   });
@@ -11998,7 +11975,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-11-06-B';
+var PA_VERSION = 'v2026-11-09-A';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -12829,7 +12806,7 @@ window.addEventListener('DOMContentLoaded', function() {
     var vueltas = 0;
     var t = setInterval(function(){
       vueltas++;
-      if (!document.getElementById('_paConfOk') || vueltas > 600) {
+      if ((!document.getElementById('_paConfOk') && !document.getElementById('paMotivoOv')) || vueltas > 600) {
         clearInterval(t);
         setTimeout(window._paPcRefrescar, 1500);
       }
@@ -13263,6 +13240,152 @@ function _paAvisoTardeVisto(folio) {
   paDb.collection('paConfig').doc(PA.empresa).set({ avisosMarcTarde: upd }, { merge:true })
     .then(function(){ _paMostrarAvisosMarcTarde(); })
     .catch(function(e){ paToast('Error: ' + e.message, true); });
+}
+
+</script>
+<script>
+// ══════════════════════════════════════════════════════════════════
+// REGISTRO DE APROBACIONES Y RECHAZOS (nov-2026)
+// Cada aprobación guarda aprobadoPor/aprobadoTs; cada rechazo exige una
+// justificación y guarda rechazadoPor/rechazadoTs/motivoRechazo.
+// Reporte → "📜 Registro de aprobaciones y rechazos" lo muestra todo.
+// ══════════════════════════════════════════════════════════════════
+function _paQuien() { return PA.adminNombre || 'admin'; }
+
+// Modal para escribir la justificación de un rechazo (obligatoria)
+function _paPedirMotivoRechazo(titulo, detalle, cb) {
+  var old = document.getElementById('paMotivoOv'); if (old) old.remove();
+  var ov = document.createElement('div'); ov.id = 'paMotivoOv';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:9100;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.innerHTML = '<div style="background:var(--surface,#fff);color:var(--text,#1a1a1a);border-radius:16px;padding:20px;width:min(420px,100%);box-shadow:0 10px 36px rgba(0,0,0,.4);font-family:inherit">'
+    + '<div style="font-size:16px;font-weight:800;margin-bottom:4px">❌ ' + esc(titulo) + '</div>'
+    + (detalle ? '<div style="font-size:12.5px;color:var(--muted,#666);margin-bottom:10px">' + esc(detalle) + '</div>' : '')
+    + '<label style="font-size:12px;font-weight:700">Justificación del rechazo <span style="color:#d1242f">*</span></label>'
+    + '<textarea id="paMotivoTxt" rows="4" placeholder="Explica por qué se rechaza (el empleado podrá verlo)" style="width:100%;margin-top:6px;font-size:15px;padding:10px;border-radius:10px;border:1.5px solid var(--border,#ccc);box-sizing:border-box;font-family:inherit;resize:vertical"></textarea>'
+    + '<div id="paMotivoErr" style="color:#d1242f;font-size:12px;min-height:16px;margin:4px 0 8px"></div>'
+    + '<div style="display:flex;gap:10px"><button id="paMotivoOk" style="flex:1;padding:12px;background:#d1242f;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Rechazar</button>'
+    + '<button id="paMotivoCancel" style="flex:1;padding:12px;background:var(--surface2,#eee);color:var(--text,#333);border:1px solid var(--border,#ccc);border-radius:10px;font-size:14px;cursor:pointer">Cancelar</button></div></div>';
+  document.body.appendChild(ov);
+  var ta = ov.querySelector('#paMotivoTxt'); if (ta && ta.focus) setTimeout(function(){ try { ta.focus(); } catch(e) {} }, 50);
+  ov.querySelector('#paMotivoCancel').onclick = function(){ ov.remove(); };
+  ov.querySelector('#paMotivoOk').onclick = function(){
+    var m = String((document.getElementById('paMotivoTxt') || {}).value || '').trim();
+    if (m.length < 10) { var e = document.getElementById('paMotivoErr'); if (e) e.textContent = 'Escribe una justificación de al menos 10 caracteres'; return; }
+    ov.remove();
+    cb(m);
+  };
+}
+
+// Línea para el historial del empleado
+function _paHtmlDecision(d) {
+  if (!d) return '';
+  if (d.motivoRechazo) return '<div style="font-size:11.5px;margin-top:4px;padding:6px 8px;border-radius:8px;background:rgba(209,36,47,.08);color:#d1242f">Motivo del rechazo: ' + esc(d.motivoRechazo) + '</div>';
+  return '';
+}
+
+// ── Vista del registro ─────────────────────────────────────────────
+function paVerRegistroDecisiones() {
+  var desde = (document.getElementById('rptDesde') || {}).value || (PA.periodoHE && PA.periodoHE.desde) || paHoy();
+  var hasta = (document.getElementById('rptHasta') || {}).value || (PA.periodoHE && PA.periodoHE.hasta) || paHoy();
+  var E = PA.empresa, S = { source:'server' };
+  paToast('Cargando registro…');
+  Promise.all([
+    paDb.collection('paHorasExtra').where('empresa','==',E).where('fecha','>=',desde).where('fecha','<=',hasta).get(S),
+    paDb.collection('paIncapacidades').where('empresa','==',E).get(S),
+    paDb.collection('paVacaciones').where('empresa','==',E).get(S),
+    paDb.collection('paCanjes').where('empresa','==',E).get(S)
+  ]).then(function(r){
+    var filas = [];
+    var ms = function(t){ return (t && typeof _paToMs === 'function') ? _paToMs(t) : (typeof t === 'number' ? t : 0); };
+    var solapa = function(a, b){ return a && a <= hasta && (b || a) >= desde; };
+    var add = function(o){ filas.push(o); };
+    r[0].forEach(function(d){ var x = d.data();
+      if (x.estado !== 'aprobado' && x.estado !== 'rechazado') return;
+      add({ fecha:x.fecha, emp:x.empleadoNombre, tipo:'Horas extra', det:(typeof paHorasLegible === 'function' ? paHorasLegible(x.horas || 0) : (x.horas || 0) + ' h') + (x.tipo ? ' · ' + x.tipo : ''),
+        ok:x.estado === 'aprobado', por:x.estado === 'aprobado' ? x.aprobadoPor : x.rechazadoPor, ts:ms(x.estado === 'aprobado' ? x.aprobadoTs : x.rechazadoTs), motivo:x.motivoRechazo || '' });
+    });
+    r[1].forEach(function(d){ var x = d.data();
+      if (x.estado !== 'aprobada' && x.estado !== 'rechazada') return;
+      if (!solapa(x.fechaInicio, x.fechaFin)) return;
+      var tipoInc = x.tipoIncapacidad === 'completa' ? 'Incapacidad' : 'Permiso';
+      add({ fecha:x.fechaInicio, emp:x.empleadoNombre, tipo:tipoInc, det:(x.fechaInicio || '') + (x.fechaFin && x.fechaFin !== x.fechaInicio ? ' → ' + x.fechaFin : '') + (x.tipoIncapacidad ? ' · ' + x.tipoIncapacidad : '') + (x.motivo ? ' · ' + x.motivo : ''),
+        ok:x.estado === 'aprobada', por:x.estado === 'aprobada' ? x.aprobadoPor : x.rechazadoPor, ts:ms(x.estado === 'aprobada' ? x.aprobadoTs : x.rechazadoTs), motivo:x.motivoRechazo || '' });
+    });
+    r[2].forEach(function(d){ var x = d.data();
+      if (x.estado !== 'aprobada' && x.estado !== 'rechazada') return;
+      if (!solapa(x.fechaInicio, x.fechaFin)) return;
+      add({ fecha:x.fechaInicio, emp:x.empleadoNombre, tipo:'Vacaciones', det:(x.fechaInicio || '') + ' → ' + (x.fechaFin || '') + ' · ' + (x.dias || '?') + ' día(s)',
+        ok:x.estado === 'aprobada', por:x.estado === 'aprobada' ? x.aprobadoPor : x.rechazadoPor, ts:ms(x.estado === 'aprobada' ? (x.aprobadoTs || x.fechaAprobacion) : (x.rechazadoTs || x.fechaRechazo)), motivo:x.motivoRechazo || '' });
+    });
+    r[3].forEach(function(d){ var x = d.data();
+      var ok = (x.estado === 'asignado' || x.estado === 'aprobado'), no = (x.estado === 'rechazado' || x.estado === 'rechazado_admin');
+      if (!ok && !no) return;
+      if (x.tipo === 'asignacion_admin') return;                       // asignación de saldo de HE, no es una solicitud
+      var f = x.fechaLibre || x.fechaOrigen || x.fechaInicio || x.fechaAsignada || '';
+      if (!f || f < desde || f > hasta) return;
+      add({ fecha:f, emp:x.empleadoNombre, tipo:x.esCompensatorio ? (x.esManual ? 'Compensatorio (manual)' : 'Compensatorio') : 'Canje de horas',
+        det:(x.motivo || '') + (x.fechaLibre ? ' · día libre ' + x.fechaLibre : ''),
+        ok:ok, por:ok ? x.aprobadoPor : x.rechazadoPor, ts:ms(ok ? (x.aprobadoTs || 0) : x.rechazadoTs), motivo:x.motivoRechazo || '' });
+    });
+    filas.sort(function(a, b){ return (a.fecha || '') < (b.fecha || '') ? -1 : (a.fecha || '') > (b.fecha || '') ? 1 : String(a.emp || '').localeCompare(String(b.emp || '')); });
+    window._paRegDec = { filas:filas, desde:desde, hasta:hasta };
+    _paPintarRegistroDecisiones();
+  }).catch(function(e){ paToast('Error: ' + e.message, true); });
+}
+
+function _paPintarRegistroDecisiones() {
+  var R = window._paRegDec; if (!R) return;
+  var fTipo = (document.getElementById('regDecTipo') || {}).value || '';
+  var fDec  = (document.getElementById('regDecDec') || {}).value || '';
+  var tipos = []; R.filas.forEach(function(f){ if (tipos.indexOf(f.tipo) < 0) tipos.push(f.tipo); });
+  var vis = R.filas.filter(function(f){ return (!fTipo || f.tipo === fTipo) && (!fDec || (fDec === 'ok' ? f.ok : !f.ok)); });
+  var nOk = vis.filter(function(f){ return f.ok; }).length, nNo = vis.length - nOk;
+  var cuando = function(t){ return t ? new Date(t).toLocaleString('es-SV', { timeZone:'America/El_Salvador', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—'; };
+  var ov = document.getElementById('paRegDecOv');
+  if (!ov) {
+    ov = document.createElement('div'); ov.id = 'paRegDecOv';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:8400;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;padding:10px';
+    document.body.appendChild(ov);
+  }
+  var sel = function(id, opts, val){ return '<select id="' + id + '" onchange="_paPintarRegistroDecisiones()" style="font-size:12px;padding:5px 8px;border-radius:8px">' + opts.map(function(o){ return '<option value="' + esc(o[0]) + '"' + (o[0] === val ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>'; };
+  ov.innerHTML = '<div style="background:var(--surface);color:var(--text);border-radius:14px;width:min(1050px,100%);max-height:94vh;display:flex;flex-direction:column;overflow:hidden">'
+    + '<div style="padding:13px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    + '<div style="flex:1;min-width:200px"><div style="font-weight:800;font-size:15px">📜 Registro de aprobaciones y rechazos</div>'
+    + '<div style="font-size:11.5px;color:var(--muted)">' + R.desde + ' al ' + R.hasta + ' · <span style="color:#1a7f37;font-weight:700">' + nOk + ' aprobadas</span> · <span style="color:#d1242f;font-weight:700">' + nNo + ' rechazadas</span></div></div>'
+    + sel('regDecTipo', [['', 'Todos los tipos']].concat(tipos.map(function(t){ return [t, t]; })), fTipo)
+    + sel('regDecDec', [['', 'Aprobadas y rechazadas'], ['ok', 'Solo aprobadas'], ['no', 'Solo rechazadas']], fDec)
+    + '<button onclick="_paExportarRegistroDecisiones()" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer">📥 CSV</button>'
+    + '<button onclick="document.getElementById(\'paRegDecOv\').remove()" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer">Cerrar</button></div>'
+    + '<div style="overflow:auto;padding:0 14px 14px"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+    + '<thead><tr style="position:sticky;top:0;background:var(--surface);color:var(--muted);text-align:left">'
+    + '<th style="padding:8px 8px 6px 0">Fecha</th><th style="padding-right:8px">Empleado</th><th style="padding-right:8px">Tipo</th><th style="padding-right:8px">Detalle</th><th style="padding-right:8px">Decisión</th><th style="padding-right:8px">Por</th><th style="padding-right:8px">Cuándo</th><th>Justificación</th></tr></thead><tbody>'
+    + (vis.length ? vis.map(function(f){
+        return '<tr style="border-top:1px solid var(--border);vertical-align:top">'
+          + '<td style="padding:7px 8px 7px 0;white-space:nowrap">' + esc(f.fecha || '') + '</td>'
+          + '<td style="padding:7px 8px 7px 0">' + esc(f.emp || '') + '</td>'
+          + '<td style="padding:7px 8px 7px 0;white-space:nowrap">' + esc(f.tipo) + '</td>'
+          + '<td style="padding:7px 8px 7px 0;color:var(--muted)">' + esc(f.det || '') + '</td>'
+          + '<td style="padding:7px 8px 7px 0;font-weight:700;white-space:nowrap;color:' + (f.ok ? '#1a7f37' : '#d1242f') + '">' + (f.ok ? '✅ Aprobada' : '❌ Rechazada') + '</td>'
+          + '<td style="padding:7px 8px 7px 0">' + (f.por ? esc(f.por) : '<span style="color:var(--muted)">— sin registro</span>') + '</td>'
+          + '<td style="padding:7px 8px 7px 0;white-space:nowrap">' + cuando(f.ts) + '</td>'
+          + '<td style="padding:7px 0">' + (f.motivo ? esc(f.motivo) : (f.ok ? '' : '<span style="color:var(--muted)">— sin justificación</span>')) + '</td></tr>';
+      }).join('') : '<tr><td colspan="8" style="padding:24px;text-align:center;color:var(--muted)">Sin aprobaciones ni rechazos en el período</td></tr>')
+    + '</tbody></table>'
+    + '<div style="font-size:11px;color:var(--muted);margin-top:10px">"— sin registro" = decisión tomada antes de que el sistema guardara quién aprueba/rechaza (nov-2026).</div></div></div>';
+}
+
+function _paExportarRegistroDecisiones() {
+  var R = window._paRegDec; if (!R) return;
+  var q = function(v){ return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"'; };
+  var lineas = [['Fecha','Empleado','Tipo','Detalle','Decisión','Por','Cuándo','Justificación'].map(q).join(',')];
+  R.filas.forEach(function(f){
+    lineas.push([f.fecha, f.emp, f.tipo, f.det, f.ok ? 'Aprobada' : 'Rechazada', f.por || '',
+      f.ts ? new Date(f.ts).toLocaleString('es-SV', { timeZone:'America/El_Salvador' }) : '', f.motivo || ''].map(q).join(','));
+  });
+  var blob = new Blob(['﻿' + lineas.join('\r\n')], { type:'text/csv;charset=utf-8' });
+  var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'registro_aprobaciones_' + R.desde + '_a_' + R.hasta + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
 }
 
 </script>
