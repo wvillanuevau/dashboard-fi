@@ -7491,15 +7491,15 @@ function paAdminAcciones(content) {
     +'<div class="fg" style="margin:0;flex:1;min-width:120px"><label>Hasta</label>'
     +'<input type="date" id="apHasta" value="'+defHasta+'" max="'+hoy+'" style="font-size:15px" onchange="paCargarAPs()"></div>'
     +'</div>'
-    +'<div id="apFiltroTipo" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">'
-    +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:var(--surface2)" onclick="paCargarAPsTodos()">Todos</button>'
-    +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(248,81,73,.12);border-color:rgba(248,81,73,.3);color:#f85149" onclick="paCargarAPsFaltas()">🚫 Faltas / Descuentos</button>'
-    +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(232,160,32,.12);border-color:rgba(232,160,32,.3);color:#e8a020" onclick="paCargarAPsAmonestaciones()">⚠️ Amonestaciones</button>'
-    +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(232,160,32,.12);border-color:rgba(232,160,32,.3);color:#e8a020" onclick="paCargarAPsTardanzas()">⏰ Desc. Día/7° (tard.)</button>'
-    +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(0,107,63,.12);border-color:rgba(0,107,63,.3);color:#006B3F" onclick="paCargarAPsIncapacidades()">🏥 Incapacidades</button>'
-    +'<button class="big-btn" style="font-size:12px;padding:6px 12px;background:rgba(137,87,229,.12);border-color:rgba(137,87,229,.35);color:#a371f7" onclick="paCargarAPsHistoricas()">🗄 Históricas</button>'
+    +'<div id="apFiltroTipo" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:6px;margin-bottom:14px">'
+    +'<button onclick="paCargarAPsTodos()" style="display:flex;align-items:center;justify-content:center;gap:5px;width:100%;min-height:38px;padding:6px 8px;border-radius:10px;border:1px solid;font-family:inherit;font-size:12px;font-weight:700;line-height:1.15;text-align:center;cursor:pointer;box-shadow:none;background:var(--surface2);border-color:var(--border);color:var(--text)"><span style="font-size:15px">📋</span><span>Todos</span></button>'
+    +'<button onclick="paCargarAPsFaltas()" style="display:flex;align-items:center;justify-content:center;gap:5px;width:100%;min-height:38px;padding:6px 8px;border-radius:10px;border:1px solid;font-family:inherit;font-size:12px;font-weight:700;line-height:1.15;text-align:center;cursor:pointer;box-shadow:none;background:rgba(248,81,73,.12);border-color:rgba(248,81,73,.3);color:#f85149"><span style="font-size:15px">🚫</span><span>Faltas / Desc.</span></button>'
+    +'<button onclick="paCargarAPsAmonestaciones()" style="display:flex;align-items:center;justify-content:center;gap:5px;width:100%;min-height:38px;padding:6px 8px;border-radius:10px;border:1px solid;font-family:inherit;font-size:12px;font-weight:700;line-height:1.15;text-align:center;cursor:pointer;box-shadow:none;background:rgba(232,160,32,.12);border-color:rgba(232,160,32,.3);color:#e8a020"><span style="font-size:15px">⚠️</span><span>Amonestaciones</span></button>'
+    +'<button onclick="paCargarAPsTardanzas()" style="display:flex;align-items:center;justify-content:center;gap:5px;width:100%;min-height:38px;padding:6px 8px;border-radius:10px;border:1px solid;font-family:inherit;font-size:12px;font-weight:700;line-height:1.15;text-align:center;cursor:pointer;box-shadow:none;background:rgba(232,160,32,.12);border-color:rgba(232,160,32,.3);color:#e8a020"><span style="font-size:15px">⏰</span><span>Desc. Día/7° (tard.)</span></button>'
+    +'<button onclick="paCargarAPsIncapacidades()" style="display:flex;align-items:center;justify-content:center;gap:5px;width:100%;min-height:38px;padding:6px 8px;border-radius:10px;border:1px solid;font-family:inherit;font-size:12px;font-weight:700;line-height:1.15;text-align:center;cursor:pointer;box-shadow:none;background:rgba(0,107,63,.12);border-color:rgba(0,107,63,.3);color:#006B3F"><span style="font-size:15px">🏥</span><span>Incapacidades</span></button>'
+    +'<button onclick="paCargarAPsHistoricas()" style="display:flex;align-items:center;justify-content:center;gap:5px;width:100%;min-height:38px;padding:6px 8px;border-radius:10px;border:1px solid;font-family:inherit;font-size:12px;font-weight:700;line-height:1.15;text-align:center;cursor:pointer;box-shadow:none;background:rgba(137,87,229,.12);border-color:rgba(137,87,229,.35);color:#a371f7"><span style="font-size:15px">🗄</span><span>Históricas</span></button>'
+    +'<button id="btnGenerarAPsHist" onclick="paGenerarAPsHistoricas()" style="display:flex;align-items:center;justify-content:center;gap:5px;width:100%;min-height:38px;padding:6px 8px;border-radius:10px;border:1px solid;font-family:inherit;font-size:12px;font-weight:700;line-height:1.15;text-align:center;cursor:pointer;box-shadow:none;background:rgba(56,139,253,.12);border-color:rgba(56,139,253,.4);color:#58a6ff"><span style="font-size:15px">⚡</span><span>Generar APs período</span></button>'
     +'</div>'
-    +'<button id="btnGenerarAPsHist" onclick="paGenerarAPsHistoricas()" style="width:100%;padding:12px;margin-bottom:2px;background:rgba(56,139,253,.12);border:1.5px solid rgba(56,139,253,.4);border-radius:10px;color:#58a6ff;cursor:pointer;font-size:13px;font-family:inherit;font-weight:700">⚡ Generar APs del período activo (sin repetir)</button>'
     +'<div id="apLista"><div class="spinner"></div></div>';
 
   paCargarAPsTodos();
@@ -12095,7 +12095,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-11-12-B';
+var PA_VERSION = 'v2026-11-12-C';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
