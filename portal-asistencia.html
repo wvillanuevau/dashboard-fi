@@ -7482,6 +7482,10 @@ function paAdminAcciones(content) {
   var mesStr = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
   var defDesde = mesStr+'-01';
   var defHasta = hoy;
+  // El rango por defecto es el período activo (se actualiza solo al cerrar
+  // un período o cambiarlo en Configuración)
+  var _pAct = PA.periodoHE || {};
+  if (_pAct.desde && _pAct.hasta) { defDesde = _pAct.desde; defHasta = _pAct.hasta < hoy ? _pAct.hasta : hoy; if (defDesde > defHasta) defDesde = defHasta; }
 
   content.innerHTML =
     '<div class="section-title">Acciones de Personal</div>'
@@ -9920,32 +9924,74 @@ function _paRecalcularHEPendientes(empIds, callback) {
     }).catch(function(e){ console.warn('[RecalcHE]', e.message); if (callback) callback(0); });
 }
 
+// ── Cambios de horario: cualquier admin solicita, solo WVillanuevaU autoriza ──
+// Aplica un cambio de horario ya autorizado (o hecho directamente con la llave).
+// Usa rutas de campo para reemplazar el horario del empleado completo y para
+// poder BORRARLO de verdad (un set con merge nunca elimina claves).
+function _paAplicarHorario(s) {
+  var ref = paDb.collection('paConfig').doc(PA.empresa);
+  var FV = firebase.firestore.FieldValue, p, afectados;
+  if (s.alcance === 'general') {
+    var nuevo = s.datos && s.datos.horario;
+    p = ref.set({ horario: nuevo }, { merge: true }).then(function(){
+      PA.horario = Object.assign(PA.horario || {}, nuevo); PA._configCargado = true;
+      afectados = (PA.empleados || []).filter(function(e){ var pr = PA.horariosEmp && PA.horariosEmp[e.id]; return !(pr && pr.horaEntrada); }).map(function(e){ return e.id; });
+    });
+  } else {
+    var obj = {}, val = s.datos && s.datos.horariosEmp;
+    obj['horariosEmp.' + s.empleadoId] = val ? val : FV.delete();
+    p = ref.update(obj).then(function(){
+      PA.horariosEmp = PA.horariosEmp || {};
+      if (val) PA.horariosEmp[s.empleadoId] = val; else delete PA.horariosEmp[s.empleadoId];
+      afectados = [s.empleadoId];
+    });
+  }
+  return p.then(function(){ if (typeof _paRecalcularHEPendientes === 'function') _paRecalcularHEPendientes(afectados || []); });
+}
+
+function _paSolicitarCambioHorario(sol) {
+  return paDb.collection('paNotificaciones').add(Object.assign({
+    empresa: PA.empresa, tipo: 'CAMBIO_HORARIO', estado: 'pendiente_autorizacion',
+    solicitadoPor: (typeof _paQuien === 'function' ? _paQuien() : (PA.adminNombre || 'admin')), solicitadoTs: Date.now(), ts: Date.now()
+  }, sol)).then(function(){
+    paToast('📨 Solicitud enviada — el horario cambiará cuando ' + _paNombreLlave() + ' la autorice');
+    if (typeof _paAvisoAutorizaciones === 'function') _paAvisoAutorizaciones();
+  });
+}
+
+// sol: { alcance:'general'|'individual', accion, empleadoId, empleadoNombre, antes, datos }
+// alFinal: función opcional que se ejecuta cuando el cambio quedó aplicado
+function _paCambioHorario(sol, alFinal) {
+  var clean = function(o){ return o === undefined ? null : JSON.parse(JSON.stringify(o)); };
+  sol.antes = clean(sol.antes); sol.datos = clean(sol.datos);
+  if (JSON.stringify(sol.antes) === JSON.stringify(sol.datos)) { paToast('No hay cambios que guardar'); return; }
+  var err = function(e){ paToast('Error: ' + e.message, true); };
+  if (_paTieneLlave()) {
+    _paAplicarHorario(sol).then(function(){
+      paToast('✅ Horario guardado' + (sol.empleadoNombre ? ' — ' + sol.empleadoNombre : ''));
+      // Queda constancia del cambio hecho directamente por WVillanuevaU
+      return paDb.collection('paNotificaciones').add(Object.assign({}, sol, { empresa: PA.empresa, tipo:'CAMBIO_HORARIO', estado:'autorizada',
+        solicitadoPor:_paNombreLlave(), solicitadoTs:Date.now(), autorizadoPor:_paNombreLlave(), autorizadoTs:Date.now(), motivo:'Cambio directo con llave', ts:Date.now() })).catch(function(){});
+    }).then(function(){ if (alFinal) alFinal(); }).catch(err);
+    return;
+  }
+  _paPedirTexto('Solicitar cambio de horario',
+    (sol.alcance === 'general' ? 'Horario general (afecta a todo el personal sin horario propio)' : 'Horario de ' + (sol.empleadoNombre || '')) + '. Solo ' + _paNombreLlave() + ' puede autorizarlo.',
+    'Motivo del cambio', 'Enviar solicitud', '#8957e5', function(m){
+      sol.motivo = m;
+      _paSolicitarCambioHorario(sol).then(function(){ if (alFinal) alFinal(); }).catch(err);
+    });
+}
+
 function paGuardarHorarioGeneral() {
   var general = _leerHorForm('hor_general');
-  if (general) {
-    PA.horario.horaEntrada = general.horaEntrada;
-    PA.horario.horaSalida  = general.horaSalida;
-    PA.horario.minutosTolerancia = general.minutosTolerancia;
-    PA.horario.minutosAlmuerzo   = general.minutosAlmuerzo;
-    PA.horario.sabadoEntrada   = general.sabadoEntrada;
-    PA.horario.sabadoSalida    = general.sabadoSalida;
-    PA.horario.sabadoTolerancia = general.sabadoTolerancia;
-    PA.horario.trabajaSabado   = general.trabajaSabado;
-    PA.horario.trabajaDomingo  = general.trabajaDomingo;
-  }
-  PA._configCargado = true; // la config acaba de guardarse — está válida
-  paDb.collection('paConfig').doc(PA.empresa).set({
-    horario: PA.horario
-  }, { merge: true }).then(function(){
-    paToast('✅ Horario general guardado');
-    // Recalcular HE pendientes de todos los que usan el horario general
-    // (los que NO tienen horario individual propio)
-    var _afectados = (PA.empleados||[]).filter(function(e){
-      var propio = PA.horariosEmp && PA.horariosEmp[e.id];
-      return !(propio && propio.horaEntrada);
-    }).map(function(e){ return e.id; });
-    _paRecalcularHEPendientes(_afectados);
-  }).catch(function(e){ paToast('Error: '+e.message, true); });
+  if (!general) { paToast('Revisa los datos del horario', true); return; }
+  var nuevo = Object.assign({}, PA.horario, {
+    horaEntrada: general.horaEntrada, horaSalida: general.horaSalida, minutosTolerancia: general.minutosTolerancia,
+    minutosAlmuerzo: general.minutosAlmuerzo, sabadoEntrada: general.sabadoEntrada, sabadoSalida: general.sabadoSalida,
+    sabadoTolerancia: general.sabadoTolerancia, trabajaSabado: general.trabajaSabado, trabajaDomingo: general.trabajaDomingo
+  });
+  _paCambioHorario({ alcance:'general', accion:'general', empleadoId:'', empleadoNombre:'Horario general', antes:{ horario: PA.horario }, datos:{ horario: nuevo } });
 }
 
 
@@ -9999,17 +10045,9 @@ function paGuardarHorDias(empId, empNombre) {
       };
     }
   });
-  var horEmp = PA.horariosEmp || {};
-  if (!horEmp[empId]) horEmp[empId] = {};
-  horEmp[empId].horarioDias = dias;
-  PA.horariosEmp = horEmp;
-  paDb.collection('paConfig').doc(PA.empresa)
-    .set({ horariosEmp: horEmp }, { merge: true })
-    .then(function(){
-      paToast('Horario por dia guardado para '+empNombre+' ✅');
-      _paRecalcularHEPendientes([empId]);
-    })
-    .catch(function(e){ paToast('Error: '+e.message, true); });
+  var _actual = (PA.horariosEmp && PA.horariosEmp[empId]) || null;
+  var _nuevoEmp = Object.assign({}, _actual || {}, { horarioDias: dias });
+  _paCambioHorario({ alcance:'individual', accion:'dias', empleadoId:empId, empleadoNombre:empNombre || empId, antes:{ horariosEmp:_actual }, datos:{ horariosEmp:_nuevoEmp } });
 }
 
 function paCopiarHorDias(empId, entrada, salida, tol, alm) {
@@ -10037,41 +10075,26 @@ function paAplicarHorarioRol(empId, rolVal, empNombre, btn) {
   var nom = empNombre || empId;
   paConfirm('¿Aplicar el horario general a ' + nom + '?\n'
     + 'Entrada: ' + (horRol.horaEntrada||'—') + ' · Salida: ' + (horRol.horaSalida||'—'), function() {
-  var horEmp = PA.horariosEmp || {};
-  horEmp[empId] = Object.assign({}, horRol);
-  PA.horariosEmp = horEmp;
-  paDb.collection('paConfig').doc(PA.empresa).set({ horariosEmp: horEmp }, { merge: true })
-    .then(function() {
-      paToast('\u2705 Horario aplicado a ' + nom);
-      _paRecalcularHEPendientes([empId]);
-      // Refresh dirigido a la tarjeta del empleado (sin saltar de pestaña)
-      _paPostApproval(btn||null, 'emps');
-    }).catch(function(e){ paToast('Error: ' + e.message, true); });
+  var _actual = (PA.horariosEmp && PA.horariosEmp[empId]) || null;
+  _paCambioHorario({ alcance:'individual', accion:'aplicar_general', empleadoId:empId, empleadoNombre:nom, antes:{ horariosEmp:_actual }, datos:{ horariosEmp:Object.assign({}, horRol) } },
+    function(){ _paPostApproval(btn||null, 'emps'); });
   });
 }
 
 function paBorrarHorarioEmp(empId, empNombre, btn) {
   var nom = empNombre || empId;
   paConfirm('¿Quitar el horario individual de ' + nom + '?\nVolverá a usar el horario general.', function() {
-  var horEmp = PA.horariosEmp || {};
-  delete horEmp[empId];
-  PA.horariosEmp = horEmp;
-  paDb.collection('paConfig').doc(PA.empresa).set({ horariosEmp: horEmp }, { merge: true })
-    .then(function() {
-      paToast('\u2705 Horario individual eliminado — ' + nom + ' usa el horario general');
-      _paRecalcularHEPendientes([empId]);
-      _paPostApproval(btn||null, 'emps');
-    }).catch(function(e){ paToast('Error: ' + e.message, true); });
+    var _actual = (PA.horariosEmp && PA.horariosEmp[empId]) || null;
+    _paCambioHorario({ alcance:'individual', accion:'quitar', empleadoId:empId, empleadoNombre:nom, antes:{ horariosEmp:_actual }, datos:{ horariosEmp:null } },
+      function(){ _paPostApproval(btn||null, 'emps'); });
   });
 }
 
 function paBorrarHorEmp(empId) {
-  var horEmp = PA.horariosEmp || {};
-  delete horEmp[empId];
-  PA.horariosEmp = horEmp;
-  paDb.collection('paConfig').doc(PA.empresa).set({ horariosEmp: horEmp }, { merge: true })
-    .then(function(){ paToast('Horario individual eliminado'); _paRecalcularHEPendientes([empId]); paAdminTab('config'); })
-    .catch(function(e){ paToast('Error: '+e.message, true); });
+  var e = (PA.empleados || []).find(function(x){ return x.id === empId; });
+  var _actual = (PA.horariosEmp && PA.horariosEmp[empId]) || null;
+  _paCambioHorario({ alcance:'individual', accion:'quitar', empleadoId:empId, empleadoNombre:(e && e.nombre) || empId, antes:{ horariosEmp:_actual }, datos:{ horariosEmp:null } },
+    function(){ paAdminTab('config'); });
 }
 
 
@@ -10880,6 +10903,16 @@ function paDelFeriado(btn, fecha) {
 }
 
 
+// Sincroniza las fechas del tab APs con el período activo (si está abierto)
+function _paSincronizarFechasAPs() {
+  var d = document.getElementById('apDesde'), h = document.getElementById('apHasta'), p = PA.periodoHE || {};
+  if (!d || !h || !p.desde || !p.hasta) return;
+  var hoy = paHoy();
+  h.value = p.hasta < hoy ? p.hasta : hoy;
+  d.value = p.desde > h.value ? h.value : p.desde;
+  if (typeof paCargarAPs === 'function') paCargarAPs();
+}
+
 function paGuardarPeriodoHE() {
   var desde = (document.getElementById('periodoHEDesde')||{}).value;
   var hasta = (document.getElementById('periodoHEHasta')||{}).value;
@@ -10889,6 +10922,7 @@ function paGuardarPeriodoHE() {
   paDb.collection('paConfig').doc(PA.empresa).set({ periodoHE: periodo }, { merge: true })
     .then(function() {
       PA.periodoHE = periodo;
+      _paSincronizarFechasAPs();
       paToast('\u2705 Per\xedodo guardado: ' + desde + ' al ' + hasta);
       paAdminTab('config');
     }).catch(function(e){ paToast('Error: ' + e.message, true); });
@@ -12095,7 +12129,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-11-12-C';
+var PA_VERSION = 'v2026-11-12-D';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -12709,6 +12743,10 @@ window.addEventListener('DOMContentLoaded', function() {
         cats.aut.items.push({ id:x._id, empId:x.empleadoId, emp:x.empleadoNombre || _nomEmp(x.empleadoId), fecha:x.fecha || '',
           det:({ editar:'Editar marcación', agregar:'Agregar marcación', eliminar:'Eliminar marcación' })[x.accion] + ' · ' + (x.motivo || '') + ' · solicitado por ' + (x.solicitadoPor || '') });
       });
+      (AUT.hor || []).forEach(function(x){
+        cats.aut.items.push({ id:x._id, empId:x.empleadoId || '', emp:x.alcance === 'general' ? 'Horario general' : (x.empleadoNombre || _nomEmp(x.empleadoId)), fecha:'',
+          det:'Cambio de horario ' + (x.alcance === 'general' ? 'colectivo' : 'individual') + ' · ' + (x.motivo || '') + ' · solicitado por ' + (x.solicitadoPor || '') });
+      });
       AUT.aj.forEach(function(x){
         cats.aut.items.push({ id:x._id, empId:x.empleadoId, emp:x.empleadoNombre || _nomEmp(x.empleadoId), fecha:x.fecha || '',
           det:'Ajuste de horas ' + (+x.horas > 0 ? '+' : '') + (+x.horas || 0).toFixed(2) + ' h · ' + (x.causa || '') + ' · creado por ' + (x.creadoPor || '') });
@@ -13089,7 +13127,7 @@ window.addEventListener('DOMContentLoaded', function() {
             });
           });
           if (!ok) paToast('Ese período ya estaba cerrado');
-          else { PA.periodoHE = nuevoPeriodo; paToast('🔒 Período cerrado. Nuevo período activo: ' + sigDesde + ' al ' + nh); }
+          else { PA.periodoHE = nuevoPeriodo; try { _paSincronizarFechasAPs(); } catch(e2) {} paToast('🔒 Período cerrado. Nuevo período activo: ' + sigDesde + ' al ' + nh); }
           await _refrescarCierres(true);
           paGenerarReporte();
           return true;
@@ -13913,9 +13951,10 @@ function _paCargarAutorizaciones() {
     paDb.collection('paHorasExtra').where('empresa','==',E).where('estado','==','pendiente_autorizacion').get(S).catch(function(){ return { forEach:function(){} }; })
   ]).then(function(r){
     var sol = [], aj = [];
-    r[0].forEach(function(d){ var x = d.data(); x._id = d.id; if (x.tipo === 'CAMBIO_MARCACION') sol.push(x); });
+    var hor = [];
+    r[0].forEach(function(d){ var x = d.data(); x._id = d.id; if (x.tipo === 'CAMBIO_MARCACION') sol.push(x); else if (x.tipo === 'CAMBIO_HORARIO') hor.push(x); });
     r[1].forEach(function(d){ var x = d.data(); x._id = d.id; if (x.esAjuste) aj.push(x); });
-    return { sol:sol, aj:aj };
+    return { sol:sol, aj:aj, hor:hor };
   });
 }
 function paVerAutorizaciones() {
@@ -13928,7 +13967,7 @@ function _paPintarAutorizaciones() {
   if (!ov) { ov = document.createElement('div'); ov.id = 'paAutOv'; ov.style.cssText = 'position:fixed;inset:0;z-index:8600;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:10px'; document.body.appendChild(ov); }
   var btn = function(txt, on, bg){ return '<button onclick="' + on + '" style="padding:7px 11px;border-radius:8px;border:none;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;background:' + bg + ';color:#fff">' + txt + '</button>'; };
   var ACC = { editar:'✏️ Editar marcación', agregar:'➕ Agregar marcación', eliminar:'🗑 Eliminar marcación' };
-  var total = A.sol.length + A.aj.length;
+  var total = A.sol.length + A.aj.length + (A.hor || []).length;
   var h = '<div style="background:var(--surface);color:var(--text);border-radius:14px;width:min(820px,100%);max-height:94vh;display:flex;flex-direction:column;overflow:hidden">'
     + '<div style="padding:13px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center">'
     + '<div style="flex:1"><div style="font-weight:800;font-size:15px">🔑 Autorizaciones pendientes (' + total + ')</div>'
@@ -13948,6 +13987,18 @@ function _paPintarAutorizaciones() {
       + '<div style="font-size:11px;color:var(--muted);margin-top:2px">Solicitado por ' + esc(s.solicitadoPor || '') + ' · ' + new Date(s.solicitadoTs || 0).toLocaleString('es-SV', { timeZone:'America/El_Salvador' }) + '</div>'
       + '<div style="display:flex;gap:6px;margin-top:8px">' + btn('✓ Autorizar', "_paAutDecidir('sol','" + s._id + "',true)", '#238636') + btn('✕ Rechazar', "_paAutDecidir('sol','" + s._id + "',false)", '#da3633') + '</div></div>';
   });
+  (A.hor || []).forEach(function(x){
+    var hh = function(o){ return o ? esc((o.horaEntrada || '—') + '–' + (o.horaSalida || '—')) + (o.horarioDias ? ' (por día)' : '') : '<i>horario general</i>'; };
+    var ant = x.alcance === 'general' ? (x.antes && x.antes.horario) : (x.antes && x.antes.horariosEmp);
+    var dsp = x.alcance === 'general' ? (x.datos && x.datos.horario) : (x.datos && x.datos.horariosEmp);
+    var titulo = x.alcance === 'general' ? '🏢 Cambio de horario GENERAL (colectivo)' : (x.accion === 'quitar' ? '🕐 Quitar horario individual' : '🕐 Cambio de horario individual');
+    h += '<div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px">'
+      + '<div style="font-size:13px;font-weight:800">' + titulo + (x.alcance === 'general' ? '' : ' · ' + esc(x.empleadoNombre || '')) + '</div>'
+      + '<div style="font-size:12.5px;margin-top:3px">Antes: <b>' + hh(ant) + '</b> → Después: <b>' + (dsp ? hh(dsp) : '<i>horario general</i>') + '</b></div>'
+      + '<div style="font-size:12px;margin-top:3px"><b>Motivo:</b> ' + esc(x.motivo || '') + '</div>'
+      + '<div style="font-size:11px;color:var(--muted);margin-top:2px">Solicitado por ' + esc(x.solicitadoPor || '') + ' · ' + new Date(x.solicitadoTs || 0).toLocaleString('es-SV', { timeZone:'America/El_Salvador' }) + '</div>'
+      + '<div style="display:flex;gap:6px;margin-top:8px">' + btn('✓ Autorizar', "_paAutDecidir('hor','" + x._id + "',true)", '#238636') + btn('✕ Rechazar', "_paAutDecidir('hor','" + x._id + "',false)", '#da3633') + '</div></div>';
+  });
   A.aj.forEach(function(x){
     h += '<div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px">'
       + '<div style="font-size:13px;font-weight:800">⏱ Ajuste de horas ' + _paH(x.horas) + ' h · ' + esc(x.empleadoNombre || '') + '</div>'
@@ -13960,22 +14011,25 @@ function _paPintarAutorizaciones() {
 }
 
 function _paAutDecidir(clase, id, autorizar) {
-  var A = window._paAut || { sol:[], aj:[] };
-  var it = (clase === 'sol' ? A.sol : A.aj).find(function(x){ return x._id === id; });
+  var A = window._paAut || { sol:[], aj:[], hor:[] };
+  var it = ({ sol:A.sol, aj:A.aj, hor:A.hor || [] })[clase].find(function(x){ return x._id === id; });
   if (!it) return;
   var fin = function(msg){ paToast(msg); paVerAutorizaciones(); if (typeof _paAvisoAutorizaciones === 'function') _paAvisoAutorizaciones(); if (document.getElementById('paHojaOv')) paVerHojaAjustes(); };
   var fallo = function(e){ paToast('Error: ' + e.message, true); };
   var hacer = function(){
     if (!autorizar) {
-      _paPedirMotivoRechazo(clase === 'sol' ? 'Rechazar cambio de marcación' : 'Rechazar ajuste de horas', it.empleadoNombre || '', function(motivo){
-        var upd = clase === 'sol'
+      _paPedirMotivoRechazo(clase === 'sol' ? 'Rechazar cambio de marcación' : clase === 'hor' ? 'Rechazar cambio de horario' : 'Rechazar ajuste de horas', it.empleadoNombre || '', function(motivo){
+        var upd = (clase === 'sol' || clase === 'hor')
           ? paDb.collection('paNotificaciones').doc(id).update({ estado:'rechazada', rechazadoPor:_paNombreLlave(), rechazadoTs:Date.now(), motivoRechazo:motivo })
           : paDb.collection('paHorasExtra').doc(id).update({ estado:'rechazado', rechazadoPor:_paNombreLlave(), rechazadoTs:Date.now(), motivoRechazo:motivo });
         upd.then(function(){ fin('Rechazado'); }).catch(fallo);
       });
       return;
     }
-    if (clase === 'sol') _paAplicarCambioMarc(id, it).then(function(){ fin('✅ Cambio autorizado y aplicado'); }).catch(fallo);
+    if (clase === 'hor') _paAplicarHorario(it).then(function(){
+      return paDb.collection('paNotificaciones').doc(id).update({ estado:'autorizada', autorizadoPor:_paNombreLlave(), autorizadoTs:Date.now() });
+    }).then(function(){ fin('✅ Horario autorizado y aplicado'); }).catch(fallo);
+    else if (clase === 'sol') _paAplicarCambioMarc(id, it).then(function(){ fin('✅ Cambio autorizado y aplicado'); }).catch(fallo);
     else paDb.collection('paHorasExtra').doc(id).update({ estado:'aprobado', aprobadoPor:_paNombreLlave(), aprobadoTs:Date.now() })
       .then(function(){ return _paSumarSaldoHE(it.empleadoId, parseFloat(it.horas || 0)); })
       .then(function(){ fin('✅ Ajuste autorizado'); }).catch(fallo);
@@ -13987,7 +14041,7 @@ function _paAutDecidir(clase, id, autorizar) {
 function _paAvisoAutorizaciones() {
   if (!paDb || !PA.empresa || !document.getElementById('paAdminPanel')) return;
   _paCargarAutorizaciones().then(function(A){
-    var n = A.sol.length + A.aj.length, chip = document.getElementById('paAutChip');
+    var n = A.sol.length + A.aj.length + (A.hor || []).length, chip = document.getElementById('paAutChip');
     if (!n) { if (chip) chip.remove(); return; }
     if (!chip) {
       chip = document.createElement('button'); chip.id = 'paAutChip';
