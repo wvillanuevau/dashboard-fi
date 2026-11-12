@@ -859,20 +859,14 @@ select[style*="border:1px solid var(--border)"]{
         <span style="font-size:20px">🗓️</span>
         <div>
           <div style="font-weight:800;font-size:14px;color:var(--accent2)">
-            Días compensatorios disponibles: <span id="diasCompDisp">0</span>
+            Día(s) libre(s) compensatorio(s) asignado(s): <span id="diasCompDisp">0</span>
           </div>
           <div style="font-size:11px;color:var(--muted)">
-            Por turnos trabajados (sábado tarde / domingo)
+            Asignado(s) por la administración
           </div>
         </div>
       </div>
-      <div id="compPendientesList" style="font-size:11px;color:var(--muted);margin-bottom:8px"></div>
-      <button type="button" onclick="paGoSolicitarComp()"
-        style="width:100%;padding:10px;background:var(--accent2);color:#fff;
-               border:none;border-radius:10px;font-weight:700;font-size:13px;
-               cursor:pointer;font-family:inherit">
-        📅 Solicitar mi día libre compensatorio
-      </button>
+      <div id="compPendientesList" style="font-size:12px;color:var(--text)"></div>
     </div>
     <div id="canjePendBox" style="display:none;background:rgba(56,139,253,.08);border:1px solid rgba(56,139,253,.2);border-radius:10px;padding:12px;font-size:13px;color:var(--accent2);margin-bottom:8px"></div>
     <div class="info-box">Solicita canjear tus horas extra acumuladas por un día libre. Cada 8 horas = 1 día libre. El administrador también puede asignarte días compensatorios directamente.<br><br>⚠ La solicitud debe ser aprobada por el administrador antes de hacerse efectiva.</div>
@@ -951,6 +945,7 @@ select[style*="border:1px solid var(--border)"]{
     <button type="button" class="tab-btn" id="htab_extra" onclick="paHistTab('extra')"><span class="ti">⏰</span><span class="tl">Mis HE</span></button>
     <button type="button" class="tab-btn" id="htab_canje" onclick="paHistTab('canje')"><span class="ti">🔄</span><span class="tl">Canjes</span></button>
     <button type="button" class="tab-btn" id="htab_vac" onclick="paHistTab('vac')"><span class="ti">🏖️</span><span class="tl">Vac.</span></button>
+    <button type="button" class="tab-btn" id="htab_inc" onclick="paHistTab('inc')"><span class="ti">🏥</span><span class="tl">Permisos</span></button>
   </div>
   <div class="portal-body" style="overflow-y:auto;padding-top:16px">
     <div id="histContent"><div class="spinner"></div></div>
@@ -2851,6 +2846,8 @@ function paAfterAuth() {
         paUpdateDash();
         // Cargar notificaciones de dispositivo
         setTimeout(_paCargarNotificaciones, 600);
+        // Avisar al empleado de solicitudes rechazadas (con su motivo)
+        setTimeout(function(){ if (typeof _paAvisarRechazosEmpleado === 'function') _paAvisarRechazosEmpleado(); }, 2500);
         // _paCargarAusenciasPeriodo() se ELIMINO de aqui — ya se llama
         // correctamente desde paAdminHoy() y paAdminEmps(), las UNICAS
         // dos pantallas que usan ese dato (ambas exclusivas de admin).
@@ -3019,26 +3016,49 @@ function paUpdateDash() {
       ? adicionales.length + ' registro(s) adicional(es) hoy'
       : 'Emergencia / llamado después de salida';
   }
-  // ── Compensatorios de turno disponibles ─────────────────────
+  // ── Banderín: días compensatorios ASIGNADOS por la administración ──
+  // El empleado ya no los solicita (nov-2026): solo se le avisa de los
+  // días libres que la administración le asignó, con el criterio
+  // (motivo) y quién lo asignó. Solo días de hoy en adelante.
   if (paDb && PA.empleado && PA.empleado.id) {
     paDb.collection('paCanjes')
       .where('empresa','==',PA.empresa)
       .where('empleadoId','==',PA.empleado.id)
-      .where('esAutoTurno','==',true)
+      .where('esCompensatorio','==',true)
       .get().then(function(snap) {
-        var pend=[], disp=0;
+        var hoyC = paHoy(), prox = [];
         snap.forEach(function(d){
-          var cc=d.data();
-          if (cc.estado==='asignado') disp++;
-          else if (cc.estado==='pendiente_compensatorio') pend.push(cc);
+          var cc = d.data();
+          if ((cc.estado === 'asignado' || cc.estado === 'aprobado') && cc.fechaLibre && cc.fechaLibre >= hoyC) prox.push(cc);
         });
-        var banner=document.getElementById('compTurnoBanner');
-        var dispEl=document.getElementById('diasCompDisp');
-        var pendEl=document.getElementById('compPendientesList');
-        if (banner) banner.style.display=(disp>0||pend.length>0)?'':'none';
-        if (dispEl) dispEl.textContent=disp;
-        if (pendEl) pendEl.innerHTML=pend.length>0
-          ? '⏳ '+pend.length+' pendiente(s) de aprobación' : '';
+        prox.sort(function(a,b){ return a.fechaLibre < b.fechaLibre ? -1 : 1; });
+        var DSEM = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+        var fechaLarga = function(f){ var p = f.split('-'), dt = new Date(Date.UTC(+p[0], +p[1]-1, +p[2], 12)); return DSEM[dt.getUTCDay()] + ' ' + (+p[2]) + '/' + (+p[1]); };
+        var htmlComp = prox.map(function(cc){
+          return '<div style="padding:8px 0;border-top:1px solid rgba(0,107,63,.18)">'
+            + '<div style="font-weight:800;color:var(--accent2)">🗓️ ' + (cc.fechaLibre === hoyC ? 'HOY · ' : '') + fechaLarga(cc.fechaLibre) + '</div>'
+            + '<div style="font-size:12px;margin-top:2px"><b>Motivo:</b> ' + esc(cc.motivo || 'Día libre compensatorio') + '</div>'
+            + '<div style="font-size:11px;color:var(--muted);margin-top:1px">Asignado por ' + esc(cc.aprobadoPor || 'la administración') + '</div></div>';
+        }).join('');
+        // Banderín en la pantalla de canje
+        var banner = document.getElementById('compTurnoBanner');
+        var dispEl = document.getElementById('diasCompDisp');
+        var listEl = document.getElementById('compPendientesList');
+        if (banner) banner.style.display = prox.length ? '' : 'none';
+        if (dispEl) dispEl.textContent = prox.length;
+        if (listEl) listEl.innerHTML = htmlComp;
+        // Banderín en la pantalla principal del empleado
+        var dash = document.getElementById('compAsignadoDash');
+        var ancla = document.getElementById('btnMarcarEntrada');
+        if (!dash && ancla && ancla.parentNode && prox.length) {
+          dash = document.createElement('div'); dash.id = 'compAsignadoDash';
+          dash.style.cssText = 'background:rgba(0,107,63,.1);border:1.5px solid rgba(0,107,63,.3);border-radius:12px;padding:12px 14px;margin-bottom:12px';
+          ancla.parentNode.insertBefore(dash, ancla);
+        }
+        if (dash) {
+          dash.style.display = prox.length ? '' : 'none';
+          dash.innerHTML = '<div style="font-weight:800;font-size:14px;color:var(--accent2);margin-bottom:2px">📅 Tienes ' + prox.length + ' día(s) libre(s) compensatorio(s) asignado(s)</div>' + htmlComp;
+        }
       }).catch(function(){});
   }
 
@@ -5267,7 +5287,7 @@ function paGoHistorial() { paShow('scHistorial'); }
 
 function paHistTab(tab) {
   PA.histTab = tab;
-  var tabs = ['marc', 'extra', 'canje', 'vac'];
+  var tabs = ['marc', 'extra', 'canje', 'vac', 'inc'];
   tabs.forEach(function(t) {
     var el = document.getElementById('htab_' + t);
     if (el) el.className = 'tab-btn' + (t === tab ? ' active' : '');
@@ -5281,7 +5301,7 @@ function paLoadHistorial() {
   content.innerHTML = '<div class="spinner"></div>';
   
   var tab = PA.histTab;
-  var col = { marc: 'paMarcaciones', extra: 'paHorasExtra', canje: 'paCanjes', vac: 'paVacaciones' }[tab];
+  var col = { marc: 'paMarcaciones', extra: 'paHorasExtra', canje: 'paCanjes', vac: 'paVacaciones', inc: 'paIncapacidades' }[tab];
   
   paDb.collection(col)
     .where('empresa', '==', PA.empresa)
@@ -5325,9 +5345,19 @@ function paLoadHistorial() {
       }
       
       if (tab === 'extra') {
+        docs = docs.filter(function(d){ return !d.esAjuste || d.estado === 'aprobado'; });   // ajustes: solo los autorizados
         docs.slice(0, 50).forEach(function(d) {
           var estados = { pendiente: '⏳ Pendiente', aprobado: '✅ Aprobado', rechazado: '❌ Rechazado' };
           var tipos = { diurna:'☀️ Diurna', nocturna:'🌙 Nocturna', feriado:'🎉 Feriado', finde:'📅 Fin de semana' };
+          if (d.esAjuste) {
+            var _hA = parseFloat(d.horas || 0);
+            html += '<div class="hist-item" style="border-left:3px solid #8957e5">'
+              + '<div class="hist-header"><div class="hist-date">'+(d.ajusteGlobal ? 'Ajuste del período' : d.fecha)+'</div><span class="hist-badge extra">'+(tipos[d.tipo]||d.tipo)+'</span></div>'
+              + '<div style="font-size:13px;font-weight:700;color:'+(_hA < 0 ? '#d1242f' : '#1a7f37')+'">Ajuste: '+(_hA > 0 ? '+' : '')+_hA.toFixed(2)+' horas</div>'
+              + '<div style="font-size:11.5px;margin-top:4px"><b>'+esc(d.causa||'')+'</b> — '+esc(d.justificacion||'')+'</div>'
+              + '<div style="font-size:10px;color:var(--muted);margin-top:2px">Autorizado por '+esc(d.aprobadoPor||'')+'</div></div>';
+            return;
+          }
           html += '<div class="hist-item">'
             + '<div class="hist-header"><div class="hist-date">'+d.fecha+'</div><span class="hist-badge extra">'+(tipos[d.tipo]||d.tipo)+'</span></div>'
             + '<div style="font-size:13px;font-weight:700;color:var(--purple)">'+d.horas+' horas</div>'
@@ -5370,6 +5400,20 @@ function paLoadHistorial() {
         });
       }
       
+      if (tab === 'inc') {
+        var estInc = { pendiente:'⏳ Pendiente', aprobada:'✅ Aprobada', rechazada:'❌ Rechazada', cancelada:'🚫 Cancelada' };
+        var tiposInc = { completa:'🏥 Incapacidad', permiso_completo:'📄 Permiso día completo', entrada_tardia:'⏰ Permiso entrada tardía', salida_temprano:'🚪 Permiso salida temprano' };
+        docs.sort(function(a,b){ return (b.fechaInicio||'') < (a.fechaInicio||'') ? -1 : 1; });
+        docs.slice(0, 40).forEach(function(d) {
+          html += '<div class="hist-item">'
+            + '<div class="hist-header"><div class="hist-date">'+(d.fechaInicio||'')+(d.fechaFin && d.fechaFin!==d.fechaInicio ? ' → '+d.fechaFin : '')+'</div>'
+            + '<span class="hist-badge">'+(tiposInc[d.tipoIncapacidad]||d.tipoIncapacidad||'Permiso')+'</span></div>'
+            + (d.motivo ? '<div style="font-size:11px;color:var(--muted);margin-top:4px">'+esc(d.motivo)+'</div>' : '')
+            + '<div style="font-size:11px;margin-top:6px">'+(estInc[d.estado]||d.estado||'')+'</div>'
+            + _paHtmlDecision(d) + '</div>';
+        });
+      }
+
       content.innerHTML = html;
     }).catch(function(e) {
       content.innerHTML = '<div style="color:var(--red);text-align:center;padding:20px">Error: ' + e.message + '</div>';
@@ -5647,6 +5691,7 @@ function _paShowAdminPanel() {
   _paCargarPendientesGlobal();
   if (typeof _paVerificarFaltasAutomaticas === 'function') _paVerificarFaltasAutomaticas();
   if (typeof _paMostrarAvisosMarcTarde === 'function') _paMostrarAvisosMarcTarde();
+  if (typeof _paAvisoAutorizaciones === 'function') setTimeout(_paAvisoAutorizaciones, 1500);
 }
 
 function _paCerrarAdmin() {
@@ -7283,6 +7328,15 @@ function paEditarMarcacion(marcId) {
       }
     }
 
+    // Sin la llave de WVillanuevaU el cambio NO se aplica: queda como
+    // solicitud pendiente de su autorización.
+    if (!(typeof _paLlaveActiva === 'function' && _paLlaveActiva())) {
+      if (!nuevaObs || nuevaObs.length < 5) { paToast('Escribe en Observación el motivo del cambio (lo verá quien autoriza)', true); return; }
+      _paSolicitarCambioMarc({ accion:'editar', marcId:marcId, empleadoId:m.empleadoId, empleadoNombre:m.empleadoNombre, fecha:m.fecha,
+        antes:{ tipo:m.tipo, ts:_mts, fecha:m.fecha }, datos:updates, motivo:nuevaObs })
+        .then(function(){ div.remove(); }).catch(function(e){ paToast('Error: '+e.message, true); });
+      return;
+    }
     paDb.collection('paMarcaciones').doc(marcId).update(updates)
       .then(function() {
         Object.assign(PA._marcacionesDetalle[marcId], updates);
@@ -7301,6 +7355,15 @@ function paEditarMarcacion(marcId) {
 function paEliminarMarcacion(marcId) {
   var m = PA._marcacionesDetalle && PA._marcacionesDetalle[marcId];
   var nom = m ? m.empleadoNombre+' — '+(m.tipo||'')+(m.ts?' '+paFmtHora(m.ts):'') : marcId;
+  if (!(typeof _paLlaveActiva === 'function' && _paLlaveActiva())) {
+    if (!m) { paToast('Registro no encontrado', true); return; }
+    _paPedirTexto('Solicitar eliminación de marcación', nom, 'Motivo de la eliminación', 'Enviar solicitud', '#da3633', function(motivo){
+      _paSolicitarCambioMarc({ accion:'eliminar', marcId:marcId, empleadoId:m.empleadoId, empleadoNombre:m.empleadoNombre, fecha:m.fecha,
+        antes:{ tipo:m.tipo, ts:(typeof _paToMs === 'function' ? _paToMs(m.ts) : m.ts), fecha:m.fecha }, datos:null, motivo:motivo })
+        .catch(function(e){ paToast('Error: '+e.message, true); });
+    });
+    return;
+  }
   paConfirm('¿Eliminar este registro? ' + nom + ' — Esta acción no se puede deshacer.', function() {
   paDb.collection('paMarcaciones').doc(marcId).delete()
     .then(function() {
@@ -7392,6 +7455,12 @@ function paAgregarMarcacion(empId, empNom, fecha) {
       folio: 'MRC-ADM-'+paGenId().toUpperCase(),
       _agregadoPor: 'admin', _agregadoTs: Date.now()
     };
+    if (!(typeof _paLlaveActiva === 'function' && _paLlaveActiva())) {
+      if (!obs || obs.length < 5) { paToast('Escribe en Observación el motivo (lo verá quien autoriza)', true); return; }
+      _paSolicitarCambioMarc({ accion:'agregar', empleadoId:empId, empleadoNombre:empNom, fecha:fecha, datos:docData, motivo:obs })
+        .then(function(){ div.remove(); }).catch(function(e){ paToast('Error: '+e.message, true); });
+      return;
+    }
     paDb.collection('paMarcaciones').add(docData)
       .then(function(ref) {
         PA._marcacionesDetalle = PA._marcacionesDetalle || {};
@@ -8077,6 +8146,13 @@ function paGuardarMarcacionManual(btn) {
         var r = d.data(); return r.fecha === fecha && r.tipo === tipo;
       });
       function _guardar() {
+        if (!(typeof _paLlaveActiva === 'function' && _paLlaveActiva())) {
+          if (!obs || obs.trim().length < 5) { paToast('Escribe en Observación el motivo (lo verá quien autoriza)', true); btn.disabled = false; return; }
+          _paSolicitarCambioMarc({ accion:'agregar', empleadoId:emp.id, empleadoNombre:emp.nombre, fecha:fecha, datos:docData, motivo:obs.trim() })
+            .then(function(){ var oe = document.getElementById('mmObs'); if (oe) oe.value = ''; btn.disabled = false; })
+            .catch(function(e){ paToast('Error: ' + e.message, true); btn.disabled = false; });
+          return;
+        }
         paDb.collection('paMarcaciones').add(docData).then(function() {
           paToast('✅ Marcación manual registrada para ' + emp.nombre);
           var obsEl = document.getElementById('mmObs'); if (obsEl) obsEl.value = '';
@@ -8297,7 +8373,7 @@ function _paRecalcularHE(empId, fecha, newSalidaTs) {
     .get()
     .then(function(snap) {
       var batch = paDb.batch();
-      snap.forEach(function(d) { batch.delete(d.ref); });
+      snap.forEach(function(d) { if (d.data().esAjuste) return; batch.delete(d.ref); });   // los ajustes manuales se conservan
       return batch.commit();
     })
     .then(function() {
@@ -10694,7 +10770,11 @@ function paAdminReporte(content) {
   var defDesde = _q.desde;
   var defHasta = _q.hasta;
   var html = '<div class="info-box">Reporte de horas extra aprobadas por período. Antes de generarlo se revisa que no quede nada pendiente en el rango (horas extra, permisos, vacaciones, canjes, compensatorios, acciones de personal, marcaciones y ausencias). Una quincena terminada y sin pendientes se puede cerrar con candado.</div>'
-    + '<button onclick="paVerRegistroDecisiones()" style="width:100%;margin:0 0 12px;padding:11px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface2);color:var(--text);font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit">📜 Registro de aprobaciones y rechazos del período</button>';
+    + '<button onclick="paVerRegistroDecisiones()" style="width:100%;margin:0 0 12px;padding:11px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface2);color:var(--text);font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit">📜 Registro de aprobaciones y rechazos del período</button>'
+    + '<div style="display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap">'
+    + '<button onclick="paVerHojaAjustes()" style="flex:1;min-width:150px;padding:11px;border-radius:10px;border:1.5px solid rgba(31,111,235,.45);background:rgba(31,111,235,.10);color:var(--text);font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit">✏️ Hoja de ajustes de horas</button>'
+    + '<button onclick="paVerAutorizaciones()" style="flex:1;min-width:150px;padding:11px;border-radius:10px;border:1.5px solid rgba(137,87,229,.45);background:rgba(137,87,229,.10);color:var(--text);font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit">🔑 Autorizaciones pendientes</button>'
+    + '</div>';
     html += '<div style="position:sticky;top:0;z-index:10;background:var(--bg);padding-bottom:10px;border-bottom:1px solid var(--border)">'
     +'<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px">'
     +'<div class="fg" style="margin:0;flex:1;min-width:120px"><label>Desde</label><input type="date" id="rptDesde" value="'+defDesde+'" max="'+hoy+'" style="font-size:16px"></div>'
@@ -11523,6 +11603,14 @@ function paExportarExcel() {
 
       // ── HOJA RESUMEN ──────────────────────────────────────────
       var wsR=wb.addWorksheet('RESUMEN');
+      if (PA._rptAjustes && PA._rptAjustes.length) {
+        var wsAj = wb.addWorksheet('AJUSTES');
+        wsAj.addRow(['Empleado','Fecha','Tipo','Horas (+/-)','Causa','Explicación','Creado por','Autorizado por']);
+        PA._rptAjustes.forEach(function(x){
+          wsAj.addRow([x.empleadoNombre||'', x.ajusteGlobal ? 'Global del período' : (x.fecha||''), x.tipo||'', +x.horas||0, x.causa||'', x.justificacion||'', x.creadoPor||'', x.aprobadoPor||'']);
+        });
+        try { wsAj.getRow(1).font = { bold:true }; [28,18,12,12,30,50,20,20].forEach(function(w,i){ wsAj.getColumn(i+1).width = w; }); } catch(_eAj) {}
+      }
       wsR.columns=[{width:14},{width:30},{width:12},{width:16},{width:12},{width:24},{width:10},{width:10},{width:10},{width:8},{width:8}];
       var r1=wsR.addRow(['RESUMEN DE HORAS EXTRA  '+data.desde+' AL '+data.hasta]);
       wsR.mergeCells(1,1,1,11); r1.height=20; r1.getCell(1).font={bold:true,size:11};
@@ -11787,12 +11875,8 @@ function paAsignarCompensatorioManual(empId, empNombre, cargo, btn) {
   });
 }
 
-function paGoSolicitarComp() {
-  paShow('scCanje');
-  // Marcar que está en modo compensatorio
-  PA._modoCompensatorio = true;
-  setTimeout(paInitCanje, 100);
-}
+// paGoSolicitarComp: ELIMINADO (nov-2026). El empleado ya no solicita
+// compensatorios; solo la administración los asigna desde su panel.
 
 function paAprobarHorasExtra(docId, empId, horas, btn) {
   paConfirm('¿Aprobar ' + paHorasLegible(horas) + ' de horas extra?', function() {
@@ -11975,7 +12059,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-11-09-A';
+var PA_VERSION = 'v2026-11-12-A';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -12428,23 +12512,46 @@ window.addEventListener('DOMContentLoaded', function() {
   // Verifica un documento contra los cierres. leerExistente: además del
   // dato nuevo, revisa las fechas que el documento YA tiene (para
   // update/delete/set). Sin conexión → no bloquea (no se puede saber).
-  function _verificar(col, ref, nuevo, leerExistente){
+  // ── Acciones de personal AUTOMÁTICAS: solo WVillanuevaU las modifica o borra ──
+  // Campos que el propio sistema puede escribir sin llave: archivar en
+  // Históricas y la marca de "revisar por permiso aprobado".
+  var CAMPOS_SISTEMA_AP = { revisionPermisoEspecial:1, notaRevision:1 };
+  function _esAPAuto(a){ return !!a && (a.creadoPor === 'sistema-automatico' || a.origen === 'auto' || a.origenTardanzas === true); }
+  function _soloCamposSistema(nuevo, op){
+    if (op !== 'update' || !nuevo || typeof nuevo !== 'object') return false;
+    var ks = Object.keys(nuevo);
+    return ks.length > 0 && ks.every(function(k){ return k.indexOf('historica') === 0 || CAMPOS_SISTEMA_AP[k]; });
+  }
+  function _llaveActiva(){ return (PA._llaveHasta || 0) > Date.now(); }
+  window._paLlaveActiva = _llaveActiva;
+  window._paEsAPAuto = _esAPAuto;
+  function _errLlave(){
+    var m = '🔑 Solo ' + NOMBRE_LLAVE + ' puede modificar o borrar acciones de personal generadas automáticamente. Autorízate y repite la acción.';
+    try { paToast(m, true); } catch(e) {}
+    setTimeout(function(){ if (window._paAutorizarLlave) window._paAutorizarLlave(); }, 400);
+    var err = new Error(m); err.code = 'requiere-llave'; return err;
+  }
+
+  function _verificar(col, ref, nuevo, leerExistente, op){
     if (!COLS_CANDADO[col]) return Promise.resolve();
     var rangosNuevos = _rangosDe(col, nuevo);
     var hoy = paHoy();
+    // ¿Hay que revisar si la AP existente es automática?
+    var revisarAuto = col === 'paAccionesPersonal' && leerExistente && ref && !_soloCamposSistema(nuevo, op) && !_llaveActiva();
     // Una quincena solo se puede cerrar cuando ya terminó, así que lo de
     // hoy en adelante nunca está cerrado: las marcaciones del día no
     // pagan ninguna lectura extra.
     if (!leerExistente && (!rangosNuevos.length || rangosNuevos.every(function(r){ return r[0] >= hoy; }))) return Promise.resolve();
     return _refrescarCierres(false).then(function(){
-      if (!_hayCerradas()) return;
-      var q = _cierreQueBloquea(rangosNuevos);
-      if (q) throw _errCandado(q);
+      var hay = _hayCerradas();
+      if (hay) { var q = _cierreQueBloquea(rangosNuevos); if (q) throw _errCandado(q); }
       if (!leerExistente || !ref) return;
+      if (!hay && !revisarAuto) return;
       return _conTimeout(_get.call(ref).catch(function(){ return null; }), 5000, null).then(function(d){
         if (!d || !d.exists) return;
-        var q2 = _cierreQueBloquea(_rangosDe(col, d.data()));
-        if (q2) throw _errCandado(q2);
+        var x = d.data();
+        if (hay) { var q2 = _cierreQueBloquea(_rangosDe(col, x)); if (q2) throw _errCandado(q2); }
+        if (revisarAuto && _esAPAuto(x)) throw _errLlave();
       });
     });
   }
@@ -12456,7 +12563,7 @@ window.addEventListener('DOMContentLoaded', function() {
   };
   DP.set = function(data){
     var self = this, args = arguments;
-    return _verificar(_colDe(self), self, data, true).then(function(){ return _set.apply(self, args); });
+    return _verificar(_colDe(self), self, data, true, 'set').then(function(){ return _set.apply(self, args); });
   };
   DP.update = function(data){
     var self = this, args = arguments;
@@ -12465,24 +12572,24 @@ window.addEventListener('DOMContentLoaded', function() {
     if (_colDe(self) === 'paAccionesPersonal' && data && typeof data === 'object'
         && Object.keys(data).length && Object.keys(data).every(function(k){ return k.indexOf('historica') === 0; }))
       return _upd.apply(self, args);
-    return _verificar(_colDe(self), self, (data && typeof data === 'object') ? data : null, true)
+    return _verificar(_colDe(self), self, (data && typeof data === 'object') ? data : null, true, 'update')
       .then(function(){ return _upd.apply(self, args); });
   };
   DP['delete'] = function(){
     var self = this, args = arguments;
-    return _verificar(_colDe(self), self, null, true).then(function(){ return _del.apply(self, args); });
+    return _verificar(_colDe(self), self, null, true, 'delete').then(function(){ return _del.apply(self, args); });
   };
   try {
     var BP = Object.getPrototypeOf(paDb.batch());
     var _bSet = BP.set, _bUpd = BP.update, _bDel = BP['delete'], _bCommit = BP.commit;
-    BP.set    = function(ref, data){ (this.__ops = this.__ops || []).push([ref, data]); return _bSet.apply(this, arguments); };
-    BP.update = function(ref, data){ (this.__ops = this.__ops || []).push([ref, (data && typeof data === 'object') ? data : null]); return _bUpd.apply(this, arguments); };
-    BP['delete'] = function(ref){ (this.__ops = this.__ops || []).push([ref, null]); return _bDel.apply(this, arguments); };
+    BP.set    = function(ref, data){ (this.__ops = this.__ops || []).push([ref, data, 'set']); return _bSet.apply(this, arguments); };
+    BP.update = function(ref, data){ (this.__ops = this.__ops || []).push([ref, (data && typeof data === 'object') ? data : null, 'update']); return _bUpd.apply(this, arguments); };
+    BP['delete'] = function(ref){ (this.__ops = this.__ops || []).push([ref, null, 'delete']); return _bDel.apply(this, arguments); };
     BP.commit = function(){
       var self = this, args = arguments;
       var ops = (this.__ops || []).filter(function(o){ return COLS_CANDADO[_colDe(o[0])]; });
       if (!ops.length) return _bCommit.apply(self, args);
-      return Promise.all(ops.map(function(o){ return _verificar(_colDe(o[0]), o[0], o[1], true); }))
+      return Promise.all(ops.map(function(o){ return _verificar(_colDe(o[0]), o[0], o[1], true, o[2]); }))
         .then(function(){ return _bCommit.apply(self, args); });
     };
   } catch(e) { console.warn('[Candado] batch:', e.message); }
@@ -12515,20 +12622,39 @@ window.addEventListener('DOMContentLoaded', function() {
     return true;
   }
 
+  // Desde cuándo se revisan marcaciones y ausencias. Las solicitudes
+  // pendientes y las acciones de personal se revisan SIN límite de fecha;
+  // marcaciones/ausencias desde el día siguiente a la última quincena
+  // cerrada (lo anterior ya quedó resuelto al cerrarla) o desde esta fecha.
+  var INICIO_CONTROL = '2026-09-01';
+  function _inicioRevision(desde){
+    var c = PA._cierres || {}, ult = '';
+    Object.keys(c).forEach(function(k){ var q = c[k]; if (q && q.estado === 'cerrada' && q.hasta > ult) ult = q.hasta; });
+    var ini = INICIO_CONTROL;
+    if (ult) { var p = ult.split('-'), d = new Date(Date.UTC(+p[0], +p[1]-1, +p[2] + 1, 12)); ini = d.toISOString().slice(0, 10); }
+    if (ini < INICIO_CONTROL) ini = INICIO_CONTROL;
+    return (desde && desde < ini) ? desde : ini;
+  }
+
   function _precierre(desde, hasta){
     var E = PA.empresa, hoy = paHoy();
     var S = { source:'server' };
-    return Promise.all([
-      paDb.collection('paHorasExtra').where('empresa','==',E).where('fecha','>=',desde).where('fecha','<=',hasta).get(S),
-      paDb.collection('paMarcaciones').where('empresa','==',E).where('fecha','>=',desde).where('fecha','<=',hasta).get(S),
-      paDb.collection('paIncapacidades').where('empresa','==',E).get(S),
-      paDb.collection('paVacaciones').where('empresa','==',E).get(S),
-      paDb.collection('paCanjes').where('empresa','==',E).get(S),
-      paDb.collection('paAccionesPersonal').where('empresa','==',E).get(S),
-      _refrescarCierres(true)
-    ]).then(function(r){
+    var ini;
+    return _refrescarCierres(true).then(function(){
+      ini = _inicioRevision(desde);
+      return Promise.all([
+        paDb.collection('paHorasExtra').where('empresa','==',E).where('estado','==','pendiente').get(S),
+        paDb.collection('paMarcaciones').where('empresa','==',E).where('fecha','>=',ini).where('fecha','<=',hasta).get(S),
+        paDb.collection('paIncapacidades').where('empresa','==',E).get(S),
+        paDb.collection('paVacaciones').where('empresa','==',E).get(S),
+        paDb.collection('paCanjes').where('empresa','==',E).get(S),
+        paDb.collection('paAccionesPersonal').where('empresa','==',E).get(S),
+        paDb.collection('paNotificaciones').where('empresa','==',E).where('estado','==','pendiente').get(S).catch(function(){ return { forEach:function(){} }; }),
+        (typeof _paCargarAutorizaciones === 'function' ? _paCargarAutorizaciones() : Promise.resolve({ sol:[], aj:[] })).catch(function(){ return { sol:[], aj:[] }; })
+      ]);
+    }).then(function(r){
       var lista = function(snap){ var a = []; snap.forEach(function(d){ var x = d.data(); x._id = d.id; a.push(x); }); return a; };
-      var HE = lista(r[0]), MC = lista(r[1]), INC = lista(r[2]), VAC = lista(r[3]), CJ = lista(r[4]), AP = lista(r[5]);
+      var HE = lista(r[0]), MC = lista(r[1]), INC = lista(r[2]), VAC = lista(r[3]), CJ = lista(r[4]), AP = lista(r[5]), NT = lista(r[6]);
       var REV = PA._revCierre || {};
       var cats = {
         he:    { titulo:'Horas extra pendientes', icono:'⏰', items:[] },
@@ -12538,8 +12664,23 @@ window.addEventListener('DOMContentLoaded', function() {
         comp:  { titulo:'Compensatorios por aprobar', icono:'📆', items:[] },
         ap:    { titulo:'Acciones de personal inválidas o por revisar', icono:'📋', items:[] },
         marc:  { titulo:'Marcaciones incompletas', icono:'🕘', items:[] },
-        aus:   { titulo:'Ausencias sin resolver', icono:'❓', items:[] }
+        aus:   { titulo:'Ausencias sin resolver', icono:'❓', items:[] },
+        notif: { titulo:'Solicitudes de empleados sin resolver', icono:'📨', items:[] },
+        aut:   { titulo:'Pendientes de autorización de ' + NOMBRE_LLAVE, icono:'🔑', items:[] }
       };
+      var AUT = r[7] || { sol:[], aj:[] };
+      AUT.sol.forEach(function(x){
+        cats.aut.items.push({ id:x._id, empId:x.empleadoId, emp:x.empleadoNombre || _nomEmp(x.empleadoId), fecha:x.fecha || '',
+          det:({ editar:'Editar marcación', agregar:'Agregar marcación', eliminar:'Eliminar marcación' })[x.accion] + ' · ' + (x.motivo || '') + ' · solicitado por ' + (x.solicitadoPor || '') });
+      });
+      AUT.aj.forEach(function(x){
+        cats.aut.items.push({ id:x._id, empId:x.empleadoId, emp:x.empleadoNombre || _nomEmp(x.empleadoId), fecha:x.fecha || '',
+          det:'Ajuste de horas ' + (+x.horas > 0 ? '+' : '') + (+x.horas || 0).toFixed(2) + ' h · ' + (x.causa || '') + ' · creado por ' + (x.creadoPor || '') });
+      });
+      NT.forEach(function(n){
+        cats.notif.items.push({ id:n._id, empId:n.empleadoId, emp:n.empleadoNombre || _nomEmp(n.empleadoId), fecha:n.fecha || '',
+          det:(n.concepto || n.tipo || 'Solicitud') + (n.descripcion ? ' · ' + n.descripcion : '') });
+      });
 
       // 1. Horas extra
       HE.forEach(function(h){
@@ -12550,14 +12691,12 @@ window.addEventListener('DOMContentLoaded', function() {
       // 2. Incapacidades / permisos
       INC.forEach(function(x){
         if (x.estado !== 'pendiente') return;
-        if (!_solapa(x.fechaInicio, x.fechaFin, desde, hasta)) return;
         cats.inc.items.push({ id:x._id, empId:x.empleadoId, emp:x.empleadoNombre || _nomEmp(x.empleadoId), fecha:x.fechaInicio,
           det:(x.fechaInicio || '') + ' → ' + (x.fechaFin || x.fechaInicio || '') + ' · ' + (x.tipoIncapacidad || '') + (x.motivo ? ' · ' + x.motivo : '') });
       });
       // 3. Vacaciones
       VAC.forEach(function(v){
         if (v.estado !== 'pendiente') return;
-        if (!_solapa(v.fechaInicio, v.fechaFin, desde, hasta)) return;
         cats.vac.items.push({ id:v._id, empId:v.empleadoId, emp:v.empleadoNombre || _nomEmp(v.empleadoId), fecha:v.fechaInicio,
           det:(v.fechaInicio || '') + ' → ' + (v.fechaFin || '') + ' · ' + (v.dias || '?') + ' día(s)', v:v });
       });
@@ -12566,11 +12705,9 @@ window.addEventListener('DOMContentLoaded', function() {
         if (c.estado === 'pendiente_aprobacion' || c.estado === 'pendiente_compensatorio') {
           var f = c.fechaLibre || '';
           var creado = c.ts ? new Date(_paToMs(c.ts)).toLocaleDateString('sv-SE', { timeZone:'America/El_Salvador' }) : '';
-          if (f ? !_enRango(f, desde, hasta) : !(creado && creado <= hasta)) return;
           cats.canje.items.push({ id:c._id, empId:c.empleadoId, emp:c.empleadoNombre || _nomEmp(c.empleadoId), fecha:f || creado,
             det:(c.motivo || 'Solicitud de canje') + (f ? ' · día libre ' + f : ' · sin fecha'), c:c });
         } else if (c.estado === 'pendiente_aprobacion_admin') {
-          if (!_enRango(c.fechaOrigen, desde, hasta)) return;
           cats.comp.items.push({ id:c._id, empId:c.empleadoId, emp:c.empleadoNombre || _nomEmp(c.empleadoId), fecha:c.fechaOrigen,
             det:c.motivo || 'Compensatorio automático por turno' });
         }
@@ -12615,15 +12752,18 @@ window.addEventListener('DOMContentLoaded', function() {
       };
       AP.forEach(function(a){
         var f0 = fechaRef(a);
-        if (!_enRango(f0, desde, hasta)) return;
         if (a.revisionCierre) return;                                  // ya validada por un admin
+        // Reglas que necesitan marcaciones: solo si la fecha está dentro de lo cargado
+        var conMarc = !!f0 && f0 >= ini && f0 <= hasta;
         var inval = [], rev = [], f = a.fecha || '', emp = a.empleadoId, e = (PA.empleados || []).find(function(x){ return x.id === emp; });
+        if (a.revisionPermisoEspecial) rev.push(a.notaRevision || 'Marcada para revisión por un permiso aprobado');
         var auto = (a.creadoPor === 'sistema-automatico' || a.origen === 'auto' || a.origenTardanzas === true);
         if (dup[a._id]) inval.push('Duplicada');
         if (a.tipo === 'FALTA_INJUSTIFICADA' || (a.tipo === 'DESCUENTO_DIA_SEPTIMO' && !a.origenTardanzas && f)) {
           if (!f) inval.push('Sin fecha');
           else {
-            if (tiene(emp, f, 'entrada')) {
+            if (!conMarc) { /* fuera del rango de marcaciones cargadas: solo reglas sin marcaciones */ }
+            else if (tiene(emp, f, 'entrada')) {
               var en = ((marc[emp] || {})[f] || []).filter(function(m){ return m.tipo === 'entrada'; })[0];
               inval.push('Sí marcó entrada (' + _hm(en.ts) + ')');
             } else if (((marc[emp] || {})[f] || []).length) rev.push('Tiene marcaciones ese día sin entrada');
@@ -12640,7 +12780,7 @@ window.addEventListener('DOMContentLoaded', function() {
         if (a.tipo === 'AMONESTACION_TARDANZA' || (a.tipo === 'DESCUENTO_DIA_SEPTIMO' && a.origenTardanzas)) {
           var min = a.tipo === 'AMONESTACION_TARDANZA' ? 4 : 5;
           if (!a.quincenaDesde || !a.quincenaHasta) rev.push('Sin quincena asignada (criterio viejo)');
-          else {
+          else if (a.quincenaDesde >= ini) {
             var t = tardanzas(emp, a.quincenaDesde, a.quincenaHasta);
             if (t === null) rev.push('No se pudo recalcular tardanzas');
             else if (t.length < min) inval.push('Recalculado: ' + t.length + ' tardanza(s), se requieren ' + min);
@@ -12656,13 +12796,13 @@ window.addEventListener('DOMContentLoaded', function() {
         if (a.tipo === 'PERMISO_ESPECIAL') inval.push('Permiso Especial no debe generar AP');
         if (a.tipo === 'TARDANZAS') rev.push('Tipo obsoleto TARDANZAS');
         if (!inval.length && !rev.length) return;
-        cats.ap.items.push({ id:a._id, empId:emp, emp:a.empleadoNombre || _nomEmp(emp), fecha:f0, tipoAP:a.tipo,
+        cats.ap.items.push({ id:a._id, empId:emp, emp:a.empleadoNombre || _nomEmp(emp), fecha:f0, tipoAP:a.tipo, autoAP:auto,
           estado: inval.length ? 'INVÁLIDA' : 'REVISAR', auto:auto, det:a.tipo + ' · ' + inval.concat(rev).join(' · ') });
       });
 
       // 7/8. Marcaciones incompletas y ausencias sin resolver
-      var hastaEf = hasta < hoy ? hasta : (function(){ var d = _diasEntre(desde, hoy); return d.length > 1 ? d[d.length - 2] : ''; })();
-      var dias = hastaEf && hastaEf >= desde ? _diasEntre(desde, hastaEf) : [];
+      var hastaEf = hasta < hoy ? hasta : (function(){ var d = _diasEntre(ini, hoy); return d.length > 1 ? d[d.length - 2] : ''; })();
+      var dias = hastaEf && hastaEf >= ini ? _diasEntre(ini, hastaEf) : [];
       var faltaAP = {};
       AP.forEach(function(a){ if ((a.tipo === 'FALTA_INJUSTIFICADA' || a.tipo === 'DESCUENTO_DIA_SEPTIMO') && a.fecha) faltaAP[a.empleadoId + '|' + a.fecha] = true; });
       (PA.empleados || []).filter(function(e){ return e.activo !== false; }).forEach(function(e){
@@ -12695,7 +12835,8 @@ window.addEventListener('DOMContentLoaded', function() {
         cats[k].items.sort(function(a, b){ return (a.fecha || '') < (b.fecha || '') ? -1 : (a.fecha || '') > (b.fecha || '') ? 1 : String(a.emp).localeCompare(String(b.emp)); });
         total += cats[k].items.length;
       });
-      return { desde:desde, hasta:hasta, cats:cats, total:total, ts:Date.now() };
+      Object.keys(cats).forEach(function(k){ cats[k].items.forEach(function(it){ it.fuera = !!it.fecha && (it.fecha < desde || it.fecha > hasta); }); });
+      return { desde:desde, hasta:hasta, ini:ini, cats:cats, total:total, ts:Date.now() };
     });
   }
   window._paPrecierre = _precierre;
@@ -12704,12 +12845,10 @@ window.addEventListener('DOMContentLoaded', function() {
   // UI — panel de revisión pre-cierre
   // ══════════════════════════════════════════════════════════════════
   var _ultimo = null;
-  function _esQuincena(d, h){
-    if (!_esFecha(d) || !_esFecha(h) || d.slice(0, 7) !== h.slice(0, 7)) return false;
-    var dd = +d.slice(8), hh = +h.slice(8);
-    var p = h.split('-'), ultimo = new Date(Date.UTC(+p[0], +p[1], 0)).getUTCDate();
-    return (dd === 1 && hh === 15) || (dd === 16 && hh === ultimo);
-  }
+  // Un período de pago es cualquier rango de fechas válido (los cortes
+  // de la empresa no son quincenas calendario: ej. 9 al 25).
+  function _esQuincena(d, h){ return _esFecha(d) && _esFecha(h) && d <= h; }
+  function _masDias(f, n){ var p = f.split('-'), dt = new Date(Date.UTC(+p[0], +p[1]-1, +p[2] + n, 12)); return dt.toISOString().slice(0, 10); }
   function _cierreDe(d, h){ var c = (PA._cierres || {})[_keyQ(d, h)]; return c || null; }
   // El reporte solo se genera si el período configurado (Configuración →
   // Período HE) es exactamente el mismo rango que se está solicitando.
@@ -12743,10 +12882,13 @@ window.addEventListener('DOMContentLoaded', function() {
                          + _btn('Rechazar', "_paPcAcc(function(){paRechazarCanje('" + _q(it.id) + "',null)})", R);
       case 'comp':  return _btn('Aprobar', "_paPcAcc(function(){paAprobarCompensatorioTurno('" + _q(it.id) + "','" + _q(it.emp) + "',null)})", V)
                          + _btn('Rechazar', "_paPcAcc(function(){paRechazarCompensatorioTurno('" + _q(it.id) + "',null)})", R);
-      case 'ap':    return _btn('Eliminar', "_paPcEliminarAP('" + _q(it.id) + "','" + _q(it.emp) + "','" + _q(it.fecha) + "')", R)
+      case 'ap':    return (it.autoAP ? '<span style="font-size:10px;font-weight:800;color:#a371f7;align-self:center">🔑 ' + NOMBRE_LLAVE + '</span>' : '')
+                         + _btn('Eliminar', "_paPcEliminarAP('" + _q(it.id) + "','" + _q(it.emp) + "','" + _q(it.fecha) + "')", R)
                          + _btn('Mantener', "_paPcValidarAP('" + _q(it.id) + "')");
       case 'marc':  return _btn('Agregar marcación', "_paPcAbrir(function(){paAgregarMarcacion('" + _q(it.empId) + "','" + _q(it.emp) + "','" + _q(it.fecha) + "')})", A)
                          + _btn('Validar', "_paPcValidar('" + _q(it.clave) + "')");
+      case 'aut':   return _btn('Abrir autorizaciones', "_paPcAbrir(function(){paVerAutorizaciones()})", '#8957e5');
+      case 'notif': return _btn('Marcar resuelta', "_paPcResolverNotif('" + _q(it.id) + "')", V);
       case 'aus':   return _btn('Generar falta', "_paPcAbrir(function(){paAccionPersonalFalta('" + _q(it.empId) + "','" + _q(it.emp) + "','" + _q(it.cargo) + "','" + _q(it.fecha) + "')})", R)
                          + _btn('Agregar marcación', "_paPcAbrir(function(){paAgregarMarcacion('" + _q(it.empId) + "','" + _q(it.emp) + "','" + _q(it.fecha) + "')})", A)
                          + _btn('Justificar', "_paPcValidar('" + _q(it.clave) + "')");
@@ -12760,11 +12902,11 @@ window.addEventListener('DOMContentLoaded', function() {
     var ov = document.createElement('div');
     ov.id = 'paPrecierreOv';
     ov.style.cssText = 'position:fixed;inset:0;z-index:8500;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:10px';
-    var orden = ['he','inc','vac','canje','comp','ap','marc','aus'];
+    var orden = ['aut','he','inc','vac','canje','comp','notif','ap','marc','aus'];
     var h = '<div style="background:var(--surface);color:var(--text);border-radius:14px;width:min(900px,100%);max-height:94vh;display:flex;flex-direction:column;overflow:hidden">'
       + '<div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
-      + '<div style="flex:1;min-width:180px"><div style="font-weight:800;font-size:15px">Revisión pre-cierre</div>'
-      + '<div style="font-size:11.5px;color:var(--muted)">' + res.desde + ' al ' + res.hasta + ' · '
+      + '<div style="flex:1;min-width:180px"><div style="font-weight:800;font-size:15px">Pendientes de gestión — todas las fechas</div>'
+      + '<div style="font-size:11.5px;color:var(--muted)">Reporte ' + res.desde + ' al ' + res.hasta + ' · solicitudes y acciones de personal de cualquier fecha; marcaciones y ausencias desde ' + res.ini + ' · '
       + (res.total ? '<b style="color:#f85149">' + res.total + ' pendiente(s)</b> — el reporte no se genera hasta resolverlos' : '<b style="color:#3fb950">Todo resuelto</b>') + '</div></div>'
       + _btn('🔄 Actualizar', '_paPcRefrescar()') + _btn('Cerrar', '_paPcCerrar()')
       + '</div><div style="overflow:auto;padding:10px 14px 16px">';
@@ -12778,7 +12920,8 @@ window.addEventListener('DOMContentLoaded', function() {
         h += c.items.map(function(it){
           var tag = it.estado ? '<span style="font-size:10px;font-weight:800;color:' + (it.estado === 'INVÁLIDA' ? '#f85149' : '#e3b341') + '">' + it.estado + (it.auto ? ' · auto' : '') + '</span> ' : '';
           return '<div style="padding:8px 12px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">'
-            + '<div style="flex:1;min-width:200px"><div style="font-size:12.5px;font-weight:700">' + esc(it.emp) + ' <span style="font-weight:500;color:var(--muted)">· ' + esc(it.fecha || '') + '</span></div>'
+            + '<div style="flex:1;min-width:200px"><div style="font-size:12.5px;font-weight:700">' + esc(it.emp) + ' <span style="font-weight:500;color:var(--muted)">· ' + esc(it.fecha || '') + '</span>'
+            + (it.fuera ? ' <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;background:rgba(137,87,229,.15);color:#a371f7">fuera del período</span>' : '') + '</div>'
             + '<div style="font-size:11.5px;color:var(--muted);margin-top:2px">' + tag + esc(it.det || '') + '</div></div>'
             + '<div style="display:flex;gap:5px;flex-wrap:wrap">' + _accionesDe(k, it) + '</div></div>';
         }).join('');
@@ -12827,7 +12970,23 @@ window.addEventListener('DOMContentLoaded', function() {
     b.setAttribute('data-inicio', it.v.fechaInicio || ''); b.setAttribute('data-fin', it.v.fechaFin || '');
     _paPcAcc(function(){ aprobar ? paAprobarVacaciones(b) : paRechazarVacaciones(b); });
   };
-  window._paPcEliminarAP = function(id, emp, fecha){
+  // AP automática: primero pedir la llave de WVillanuevaU
+  function _conLlaveSiAuto(apId, fn){
+    if (_llaveActiva()) { fn(); return; }
+    _get.call(paDb.collection('paAccionesPersonal').doc(apId)).then(function(d){
+      if (d.exists && _esAPAuto(d.data())) window._paAutorizarLlave(fn);
+      else fn();
+    }).catch(function(){ fn(); });
+  }
+  window._paPcResolverNotif = function(id){
+    paConfirm('¿Marcar esta solicitud como resuelta?', function(){
+      _upd.call(paDb.collection('paNotificaciones').doc(id), { estado:'resuelta', resueltoTs: Date.now(), resueltoPor: PA.adminNombre || 'admin' })
+        .then(function(){ paToast('✅ Solicitud resuelta'); window._paPcRefrescar(); })
+        .catch(function(e){ paToast('Error: ' + e.message, true); });
+    });
+  };
+  window._paPcEliminarAP = function(id, emp, fecha){ _conLlaveSiAuto(id, function(){ _paPcEliminarAPReal(id, emp, fecha); }); };
+  var _paPcEliminarAPReal = function(id, emp, fecha){
     paConfirm('¿Eliminar esta acción de personal de ' + emp + ' (' + fecha + ')?', function(){
       paDb.collection('paAccionesPersonal').doc(id).delete()
         .then(function(){ paToast('Acción de personal eliminada'); window._paPcRefrescar(); })
@@ -12841,7 +13000,8 @@ window.addEventListener('DOMContentLoaded', function() {
     if (m.length < 5) { paToast('El motivo debe tener al menos 5 caracteres', true); return null; }
     return m;
   }
-  window._paPcValidarAP = function(id){
+  window._paPcValidarAP = function(id){ _conLlaveSiAuto(id, function(){ _paPcValidarAPReal(id); }); };
+  var _paPcValidarAPReal = function(id){
     var m = _pedirMotivo('Mantener esta acción de personal como válida');
     if (!m) return;
     paDb.collection('paAccionesPersonal').doc(id).update({
@@ -12862,31 +13022,42 @@ window.addEventListener('DOMContentLoaded', function() {
   // CIERRE Y REAPERTURA
   // ══════════════════════════════════════════════════════════════════
   window._paCerrarQuincena = function(desde, hasta){
-    if (!_esQuincena(desde, hasta)) { paToast('Solo se puede cerrar una quincena (1-15 o 16-fin de mes)', true); return; }
-    if (hasta >= paHoy()) { paToast('La quincena aún no termina — se puede cerrar a partir del día siguiente a ' + hasta, true); return; }
+    if (!_esQuincena(desde, hasta)) { paToast('Rango de fechas inválido', true); return; }
+    if (hasta >= paHoy()) { paToast('El período aún no termina — se puede cerrar a partir del día siguiente a ' + hasta, true); return; }
     var _p = PA.periodoHE || {};
-    if (_p.desde !== desde || _p.hasta !== hasta) { paToast('El período configurado (' + (_p.desde || '—') + ' al ' + (_p.hasta || '—') + ') no coincide con la quincena a cerrar', true); return; }
+    if (_p.desde !== desde || _p.hasta !== hasta) { paToast('El período configurado (' + (_p.desde || '—') + ' al ' + (_p.hasta || '—') + ') no coincide con el que se quiere cerrar', true); return; }
     paToast('Verificando que no queden pendientes…');
     _precierre(desde, hasta).then(function(res){
       if (res.total) { paToast('Todavía hay ' + res.total + ' pendiente(s)', true); _renderPanel(res); return; }
-      paConfirm('¿Cerrar la quincena del ' + desde + ' al ' + hasta + '?\n\nDespués de cerrarla nadie podrá crear, editar, aprobar ni borrar nada de esas fechas. Solo ' + NOMBRE_LLAVE + ' puede reabrirla.', function(){
-        var key = _keyQ(desde, hasta), ref = _cfgRef();
-        paDb.runTransaction(function(tx){
-          return tx.get(ref).then(function(d){
-            var cq = (d.exists && d.data().cierresQuincena) || {};
-            var prev = cq[key] || {};
-            if (prev.estado === 'cerrada') return false;
-            var hist = (prev.historial || []).concat([{ accion:'cerrada', por: PA.adminNombre || 'admin', ts: Date.now() }]);
-            var nuevo = {}; nuevo[key] = { desde:desde, hasta:hasta, estado:'cerrada', cerradoPor: PA.adminNombre || 'admin', cerradoTs: Date.now(), historial: hist };
-            tx.set(ref, { cierresQuincena: nuevo }, { merge:true });
-            return true;
+      // Al cerrar, el período siguiente se activa solo: empieza el día
+      // siguiente y dura 15 días (la fecha final se puede corregir aquí).
+      var sigDesde = _masDias(hasta, 1), sigHasta = _masDias(sigDesde, 14);
+      _modalLlave('🔒 Cerrar período ' + desde + ' al ' + hasta, [
+        { id:'cqSigDesde', label:'Siguiente período — inicia (automático)', type:'date', value:sigDesde, readonly:true },
+        { id:'cqSigHasta', label:'Siguiente período — termina (15 días; puedes corregirlo)', type:'date', value:sigHasta }
+      ], async function(v, err){
+        var nh = v.cqSigHasta;
+        if (!_esFecha(nh) || nh < sigDesde) { err('La fecha final debe ser igual o posterior a ' + sigDesde); return false; }
+        var key = _keyQ(desde, hasta), ref = _cfgRef(), nuevoPeriodo = { desde:sigDesde, hasta:nh };
+        try {
+          var ok = await paDb.runTransaction(function(tx){
+            return tx.get(ref).then(function(d){
+              var cq = (d.exists && d.data().cierresQuincena) || {};
+              var prev = cq[key] || {};
+              if (prev.estado === 'cerrada') return false;
+              var hist = (prev.historial || []).concat([{ accion:'cerrada', por: PA.adminNombre || 'admin', ts: Date.now() }]);
+              var nuevo = {}; nuevo[key] = { desde:desde, hasta:hasta, estado:'cerrada', cerradoPor: PA.adminNombre || 'admin', cerradoTs: Date.now(), historial: hist };
+              // Cierre + avance del período en la MISMA transacción
+              tx.set(ref, { cierresQuincena: nuevo, periodoHE: nuevoPeriodo }, { merge:true });
+              return true;
+            });
           });
-        }).then(function(ok){
-          if (!ok) paToast('Esa quincena ya estaba cerrada');
-          else paToast('🔒 Quincena ' + desde + ' al ' + hasta + ' cerrada');
-          return _refrescarCierres(true);
-        }).then(function(){ paGenerarReporte(); })
-          .catch(function(e){ paToast('Error al cerrar: ' + e.message, true); });
+          if (!ok) paToast('Ese período ya estaba cerrado');
+          else { PA.periodoHE = nuevoPeriodo; paToast('🔒 Período cerrado. Nuevo período activo: ' + sigDesde + ' al ' + nh); }
+          await _refrescarCierres(true);
+          paGenerarReporte();
+          return true;
+        } catch(e) { err('Error al cerrar: ' + e.message); return false; }
       });
     });
   };
@@ -12901,8 +13072,9 @@ window.addEventListener('DOMContentLoaded', function() {
     ov.style.cssText = 'position:fixed;inset:0;z-index:8800;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;padding:16px';
     ov.innerHTML = '<div style="background:var(--surface);color:var(--text);border-radius:14px;padding:20px;width:min(380px,100%)">'
       + '<div style="font-weight:800;font-size:15px;margin-bottom:12px">' + titulo + '</div>'
-      + campos.map(function(c){ return '<div class="fg"><label>' + c.label + '</label><input id="' + c.id + '" type="' + (c.type || 'text') + '" autocomplete="off" style="width:100%;font-size:16px"></div>'; }).join('')
+      + campos.map(function(c){ return '<div class="fg"><label>' + c.label + '</label><input id="' + c.id + '" type="' + (c.type || 'text') + '" value="' + (c.value || '') + '"' + (c.readonly ? ' readonly' : '') + ' autocomplete="off" style="width:100%;font-size:16px"></div>'; }).join('')
       + '<div id="paLlaveErr" style="color:#f85149;font-size:12px;min-height:16px;margin:4px 0 8px"></div>'
+      + '<div style="font-size:11.5px;color:var(--muted);margin-bottom:8px">' + (titulo.indexOf('Cerrar período') >= 0 ? 'Después de cerrarlo nadie podrá crear, editar, aprobar ni borrar nada de esas fechas. Solo ' + NOMBRE_LLAVE + ' puede reabrirlo.' : '') + '</div>'
       + '<div style="display:flex;gap:8px"><button id="paLlaveOk" style="flex:1;padding:11px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-weight:700;cursor:pointer">Continuar</button>'
       + '<button id="paLlaveCancel" style="flex:1;padding:11px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:10px;cursor:pointer">Cancelar</button></div></div>';
     document.body.appendChild(ov);
@@ -12914,12 +13086,9 @@ window.addEventListener('DOMContentLoaded', function() {
     };
   }
 
-  window._paReabrirQuincena = function(desde, hasta){
-    _refrescarCierres(true).then(function(){
-      var llave = PA._llaveCierre;
-      if (!llave || !llave.hash) {
-        // Primera vez: crear la llave. Requiere la contraseña admin actual.
-        _modalLlave('🔑 Crear llave de reapertura', [
+  // Crear la llave (primera vez). Requiere la contraseña admin actual.
+  function _crearLlave(despues){
+        _modalLlave('🔑 Crear llave de ' + NOMBRE_LLAVE, [
           { id:'llNom', label:'Nombre autorizado' },
           { id:'llAdm', label:'Contraseña admin actual del portal', type:'password' },
           { id:'llP1',  label:'Nueva contraseña de la llave (mín. 8)', type:'password' },
@@ -12934,12 +13103,36 @@ window.addEventListener('DOMContentLoaded', function() {
           var hash = await _sha256(salt + '|' + NOMBRE_LLAVE + '|' + v.llP1);
           await _set.call(_cfgRef(), { llaveCierre: { nombre: NOMBRE_LLAVE, salt: salt, hash: hash, creadaTs: Date.now() } }, { merge:true });
           PA._llaveCierre = { nombre: NOMBRE_LLAVE, salt: salt, hash: hash };
-          paToast('🔑 Llave creada. Ahora úsala para reabrir.');
-          setTimeout(function(){ window._paReabrirQuincena(desde, hasta); }, 300);
+          paToast('🔑 Llave creada. Ahora úsala.');
+          setTimeout(despues, 300);
           return true;
         });
-        return;
-      }
+  }
+  // Autoriza a WVillanuevaU en este navegador por 15 minutos
+  window._paAutorizarLlave = function(cb){
+    if (document.getElementById('paLlaveOv')) return;
+    _refrescarCierres(true).then(function(){
+      var llave = PA._llaveCierre;
+      if (!llave || !llave.hash) { _crearLlave(function(){ window._paAutorizarLlave(cb); }); return; }
+      _modalLlave('🔑 Autorización de ' + NOMBRE_LLAVE, [
+        { id:'llNom', label:'Nombre autorizado' },
+        { id:'llPwd', label:'Contraseña de la llave', type:'password' }
+      ], async function(v, err){
+        if (v.llNom !== llave.nombre) { err('Nombre o contraseña incorrectos'); return false; }
+        var h = await _sha256(llave.salt + '|' + llave.nombre + '|' + v.llPwd);
+        if (h !== llave.hash) { err('Nombre o contraseña incorrectos'); return false; }
+        PA._llaveHasta = Date.now() + 15 * 60 * 1000;
+        paToast('🔓 Autorizado como ' + NOMBRE_LLAVE + ' por 15 minutos');
+        if (typeof cb === 'function') setTimeout(cb, 200);
+        return true;
+      });
+    });
+  };
+
+  window._paReabrirQuincena = function(desde, hasta){
+    _refrescarCierres(true).then(function(){
+      var llave = PA._llaveCierre;
+      if (!llave || !llave.hash) { _crearLlave(function(){ window._paReabrirQuincena(desde, hasta); }); return; }
       _modalLlave('🔓 Reabrir quincena ' + desde + ' al ' + hasta, [
         { id:'llNom', label:'Nombre autorizado' },
         { id:'llPwd', label:'Contraseña de la llave', type:'password' },
@@ -12980,7 +13173,17 @@ window.addEventListener('DOMContentLoaded', function() {
     _refrescarCierres(true).then(function(){
       var cq = _esQuincena(desde, hasta) ? _cierreDe(desde, hasta) : null;
       if (cq && cq.estado === 'cerrada') {
+       return _precierre(desde, hasta).then(function(res){
+        _ultimo = res;
+        if (res.total) {
+          rc.innerHTML = '<div style="border:1.5px solid rgba(248,81,73,.45);background:rgba(248,81,73,.06);border-radius:12px;padding:14px">'
+            + '<div style="font-weight:800;font-size:14px;margin-bottom:4px">⛔ No se puede generar ni imprimir el reporte</div>'
+            + '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Hay ' + res.total + ' asunto(s) pendiente(s) de gestión (de cualquier fecha). Resuélvelos para continuar.</div>'
+            + '<button onclick="_paAbrirPrecierre(\'' + desde + '\',\'' + hasta + '\')" style="width:100%;padding:11px;background:#da3633;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Ver y resolver pendientes</button></div>';
+          return;
+        }
         _generarOriginal();
+        if (typeof _paAnexarAjustesReporte === 'function') setTimeout(function(){ _paAnexarAjustesReporte(desde, hasta); }, 1600);
         // Banner de quincena cerrada (después de que el reporte pinte)
         setTimeout(function(){
           var rc2 = document.getElementById('reporteContent'); if (!rc2) return;
@@ -12991,7 +13194,7 @@ window.addEventListener('DOMContentLoaded', function() {
             + _btn('🔓 Reabrir', "_paReabrirQuincena('" + desde + "','" + hasta + "')");
           rc2.insertBefore(b, rc2.firstChild);
         }, 1200);
-        return;
+       });
       }
       var avisoPeriodo = _htmlPeriodoNoCoincide(desde, hasta);
       if (avisoPeriodo) { rc.innerHTML = avisoPeriodo; return; }
@@ -13001,18 +13204,19 @@ window.addEventListener('DOMContentLoaded', function() {
           ? '<div style="background:rgba(227,179,65,.10);border:1.5px solid rgba(227,179,65,.45);border-radius:10px;padding:9px 12px;margin-bottom:10px;font-size:12px">🔓 Reabierta por '
             + esc(cq.reabiertoPor || '') + ' — ' + esc(cq.motivoReapertura || '') + '</div>' : '';
         if (res.total) {
-          var resumen = ['he','inc','vac','canje','comp','ap','marc','aus'].filter(function(k){ return res.cats[k].items.length; })
+          var resumen = ['aut','he','inc','vac','canje','comp','notif','ap','marc','aus'].filter(function(k){ return res.cats[k].items.length; })
             .map(function(k){ return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px"><span>'
               + res.cats[k].icono + ' ' + res.cats[k].titulo + '</span><b style="color:#f85149">' + res.cats[k].items.length + '</b></div>'; }).join('');
           rc.innerHTML = reab + '<div style="border:1.5px solid rgba(248,81,73,.45);background:rgba(248,81,73,.06);border-radius:12px;padding:14px">'
-            + '<div style="font-weight:800;font-size:14px;margin-bottom:4px">⛔ No se puede generar el reporte</div>'
-            + '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Hay ' + res.total + ' pendiente(s) en el período ' + desde + ' al ' + hasta + '. Resuélvelos para continuar.</div>'
+            + '<div style="font-weight:800;font-size:14px;margin-bottom:4px">⛔ No se puede generar ni imprimir el reporte</div>'
+            + '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Hay ' + res.total + ' asunto(s) pendiente(s) de gestión, de cualquier fecha (incluye meses anteriores e históricos). Resuélvelos para continuar.</div>'
             + resumen
             + '<button onclick="_paAbrirPrecierre(\'' + desde + '\',\'' + hasta + '\')" style="margin-top:12px;width:100%;padding:11px;background:#da3633;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Ver y resolver pendientes</button></div>';
           return;
         }
         // Sin pendientes: se genera el reporte; si es una quincena terminada, se ofrece cerrarla
         _generarOriginal();
+        if (typeof _paAnexarAjustesReporte === 'function') setTimeout(function(){ _paAnexarAjustesReporte(desde, hasta); }, 1600);
         if (_esQuincena(desde, hasta) && hasta < paHoy()) {
           setTimeout(function(){
             var rc2 = document.getElementById('reporteContent'); if (!rc2) return;
@@ -13030,6 +13234,10 @@ window.addEventListener('DOMContentLoaded', function() {
   // ══════════════════════════════════════════════════════════════════
   window._paQuincenaDe = function(f){
     if (!_esFecha(f)) return { desde:'', hasta:'' };
+    // Primero los períodos reales de la empresa (cerrados o el activo)
+    var cs = PA._cierres || {}, ks = Object.keys(cs);
+    for (var i = 0; i < ks.length; i++) { var cq = cs[ks[i]]; if (cq && cq.desde && f >= cq.desde && f <= cq.hasta) return { desde:cq.desde, hasta:cq.hasta }; }
+    var pa = PA.periodoHE || {}; if (pa.desde && f >= pa.desde && f <= pa.hasta) return { desde:pa.desde, hasta:pa.hasta };
     var p = f.split('-'), d = +p[2];
     var ultimo = new Date(Date.UTC(+p[0], +p[1], 0)).getUTCDate();
     var ym = p[0] + '-' + p[1] + '-';
@@ -13283,6 +13491,52 @@ function _paHtmlDecision(d) {
   return '';
 }
 
+// ── Aviso al EMPLEADO: solicitudes rechazadas en los últimos 30 días ──
+// Se muestra al entrar al portal hasta que el empleado presiona
+// "Entendido" (se recuerda en este teléfono; no escribe en Firestore,
+// así no choca con el candado de quincenas cerradas).
+function _paAvisarRechazosEmpleado() {
+  if (!paDb || !PA.empleado || !PA.empresa) return;
+  if (document.getElementById('paRechazosOv')) return;
+  var empId = PA.empleado.id, desdeMs = Date.now() - 30 * 86400000;
+  var claveVistos = 'pa_rechazos_vistos_' + empId, vistos = {};
+  try { vistos = JSON.parse(localStorage.getItem(claveVistos) || '{}') || {}; } catch(e) {}
+  var Q = [
+    ['paHorasExtra', 'rechazado', 'Horas extra'], ['paIncapacidades', 'rechazada', 'Incapacidad / permiso'],
+    ['paVacaciones', 'rechazada', 'Vacaciones'], ['paCanjes', 'rechazado', 'Canje / compensatorio']
+  ];
+  Promise.all(Q.map(function(q){
+    return paDb.collection(q[0]).where('empleadoId','==',empId).where('estado','==',q[1]).get()
+      .then(function(snap){ var a = []; snap.forEach(function(d){ var x = d.data(); x._id = d.id; x._tipo = q[2]; a.push(x); }); return a; })
+      .catch(function(){ return []; });
+  })).then(function(res){
+    var lista = [].concat.apply([], res).filter(function(x){
+      return x.empresa === PA.empresa && !x.esAjuste && x.motivoRechazo && (x.rechazadoTs || 0) >= desdeMs && !vistos[x._id];
+    }).sort(function(a, b){ return (b.rechazadoTs || 0) - (a.rechazadoTs || 0); });
+    if (!lista.length) return;
+    var ov = document.createElement('div'); ov.id = 'paRechazosOv';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:9050;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center';
+    ov.innerHTML = '<div style="background:var(--surface,#fff);color:var(--text,#1a1a1a);border-radius:20px 20px 0 0;padding:20px 18px 26px;width:100%;max-width:520px;max-height:80vh;overflow:auto;font-family:inherit">'
+      + '<div style="font-size:17px;font-weight:800;margin-bottom:4px">❌ Solicitud' + (lista.length > 1 ? 'es' : '') + ' rechazada' + (lista.length > 1 ? 's' : '') + '</div>'
+      + '<div style="font-size:12.5px;color:var(--muted,#666);margin-bottom:12px">Revisa el motivo. Si tienes dudas, habla con tu supervisor.</div>'
+      + lista.map(function(x){
+          var det = x._tipo === 'Horas extra' ? (x.fecha || '') + ' · ' + (typeof paHorasLegible === 'function' ? paHorasLegible(x.horas || 0) : (x.horas || 0) + ' h')
+                  : (x.fechaInicio || x.fechaLibre || x.fecha || '') + (x.fechaFin && x.fechaFin !== x.fechaInicio ? ' → ' + x.fechaFin : '');
+          return '<div style="border:1.5px solid rgba(209,36,47,.3);border-radius:12px;padding:10px 12px;margin-bottom:8px">'
+            + '<div style="font-size:13.5px;font-weight:700">' + esc(x._tipo) + ' <span style="font-weight:500;color:var(--muted,#666)">· ' + esc(det) + '</span></div>'
+            + '<div style="font-size:13px;margin-top:5px;color:#d1242f"><b>Motivo:</b> ' + esc(x.motivoRechazo) + '</div>'
+            + '<div style="font-size:11px;color:var(--muted,#666);margin-top:3px">Rechazado por ' + esc(x.rechazadoPor || '—') + ' el ' + new Date(x.rechazadoTs).toLocaleDateString('es-SV', { timeZone:'America/El_Salvador' }) + '</div></div>';
+        }).join('')
+      + '<button id="paRechazosOk" style="width:100%;margin-top:6px;padding:14px;border:none;border-radius:12px;background:var(--accent,#1f6feb);color:#fff;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit">Entendido</button></div>';
+    document.body.appendChild(ov);
+    ov.querySelector('#paRechazosOk').onclick = function(){
+      lista.forEach(function(x){ vistos[x._id] = Date.now(); });
+      try { localStorage.setItem(claveVistos, JSON.stringify(vistos)); } catch(e) {}
+      ov.remove();
+    };
+  });
+}
+
 // ── Vista del registro ─────────────────────────────────────────────
 function paVerRegistroDecisiones() {
   var desde = (document.getElementById('rptDesde') || {}).value || (PA.periodoHE && PA.periodoHE.desde) || paHoy();
@@ -13301,7 +13555,9 @@ function paVerRegistroDecisiones() {
     var add = function(o){ filas.push(o); };
     r[0].forEach(function(d){ var x = d.data();
       if (x.estado !== 'aprobado' && x.estado !== 'rechazado') return;
-      add({ fecha:x.fecha, emp:x.empleadoNombre, tipo:'Horas extra', det:(typeof paHorasLegible === 'function' ? paHorasLegible(x.horas || 0) : (x.horas || 0) + ' h') + (x.tipo ? ' · ' + x.tipo : ''),
+      add({ fecha:x.fecha, emp:x.empleadoNombre, tipo:x.esAjuste ? 'Ajuste de horas' : 'Horas extra',
+        det:x.esAjuste ? ((+x.horas > 0 ? '+' : '') + (+x.horas || 0).toFixed(2) + ' h · ' + (x.tipo || '') + ' · ' + (x.causa || '') + ' — ' + (x.justificacion || '') + ' (creado por ' + (x.creadoPor || '') + ')')
+          : (typeof paHorasLegible === 'function' ? paHorasLegible(x.horas || 0) : (x.horas || 0) + ' h') + (x.tipo ? ' · ' + x.tipo : ''),
         ok:x.estado === 'aprobado', por:x.estado === 'aprobado' ? x.aprobadoPor : x.rechazadoPor, ts:ms(x.estado === 'aprobado' ? x.aprobadoTs : x.rechazadoTs), motivo:x.motivoRechazo || '' });
     });
     r[1].forEach(function(d){ var x = d.data();
@@ -13386,6 +13642,347 @@ function _paExportarRegistroDecisiones() {
   var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
   a.download = 'registro_aprobaciones_' + R.desde + '_a_' + R.hasta + '.csv';
   document.body.appendChild(a); a.click(); a.remove();
+}
+
+</script>
+<script>
+// ══════════════════════════════════════════════════════════════════
+// AUTORIZACIONES Y AJUSTES DE HORAS (nov-2026)
+// 1) Cambios a marcaciones (editar hora, agregar, eliminar): cualquier
+//    admin los SOLICITA; solo se aplican cuando WVillanuevaU autoriza.
+//    Se guardan en paNotificaciones (tipo CAMBIO_MARCACION, estado
+//    pendiente_autorizacion — distinto de 'pendiente' para no mezclarse
+//    con las solicitudes de dispositivo).
+// 2) Ajustes de horas extra del período en curso (lo que antes se hacía
+//    en Excel): por día o global por empleado, con causa y explicación.
+//    Se guardan en paHorasExtra (esAjuste:true, horas con signo); al
+//    autorizarse quedan 'aprobado' y entran solos al reporte, al Excel
+//    y al saldo canjeable.
+// ══════════════════════════════════════════════════════════════════
+var PA_CAUSAS_AJUSTE = ['Se desmarcó fuera de la sucursal', 'Entrada antes de su horario', 'Horas extra no autorizadas', 'Error de marcación', 'Otro'];
+var PA_TIPOS_HE_LBL = { diurna:'☀️ Diurna', nocturna:'🌙 Nocturna', feriado:'🎉 Feriado', finde:'📅 Fin de semana' };
+
+function _paNombreLlave() { return (PA._llaveCierre && PA._llaveCierre.nombre) || 'WVillanuevaU'; }
+function _paTieneLlave() { return typeof _paLlaveActiva === 'function' && _paLlaveActiva(); }
+function _paH(n) { n = Math.round((+n || 0) * 100) / 100; return (n > 0 ? '+' : '') + n.toFixed(2); }
+function _paHoraDe(ts) { try { return paFmtHora(ts); } catch(e) { return ''; } }
+
+// Modal genérico para pedir un texto obligatorio
+function _paPedirTexto(titulo, detalle, etiqueta, btnTxt, color, cb) {
+  var old = document.getElementById('paTextoOv'); if (old) old.remove();
+  var ov = document.createElement('div'); ov.id = 'paTextoOv';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:9100;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.innerHTML = '<div style="background:var(--surface,#fff);color:var(--text,#1a1a1a);border-radius:16px;padding:20px;width:min(420px,100%);font-family:inherit">'
+    + '<div style="font-size:16px;font-weight:800;margin-bottom:4px">' + esc(titulo) + '</div>'
+    + (detalle ? '<div style="font-size:12.5px;color:var(--muted,#666);margin-bottom:10px">' + esc(detalle) + '</div>' : '')
+    + '<label style="font-size:12px;font-weight:700">' + esc(etiqueta) + ' <span style="color:#d1242f">*</span></label>'
+    + '<textarea id="paTextoTxt" rows="3" style="width:100%;margin-top:6px;font-size:15px;padding:10px;border-radius:10px;border:1.5px solid var(--border,#ccc);box-sizing:border-box;font-family:inherit"></textarea>'
+    + '<div id="paTextoErr" style="color:#d1242f;font-size:12px;min-height:16px;margin:4px 0 8px"></div>'
+    + '<div style="display:flex;gap:10px"><button id="paTextoOk" style="flex:1;padding:12px;background:' + (color || '#1f6feb') + ';color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">' + esc(btnTxt) + '</button>'
+    + '<button id="paTextoCancel" style="flex:1;padding:12px;background:var(--surface2,#eee);color:var(--text,#333);border:1px solid var(--border,#ccc);border-radius:10px;font-size:14px;cursor:pointer">Cancelar</button></div></div>';
+  document.body.appendChild(ov);
+  ov.querySelector('#paTextoCancel').onclick = function(){ ov.remove(); };
+  ov.querySelector('#paTextoOk').onclick = function(){
+    var m = String((document.getElementById('paTextoTxt') || {}).value || '').trim();
+    if (m.length < 10) { var e = document.getElementById('paTextoErr'); if (e) e.textContent = 'Escribe al menos 10 caracteres'; return; }
+    ov.remove(); cb(m);
+  };
+}
+
+// ── 1) SOLICITUDES DE CAMBIO A MARCACIONES ─────────────────────────
+function _paSolicitarCambioMarc(sol) {
+  return paDb.collection('paNotificaciones').add(Object.assign({
+    empresa: PA.empresa, tipo: 'CAMBIO_MARCACION', estado: 'pendiente_autorizacion',
+    solicitadoPor: (typeof _paQuien === 'function' ? _paQuien() : (PA.adminNombre || 'admin')), solicitadoTs: Date.now(), ts: Date.now()
+  }, sol)).then(function(){
+    paToast('📨 Solicitud enviada — se aplicará cuando ' + _paNombreLlave() + ' la autorice');
+    if (typeof _paAvisoAutorizaciones === 'function') _paAvisoAutorizaciones();
+    return true;
+  });
+}
+
+function _paAplicarCambioMarc(id, s) {
+  var sello = { _autorizadoPor: _paNombreLlave(), _autorizadoTs: Date.now(), _solicitadoPor: s.solicitadoPor || '' };
+  var p;
+  if (s.accion === 'editar') {
+    p = paDb.collection('paMarcaciones').doc(s.marcId).update(Object.assign({}, s.datos, sello)).then(function(){
+      var t = (s.datos || {}).tipo;
+      if ((t === 'salida' || t === 'salida_adicional') && typeof _paRecalcularHE === 'function') _paRecalcularHE(s.empleadoId, s.fecha, s.datos.ts);
+    });
+  } else if (s.accion === 'eliminar') {
+    p = paDb.collection('paMarcaciones').doc(s.marcId).delete().then(function(){
+      var t = (s.antes || {}).tipo;
+      if (t !== 'salida' && t !== 'salida_adicional') return;
+      // Igual que el borrado directo: limpiar las horas extra automáticas de ese día
+      return paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).where('empleadoId','==',s.empleadoId).where('fecha','==',s.fecha).get()
+        .then(function(snap){ snap.forEach(function(d){ var r = d.data(); if (r.origen === 'auto' && !r.esAjuste) d.ref.delete(); }); }).catch(function(){});
+    });
+  } else {
+    p = paDb.collection('paMarcaciones').add(Object.assign({}, s.datos, sello));
+  }
+  return p.then(function(){
+    return paDb.collection('paNotificaciones').doc(id).update({ estado:'autorizada', autorizadoPor:_paNombreLlave(), autorizadoTs:Date.now() });
+  });
+}
+
+// ── 2) AJUSTES DE HORAS EXTRA ──────────────────────────────────────
+function _paSumarSaldoHE(empId, horas) {
+  return paDb.collection('paPins').where('empresa','==',PA.empresa).where('empleadoId','==',empId).get().then(function(snap){
+    if (snap.empty) return paDb.collection('paPins').add({ empresa:PA.empresa, empleadoId:empId, horasExtraAcum: Math.max(0, horas) });
+    var doc = snap.docs[0], cur = parseFloat(doc.data().horasExtraAcum || 0);
+    return doc.ref.update({ horasExtraAcum: Math.max(0, Math.round((cur + horas) * 100) / 100) });
+  });
+}
+
+function paVerHojaAjustes() {
+  var p = PA.periodoHE || {};
+  if (!p.desde || !p.hasta) { paToast('No hay período configurado', true); return; }
+  if (typeof _paCierreQueBloquea === 'function' && _paCierreQueBloquea([[p.desde, p.hasta]])) { paToast('🔒 El período ' + p.desde + ' al ' + p.hasta + ' ya está cerrado: no admite ajustes', true); return; }
+  paToast('Cargando hoja de ajustes…');
+  paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).where('fecha','>=',p.desde).where('fecha','<=',p.hasta).get({ source:'server' }).then(function(snap){
+    var porEmp = {};
+    var nuevo = function(id, nom){ return porEmp[id] = porEmp[id] || { id:id, nombre:nom || id, calc:{}, aut:{}, pend:{}, dias:[], ajustes:[] }; };
+    (PA.empleados || []).filter(function(e){ return e.activo !== false; }).forEach(function(e){ nuevo(e.id, e.nombre); });
+    snap.forEach(function(d){
+      var x = d.data(); x._id = d.id;
+      var e = nuevo(x.empleadoId, x.empleadoNombre), h = parseFloat(x.horas || 0), t = x.tipo || 'diurna';
+      if (x.esAjuste) {
+        if (x.estado === 'aprobado') e.aut[t] = (e.aut[t] || 0) + h;
+        else if (x.estado === 'pendiente_autorizacion') e.pend[t] = (e.pend[t] || 0) + h;
+        e.ajustes.push(x);
+      } else if (x.estado === 'aprobado') {
+        e.calc[t] = (e.calc[t] || 0) + h; e.dias.push(x);
+      }
+    });
+    window._paHoja = { p:p, porEmp:porEmp, abierto:(window._paHoja && window._paHoja.abierto) || {} };
+    _paPintarHojaAjustes();
+  }).catch(function(e){ paToast('Error: ' + e.message, true); });
+}
+
+function _paPintarHojaAjustes() {
+  var H = window._paHoja; if (!H) return;
+  var suma = function(o){ var s = 0; Object.keys(o).forEach(function(k){ s += o[k]; }); return Math.round(s * 100) / 100; };
+  var det = function(o){ return ['diurna','nocturna','feriado','finde'].filter(function(t){ return o[t]; }).map(function(t){ return ({diurna:'D',nocturna:'N',feriado:'F',finde:'FS'})[t] + ' ' + (Math.round(o[t] * 100) / 100).toFixed(2); }).join(' · '); };
+  var lista = Object.keys(H.porEmp).map(function(k){ return H.porEmp[k]; }).sort(function(a, b){ return String(a.nombre).localeCompare(String(b.nombre)); });
+  var ov = document.getElementById('paHojaOv');
+  if (!ov) { ov = document.createElement('div'); ov.id = 'paHojaOv'; ov.style.cssText = 'position:fixed;inset:0;z-index:8300;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;padding:10px'; document.body.appendChild(ov); }
+  var b = function(txt, on, bg){ return '<button onclick="' + on + '" style="padding:5px 9px;border-radius:7px;border:1px solid var(--border);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;background:' + (bg || 'var(--surface2)') + ';color:' + (bg ? '#fff' : 'var(--text)') + '">' + txt + '</button>'; };
+  var q = function(s){ return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;'); };
+  var h = '<div style="background:var(--surface);color:var(--text);border-radius:14px;width:min(980px,100%);max-height:94vh;display:flex;flex-direction:column;overflow:hidden">'
+    + '<div style="padding:13px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    + '<div style="flex:1;min-width:200px"><div style="font-weight:800;font-size:15px">✏️ Hoja de ajustes de horas extra</div>'
+    + '<div style="font-size:11.5px;color:var(--muted)">Período ' + H.p.desde + ' al ' + H.p.hasta + ' · los ajustes cuentan en el reporte cuando ' + esc(_paNombreLlave()) + ' los autoriza</div></div>'
+    + b('🔄 Actualizar', 'paVerHojaAjustes()') + b('Cerrar', "document.getElementById('paHojaOv').remove()") + '</div>'
+    + '<div style="overflow:auto;padding:0 14px 14px"><table style="width:100%;border-collapse:collapse;font-size:12.5px">'
+    + '<thead><tr style="position:sticky;top:0;background:var(--surface);color:var(--muted);text-align:right">'
+    + '<th style="padding:8px 8px 6px 0;text-align:left">Empleado</th><th style="padding-right:10px">Calculado</th><th style="padding-right:10px">Ajustes autorizados</th><th style="padding-right:10px">Pendientes</th><th style="padding-right:10px">Final</th><th></th></tr></thead><tbody>';
+  lista.forEach(function(e){
+    var c = suma(e.calc), a = suma(e.aut), pd = suma(e.pend), abierto = !!H.abierto[e.id];
+    if (!c && !a && !pd && !e.ajustes.length && !abierto) {
+      h += '<tr style="border-top:1px solid var(--border);color:var(--muted)"><td style="padding:7px 8px 7px 0">' + esc(e.nombre) + '</td><td colspan="4" style="text-align:right;padding-right:10px;font-size:11px">sin horas extra</td>'
+        + '<td style="text-align:right">' + b('+ Ajuste', "_paFormAjuste('" + q(e.id) + "','','')") + '</td></tr>';
+      return;
+    }
+    h += '<tr style="border-top:1px solid var(--border);text-align:right;vertical-align:top">'
+      + '<td style="padding:7px 8px 7px 0;text-align:left;cursor:pointer;font-weight:700" onclick="_paHojaAbrir(\'' + q(e.id) + '\')">' + (abierto ? '▾ ' : '▸ ') + esc(e.nombre) + '</td>'
+      + '<td style="padding:7px 10px 7px 0">' + c.toFixed(2) + '<div style="font-size:10px;color:var(--muted)">' + det(e.calc) + '</div></td>'
+      + '<td style="padding:7px 10px 7px 0;color:' + (a < 0 ? '#d1242f' : a > 0 ? '#1a7f37' : 'var(--muted)') + '">' + (a ? _paH(a) : '—') + '</td>'
+      + '<td style="padding:7px 10px 7px 0;color:#bf8700">' + (pd ? _paH(pd) + ' ⏳' : '—') + '</td>'
+      + '<td style="padding:7px 10px 7px 0;font-weight:800">' + (Math.round((c + a) * 100) / 100).toFixed(2) + ' h</td>'
+      + '<td style="padding:7px 0">' + b('+ Ajuste', "_paFormAjuste('" + q(e.id) + "','','')", '#1f6feb') + '</td></tr>';
+    if (abierto) {
+      var filas = '';
+      e.dias.sort(function(x, y){ return x.fecha < y.fecha ? -1 : 1; }).forEach(function(d){
+        filas += '<div style="display:flex;gap:8px;align-items:center;padding:4px 0;border-top:1px dashed var(--border)"><span style="width:86px">' + esc(d.fecha) + '</span><span style="flex:1">' + (PA_TIPOS_HE_LBL[d.tipo] || esc(d.tipo)) + '</span><b>' + (+d.horas || 0).toFixed(2) + ' h</b>'
+          + b('Ajustar este día', "_paFormAjuste('" + q(e.id) + "','" + q(d.fecha) + "','" + q(d.tipo) + "')") + '</div>';
+      });
+      e.ajustes.sort(function(x, y){ return (x.creadoTs || 0) - (y.creadoTs || 0); }).forEach(function(x){
+        var est = x.estado === 'aprobado' ? '<span style="color:#1a7f37">✅ Autorizado por ' + esc(x.aprobadoPor || '') + '</span>' : x.estado === 'pendiente_autorizacion' ? '<span style="color:#bf8700">⏳ Pendiente de autorización</span>' : '<span style="color:#d1242f">❌ Rechazado: ' + esc(x.motivoRechazo || '') + '</span>';
+        filas += '<div style="padding:6px 8px;margin-top:5px;border-radius:8px;background:rgba(137,87,229,.08)"><b>Ajuste ' + _paH(x.horas) + ' h</b> · ' + (PA_TIPOS_HE_LBL[x.tipo] || esc(x.tipo)) + ' · ' + (x.ajusteGlobal ? 'global del período' : esc(x.fecha))
+          + '<div style="font-size:11.5px;margin-top:2px">' + esc(x.causa || '') + ' — ' + esc(x.justificacion || '') + '</div>'
+          + '<div style="font-size:11px;color:var(--muted);margin-top:2px">Creado por ' + esc(x.creadoPor || '') + ' · ' + est + '</div></div>';
+      });
+      h += '<tr><td colspan="6" style="padding:2px 0 12px 16px;font-size:12px">' + (filas || '<span style="color:var(--muted)">Sin horas extra aprobadas ni ajustes en el período</span>') + '</td></tr>';
+    }
+  });
+  h += '</tbody></table></div></div>';
+  ov.innerHTML = h;
+}
+function _paHojaAbrir(id) { var H = window._paHoja; if (!H) return; H.abierto[id] = !H.abierto[id]; _paPintarHojaAjustes(); }
+
+function _paFormAjuste(empId, fecha, tipo) {
+  var H = window._paHoja; if (!H || !H.porEmp[empId]) return;
+  var e = H.porEmp[empId], p = H.p;
+  var old = document.getElementById('paAjusteOv'); if (old) old.remove();
+  var ov = document.createElement('div'); ov.id = 'paAjusteOv';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:8900;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;padding:14px';
+  var est = 'width:100%;font-size:15px;padding:9px;border-radius:9px;border:1.5px solid var(--border);background:var(--surface2);color:var(--text);box-sizing:border-box;font-family:inherit';
+  var lbl = function(t){ return '<label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin:10px 0 4px">' + t + '</label>'; };
+  ov.innerHTML = '<div style="background:var(--surface);color:var(--text);border-radius:16px;padding:18px;width:min(440px,100%);max-height:92vh;overflow:auto;font-family:inherit">'
+    + '<div style="font-size:16px;font-weight:800">Ajuste de horas extra</div><div style="font-size:12.5px;color:var(--muted)">' + esc(e.nombre) + ' · período ' + p.desde + ' al ' + p.hasta + '</div>'
+    + lbl('ALCANCE') + '<select id="ajAlcance" style="' + est + '" onchange="document.getElementById(\'ajFechaBox\').style.display=this.value===\'dia\'?\'\':\'none\'">'
+    + '<option value="dia"' + (fecha ? ' selected' : '') + '>Un día específico</option><option value="global"' + (fecha ? '' : ' selected') + '>Global del período (diferencia suelta)</option></select>'
+    + '<div id="ajFechaBox" style="' + (fecha ? '' : 'display:none') + '">' + lbl('FECHA') + '<input id="ajFecha" type="date" min="' + p.desde + '" max="' + p.hasta + '" value="' + esc(fecha || '') + '" style="' + est + '"></div>'
+    + lbl('TIPO DE HORA EXTRA') + '<select id="ajTipo" style="' + est + '">' + Object.keys(PA_TIPOS_HE_LBL).map(function(t){ return '<option value="' + t + '"' + (t === (tipo || 'diurna') ? ' selected' : '') + '>' + PA_TIPOS_HE_LBL[t] + '</option>'; }).join('') + '</select>'
+    + lbl('OPERACIÓN') + '<select id="ajSigno" style="' + est + '"><option value="-1">Restar horas</option><option value="1">Sumar horas</option></select>'
+    + '<div style="display:flex;gap:8px"><div style="flex:1">' + lbl('HORAS') + '<input id="ajHoras" type="number" min="0" step="1" value="0" style="' + est + '"></div>'
+    + '<div style="flex:1">' + lbl('MINUTOS') + '<input id="ajMin" type="number" min="0" max="59" step="1" value="0" style="' + est + '"></div></div>'
+    + lbl('CAUSA') + '<select id="ajCausa" style="' + est + '">' + PA_CAUSAS_AJUSTE.map(function(c){ return '<option>' + esc(c) + '</option>'; }).join('') + '</select>'
+    + lbl('EXPLICACIÓN (obligatoria)') + '<textarea id="ajExp" rows="3" placeholder="Qué pasó y por qué se ajusta" style="' + est + '"></textarea>'
+    + '<div id="ajErr" style="color:#d1242f;font-size:12px;min-height:16px;margin:6px 0"></div>'
+    + '<div style="display:flex;gap:10px"><button onclick="_paGuardarAjuste(\'' + String(empId).replace(/'/g, '') + '\')" style="flex:2;padding:12px;background:#1f6feb;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Guardar ajuste</button>'
+    + '<button onclick="document.getElementById(\'paAjusteOv\').remove()" style="flex:1;padding:12px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:10px;cursor:pointer">Cancelar</button></div></div>';
+  document.body.appendChild(ov);
+}
+
+function _paGuardarAjuste(empId) {
+  var H = window._paHoja; if (!H || !H.porEmp[empId]) return;
+  var e = H.porEmp[empId], p = H.p;
+  var v = function(id){ return (document.getElementById(id) || {}).value; };
+  var err = function(m){ var x = document.getElementById('ajErr'); if (x) x.textContent = m; };
+  var global = v('ajAlcance') === 'global', fecha = global ? p.hasta : v('ajFecha'), tipo = v('ajTipo') || 'diurna';
+  var signo = parseInt(v('ajSigno'), 10) === 1 ? 1 : -1;
+  var horas = Math.round(((parseFloat(v('ajHoras')) || 0) + (parseFloat(v('ajMin')) || 0) / 60) * 100) / 100;
+  var causa = v('ajCausa') || '', exp = String(v('ajExp') || '').trim();
+  if (!fecha || fecha < p.desde || fecha > p.hasta) { err('La fecha debe estar dentro del período ' + p.desde + ' al ' + p.hasta); return; }
+  if (!(horas > 0)) { err('Indica las horas o minutos a ajustar'); return; }
+  if (exp.length < 10) { err('Escribe una explicación de al menos 10 caracteres'); return; }
+  var actual = (e.calc[tipo] || 0) + (e.aut[tipo] || 0) + (e.pend[tipo] || 0);
+  if (signo < 0 && horas > actual + 0.001) { err('No puedes restar ' + horas.toFixed(2) + ' h: en ' + (PA_TIPOS_HE_LBL[tipo] || tipo) + ' solo tiene ' + (Math.round(actual * 100) / 100).toFixed(2) + ' h (contando ajustes ya hechos)'); return; }
+  var conLlave = _paTieneLlave(), quien = (typeof _paQuien === 'function' ? _paQuien() : (PA.adminNombre || 'admin'));
+  var doc = {
+    empresa: PA.empresa, empleadoId: empId, empleadoNombre: e.nombre, fecha: fecha, tipo: tipo,
+    horas: signo * horas, esAjuste: true, ajusteGlobal: global, origen: 'ajuste',
+    causa: causa, justificacion: exp, descripcion: 'Ajuste: ' + causa + ' — ' + exp,
+    periodoDesde: p.desde, periodoHasta: p.hasta, creadoPor: quien, creadoTs: Date.now(), ts: Date.now(),
+    folio: 'AJ-' + Date.now().toString(36).toUpperCase(),
+    estado: conLlave ? 'aprobado' : 'pendiente_autorizacion'
+  };
+  if (conLlave) { doc.aprobadoPor = _paNombreLlave(); doc.aprobadoTs = Date.now(); }
+  paDb.collection('paHorasExtra').add(doc).then(function(){
+    if (conLlave) return _paSumarSaldoHE(empId, doc.horas);
+  }).then(function(){
+    var o = document.getElementById('paAjusteOv'); if (o) o.remove();
+    paToast(conLlave ? '✅ Ajuste aplicado' : '📨 Ajuste registrado — cuenta cuando ' + _paNombreLlave() + ' lo autorice');
+    H.abierto[empId] = true; paVerHojaAjustes();
+    if (typeof _paAvisoAutorizaciones === 'function') _paAvisoAutorizaciones();
+  }).catch(function(x){ err('Error: ' + x.message); });
+}
+
+// ── 3) BANDEJA DE AUTORIZACIONES (solo WVillanuevaU decide) ────────
+function _paCargarAutorizaciones() {
+  var S = { source:'server' }, E = PA.empresa;
+  return Promise.all([
+    paDb.collection('paNotificaciones').where('empresa','==',E).where('estado','==','pendiente_autorizacion').get(S).catch(function(){ return { forEach:function(){} }; }),
+    paDb.collection('paHorasExtra').where('empresa','==',E).where('estado','==','pendiente_autorizacion').get(S).catch(function(){ return { forEach:function(){} }; })
+  ]).then(function(r){
+    var sol = [], aj = [];
+    r[0].forEach(function(d){ var x = d.data(); x._id = d.id; if (x.tipo === 'CAMBIO_MARCACION') sol.push(x); });
+    r[1].forEach(function(d){ var x = d.data(); x._id = d.id; if (x.esAjuste) aj.push(x); });
+    return { sol:sol, aj:aj };
+  });
+}
+function paVerAutorizaciones() {
+  paToast('Cargando autorizaciones…');
+  _paCargarAutorizaciones().then(function(A){ window._paAut = A; _paPintarAutorizaciones(); }).catch(function(e){ paToast('Error: ' + e.message, true); });
+}
+function _paPintarAutorizaciones() {
+  var A = window._paAut; if (!A) return;
+  var ov = document.getElementById('paAutOv');
+  if (!ov) { ov = document.createElement('div'); ov.id = 'paAutOv'; ov.style.cssText = 'position:fixed;inset:0;z-index:8600;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:10px'; document.body.appendChild(ov); }
+  var btn = function(txt, on, bg){ return '<button onclick="' + on + '" style="padding:7px 11px;border-radius:8px;border:none;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;background:' + bg + ';color:#fff">' + txt + '</button>'; };
+  var ACC = { editar:'✏️ Editar marcación', agregar:'➕ Agregar marcación', eliminar:'🗑 Eliminar marcación' };
+  var total = A.sol.length + A.aj.length;
+  var h = '<div style="background:var(--surface);color:var(--text);border-radius:14px;width:min(820px,100%);max-height:94vh;display:flex;flex-direction:column;overflow:hidden">'
+    + '<div style="padding:13px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center">'
+    + '<div style="flex:1"><div style="font-weight:800;font-size:15px">🔑 Autorizaciones pendientes (' + total + ')</div>'
+    + '<div style="font-size:11.5px;color:var(--muted)">Solo ' + esc(_paNombreLlave()) + ' puede autorizar o rechazar' + (_paTieneLlave() ? ' · <b style="color:#1a7f37">autorizado en este navegador</b>' : '') + '</div></div>'
+    + '<button onclick="document.getElementById(\'paAutOv\').remove()" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-size:12px">Cerrar</button></div>'
+    + '<div style="overflow:auto;padding:10px 14px 14px">';
+  if (!total) h += '<div style="padding:28px;text-align:center;color:#1a7f37;font-weight:700">✅ No hay nada pendiente de autorizar</div>';
+  A.sol.forEach(function(s){
+    var antes = s.antes || {}, d = s.datos || {};
+    var det = s.accion === 'editar' ? 'Antes: <b>' + esc(antes.tipo || '') + ' ' + _paHoraDe(antes.ts) + '</b> (' + esc(antes.fecha || '') + ') → Después: <b>' + esc(d.tipo || '') + ' ' + _paHoraDe(d.ts) + '</b> (' + esc(d.fecha || '') + ')'
+            : s.accion === 'eliminar' ? 'Se eliminará: <b>' + esc(antes.tipo || '') + ' ' + _paHoraDe(antes.ts) + '</b>'
+            : 'Se agregará: <b>' + esc(d.tipo || '') + ' ' + _paHoraDe(d.ts) + '</b>';
+    h += '<div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px">'
+      + '<div style="font-size:13px;font-weight:800">' + (ACC[s.accion] || esc(s.accion)) + ' · ' + esc(s.empleadoNombre || '') + ' <span style="font-weight:500;color:var(--muted)">· ' + esc(s.fecha || '') + '</span></div>'
+      + '<div style="font-size:12.5px;margin-top:3px">' + det + '</div>'
+      + '<div style="font-size:12px;margin-top:3px"><b>Motivo:</b> ' + esc(s.motivo || '') + '</div>'
+      + '<div style="font-size:11px;color:var(--muted);margin-top:2px">Solicitado por ' + esc(s.solicitadoPor || '') + ' · ' + new Date(s.solicitadoTs || 0).toLocaleString('es-SV', { timeZone:'America/El_Salvador' }) + '</div>'
+      + '<div style="display:flex;gap:6px;margin-top:8px">' + btn('✓ Autorizar', "_paAutDecidir('sol','" + s._id + "',true)", '#238636') + btn('✕ Rechazar', "_paAutDecidir('sol','" + s._id + "',false)", '#da3633') + '</div></div>';
+  });
+  A.aj.forEach(function(x){
+    h += '<div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px">'
+      + '<div style="font-size:13px;font-weight:800">⏱ Ajuste de horas ' + _paH(x.horas) + ' h · ' + esc(x.empleadoNombre || '') + '</div>'
+      + '<div style="font-size:12.5px;margin-top:3px">' + (PA_TIPOS_HE_LBL[x.tipo] || esc(x.tipo)) + ' · ' + (x.ajusteGlobal ? 'global del período ' + esc(x.periodoDesde || '') + ' al ' + esc(x.periodoHasta || '') : esc(x.fecha)) + '</div>'
+      + '<div style="font-size:12px;margin-top:3px"><b>' + esc(x.causa || '') + ':</b> ' + esc(x.justificacion || '') + '</div>'
+      + '<div style="font-size:11px;color:var(--muted);margin-top:2px">Creado por ' + esc(x.creadoPor || '') + ' · ' + new Date(x.creadoTs || 0).toLocaleString('es-SV', { timeZone:'America/El_Salvador' }) + '</div>'
+      + '<div style="display:flex;gap:6px;margin-top:8px">' + btn('✓ Autorizar', "_paAutDecidir('aj','" + x._id + "',true)", '#238636') + btn('✕ Rechazar', "_paAutDecidir('aj','" + x._id + "',false)", '#da3633') + '</div></div>';
+  });
+  ov.innerHTML = h + '</div></div>';
+}
+
+function _paAutDecidir(clase, id, autorizar) {
+  var A = window._paAut || { sol:[], aj:[] };
+  var it = (clase === 'sol' ? A.sol : A.aj).find(function(x){ return x._id === id; });
+  if (!it) return;
+  var fin = function(msg){ paToast(msg); paVerAutorizaciones(); if (typeof _paAvisoAutorizaciones === 'function') _paAvisoAutorizaciones(); if (document.getElementById('paHojaOv')) paVerHojaAjustes(); };
+  var fallo = function(e){ paToast('Error: ' + e.message, true); };
+  var hacer = function(){
+    if (!autorizar) {
+      _paPedirMotivoRechazo(clase === 'sol' ? 'Rechazar cambio de marcación' : 'Rechazar ajuste de horas', it.empleadoNombre || '', function(motivo){
+        var upd = clase === 'sol'
+          ? paDb.collection('paNotificaciones').doc(id).update({ estado:'rechazada', rechazadoPor:_paNombreLlave(), rechazadoTs:Date.now(), motivoRechazo:motivo })
+          : paDb.collection('paHorasExtra').doc(id).update({ estado:'rechazado', rechazadoPor:_paNombreLlave(), rechazadoTs:Date.now(), motivoRechazo:motivo });
+        upd.then(function(){ fin('Rechazado'); }).catch(fallo);
+      });
+      return;
+    }
+    if (clase === 'sol') _paAplicarCambioMarc(id, it).then(function(){ fin('✅ Cambio autorizado y aplicado'); }).catch(fallo);
+    else paDb.collection('paHorasExtra').doc(id).update({ estado:'aprobado', aprobadoPor:_paNombreLlave(), aprobadoTs:Date.now() })
+      .then(function(){ return _paSumarSaldoHE(it.empleadoId, parseFloat(it.horas || 0)); })
+      .then(function(){ fin('✅ Ajuste autorizado'); }).catch(fallo);
+  };
+  if (_paTieneLlave()) hacer(); else _paAutorizarLlave(hacer);
+}
+
+// Aviso flotante en el panel admin: cuántas autorizaciones hay pendientes
+function _paAvisoAutorizaciones() {
+  if (!paDb || !PA.empresa || !document.getElementById('paAdminPanel')) return;
+  _paCargarAutorizaciones().then(function(A){
+    var n = A.sol.length + A.aj.length, chip = document.getElementById('paAutChip');
+    if (!n) { if (chip) chip.remove(); return; }
+    if (!chip) {
+      chip = document.createElement('button'); chip.id = 'paAutChip';
+      chip.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:7900;padding:10px 14px;border-radius:22px;border:none;background:#8957e5;color:#fff;font-size:13px;font-weight:800;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.35);font-family:inherit';
+      chip.onclick = function(){ paVerAutorizaciones(); };
+      document.body.appendChild(chip);
+    }
+    chip.textContent = '🔑 ' + n + ' por autorizar';
+  }).catch(function(){});
+}
+
+// ── 4) Ajustes autorizados al pie del reporte ──────────────────────
+function _paAnexarAjustesReporte(desde, hasta) {
+  return paDb.collection('paHorasExtra').where('empresa','==',PA.empresa).where('fecha','>=',desde).where('fecha','<=',hasta).get({ source:'server' }).then(function(snap){
+    var aj = [];
+    snap.forEach(function(d){ var x = d.data(); if (x.esAjuste && x.estado === 'aprobado') aj.push(x); });
+    aj.sort(function(a, b){ return String(a.empleadoNombre).localeCompare(String(b.empleadoNombre)) || (a.fecha < b.fecha ? -1 : 1); });
+    PA._rptAjustes = aj;
+    var rc = document.getElementById('reporteContent'); if (!rc) return;
+    var old = document.getElementById('rptAjustesBox'); if (old) old.remove();
+    if (!aj.length) return;
+    var box = document.createElement('div'); box.id = 'rptAjustesBox';
+    box.style.cssText = 'margin-top:14px;border:1.5px solid rgba(137,87,229,.35);border-radius:12px;padding:12px;font-size:12px';
+    box.innerHTML = '<div style="font-weight:800;font-size:13.5px;margin-bottom:6px">✏️ Ajustes autorizados incluidos en este reporte (' + aj.length + ')</div>'
+      + '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Los totales de arriba ya incluyen estos ajustes.</div>'
+      + aj.map(function(x){
+          return '<div style="padding:6px 0;border-top:1px solid var(--border)"><b>' + esc(x.empleadoNombre || '') + '</b> · ' + _paH(x.horas) + ' h ' + (PA_TIPOS_HE_LBL[x.tipo] || esc(x.tipo)) + ' · ' + (x.ajusteGlobal ? 'global' : esc(x.fecha))
+            + '<div style="color:var(--muted)">' + esc(x.causa || '') + ' — ' + esc(x.justificacion || '') + ' · creado por ' + esc(x.creadoPor || '') + ', autorizado por ' + esc(x.aprobadoPor || '') + '</div></div>';
+        }).join('');
+    rc.appendChild(box);
+  }).catch(function(e){ console.warn('[Ajustes reporte]', e.message); });
 }
 
 </script>
