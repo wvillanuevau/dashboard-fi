@@ -1801,17 +1801,31 @@ function paGoAdmin() {
   }, 300);
 }
 
+// Identificador del administrador: obligatorio y reconocible en cada registro.
+// Wilfredo Villanueva siempre queda como WVillanuevaU; los demás con su nombre.
+function _paNormalizarNombreAdmin(n) {
+  n = String(n || '').replace(/\s+/g, ' ').trim();
+  var base = n.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z ]/g, '').trim();
+  if (/^(ing )?(wvillanuevau|wvillanueva|wilfredo|wilfredo villanueva|wilfredo villanueva u|w villanueva|w villanueva u)$/.test(base)) return 'WVillanuevaU';
+  return n;
+}
+function _paNombreAdminValido(n) {
+  if (!n || n.length < 3 || !/[A-Za-zÁÉÍÓÚÑáéíóúñ]{3,}/.test(n)) return false;
+  var b = n.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z]/g, '');
+  return ['admin', 'administrador', 'administracion', 'sinidentificar', 'noidentificado', 'anonimo', 'usuario', 'prueba', 'test', 'nombre', 'tunombre'].indexOf(b) < 0;
+}
+
 function paVerifyAdminPwd() {
   var nombreInp = document.getElementById('adminNombreInput');
   var inp = document.getElementById('adminPwdInput');
   var err = document.getElementById('adminPwdError');
   if (!inp || !nombreInp) { paToast('Error: campo no encontrado', true); return; }
-  var nombre = (nombreInp.value || '').trim();
+  var nombre = _paNormalizarNombreAdmin(nombreInp.value);
   var entered = inp.value || '';
   if (err) err.textContent = '';
 
-  if (!nombre) {
-    if (err) err.textContent = '⚠ Escribe tu nombre primero';
+  if (!_paNombreAdminValido(nombre)) {
+    if (err) err.textContent = '⚠ Escribe tu nombre real (no “admin” ni genérico): queda en cada acción que hagas';
     nombreInp.focus();
     return;
   }
@@ -7049,7 +7063,7 @@ function paGenerarAccionPersonal(empId, empNombre, empCargo, fecha) {
       solicita:sol, autoriza:aut,
       salarioActual: salarioActual, salarioNuevo: salarioNuevo,
       fechaRige: fechaRige,
-      opcionMarcada:SELECTED, estado:'emitida', creadoPor:(PA.adminNombre||'admin'), ts:Date.now()
+      opcionMarcada:SELECTED, estado:'emitida', creadoPor:_paQuien(), ts:Date.now()
     }).then(function(ref){ if (PA._apCtx && ref) PA._apCtx.apImpresoId = ref.id; })
       .catch(function(e){ console.warn('[AP]',e.message); });
   }
@@ -8856,7 +8870,7 @@ function _paConfirmarCompFDS(semKey) {
         esCompensatorio: true, esAutoTurno: true, tipoComp: 'viernes',
         fechaLibre: nextFri, diasLibres: 1, horasLibres: 8,
         motivo: 'Compensatorio por trabajo dominical — descanso viernes '+nextFri,
-        estado: 'asignado', aprobadoTs: Date.now(), aprobadoPor: PA.adminNombre||'Admin (sin identificar)',
+        estado: 'asignado', aprobadoTs: Date.now(), aprobadoPor: _paQuien(),
         semanaOrigen: semKey, ts: Date.now(),
         folio: 'COMP-VIE-'+paGenId().toUpperCase()
       });
@@ -8871,7 +8885,7 @@ function _paConfirmarCompFDS(semKey) {
         esCompensatorio: true, esAutoTurno: true, tipoComp: 'sabado_completo',
         fechaLibre: nextSat, diasLibres: 1, horasLibres: 8,
         motivo: 'Compensatorio por trabajo sábado tarde — descanso sábado completo '+nextSat,
-        estado: 'asignado', aprobadoTs: Date.now(), aprobadoPor: PA.adminNombre||'Admin (sin identificar)',
+        estado: 'asignado', aprobadoTs: Date.now(), aprobadoPor: _paQuien(),
         semanaOrigen: semKey, ts: Date.now(),
         folio: 'COMP-SAB-'+paGenId().toUpperCase()
       });
@@ -8992,7 +9006,7 @@ function _paMostrarModalCompTurno(candidatos) {
 
 function _paAprobarCompTurno(id) {
   paDb.collection('paCanjes').doc(id).update({
-    estado: 'asignado', aprobadoTs: Date.now(), aprobadoPor: PA.adminNombre||'Admin (sin identificar)'
+    estado: 'asignado', aprobadoTs: Date.now(), aprobadoPor: _paQuien()
   }).then(function(){
     var row = document.getElementById('compTurno_'+id);
     if (row) row.remove();
@@ -9004,7 +9018,7 @@ function _paAprobarCompTurno(id) {
 function _paRechazarCompTurno(id) {
   if (!confirm('¿Rechazar este compensatorio? El empleado no lo verá en ningún momento.')) return;
   paDb.collection('paCanjes').doc(id).update({
-    estado: 'rechazado_admin', rechazadoTs: Date.now(), rechazadoPor: PA.adminNombre||'Admin (sin identificar)'
+    estado: 'rechazado_admin', rechazadoTs: Date.now(), rechazadoPor: _paQuien()
   }).then(function(){
     var row = document.getElementById('compTurno_'+id);
     if (row) row.remove();
@@ -9959,7 +9973,7 @@ function _paAplicarHorario(s) {
 function _paSolicitarCambioHorario(sol) {
   return paDb.collection('paNotificaciones').add(Object.assign({
     empresa: PA.empresa, tipo: 'CAMBIO_HORARIO', estado: 'pendiente_autorizacion',
-    solicitadoPor: (typeof _paQuien === 'function' ? _paQuien() : (PA.adminNombre || 'admin')), solicitadoTs: Date.now(), ts: Date.now()
+    solicitadoPor: (typeof _paQuien === 'function' ? _paQuien() : _paQuien()), solicitadoTs: Date.now(), ts: Date.now()
   }, sol)).then(function(){
     paToast('📨 Solicitud enviada — el horario cambiará cuando ' + _paNombreLlave() + ' la autorice');
     if (typeof _paAvisoAutorizaciones === 'function') _paAvisoAutorizaciones();
@@ -11923,7 +11937,7 @@ function paAsignarCompensatorioManual(empId, empNombre, cargo, btn) {
         empresa: PA.empresa, empleadoId: empId, empleadoNombre: empNombre, cargo: cargo,
         esCompensatorio: true, esAutoTurno: false, esManual: true, tipoComp: 'viernes',
         fechaLibre: fechaVie, diasLibres: 1, horasLibres: 8,
-        motivo: motivo, estado: 'asignado', aprobadoTs: Date.now(), aprobadoPor: PA.adminNombre || 'admin',
+        motivo: motivo, estado: 'asignado', aprobadoTs: Date.now(), aprobadoPor: _paQuien(),
         ts: Date.now(), folio: 'COMP-MAN-'+paGenId().toUpperCase()
       });
       n++;
@@ -11933,7 +11947,7 @@ function paAsignarCompensatorioManual(empId, empNombre, cargo, btn) {
         empresa: PA.empresa, empleadoId: empId, empleadoNombre: empNombre, cargo: cargo,
         esCompensatorio: true, esAutoTurno: false, esManual: true, tipoComp: 'sabado_completo',
         fechaLibre: fechaSab, diasLibres: 1, horasLibres: 8,
-        motivo: motivo, estado: 'asignado', aprobadoTs: Date.now(), aprobadoPor: PA.adminNombre || 'admin',
+        motivo: motivo, estado: 'asignado', aprobadoTs: Date.now(), aprobadoPor: _paQuien(),
         ts: Date.now(), folio: 'COMP-MAN-'+paGenId().toUpperCase()
       });
       n++;
@@ -12136,7 +12150,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-11-12-E';
+var PA_VERSION = 'v2026-11-12-F';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -13061,7 +13075,7 @@ window.addEventListener('DOMContentLoaded', function() {
   }
   window._paPcResolverNotif = function(id){
     paConfirm('¿Marcar esta solicitud como resuelta?', function(){
-      _upd.call(paDb.collection('paNotificaciones').doc(id), { estado:'resuelta', resueltoTs: Date.now(), resueltoPor: PA.adminNombre || 'admin' })
+      _upd.call(paDb.collection('paNotificaciones').doc(id), { estado:'resuelta', resueltoTs: Date.now(), resueltoPor: _paQuien() })
         .then(function(){ paToast('✅ Solicitud resuelta'); window._paPcRefrescar(); })
         .catch(function(e){ paToast('Error: ' + e.message, true); });
     });
@@ -13086,14 +13100,14 @@ window.addEventListener('DOMContentLoaded', function() {
     var m = _pedirMotivo('Mantener esta acción de personal como válida');
     if (!m) return;
     paDb.collection('paAccionesPersonal').doc(id).update({
-      revisionCierre: { por: PA.adminNombre || 'admin', motivo: m, ts: Date.now() }
+      revisionCierre: { por: _paQuien(), motivo: m, ts: Date.now() }
     }).then(function(){ paToast('✅ Acción validada'); window._paPcRefrescar(); })
       .catch(function(e){ paToast('Error: ' + e.message, true); });
   };
   window._paPcValidar = function(clave){
     var m = _pedirMotivo(clave.indexOf('aus|') === 0 ? 'Justificar ausencia' : 'Validar marcación incompleta');
     if (!m) return;
-    var upd = {}; upd[clave] = { por: PA.adminNombre || 'admin', motivo: m, ts: Date.now() };
+    var upd = {}; upd[clave] = { por: _paQuien(), motivo: m, ts: Date.now() };
     _set.call(_cfgRef(), { revisionesCierre: upd }, { merge: true })
       .then(function(){ PA._revCierre[clave] = upd[clave]; paToast('✅ Registrado'); window._paPcRefrescar(); })
       .catch(function(e){ paToast('Error: ' + e.message, true); });
@@ -13126,8 +13140,8 @@ window.addEventListener('DOMContentLoaded', function() {
               var cq = (d.exists && d.data().cierresQuincena) || {};
               var prev = cq[key] || {};
               if (prev.estado === 'cerrada') return false;
-              var hist = (prev.historial || []).concat([{ accion:'cerrada', por: PA.adminNombre || 'admin', ts: Date.now() }]);
-              var nuevo = {}; nuevo[key] = { desde:desde, hasta:hasta, estado:'cerrada', cerradoPor: PA.adminNombre || 'admin', cerradoTs: Date.now(), historial: hist };
+              var hist = (prev.historial || []).concat([{ accion:'cerrada', por: _paQuien(), ts: Date.now() }]);
+              var nuevo = {}; nuevo[key] = { desde:desde, hasta:hasta, estado:'cerrada', cerradoPor: _paQuien(), cerradoTs: Date.now(), historial: hist };
               // Cierre + avance del período en la MISMA transacción
               tx.set(ref, { cierresQuincena: nuevo, periodoHE: nuevoPeriodo }, { merge:true });
               return true;
@@ -13346,7 +13360,7 @@ window.addEventListener('DOMContentLoaded', function() {
         ov.remove();
         var q = window._paQuincenaDe(ap.fecha || ap.fechaInicio || ap.quincenaDesde || ap.fechaEmision || '');
         paDb.collection('paAccionesPersonal').doc(apId).update({
-          historica: true, historicaPor: PA.adminNombre || 'admin', historicaTs: Date.now(), historicaQuincena: q.desde ? q.desde + '_' + q.hasta : ''
+          historica: true, historicaPor: _paQuien(), historicaTs: Date.now(), historicaQuincena: q.desde ? q.desde + '_' + q.hasta : ''
         }).then(function(){
           paToast('🗄 Acción de personal pasada a Históricas');
           if (PA.adminTab === 'acciones' && document.getElementById('apLista')) paCargarAPs(PA._apModoHist ? 'todos' : undefined);
@@ -13357,7 +13371,7 @@ window.addEventListener('DOMContentLoaded', function() {
   window.paRegresarAPActiva = function(apId){
     paConfirm('¿Regresar esta acción de personal a la lista activa?', function(){
       paDb.collection('paAccionesPersonal').doc(apId).update({
-        historica: false, historicaRegresadaPor: PA.adminNombre || 'admin', historicaRegresadaTs: Date.now()
+        historica: false, historicaRegresadaPor: _paQuien(), historicaRegresadaTs: Date.now()
       }).then(function(){ paToast('↩ Regresada a la lista activa'); paCargarAPsHistoricas(); })
         .catch(function(e){ paToast('Error: ' + e.message, true); });
     });
@@ -13525,7 +13539,7 @@ function _paMostrarAvisosMarcTarde() {
   }).catch(function(e){ console.warn('[AvisosTarde]', e.message); });
 }
 function _paAvisoTardeVisto(folio) {
-  var upd = {}; upd[folio] = { visto: true, vistoPor: PA.adminNombre || 'admin', vistoTs: Date.now() };
+  var upd = {}; upd[folio] = { visto: true, vistoPor: _paQuien(), vistoTs: Date.now() };
   paDb.collection('paConfig').doc(PA.empresa).set({ avisosMarcTarde: upd }, { merge:true })
     .then(function(){ _paMostrarAvisosMarcTarde(); })
     .catch(function(e){ paToast('Error: ' + e.message, true); });
@@ -13539,7 +13553,7 @@ function _paAvisoTardeVisto(folio) {
 // justificación y guarda rechazadoPor/rechazadoTs/motivoRechazo.
 // Reporte → "📜 Registro de aprobaciones y rechazos" lo muestra todo.
 // ══════════════════════════════════════════════════════════════════
-function _paQuien() { return PA.adminNombre || 'admin'; }
+function _paQuien() { return PA.adminNombre ? _paNormalizarNombreAdmin(PA.adminNombre) : 'Administrador'; }
 
 // Modal para escribir la justificación de un rechazo (obligatoria)
 function _paPedirMotivoRechazo(titulo, detalle, cb) {
@@ -13774,7 +13788,7 @@ function _paPedirTexto(titulo, detalle, etiqueta, btnTxt, color, cb) {
 function _paSolicitarCambioMarc(sol) {
   return paDb.collection('paNotificaciones').add(Object.assign({
     empresa: PA.empresa, tipo: 'CAMBIO_MARCACION', estado: 'pendiente_autorizacion',
-    solicitadoPor: (typeof _paQuien === 'function' ? _paQuien() : (PA.adminNombre || 'admin')), solicitadoTs: Date.now(), ts: Date.now()
+    solicitadoPor: (typeof _paQuien === 'function' ? _paQuien() : _paQuien()), solicitadoTs: Date.now(), ts: Date.now()
   }, sol)).then(function(){
     paToast('📨 Solicitud enviada — se aplicará cuando ' + _paNombreLlave() + ' la autorice');
     if (typeof _paAvisoAutorizaciones === 'function') _paAvisoAutorizaciones();
@@ -13930,7 +13944,7 @@ function _paGuardarAjuste(empId) {
   if (exp.length < 10) { err('Escribe una explicación de al menos 10 caracteres'); return; }
   var actual = (e.calc[tipo] || 0) + (e.aut[tipo] || 0) + (e.pend[tipo] || 0);
   if (signo < 0 && horas > actual + 0.001) { err('No puedes restar ' + horas.toFixed(2) + ' h: en ' + (PA_TIPOS_HE_LBL[tipo] || tipo) + ' solo tiene ' + (Math.round(actual * 100) / 100).toFixed(2) + ' h (contando ajustes ya hechos)'); return; }
-  var conLlave = _paTieneLlave(), quien = (typeof _paQuien === 'function' ? _paQuien() : (PA.adminNombre || 'admin'));
+  var conLlave = _paTieneLlave(), quien = (typeof _paQuien === 'function' ? _paQuien() : _paQuien());
   var doc = {
     empresa: PA.empresa, empleadoId: empId, empleadoNombre: e.nombre, fecha: fecha, tipo: tipo,
     horas: signo * horas, esAjuste: true, ajusteGlobal: global, origen: 'ajuste',
