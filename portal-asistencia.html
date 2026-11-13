@@ -3029,7 +3029,11 @@ function paUpdateDash() {
         var hoyC = paHoy(), prox = [];
         snap.forEach(function(d){
           var cc = d.data();
-          if ((cc.estado === 'asignado' || cc.estado === 'aprobado') && cc.fechaLibre && cc.fechaLibre >= hoyC) prox.push(cc);
+          // Solo se avisa de los días que un administrador asignó MANUALMENTE.
+          // Los generados por el sistema (fin de semana / turno) no se muestran
+          // para no crear expectativas.
+          var _manual = cc.esManual === true || (cc.esAutoTurno !== true && !cc.semanaOrigen && cc.estado === 'asignado');
+          if (_manual && (cc.estado === 'asignado' || cc.estado === 'aprobado') && cc.fechaLibre && cc.fechaLibre >= hoyC) prox.push(cc);
         });
         prox.sort(function(a,b){ return a.fechaLibre < b.fechaLibre ? -1 : 1; });
         var DSEM = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
@@ -8640,6 +8644,7 @@ function _paCargarAusenciasPeriodo(cb) {
 }
 
 function _paCheckCompensatorioFDS() {
+  return; // DESACTIVADO (nov-2026): los compensatorios solo se asignan manualmente
   // Ejecutar cualquier día hasta que el admin confirme
   var hoy = paHoy();
 
@@ -8826,6 +8831,7 @@ function _paMostrarModalCompFDS(empleados, semKey, lastSat, lastSun, nextFri, ne
 }
 
 function _paConfirmarCompFDS(semKey) {
+  return; // DESACTIVADO (nov-2026): los compensatorios solo se asignan manualmente
   var cbs = Array.from(document.querySelectorAll('.comp-fds-cb:checked'));
   var batch = paDb.batch();
   var count = 0;
@@ -8916,6 +8922,7 @@ function _paLimiteQuincena(fechaOrigenStr) {
 }
 
 function _paCheckCompensatorioTurno() {
+  return; // DESACTIVADO (nov-2026): ya no se generan compensatorios automáticos
   if (!paDb || !PA.empresa) return;
   if (document.getElementById('paModalCompFDS')) {
     // Ya hay un modal de fin de semana abierto — reintentar en unos
@@ -12129,7 +12136,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-11-12-D';
+var PA_VERSION = 'v2026-11-12-E';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
