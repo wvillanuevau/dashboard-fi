@@ -327,7 +327,15 @@ window.FB={
   async actualizarUsuario(uid,datos){try{await _fbDb.collection('usuariosApp').doc(uid).update(datos);return{ok:true}}catch(e){return{ok:false,err:e.message}}},
   async resetPassword(email){try{await _fbAuth.sendPasswordResetEmail(email);return{ok:true}}catch(e){return{ok:false,err:e.message}}},
   async getUsuariosEmpresa(empresa){try{const s=await _fbDb.collection('usuariosApp').where('empresa','==',empresa).get();return s.docs.map(d=>({id:d.id,...d.data()}))}catch(e){return[]}},
-  async getAllEmpresas(){try{const s=await _fbDb.collection('_empresas').get();return s.docs.map(d=>({id:d.id,...d.data()}))}catch(e){window._saLecturaErr=e.code||e.message;return[]}},
+  // Une el catálogo (_empresas) con las empresas que ya existen en el sistema aunque nunca se registraran ahí:
+// las del login (portalesPublicos) y los códigos que traen los usuarios (usuariosApp).
+async getAllEmpresas(){
+    const out={};
+    try{const s=await _fbDb.collection('_empresas').get();s.docs.forEach(d=>{out[d.id]={id:d.id,...d.data()}})}catch(e){window._saLecturaErr=e.code||e.message}
+    try{const s=await _fbDb.collection('portalesPublicos').get();s.docs.forEach(d=>{if(!out[d.id]){const x=d.data()||{};out[d.id]={id:d.id,nombre:x.nombre||x.nombreEmpresa||'',_sinFicha:true,_fuente:'portal'}}})}catch(e){}
+    try{const s=await _fbDb.collection('usuariosApp').get();s.docs.forEach(d=>{const c=((d.data()||{}).empresa||'').trim();if(c&&!out[c])out[c]={id:c,nombre:'',_sinFicha:true,_fuente:'usuarios'}})}catch(e){}
+    return Object.values(out).sort((a,b)=>a.id<b.id?-1:1);
+  },
   async saveEmpresa(id,data){try{await _fbDb.collection('_empresas').doc(id).set({...data,_ts:Date.now()},{ merge:true});return{ok:true}}catch(e){return{ok:false,err:e.message}}},
   // ── Carga principal: doc empresa + gastos chunkeados ──────────────────
   async load(empresa){
@@ -1986,7 +1994,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-11-18-C'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-11-18-D'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -4925,17 +4933,19 @@ async function renderSAEmpresas(){
   let rows=empresas.length===0?`<tr><td colspan="7" class="empty">Sin empresas</td></tr>`:'';
   empresas.forEach(e=>{
     const u=usuarios.filter(u=>u.empresa===e.id).length;
+    const _sf=e._sinFicha?`<div style="font-size:10px;color:var(--accent);margin-top:2px">${e._fuente==='usuarios'?'Solo aparece en usuarios (¿código mal escrito?)':'Existe en el sistema, sin ficha en el catálogo'}</div>`:'';
     rows+=`<tr>
-      <td><strong>${esc(e.id)}</strong></td>
+      <td><strong>${esc(e.id)}</strong>${_sf}</td>
       <td><div style="font-weight:600">${esc(e.nombre||'—')}</div><div style="font-size:11px;color:var(--muted)">${esc(e.nombreLegal||'')}</div></td>
       <td><span class="badge ${planColors[e.plan]||'b-neu'}">${e.plan||'Sin plan'}</span></td>
       <td><span class="badge ${e.activa!==false?'b-ok':'b-err'}">${e.activa!==false?'Activa':'Suspendida'}</span></td>
       <td>${e.verDatos?'<span class="badge b-blue">Sí</span>':'<span class="badge b-neu">No</span>'}</td>
       <td>${u}</td>
-      <td class="td-act">
-        <button class="btn btn-secondary btn-xs" onclick="abrirModalEmpresa('${e.id}')">✏ Editar</button>
+      <td class="td-act">${e._sinFicha
+        ? `<button class="btn btn-secondary btn-xs" onclick="registrarEmpresaSA('${esc(e.id)}')" title="Crea solo la ficha en el catálogo; no toca los datos de la empresa">➕ Registrar ficha</button>`
+        : `<button class="btn btn-secondary btn-xs" onclick="abrirModalEmpresa('${e.id}')">✏ Editar</button>
         <button class="btn ${e.activa!==false?'btn-danger':'btn-success'} btn-xs" onclick="toggleEmpresa('${e.id}',${e.activa!==false})">${e.activa!==false?'Suspender':'Activar'}</button>
-        <button class="btn btn-danger btn-xs" onclick="eliminarEmpresaSA('${e.id}')" title="Eliminar permanente">🗑</button>
+        <button class="btn btn-danger btn-xs" onclick="eliminarEmpresaSA('${e.id}')" title="Eliminar permanente">🗑</button>`}
       </td>
     </tr>`;
   });
@@ -5123,6 +5133,13 @@ async function guardarEmpresa(editId){
   } else toast('Error: '+r.err,true);
 }
 
+// Crea únicamente la ficha en el catálogo _empresas (merge); no modifica ni borra los datos de la empresa.
+async function registrarEmpresaSA(id){
+  if(!confirm('¿Registrar la ficha de la empresa '+id+' en el catálogo?\n\nSolo crea la ficha; no modifica los datos de la empresa.'))return;
+  const r=await window.FB.saveEmpresa(id,{activa:true,creadoEn:Date.now()});
+  if(r.ok){await window.FB.logSA('REGISTRAR_EMPRESA','Ficha de catálogo: '+id);toast('✓ Ficha registrada: '+id);renderSA()}
+  else toast('Error: '+r.err,true);
+}
 async function toggleEmpresa(id,activa){
   if(!confirm(`¿${activa?'Suspender':'Activar'} la empresa ${id}?`))return;
   await window.FB.saveEmpresa(id,{activa:!activa});
