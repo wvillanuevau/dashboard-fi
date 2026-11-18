@@ -268,7 +268,12 @@ _fbDb.enablePersistence({synchronizeTabs:true}).then(function(){
 })();
 
 // ── SUPERADMIN CREDENTIALS (hardcoded, no en Firebase Auth) ──
-const SUPERADMIN={email:'superadmin@pf.local',pin:'SA2024'};
+// El PIN ya no está en texto plano: solo se guarda su huella SHA-256 (sal 'FISDC-SA|').
+const SUPERADMIN={email:'superadmin@pf.local',pinHash:'e9c14e9c84c2e65d3852e6d13bf43b697dcf55bd9b88866f1f62e8fd6bcc6070'};
+async function _saHash(pin){
+  const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('FISDC-SA|'+pin));
+  return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('');
+}
 
 let _unsub=null,_unsubLog=null;
 const _errMap={'auth/user-not-found':'Usuario no encontrado','auth/wrong-password':'Contraseña incorrecta','auth/invalid-email':'Email inválido','auth/too-many-requests':'Demasiados intentos','auth/invalid-credential':'Email o contraseña incorrectos','auth/user-disabled':'Usuario deshabilitado','auth/email-already-in-use':'Email ya registrado','auth/weak-password':'Contraseña muy débil'};
@@ -1975,7 +1980,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-11-06-A'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-11-18-B'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -4784,11 +4789,15 @@ function genCodigo(nombre){
   return words.map(w=>w[0]).join('').substring(0,6);
 }
 
-function doSALogin(){
-  const email=document.getElementById('saEmail').value.trim();
-  const pin=document.getElementById('saPin').value;
+async function doSALogin(){
+  // Tolerante al copiar/pegar: quita espacios, saltos de línea y caracteres invisibles
+  const _lim=v=>String(v||'').replace(/[\s\u200B-\u200D\uFEFF\u00A0]/g,'');
+  const email=_lim(document.getElementById('saEmail').value).toLowerCase();
+  const pin=_lim(document.getElementById('saPin').value);
   const err=document.getElementById('saErr');
-  if(email===SUPERADMIN.email&&pin===SUPERADMIN.pin){
+  let okPin=false;
+  try{okPin=(await _saHash(pin))===SUPERADMIN.pinHash}catch(e){okPin=false}
+  if(email===SUPERADMIN.email&&okPin){
     document.getElementById('loginPage').style.display='none';
     document.getElementById('saPanel').style.display='block';
     renderSA();
@@ -5528,15 +5537,16 @@ async function renderSASeguridad(){
   </div>`;
 }
 
-function cambiarPIN(){
+async function cambiarPIN(){
   const actual=(document.getElementById('pinActual')||{}).value;
   const nuevo=(document.getElementById('pinNuevo')||{}).value;
   const confirm=(document.getElementById('pinConfirm')||{}).value;
   const msg=document.getElementById('pinMsg');
-  if(actual!==SUPERADMIN.pin){msg.style.color='var(--red)';msg.textContent='PIN actual incorrecto';return}
+  const _hAct=await _saHash(String(actual||'').replace(/\s/g,''));
+  if(_hAct!==SUPERADMIN.pinHash){msg.style.color='var(--red)';msg.textContent='PIN actual incorrecto';return}
   if(nuevo.length<6){msg.style.color='var(--red)';msg.textContent='El PIN debe tener al menos 6 caracteres';return}
   if(nuevo!==confirm){msg.style.color='var(--red)';msg.textContent='Los PINs no coinciden';return}
-  SUPERADMIN.pin=nuevo;
+  SUPERADMIN.pinHash=await _saHash(nuevo);
   window.FB.logSA('CAMBIAR_PIN','PIN de SuperAdmin actualizado');
   msg.style.color='var(--green)';
   msg.textContent='✓ PIN cambiado (vigente hasta recargar la página — actualiza el código fuente para que sea permanente)';
