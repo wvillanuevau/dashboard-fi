@@ -206,6 +206,9 @@ const _fbApp=firebase.initializeApp({
   appId:"1:768666711160:web:11dfd8cf50ab19dddc298d"
 });
 const _fbAuth=firebase.auth();
+// App secundaria: crear o restaurar usuarios sin tocar la sesión de Firebase de quien administra
+function _fbSec(){try{return firebase.app('SAsec')}catch(e){return firebase.initializeApp(_fbApp.options,'SAsec')}}
+window._fbSec=_fbSec;
 const _fbDb=firebase.firestore();
 const _fbStorage=firebase.storage();
 _fbDb.settings({ignoreUndefinedProperties:true,experimentalForceLongPolling:true});
@@ -313,16 +316,18 @@ window.FB={
   async logout(){try{if(_unsub){_unsub();_unsub=null}await _fbAuth.signOut()}catch(e){console.error(e)}},
   async crearUsuario(email,pw,nombre,rol,empresa,permisos){
     try{
-      const r=await _fbAuth.createUserWithEmailAndPassword(email,pw);
-      await _fbDb.collection('usuariosApp').doc(r.user.uid).set({email,nombre:nombre||email.split('@')[0],rol,empresa,permisos:permisos||{},creadoEn:Date.now(),activo:true});
-      await _fbAuth.signOut();
+      const sec=_fbSec(),sAuth=sec.auth();
+      const r=await sAuth.createUserWithEmailAndPassword(email,pw);
+      try{
+        await sec.firestore().collection('usuariosApp').doc(r.user.uid).set({email,nombre:nombre||email.split('@')[0],rol,empresa,permisos:permisos||{},creadoEn:Date.now(),activo:true});
+      }finally{try{await sAuth.signOut()}catch(e2){}}
       return{ok:true,uid:r.user.uid};
     }catch(e){return{ok:false,err:_errMap[e.code]||e.message}}
   },
   async actualizarUsuario(uid,datos){try{await _fbDb.collection('usuariosApp').doc(uid).update(datos);return{ok:true}}catch(e){return{ok:false,err:e.message}}},
   async resetPassword(email){try{await _fbAuth.sendPasswordResetEmail(email);return{ok:true}}catch(e){return{ok:false,err:e.message}}},
   async getUsuariosEmpresa(empresa){try{const s=await _fbDb.collection('usuariosApp').where('empresa','==',empresa).get();return s.docs.map(d=>({id:d.id,...d.data()}))}catch(e){return[]}},
-  async getAllEmpresas(){try{const s=await _fbDb.collection('_empresas').get();return s.docs.map(d=>({id:d.id,...d.data()}))}catch(e){return[]}},
+  async getAllEmpresas(){try{const s=await _fbDb.collection('_empresas').get();return s.docs.map(d=>({id:d.id,...d.data()}))}catch(e){window._saLecturaErr=e.code||e.message;return[]}},
   async saveEmpresa(id,data){try{await _fbDb.collection('_empresas').doc(id).set({...data,_ts:Date.now()},{ merge:true});return{ok:true}}catch(e){return{ok:false,err:e.message}}},
   // ── Carga principal: doc empresa + gastos chunkeados ──────────────────
   async load(empresa){
@@ -910,7 +915,7 @@ window.FB={
 
   // SA: obtener todos los usuarios
   async getAllUsuarios(){
-    try{const s=await _fbDb.collection('usuariosApp').get();return s.docs.map(d=>({id:d.id,...d.data()}))}catch(e){return[]}
+    try{const s=await _fbDb.collection('usuariosApp').get();return s.docs.map(d=>({id:d.id,...d.data()}))}catch(e){window._saLecturaErr=e.code||e.message;return[]}
   },
   // SA: guardar configuración de planes
   async savePlanes(data){
@@ -1890,6 +1895,7 @@ th{ box-shadow:var(--nf-in-sm); }
         <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:#c084fc" id="saTitleBar">SuperAdmin</div>
         <div style="font-size:11px;color:#555">superadmin@pf.local</div>
       </div>
+      <div id="saConn"></div>
       <div class="sa-content" id="saContent"></div>
     </div>
   </div>
@@ -1980,7 +1986,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-11-18-B'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-11-18-C'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -4820,8 +4826,34 @@ function renderSA(){
   const cur=SA_NAV.find(n=>n.id===SA_TAB);
   document.getElementById('saTitleBar').textContent=(cur?cur.ic+' ':'')+' SuperAdmin — '+((cur&&cur.label)||'');
   const fns={dashboard:renderSADashboard,empresas:renderSAEmpresas,usuarios:renderSAUsuarios,planes:renderSAPlanes,facturacion:renderSAFacturacion,seguridad:renderSASeguridad,logsa:renderSALog};
+  window._saLecturaErr=null;
+  saActualizarConexion();
   if(fns[SA_TAB])fns[SA_TAB]();
 }
+// Para LEER usuarios y empresas, Firebase exige una sesión iniciada. El PIN del panel no es una sesión de Firebase.
+function saActualizarConexion(){
+  const el=document.getElementById('saConn');if(!el)return;
+  const u=firebase.auth().currentUser;
+  if(u){el.innerHTML=`<div style="margin:10px 22px 0;padding:6px 12px;border-radius:8px;background:rgba(45,184,122,.08);border:1px solid rgba(45,184,122,.25);color:var(--green);font-size:11px;display:flex;justify-content:space-between;align-items:center"><span>✓ Conectado a Firebase como ${esc(u.email||'')}</span><a style="cursor:pointer;text-decoration:underline" onclick="saDesconectarFirebase()">desconectar</a></div>`;return}
+  el.innerHTML=`<div style="margin:10px 22px 0;padding:12px 14px;border-radius:10px;background:rgba(232,160,32,.08);border:1px solid rgba(232,160,32,.35)">
+    <div style="font-size:13px;font-weight:700;color:var(--accent);margin-bottom:4px">⚠ Sin sesión de Firebase — las listas de usuarios y empresas salen vacías</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Conecta con tu cuenta de administrador (la que usas para entrar al sistema) para poder ver y gestionar usuarios y empresas.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input id="saConnEmail" type="email" placeholder="correo de administrador" style="flex:1;min-width:180px" onkeydown="if(event.key==='Enter')saConectarFirebase()">
+      <input id="saConnPass" type="password" placeholder="contraseña" style="flex:1;min-width:140px" onkeydown="if(event.key==='Enter')saConectarFirebase()">
+      <button class="btn btn-sm" style="background:#1a0a2a;color:#c084fc;border:1px solid #3a1a5a" onclick="saConectarFirebase()">Conectar</button>
+    </div><div id="saConnErr" style="font-size:12px;color:var(--red);margin-top:6px;min-height:14px"></div></div>`;
+}
+async function saConectarFirebase(){
+  const em=(document.getElementById('saConnEmail')||{}).value||'',pw=(document.getElementById('saConnPass')||{}).value||'';
+  const er=document.getElementById('saConnErr');
+  if(!em.trim()||!pw){if(er)er.textContent='Escribe correo y contraseña';return}
+  if(er)er.textContent='Conectando...';
+  const r=await window.FB.login(em.trim(),pw);
+  if(!r.ok){if(er)er.textContent=r.err;return}
+  toast('✓ Conectado a Firebase');renderSA();
+}
+async function saDesconectarFirebase(){try{await firebase.auth().signOut()}catch(e){}renderSA()}
 function goSATab(t){SA_TAB=t;renderSA()}
 
 async function renderSADashboard(){
@@ -5260,10 +5292,11 @@ async function restaurarPerfilUsuario(){
   errEl.style.color='var(--muted)';errEl.textContent='Restaurando perfil...';
   try {
     // Intentar login para obtener UID
-    const userCred=await firebase.auth().signInWithEmailAndPassword(email,pass);
+    const _sec=window._fbSec();
+    const userCred=await _sec.auth().signInWithEmailAndPassword(email,pass);
     const uid=userCred.user.uid;
     // Recrear documento en Firestore
-    await firebase.firestore().collection('usuariosApp').doc(uid).set({
+    await _sec.firestore().collection('usuariosApp').doc(uid).set({
       email:email,
       nombre:nombre||email.split('@')[0],
       rol:rol,
@@ -5275,7 +5308,7 @@ async function restaurarPerfilUsuario(){
       _restauradoEn:Date.now()
     });
     // Cerrar sesión recién iniciada (estamos como SA)
-    await firebase.auth().signOut();
+    await _sec.auth().signOut();
     await window.FB.logSA('RESTAURAR_USUARIO',`${email} perfil restaurado en ${empresa} como ${rol}`);
     errEl.style.color='var(--green)';errEl.textContent='✓ Perfil restaurado: '+email;
     toast('✓ Perfil restaurado correctamente');
