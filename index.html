@@ -515,7 +515,7 @@ async getAllEmpresas(){
 
       if(!secsAEscribir.length){ return {ok:true,escritas:[]}; }
 
-      if(totalSize>800000){
+      if(totalSize>1000000){
         console.warn('[FB] saveSection: total >800KB, fallback a save completo');
         return {ok:false,err:'Sección muy grande, usando save completo'};
       }
@@ -1994,7 +1994,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-11-18-D'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-11-23-A'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -3188,8 +3188,10 @@ async function loadData(){
   try{
     const remote=await window.FB.load(S.empresa);
     if(remote&&Object.keys(remote).length>3){
-      // Firebase tiene datos reales — aplicar SIEMPRE
-      applyData(remote,false);
+      // Firebase tiene datos reales — aplicar, PERO sin pisar secciones con
+      // cambios aun sin guardar, y luego recuperar lo que quedo en el diario local.
+      applyData(remote,false,Object.keys(S._dirtySections||{}));
+      try{ _gdRecuperar(); }catch(eGd){ console.warn('[GD] recuperar:',eGd); }
       var _ltc=((S.mantenimiento&&S.mantenimiento.tecnicos)||[]).filter(function(t){return t.activo!==false;}).length;
       if(_ltc>0){S._lastKnownTecCount=_ltc;console.log('[PP] Técnicos verificados:',_ltc);}
       S._tecnicosDirty=false; // Firebase es la fuente de verdad al cargar
@@ -3368,6 +3370,140 @@ function _emergencySave(){
     }
   }catch(e){}
 }
+
+// ════════════════════════════════════════════════════════════
+//  GUARDIÁN DE GUARDADO (v2026-11-23-A)
+//  Garantiza que nada de lo que se digita se pierda en silencio:
+//   1) Diario local (pp3_pend_<empresa>) con las secciones sin guardar.
+//   2) Reintento automatico con espera creciente mientras haya pendientes.
+//   3) Al cargar, lo pendiente NO se pisa con el servidor y se recupera del diario.
+//   4) Verificacion de lectura: tras guardar proyectos se confirma en el servidor.
+//   5) Aviso rojo visible + advertencia al cerrar si hay algo sin guardar.
+// ════════════════════════════════════════════════════════════
+var _GD={ultimoIntento:0,fallos:0,huboAviso:false};
+function _gdSucias(){ return Object.keys((S&&S._dirtySections)||{}); }
+function _gdKey(){ return 'pp3_pend_'+S.empresa; }
+function _gdJournalWrite(){
+  try{
+    if(!S.empresa)return;
+    var sec=_gdSucias();
+    if(!sec.length){ localStorage.removeItem(_gdKey()); return; }
+    var snap={ts:Date.now(),secciones:{}};
+    sec.forEach(function(k){
+      try{
+        var txt=JSON.stringify(S[k]);
+        if(txt&&txt.length<2500000) snap.secciones[k]=S[k];
+      }catch(e){}
+    });
+    localStorage.setItem(_gdKey(),JSON.stringify(snap));
+  }catch(e){ console.warn('[GD] diario no se pudo escribir:',e.message); }
+}
+function _gdUnirArr(loc,jrn){
+  loc=loc||[]; var orden=[],porId={},cambios=0;
+  loc.forEach(function(x){ if(x&&x.id!==undefined){ if(!porId[x.id])orden.push(x.id); porId[x.id]=x; } else orden.push(x); });
+  (jrn||[]).forEach(function(x){
+    if(!x||x.id===undefined)return;
+    var e=porId[x.id];
+    if(!e){ porId[x.id]=x; orden.push(x.id); cambios++; }
+    else if(JSON.stringify(e)!==JSON.stringify(x)){ porId[x.id]=x; cambios++; }
+  });
+  var arr=orden.map(function(k){ return (k&&typeof k==='object')?k:porId[k]; });
+  return {arr:arr,cambios:cambios};
+}
+function _gdRecuperar(){
+  if(!S.empresa)return 0;
+  var raw=localStorage.getItem(_gdKey()); if(!raw)return 0;
+  var snap; try{ snap=JSON.parse(raw); }catch(e){ return 0; }
+  if(!snap||!snap.secciones)return 0;
+  if(Date.now()-(snap.ts||0)>14*86400000){ localStorage.removeItem(_gdKey()); return 0; }
+  var total=0, nombres=[];
+  Object.keys(snap.secciones).forEach(function(sec){
+    var j=snap.secciones[sec], c=0;
+    if(sec==='proyectos'||sec==='proveedores'||sec==='centros'||sec==='gerentesZona'||sec==='gastos'){
+      var r=_gdUnirArr(S[sec],j); S[sec]=r.arr; c=r.cambios;
+    } else if(sec==='mantenimiento'){
+      S.mantenimiento=S.mantenimiento||{};
+      ['checklists','equipos','ots','movimientosEquipos','registros','solicitudesMant','tecnicos'].forEach(function(f){
+        var r2=_gdUnirArr(S.mantenimiento[f],(j||{})[f]); S.mantenimiento[f]=r2.arr; c+=r2.cambios;
+      });
+    } else if(_SPEC_FUSION[sec]){
+      S[sec]=S[sec]||{};
+      _SPEC_FUSION[sec].forEach(function(f){
+        var r3=_gdUnirArr(S[sec][f],(j||{})[f]); S[sec][f]=r3.arr; c+=r3.cambios;
+      });
+    }
+    if(c>0){ markDirty(sec); total+=c; nombres.push(sec); }
+  });
+  if(total>0){
+    console.warn('[GD] Recuperados '+total+' cambio(s) sin guardar de '+nombres.join(','));
+    try{ localStorage.setItem('pp3_'+S.empresa,JSON.stringify(serializeState())); }catch(e){}
+    setTimeout(function(){
+      toast('♻ Se recuperaron '+total+' cambio(s) que no se habían guardado ('+nombres.join(', ')+'). Subiendo al servidor…',false,8000);
+      try{ saveData(); }catch(e){}
+      try{ if(S.currentUser)render(); }catch(e){}
+    },600);
+  } else {
+    localStorage.removeItem(_gdKey());
+  }
+  return total;
+}
+async function _gdVerificarProyectos(){
+  try{
+    var doc=await firebase.firestore().collection('empresas').doc(S.empresa).get({source:'server'});
+    var rem=((doc.exists&&doc.data())||{}).proyectos||[];
+    var ids={}; rem.forEach(function(p){ if(p&&p.id)ids[p.id]=1; });
+    var falta=(S.proyectos||[]).filter(function(p){ return p&&p.id&&!ids[p.id]; });
+    if(falta.length){
+      console.error('[GD] El servidor NO tiene '+falta.length+' proyecto(s) que se creian guardados:',falta.map(function(p){return p.nombre;}));
+      markDirty('proyectos'); _gdJournalWrite(); _GD.fallos++;
+      toast('⚠ El servidor no confirmó el proyecto "'+(falta[0].nombre||'')+'". Reintentando automáticamente…',true,8000);
+    }
+  }catch(e){ /* sin red: el guardian reintenta */ }
+}
+function _gdReintentar(){
+  _GD.fallos=0; _GD.ultimoIntento=0;
+  try{ clearTimeout(S._syncTimer); }catch(e){}
+  _doSaveFirebase();
+}
+function _gdBanner(sec){
+  var el=document.getElementById('gdBanner');
+  if(!sec.length){
+    if(el)el.style.display='none';
+    if(_GD.huboAviso){ _GD.huboAviso=false; toast('✅ Todos los cambios quedaron guardados en el servidor',false,4000); }
+    return;
+  }
+  var visible=_GD.fallos>0||!(window.FB&&window.FB.currentUser());
+  if(!visible){ if(el)el.style.display='none'; return; }
+  _GD.huboAviso=true;
+  if(!el){
+    el=document.createElement('div'); el.id='gdBanner';
+    el.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#b91c1c;color:#fff;padding:10px 14px;font:600 13px system-ui,sans-serif;display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;box-shadow:0 -2px 10px rgba(0,0,0,.3)';
+    document.body.appendChild(el);
+  }
+  var sinSesion=!(window.FB&&window.FB.currentUser());
+  el.innerHTML='<span>⚠ '+(sinSesion?'Sesión caída: ':'')+'HAY CAMBIOS SIN GUARDAR EN EL SERVIDOR ('+sec.join(', ')+'). Están respaldados en este navegador; '+(sinSesion?'vuelve a iniciar sesión para subirlos.':'se reintenta automáticamente.')+'</span>'
+    +'<button onclick="_gdReintentar()" style="background:#fff;color:#b91c1c;border:0;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer">Reintentar ahora</button>';
+  el.style.display='flex';
+}
+setInterval(function(){
+  try{
+    if(!S||!S.empresa)return;
+    var sec=_gdSucias();
+    _gdBanner(sec);
+    if(!sec.length){ _GD.fallos=0; try{localStorage.removeItem(_gdKey());}catch(e){} return; }
+    if(S._saving)return;
+    var espera=Math.min(5000*Math.pow(2,Math.min(_GD.fallos,3)),40000);
+    if(Date.now()-_GD.ultimoIntento<espera)return;
+    _GD.fallos++;
+    console.warn('[GD] Pendiente sin guardar ('+sec.join(',')+') — reintento #'+_GD.fallos);
+    _doSaveFirebase();
+  }catch(e){}
+},3000);
+window.addEventListener('online',function(){ try{ if(_gdSucias().length)_gdReintentar(); }catch(e){} });
+window.addEventListener('beforeunload',function(e){
+  try{ if(_gdSucias().length){ _gdJournalWrite(); e.preventDefault(); e.returnValue='Hay cambios sin guardar en el servidor.'; return e.returnValue; } }catch(x){}
+});
+
 window.addEventListener('pagehide', _emergencySave);
 window.addEventListener('beforeunload', _emergencySave);
 // visibilitychange: cuando el usuario pone la app en background en móvil
@@ -3983,6 +4119,7 @@ async function saveData(seccion){
   // Guardar siempre en localStorage inmediatamente — backup local instantáneo
   try{localStorage.setItem('pp3_'+S.empresa,JSON.stringify(serializeState()));}catch(e){}
   S._dirty=true;
+  _gdJournalWrite();
   // Debounce inteligente: 800ms entre saves para evitar saturar Firebase
   // cuando el usuario hace muchos clicks rápidos (ej: borrar/marcar varios registros)
   S._syncTimer=setTimeout(()=>_doSaveFirebase(),800);
@@ -3990,8 +4127,11 @@ async function saveData(seccion){
 
 async function _doSaveFirebase(){
   const user=(window.FB&&window.FB.currentUser());
+  _GD.ultimoIntento=Date.now();
   if(!window.FB||!user||!S.empresa){
-    S._dirty=false;S._saving=false;
+    // NO se marca limpio: los cambios siguen pendientes (y en el diario local)
+    // y el guardián los reintenta apenas haya sesión.
+    S._saving=false;
     setSyncUI('err','Sin sesión');
     return;
   }
@@ -4164,6 +4304,7 @@ async function _doSaveFirebase(){
     if(ok){
       setSyncUI('ok','Sincronizado');
       _respaldarAhora(false);
+      if(dirtySections.indexOf('proyectos')>=0){ _gdVerificarProyectos(); }
     } else {
       setSyncUI('err','Error al guardar');
       console.error('[PP] Firebase save failed — sz:'+(sz/1024).toFixed(0)+'KB',errMsg||'');
