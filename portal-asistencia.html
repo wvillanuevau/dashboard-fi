@@ -3676,7 +3676,8 @@ function paAutoCompletarAlmuerzo(marcacionesHoy, fecha, empData, callback) {
   }
 
   // Consultar Firestore directo para tener ts correctos (evita problema Firestore Timestamp vs number)
-  paDb.collection('paMarcaciones').where('empleadoId', '==', empData.id).get()
+  // Solo las marcas de ESA fecha (antes leia todo el historial del empleado en cada marca)
+  paDb.collection('paMarcaciones').where('empleadoId', '==', empData.id).where('fecha', '==', fecha).get()
     .then(function(snap) {
       var marcsHoy = [];
       snap.forEach(function(d) {
@@ -3854,6 +3855,7 @@ function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
         // Solo la quincena en curso (rango sobre un unico campo -> sin
         // indice compuesto). Antes leia todo el historial del empleado.
         paDb.collection('paMarcaciones')
+          .where('empleadoId', '==', empId)   // solo este empleado (antes: la quincena de TODA la empresa, miles de lecturas por salida)
           .where('fecha', '>=', _q.desde)
           .where('fecha', '<=', _q.hasta)
           .get(),
@@ -4025,6 +4027,7 @@ function paAutoRegistrarHorasExtra(salidaDocData, entradaTipo, callback) {
     // el dia calendario anterior (turno que cruza la medianoche).
     paDb.collection('paMarcaciones')
       .where('empleadoId', '==', empId)
+      .where('fecha', '>=', _diaAntesHoy)   // solo ayer y hoy (antes: todo el historial)
       .get().then(function(snap) {
         var entradaDoc = null;
         var entradaDocPrevio = null;
@@ -12150,7 +12153,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-11-12-F';
+var PA_VERSION = 'v2026-11-24-A';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
