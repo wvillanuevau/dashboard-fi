@@ -164,7 +164,7 @@ body{background:var(--bg);color:var(--text);font-family:'Courier New',monospace;
     <h1>📊 DASHBOARD OPERACIONES — FISDC</h1>
     <div class="dash-header-right">
       <span class="dash-fecha" id="dashFecha"></span>
-      <button class="btn-refresh" onclick="cargarTodo()">⟳ Actualizar</button>
+      <button class="btn-refresh" onclick="cargarTodo(true)">⟳ Actualizar</button>
       <button class="btn-logout" onclick="doLogout()">Cerrar sesión</button>
     </div>
   </div>
@@ -268,7 +268,7 @@ function doLogin(){
     document.getElementById('dashScreen').style.display='block';
     actualizarFecha();
     cargarTodo();
-    _autoRefresh=setInterval(cargarTodo,5*60*1000); // auto-refresh cada 5 min
+    _autoRefresh=setInterval(function(){ if(!document.hidden) cargarTodo(); },10*60*1000); // cada 10 min y solo con la pestaña visible
   }).catch(function(e){
     errEl.textContent='Error: '+e.message;
     btn.disabled=false;btn.textContent='Ingresar';
@@ -293,21 +293,31 @@ function actualizarFecha(){
 }
 
 // ── Master loader ────────────────────────────────────────────────────
-function cargarTodo(){
+// Las colecciones PESADAS (gastos, tickets, trabajos, reportes) se leen completas como maximo
+// cada 30 min o al pulsar actualizar; antes se releian enteras (incluida TODA la historia de
+// marcaciones) cada 5 min. Las marcaciones ahora solo se piden las de HOY.
+var _opsPesado={ts:0,res:null};
+function cargarTodo(forzar){
   document.getElementById('lastUpdate').innerHTML='<span class="spin">⟳</span> Cargando datos...';
   var HOY=hoy();
   var HACE3M=hace3meses();
+  var _pesadoViejo = forzar===true || !_opsPesado.res || (Date.now()-_opsPesado.ts) > 30*60*1000;
+  var _pPesado = _pesadoViejo
+    ? Promise.all([
+        db.collection('empresas').doc(EMPRESA).collection('gastos_chunks').get(),
+        db.collection('solicitudesTaller').where('empresa','==',EMPRESA).get(),
+        db.collection('tallerTrabajos').where('empresa','==',EMPRESA).get(),
+        db.collection('reportesMotoristas').where('empresa','==',EMPRESA).get()
+      ]).then(function(r){ _opsPesado={ts:Date.now(),res:r}; return r; })
+    : Promise.resolve(_opsPesado.res);
 
-  // Load empresa doc + gastos chunks + colecciones externas en paralelo
   Promise.all([
     db.collection('empresas').doc(EMPRESA).get(),
-    db.collection('empresas').doc(EMPRESA).collection('gastos_chunks').get(),
-    db.collection('solicitudesTaller').where('empresa','==',EMPRESA).get(),
-    db.collection('tallerTrabajos').where('empresa','==',EMPRESA).get(),
-    db.collection('reportesMotoristas').where('empresa','==',EMPRESA).get(),
-    db.collection('paMarcaciones').where('empresa','==',EMPRESA).get(),
+    _pPesado,
+    db.collection('paMarcaciones').where('empresa','==',EMPRESA).where('fecha','==',HOY).get(),
     db.collection('portalesPublicos').doc(EMPRESA).get()
-  ]).then(function(results){
+  ]).then(function(rr){
+    var results=[rr[0], rr[1][0], rr[1][1], rr[1][2], rr[1][3], rr[2], rr[3]];
     var empresaDoc = results[0].exists ? results[0].data() : {};
     var gastosChunks = [];
     results[1].forEach(function(d){ var r=d.data(); if(r.items) gastosChunks=gastosChunks.concat(r.items); });

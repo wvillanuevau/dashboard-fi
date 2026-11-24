@@ -4840,30 +4840,64 @@ function paConfirmarMarca() {
       // Si no se confirma en 8 s (o no hay internet), aviso grande de "pendiente".
       var _confirmada = false, _inicioEnvio = Date.now();
       if (typeof _paPendRegistrar === 'function') _paPendRegistrar(docData);
+      var _exitoLocal = false;
       var _avisoPend = setTimeout(function(){
         if (_confirmada) return;
         if (btn) btn.textContent = '⏳ Pendiente de envío…';
         if (typeof _paMostrarPendienteEnvio === 'function') _paMostrarPendienteEnvio(docData);
+        // Sin confirmación del servidor (sin internet o cuota agotada): la marcación YA está
+        // guardada en el teléfono. Se libera la pantalla para que el empleado pueda seguir.
+        if (!_exitoLocal) {
+          _exitoLocal = true;
+          try {
+            PA.marcacionesHoy.push(Object.assign({ id: docData.folio, _id: docData.folio }, docData));
+            if (paStream) { paStream.getTracks().forEach(function(t){ t.stop(); }); paStream = null; }
+            if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
+            _paMostrarExito(docData, null);
+          } catch(eL) { console.warn('[Marca] exito local:', eL); }
+        }
       }, (navigator.onLine === false) ? 0 : 8000);
       // recibidoServidor = hora del SERVIDOR (detecta marcaciones que llegan tarde)
       var _docSrv = Object.assign({}, docData, { recibidoServidor: firebase.firestore.FieldValue.serverTimestamp() });
-      paDb.collection('paMarcaciones').add(_docSrv).then(function(ref) {
+      // ID = folio → escribir dos veces la misma marcación (cola interna + reenvío) NO la duplica
+      var _refMarca = paDb.collection('paMarcaciones').doc(docData.folio);
+      _refMarca.set(_docSrv).then(function() {
+        var ref = _refMarca;
         _confirmada = true; clearTimeout(_avisoPend);
         if (typeof _paPendQuitar === 'function') _paPendQuitar(docData.folio);
         var _dem = Date.now() - _inicioEnvio;
         if (document.getElementById('paPendEnvioOv') && typeof _paConfirmarPendienteEnvio === 'function') _paConfirmarPendienteEnvio();
         if (_dem > PA_PEND_LIMITE_MS && typeof _paAvisarLlegadaTarde === 'function') _paAvisarLlegadaTarde(Object.assign({ registrado:_inicioEnvio }, docData), _dem);
         console.log('[Marca] Marcación guardada OK — ref:', ref.id, '| tipo:', docData.tipo);
-        PA.marcacionesHoy.push(Object.assign({ id: ref.id, _id: ref.id }, docData));
-        if (paStream) { paStream.getTracks().forEach(function(t){ t.stop(); }); paStream = null; }
-        if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
+        if (!_exitoLocal) {
+          PA.marcacionesHoy.push(Object.assign({ id: ref.id, _id: ref.id }, docData));
+          if (paStream) { paStream.getTracks().forEach(function(t){ t.stop(); }); paStream = null; }
+          if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
+        }
         if (PA.tipoMarca === 'salida' || PA.tipoMarca === 'salida_adicional') {
           var entradaTipo = PA.tipoMarca === 'salida_adicional' ? 'entrada_adicional' : 'entrada';
-          paAutoRegistrarHorasExtra(docData, entradaTipo, function(calc) { _paMostrarExito(docData, calc); });
+          paAutoRegistrarHorasExtra(docData, entradaTipo, function(calc) { if (!_exitoLocal) _paMostrarExito(docData, calc); });
         } else {
-          _paMostrarExito(docData, null);
+          if (!_exitoLocal) _paMostrarExito(docData, null);
         }
       }).catch(function(e) {
+        // Fallo TRANSITORIO (cuota agotada, sin red, servidor ocupado): la marcación NO se descarta,
+        // queda pendiente en el teléfono y se reenvía sola al abrir el portal con conexión.
+        var _cod = (e && e.code) || '';
+        if (_cod === 'resource-exhausted' || _cod === 'unavailable' || _cod === 'deadline-exceeded' || _cod === 'cancelled' || _cod === 'unknown') {
+          _confirmada = true; clearTimeout(_avisoPend);
+          if (typeof _paMostrarPendienteEnvio === 'function') _paMostrarPendienteEnvio(docData);
+          if (!_exitoLocal) {
+            _exitoLocal = true;
+            try {
+              PA.marcacionesHoy.push(Object.assign({ id: docData.folio, _id: docData.folio }, docData));
+              if (paStream) { paStream.getTracks().forEach(function(t){ t.stop(); }); paStream = null; }
+              if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar registro'; }
+              _paMostrarExito(docData, null);
+            } catch(eL2) {}
+          }
+          return;
+        }
         _confirmada = true; clearTimeout(_avisoPend);
         if (typeof _paPendQuitar === 'function') _paPendQuitar(docData.folio);   // rechazada: no queda en cola
         var _ovP = document.getElementById('paPendEnvioOv'); if (_ovP) _ovP.remove();
@@ -4873,7 +4907,12 @@ function paConfirmarMarca() {
       });
     }
     if (docData.tipo === 'salida' || docData.tipo === 'salida_adicional') {
-      paAutoCompletarAlmuerzo(PA.marcacionesHoy, docData.fecha, PA.empleado, _doGuardarMarca);
+      // Si el almuerzo/cena automaticos no terminan en 6 s (sin internet o cuota agotada,
+      // sus escrituras quedan en cola y no se confirman), se guarda la salida IGUAL.
+      var _salidaYa = false;
+      var _seguirSalida = function(){ if (_salidaYa) return; _salidaYa = true; _doGuardarMarca(); };
+      setTimeout(_seguirSalida, 6000);
+      paAutoCompletarAlmuerzo(PA.marcacionesHoy, docData.fecha, PA.empleado, _seguirSalida);
     } else {
       _doGuardarMarca();
     }
@@ -8491,6 +8530,8 @@ function _paRecalcularHE(empId, fecha, newSalidaTs) {
 // ── Cargar y mostrar notificaciones de dispositivo al admin ──────
 function _paCargarNotificaciones() {
   if (!paDb || !PA.empresa) return;
+  // Solo aplica al panel de administrador: en el login de cada empleado no se lee nada
+  if (!document.getElementById('paAdminPanel')) return;
   paDb.collection('paNotificaciones')
     .where('empresa', '==', PA.empresa)
     .where('estado',  '==', 'pendiente')
@@ -8559,7 +8600,7 @@ function _paCargarAusenciasPeriodo(cb) {
   // Cache de 3 min — evita repetir la consulta pesada del período completo
   // cada vez que se cambia de pestaña (Hoy ⇄ Empleados), que era la causa
   // principal de la lentitud al abrir Hoy.
-  if (PA._ausPeriodo && PA._ausPeriodoKey === _cacheKey && PA._ausPeriodoTs && (Date.now() - PA._ausPeriodoTs) < 180000) {
+  if (PA._ausPeriodo && PA._ausPeriodoKey === _cacheKey && PA._ausPeriodoTs && (Date.now() - PA._ausPeriodoTs) < 600000) {
     if (cb) cb();
     return;
   }
@@ -12153,7 +12194,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-11-24-A';
+var PA_VERSION = 'v2026-11-24-B';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -13410,7 +13451,8 @@ function _paPendGuardar(l) {
 function _paPendRegistrar(d) {
   var l = _paPendLeer().filter(function(x){ return x.folio !== d.folio; });
   l.push({ folio:d.folio, empresa:d.empresa, empleadoId:d.empleadoId, empleadoNombre:d.empleadoNombre,
-           tipo:d.tipo, fecha:d.fecha, ts:d.ts, hora:d.hora || '', registrado:Date.now() });
+           tipo:d.tipo, fecha:d.fecha, ts:d.ts, hora:d.hora || '', registrado:Date.now(),
+           doc:d });   // copia COMPLETA: permite re-enviarla aunque se pierda la cola interna de Firestore
   _paPendGuardar(l);
 }
 function _paPendQuitar(folio) {
@@ -13434,7 +13476,7 @@ function _paMostrarPendienteEnvio(d, textoExtra) {
   ov.style.background = '#9a6700';
   ov.innerHTML = '<div style="font-size:17px;font-weight:800">⚠️ Sin conexión — tu marcación quedó PENDIENTE</div>'
     + '<div style="font-size:13.5px;margin-top:4px;line-height:1.45">' + (d ? _paTipoMarcaLegible(d.tipo) + (d.hora ? ' de las ' + d.hora : '') + ' · ' : '')
-    + 'Está guardada en este teléfono pero <b>todavía no llega al sistema</b>.<br><b>NO cierres la app</b> — se enviará sola cuando vuelva el internet.</div>'
+    + 'Está guardada en este teléfono pero <b>todavía no llega al sistema</b>.<br>Se enviará sola: <b>vuelve a abrir el portal con internet</b> (mañana o cuando haya conexión) y se subirá automáticamente.</div>'
     + (textoExtra ? '<div style="font-size:12.5px;margin-top:6px;opacity:.9">' + textoExtra + '</div>' : '');
 }
 function _paConfirmarPendienteEnvio(msg) {
@@ -13469,7 +13511,7 @@ function _paAvisarLlegadaTarde(rec, demoraMs) {
 function _paRevisarPendientesEnvio() {
   var l = _paPendLeer();
   if (!l.length || !paDb) return;
-  _paMostrarPendienteEnvio(null, 'Hay ' + l.length + ' marcación(es) de este teléfono pendientes de enviar. Mantén el portal abierto con internet.');
+  _paMostrarPendienteEnvio(null, 'Hay ' + l.length + ' marcación(es) de este teléfono pendientes de enviar. Se subirán solas cuando el sistema vuelva a responder; mantén el portal abierto un momento.');
   var espera = (typeof paDb.waitForPendingWrites === 'function')
     ? paDb.waitForPendingWrites().catch(function(){})
     : new Promise(function(r){ setTimeout(r, 15000); });
@@ -13481,6 +13523,19 @@ function _paRevisarPendientesEnvio() {
     }));
   }).then(function(res){
     var enviadas = 0, perdidas = [];
+    // Las que NO están en el servidor pero tienen copia completa se REENVÍAN (mismo ID = sin duplicar)
+    res.forEach(function(x){
+      if (x.ok === false && x.rec && x.rec.doc) {
+        var _r = x.rec;
+        paDb.collection('paMarcaciones').doc(_r.folio)
+          .set(Object.assign({}, _r.doc, { recibidoServidor: firebase.firestore.FieldValue.serverTimestamp() }))
+          .then(function(){ _paPendQuitar(_r.folio); _paConfirmarPendienteEnvio('Marcación pendiente enviada al sistema');
+            var dem = Date.now() - (_r.registrado || _r.ts || Date.now());
+            if (dem > PA_PEND_LIMITE_MS) _paAvisarLlegadaTarde(_r, dem); })
+          .catch(function(e){ console.warn('[PendEnvio] reenvío:', e.message); });
+        x.ok = null;   // sigue pendiente: no se da por perdida
+      }
+    });
     res.forEach(function(x){
       if (x.ok === true) {
         enviadas++; _paPendQuitar(x.rec.folio);
@@ -13597,6 +13652,12 @@ function _paAvisarRechazosEmpleado() {
   if (!paDb || !PA.empleado || !PA.empresa) return;
   if (document.getElementById('paRechazosOv')) return;
   var empId = PA.empleado.id, desdeMs = Date.now() - 30 * 86400000;
+  // Máximo una revisión cada 2 horas por teléfono (antes: 4 consultas en CADA ingreso)
+  try {
+    var _kRev = 'pa_rechazos_rev_' + empId, _ult = parseInt(localStorage.getItem(_kRev) || '0', 10);
+    if (Date.now() - _ult < 2 * 3600000) return;
+    localStorage.setItem(_kRev, String(Date.now()));
+  } catch(eRev) {}
   var claveVistos = 'pa_rechazos_vistos_' + empId, vistos = {};
   try { vistos = JSON.parse(localStorage.getItem(claveVistos) || '{}') || {}; } catch(e) {}
   var Q = [
