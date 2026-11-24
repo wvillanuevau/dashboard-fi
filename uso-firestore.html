@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Uso de Firestore · Dashboard-FI</title>
+<style>
+  :root{--bg:#0f1720;--card:#17212d;--line:#263445;--tx:#e6edf3;--mut:#8b9bb0;--ok:#2ea043;--w50:#d29922;--w75:#e8590c;--w95:#e5484d;--r:#4ea8de;--w:#b388ff}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 system-ui,sans-serif;padding:16px;max-width:1000px;margin:auto}
+  h1{font-size:20px;margin:0 0 2px} .sub{color:var(--mut);font-size:12px;margin-bottom:14px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px} @media(max-width:640px){.row{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+  .row .card{margin-bottom:0}
+  .big{font-size:26px;font-weight:800} .lim{color:var(--mut);font-size:13px;font-weight:500}
+  .meter{height:12px;background:#0b1118;border-radius:8px;overflow:hidden;margin:8px 0 4px}
+  .meter>i{display:block;height:100%;border-radius:8px}
+  .tick{position:relative;height:0}
+  .btn{background:#1f6feb;color:#fff;border:0;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer}
+  .btn.sec{background:#263445}
+  .chart{display:flex;align-items:flex-end;gap:3px;height:140px;margin-top:8px}
+  .col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;cursor:pointer;min-width:0}
+  .col .b{width:100%;background:var(--r);border-radius:3px 3px 0 0;min-height:1px}
+  .col .bw{width:100%;background:var(--w);min-height:0}
+  .col.sel .b{outline:2px solid #fff} .col.pico .b{background:var(--w95)}
+  .col small{font-size:9px;color:var(--mut);margin-top:3px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px} th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left}
+  th{color:var(--mut);font-weight:600;font-size:11px;text-transform:uppercase} td.n{text-align:right;font-variant-numeric:tabular-nums}
+  .tag{display:inline-block;padding:1px 7px;border-radius:6px;font-size:11px;font-weight:700}
+  .tR{background:rgba(78,168,222,.18);color:var(--r)} .tW{background:rgba(179,136,255,.18);color:var(--w)}
+  .pico-msg{background:rgba(229,72,77,.12);border:1px solid rgba(229,72,77,.4);border-radius:8px;padding:8px 10px;font-size:13px;margin-top:10px}
+  .mut{color:var(--mut);font-size:12px}
+</style>
+</head>
+<body>
+<h1>📊 Uso de Firestore</h1>
+<div class="sub" id="sub">Cargando…</div>
+<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+  <button class="btn" onclick="cargar()">⟳ Actualizar</button>
+  <button class="btn sec" id="btnTodo" onclick="filtrarHora(null)" style="display:none">Ver todo el día</button>
+</div>
+
+<div class="row">
+  <div class="card"><div class="mut">LECTURAS HOY</div><div class="big" id="rTxt">—</div><div class="meter"><i id="rBar" style="width:0"></i></div><div class="mut" id="rPct"></div></div>
+  <div class="card"><div class="mut">ESCRITURAS HOY</div><div class="big" id="wTxt">—</div><div class="meter"><i id="wBar" style="width:0"></i></div><div class="mut" id="wPct"></div></div>
+</div>
+
+<div class="card">
+  <b>Consumo por hora</b> <span class="mut">(hora de El Salvador · azul = lecturas, morado = escrituras · toca una barra para ver qué la disparó)</span>
+  <div class="chart" id="chart"></div>
+  <div id="picoMsg"></div>
+</div>
+
+<div class="card">
+  <b id="tablaTitulo">Qué consume más</b>
+  <div style="overflow-x:auto;margin-top:8px"><table>
+    <thead><tr><th>Tipo</th><th>Colección</th><th>Función que lo dispara</th><th>Página</th><th style="text-align:right">Operaciones</th><th style="text-align:right">%</th></tr></thead>
+    <tbody id="tbody"><tr><td colspan="6" class="mut">…</td></tr></tbody>
+  </table></div>
+</div>
+
+<div class="card">
+  <b>Últimos 7 días</b>
+  <table style="margin-top:6px"><thead><tr><th>Día (Pacífico)</th><th style="text-align:right">Lecturas</th><th style="text-align:right">Escrituras</th><th style="text-align:right">% máx.</th></tr></thead><tbody id="hist"></tbody></table>
+</div>
+
+<div class="card mut">
+  Las cifras son una <b>estimación</b>: cuentan lo que hacen las páginas de este sistema (index, portal de asistencia, portales, etc.) y llegan por lotes cada ~30 min, así que pueden ir un poco atrasadas.
+  No incluyen lo que hagas desde la consola de Firebase. El dato oficial exacto está en Firebase Console → Firestore → Uso.<br>
+  Límites diarios gratuitos: 50,000 lecturas · 20,000 escrituras. <span id="reset"></span>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script>
+var LIM_R=50000, LIM_W=20000;
+var app=firebase.initializeApp({apiKey:"AIzaSyC0R7573cB76FzC6qPZhLmvKhVT46PN3RM",authDomain:"pf-construccion.firebaseapp.com",projectId:"pf-construccion"});
+var db=firebase.firestore(app);
+var DATOS=null, HORA_SEL=null;
+
+function diaPT(offset){
+  var d=new Date(Date.now()-(offset||0)*86400000);
+  return new Intl.DateTimeFormat('en-CA',{timeZone:'America/Los_Angeles',year:'numeric',month:'2-digit',day:'2-digit'}).format(d);
+}
+function n(x){ return (x||0).toLocaleString('es-SV'); }
+function color(p){ return p>=95?'var(--w95)':p>=75?'var(--w75)':p>=50?'var(--w50)':'var(--ok)'; }
+function horaReset(){
+  var ph=parseInt(new Intl.DateTimeFormat('en-GB',{timeZone:'America/Los_Angeles',hour:'2-digit',hour12:false}).format(new Date()),10)%24;
+  var off=ph-new Date().getUTCHours(); if(off>12)off-=24; if(off<-12)off+=24;   // desfase del Pacífico vs UTC
+  var sv=((0-off-6)%24+24)%24;
+  return 'La cuota se reinicia a la medianoche del Pacífico = '+sv+':00 a. m. hora de El Salvador.';
+}
+
+function cargar(){
+  document.getElementById('sub').textContent='Cargando…';
+  var dias=[]; for(var i=0;i<7;i++) dias.push(diaPT(i));
+  Promise.all(dias.map(function(d){ return db.collection('paConfig').doc('uso_'+d).get().then(function(s){ return {dia:d,x:s.exists?s.data():null}; }).catch(function(e){ return {dia:d,x:null,err:e}; }); }))
+  .then(function(res){
+    DATOS=res; HORA_SEL=null; pintar();
+    var err=res[0].err; document.getElementById('sub').textContent = err
+      ? '⚠ No se pudo leer ('+(err.code||err.message)+'). Si dice resource-exhausted, la cuota de hoy ya se agotó.'
+      : 'Día '+dias[0]+' (Pacífico) · actualizado '+new Date().toLocaleTimeString('es-SV');
+  });
+}
+
+function pintar(){
+  var hoy=DATOS[0].x||{r:0,w:0,k:{}};
+  var r=hoy.r||0, w=hoy.w||0, pr=Math.round(r*100/LIM_R), pw=Math.round(w*100/LIM_W);
+  document.getElementById('rTxt').innerHTML=n(r)+' <span class="lim">/ '+n(LIM_R)+'</span>';
+  document.getElementById('wTxt').innerHTML=n(w)+' <span class="lim">/ '+n(LIM_W)+'</span>';
+  var rb=document.getElementById('rBar'); rb.style.width=Math.min(100,pr)+'%'; rb.style.background=color(pr);
+  var wb=document.getElementById('wBar'); wb.style.width=Math.min(100,pw)+'%'; wb.style.background=color(pw);
+  document.getElementById('rPct').textContent=pr+'% de la cuota';
+  document.getElementById('wPct').textContent=pw+'% de la cuota';
+  document.getElementById('reset').textContent=horaReset();
+
+  // por hora
+  var h={}; for(var i=0;i<24;i++){ var hh=String(i).padStart(2,'0'); h[hh]={r:0,w:0}; }
+  Object.keys(hoy.k||{}).forEach(function(c){ var p=c.split('~'); if(h[p[0]]){ if(p[1]==='R') h[p[0]].r+=hoy.k[c]; else h[p[0]].w+=hoy.k[c]; } });
+  var max=1, pico=null; Object.keys(h).forEach(function(k){ var t=h[k].r+h[k].w; if(t>max){max=t;} if(!pico||t>h[pico].r+h[pico].w) pico=k; });
+  var ch=document.getElementById('chart'); ch.innerHTML='';
+  Object.keys(h).forEach(function(k){
+    var t=h[k].r+h[k].w, alto=Math.round(t*120/max);
+    var col=document.createElement('div'); col.className='col'+(k===pico&&t>0?' pico':'')+(k===HORA_SEL?' sel':'');
+    col.title=k+':00 · '+n(h[k].r)+' lecturas · '+n(h[k].w)+' escrituras';
+    col.onclick=function(){ filtrarHora(k); };
+    var bw=Math.round(h[k].w*120/max);
+    col.innerHTML='<div class="bw" style="height:'+bw+'px"></div><div class="b" style="height:'+Math.max(0,alto-bw)+'px"></div><small>'+k+'</small>';
+    ch.appendChild(col);
+  });
+  var pm=document.getElementById('picoMsg');
+  pm.innerHTML = (pico && h[pico].r+h[pico].w>0)
+    ? '<div class="pico-msg">⚡ Hora pico: <b>'+pico+':00</b> con '+n(h[pico].r)+' lecturas y '+n(h[pico].w)+' escrituras. Toca esa barra para ver qué función la disparó.</div>' : '';
+
+  // tabla
+  var filas={}, total=0;
+  Object.keys(hoy.k||{}).forEach(function(c){
+    var p=c.split('~'); if(HORA_SEL && p[0]!==HORA_SEL) return;
+    var key=p.slice(1).join('~'); filas[key]=(filas[key]||0)+hoy.k[c]; total+=hoy.k[c];
+  });
+  var lista=Object.keys(filas).map(function(k){ return {k:k,n:filas[k]}; }).sort(function(a,b){ return b.n-a.n; }).slice(0,25);
+  document.getElementById('tablaTitulo').textContent = HORA_SEL ? 'Qué consumió a las '+HORA_SEL+':00' : 'Qué consume más (todo el día)';
+  document.getElementById('btnTodo').style.display = HORA_SEL ? '' : 'none';
+  var tb=document.getElementById('tbody'); tb.innerHTML='';
+  if(!lista.length){ tb.innerHTML='<tr><td colspan="6" class="mut">Sin datos todavía (los lotes llegan cada ~30 min).</td></tr>'; }
+  lista.forEach(function(f){
+    var p=f.k.split('~'), tr=document.createElement('tr');
+    [['tag t'+p[0], p[0]==='R'?'Lectura':'Escritura'],[null,p[1]],[null,p[2]],[null,p[3]]].forEach(function(c){
+      var td=document.createElement('td');
+      if(c[0]){ var s=document.createElement('span'); s.className=c[0]; s.textContent=c[1]; td.appendChild(s); } else td.textContent=c[1];
+      tr.appendChild(td);
+    });
+    var t1=document.createElement('td'); t1.className='n'; t1.textContent=n(f.n); tr.appendChild(t1);
+    var t2=document.createElement('td'); t2.className='n'; t2.textContent=(total?Math.round(f.n*100/total):0)+'%'; tr.appendChild(t2);
+    tb.appendChild(tr);
+  });
+
+  // historial
+  var hb=document.getElementById('hist'); hb.innerHTML='';
+  DATOS.forEach(function(d){
+    var x=d.x||{r:0,w:0}, p=Math.max(Math.round((x.r||0)*100/LIM_R),Math.round((x.w||0)*100/LIM_W));
+    var tr=document.createElement('tr');
+    [d.dia,n(x.r),n(x.w),p+'%'].forEach(function(v,i){ var td=document.createElement('td'); if(i)td.className='n'; td.textContent=v; if(i===3)td.style.color=color(p); tr.appendChild(td); });
+    hb.appendChild(tr);
+  });
+}
+function filtrarHora(h){ HORA_SEL=h; pintar(); }
+cargar();
+</script>
+</body>
+</html>
