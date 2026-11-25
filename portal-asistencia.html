@@ -1015,7 +1015,7 @@ select[style*="border:1px solid var(--border)"]{
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-<script src="uso-monitor.js?v=1"></script>
+<script src="uso-monitor.js?v=2"></script>
 <script>window.UsoMonitorEsAdmin=function(){ return !!document.getElementById('paAdminPanel'); };</script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"></script>
@@ -12196,7 +12196,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-11-24-C';
+var PA_VERSION = 'v2026-11-25-A';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -12773,6 +12773,36 @@ window.addEventListener('DOMContentLoaded', function() {
     return (desde && desde < ini) ? desde : ini;
   }
 
+  // ── Memoria temporal de la revisión ──────────────────────────────────
+  // ANTES: cada apertura / "Actualizar" / aprobación volvía a descargar TODAS las marcaciones
+  // desde el 1-sep (~20 mil documentos) + todo el historial de permisos, vacaciones, canjes y
+  // acciones: unas 360 mil lecturas en una mañana. AHORA cada colección se guarda en memoria
+  // (marcaciones 10 min; el resto 5 min) y se descarta sola en cuanto ESTA página escribe en ella
+  // (p. ej. al aprobar una incapacidad se vuelve a leer solo paIncapacidades).
+  var _PC_CACHE = {};
+  var _PC_COLS = { paMarcaciones:'mc', paIncapacidades:'inc', paVacaciones:'vac', paCanjes:'cj', paAccionesPersonal:'ap' };
+  function _pcCache(nombre, key, ttl, fn){
+    var c = _PC_CACHE[nombre];
+    if (c && c.key === key && (Date.now() - c.ts) < ttl) return c.p;
+    var p = fn(); _PC_CACHE[nombre] = { key:key, ts:Date.now(), p:p };
+    p.catch(function(){ if (_PC_CACHE[nombre] && _PC_CACHE[nombre].p === p) delete _PC_CACHE[nombre]; });
+    return p;
+  }
+  function _pcInvalidar(ref){
+    try { var col = String((ref && ref.path) || '').split('/')[0]; if (_PC_COLS[col]) delete _PC_CACHE[_PC_COLS[col]]; } catch(e) {}
+  }
+  (function(){
+    var F = firebase.firestore;
+    function env(clase, m, usaArg){
+      try {
+        var o = clase.prototype[m]; if (typeof o !== 'function') return;
+        clase.prototype[m] = function(a){ _pcInvalidar(usaArg ? a : this); return o.apply(this, arguments); };
+      } catch(e) {}
+    }
+    ['set','update','delete'].forEach(function(m){ env(F.DocumentReference, m, false); env(F.WriteBatch, m, true); env(F.Transaction, m, true); });
+    env(F.CollectionReference, 'add', false);
+  })();
+
   function _precierre(desde, hasta){
     var E = PA.empresa, hoy = paHoy();
     var S = { source:'server' };
@@ -12781,11 +12811,11 @@ window.addEventListener('DOMContentLoaded', function() {
       ini = _inicioRevision(desde);
       return Promise.all([
         paDb.collection('paHorasExtra').where('empresa','==',E).where('estado','==','pendiente').get(S),
-        paDb.collection('paMarcaciones').where('empresa','==',E).where('fecha','>=',ini).where('fecha','<=',hasta).get(S),
-        paDb.collection('paIncapacidades').where('empresa','==',E).get(S),
-        paDb.collection('paVacaciones').where('empresa','==',E).get(S),
-        paDb.collection('paCanjes').where('empresa','==',E).get(S),
-        paDb.collection('paAccionesPersonal').where('empresa','==',E).get(S),
+        _pcCache('mc', ini + '|' + hasta, 10*60000, function(){ return paDb.collection('paMarcaciones').where('empresa','==',E).where('fecha','>=',ini).where('fecha','<=',hasta).get(S); }),
+        _pcCache('inc', E, 5*60000, function(){ return paDb.collection('paIncapacidades').where('empresa','==',E).get(S); }),
+        _pcCache('vac', E, 5*60000, function(){ return paDb.collection('paVacaciones').where('empresa','==',E).get(S); }),
+        _pcCache('cj',  E, 5*60000, function(){ return paDb.collection('paCanjes').where('empresa','==',E).get(S); }),
+        _pcCache('ap',  E, 5*60000, function(){ return paDb.collection('paAccionesPersonal').where('empresa','==',E).get(S); }),
         paDb.collection('paNotificaciones').where('empresa','==',E).where('estado','==','pendiente').get(S).catch(function(){ return { forEach:function(){} }; }),
         (typeof _paCargarAutorizaciones === 'function' ? _paCargarAutorizaciones() : Promise.resolve({ sol:[], aj:[] })).catch(function(){ return { sol:[], aj:[] }; })
       ]);

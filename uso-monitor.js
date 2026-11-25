@@ -45,6 +45,7 @@
         var l = lines[i];
         if (!l || l.indexOf('uso-monitor') >= 0 || l.indexOf('Error') === 0) continue;
         if (/firebasejs|gstatic|firebase-/.test(l)) continue;
+        if (/<computed>|\bat\s+DP\.|^\s*DP\./.test(l)) continue;   // envoltorios propios de la página
         var m = l.match(/at\s+(?:async\s+)?([^\s(]+)\s+\(/) || l.match(/^\s*([^\s@(]+)@/);
         var ln = l.match(/:(\d+):\d+\)?\s*$/);
         var nombre = m ? m[1] : 'anon';
@@ -66,14 +67,14 @@
       return s[0] + (s.length > 2 ? '/' + s[2] : '');
     } catch (e) { return 'desconocida'; }
   }
-  function contar(tipo, n, ref) {
+  function contar(tipo, n, ref, et) {
     if (_interno || !n) return;
     try {
       if (!_db && ref && ref.firestore) _db = ref.firestore;
       var dia = diaPacifico();
       var b = _pend[dia] || (_pend[dia] = { r: 0, w: 0, k: {} });
       if (tipo === 'R') b.r += n; else b.w += n;
-      var clave = [horaSV(), tipo, limpio(coleccion(ref)), limpio(quienLlama()), limpio(PAGINA)].join('~');
+      var clave = [horaSV(), tipo, limpio(coleccion(ref)), limpio(et || quienLlama()), limpio(PAGINA)].join('~');
       b.k[clave] = (b.k[clave] || 0) + n;
       _total += n;
     } catch (e) {}
@@ -94,17 +95,17 @@
   // get() de consultas y documentos
   envolver(F.Query, 'get', function (orig) {
     return function () {
-      var interno = _interno, ref = this, args = arguments;
+      var interno = _interno, ref = this, args = arguments, et = interno ? null : quienLlama();
       var p = orig.apply(this, args);
-      if (!interno && p && p.then) p.then(function (s) { if (leyoDeServidor(s)) contar('R', Math.max(1, s.size || 0), ref); }, function () {});
+      if (!interno && p && p.then) p.then(function (s) { if (leyoDeServidor(s)) contar('R', Math.max(1, s.size || 0), ref, et); }, function () {});
       return p;
     };
   });
   envolver(F.DocumentReference, 'get', function (orig) {
     return function () {
-      var interno = _interno, ref = this;
+      var interno = _interno, ref = this, et = interno ? null : quienLlama();
       var p = orig.apply(this, arguments);
-      if (!interno && p && p.then) p.then(function (s) { if (leyoDeServidor(s)) contar('R', 1, ref); }, function () {});
+      if (!interno && p && p.then) p.then(function (s) { if (leyoDeServidor(s)) contar('R', 1, ref, et); }, function () {});
       return p;
     };
   });
@@ -113,11 +114,12 @@
     return function () {
       var ref = this, interno = _interno, args = Array.prototype.slice.call(arguments);
       if (!interno) {
+        var et = quienLlama();
         var cuenta = function (s) {
           try {
             if (!leyoDeServidor(s)) return;
-            if (typeof s.docChanges === 'function') contar('R', Math.max(1, s.docChanges().length), ref);
-            else contar('R', 1, ref);
+            if (typeof s.docChanges === 'function') contar('R', Math.max(1, s.docChanges().length), ref, et);
+            else contar('R', 1, ref, et);
           } catch (e) {}
         };
         for (var i = 0; i < args.length; i++) {
