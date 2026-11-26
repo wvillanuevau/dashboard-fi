@@ -74,7 +74,7 @@
       var dia = diaPacifico();
       var b = _pend[dia] || (_pend[dia] = { r: 0, w: 0, k: {} });
       if (tipo === 'R') b.r += n; else b.w += n;
-      var clave = [horaSV(), tipo, limpio(coleccion(ref)), limpio(et || quienLlama()), limpio(PAGINA)].join('~');
+      var clave = [horaSV(), tipo, limpio(coleccion(ref)), limpio(et || quienLlama()), limpio(PAGINA + '@' + String(window.PA_VERSION || window.APP_VERSION || '').replace(/^v2026-/, ''))].join('~');
       b.k[clave] = (b.k[clave] || 0) + n;
       _total += n;
     } catch (e) {}
