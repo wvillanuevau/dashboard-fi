@@ -19,7 +19,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-<script src="uso-monitor.js?v=5"></script>
+<script src="uso-monitor.js?v=6"></script>
 <script>window.UsoMonitorEsAdmin=function(){ try{ return !!(window.S&&S.currentUser); }catch(e){ return false; } };</script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 <script>
@@ -843,7 +843,7 @@ async getAllEmpresas(){
       if(_otrasOk&&S.proyectos) this.publicarEspejoCronograma(empresa,S.proyectos);
       try{ this.publicarEspejoMantenimiento(empresa,S); }catch(eM){}
       return true;
-    }catch(e){console.error('[FB] save:',e.code,e.message);return false}
+    }catch(e){console.error('[FB] save:',e.code,e.message);try{ if(window.UsoMonitor) UsoMonitor.reportar('FB.save: '+(e.code||'')+' '+(e.message||e)); }catch(x){} return false}
   },
   listen(empresa,cb){if(_unsub){_unsub();_unsub=null}_unsub=_fbDb.collection('empresas').doc(empresa).onSnapshot(s=>{if(s.exists)cb(s.data())},e=>console.error('[FB] snap:',e.code))},
   stopListen(){if(_unsub){_unsub();_unsub=null}},
@@ -1996,7 +1996,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-11-26-A'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-11-26-B'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -4320,6 +4320,7 @@ async function _doSaveFirebase(){
     } else {
       setSyncUI('err','Error al guardar');
       console.error('[PP] Firebase save failed — sz:'+(sz/1024).toFixed(0)+'KB',errMsg||'');
+      try{ if(window.UsoMonitor) UsoMonitor.reportar('Save failed sz '+(sz/1024).toFixed(0)+'KB secciones='+dirtySections.join(',')+' gastos='+(S.gastos||[]).length+' err='+(errMsg||'')); }catch(x){}
       // Keep dirty so next saveData retries
       S._dirty=true;
       // Mensaje específico con tamaño del doc para diagnóstico
@@ -4336,6 +4337,7 @@ async function _doSaveFirebase(){
     S._saving=false;
     setSyncUI('err','Error al guardar');
     console.error('[PP] saveData error:',e.code||e.message);
+    try{ if(window.UsoMonitor) UsoMonitor.reportar('saveData: '+(e.code||'')+' '+(e.message||e)); }catch(x){}
     S._dirty=true; // retry on next save
   }
   // Sincronizar datos públicos del portal (centros + equipos activos) — sin datos sensibles

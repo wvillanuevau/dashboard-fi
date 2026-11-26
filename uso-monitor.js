@@ -265,11 +265,11 @@
       msg = String(msg || '').replace(/<[^>]*>/g, '').slice(0, 300);
       if (!msg || (_ultErr[msg] && Date.now() - _ultErr[msg] < 120000)) return;
       _ultErr[msg] = Date.now();
-      if (!_db) return;
+      if (!_db) { try { _db = firebase.firestore(); } catch (e0) { return; } }
       var hora = new Intl.DateTimeFormat('es-SV', { timeZone: 'America/El_Salvador', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
       var e = {}; e[DISP.id + '_' + Date.now()] = { hora: hora, msg: msg, usuario: usuarioActual(), equipo: DISP.desc, pagina: PAGINA, version: String(window.PA_VERSION || window.APP_VERSION || '') };
       _interno = true;
-      try { _db.collection('paConfig').doc('uso_' + diaPacifico()).set({ errores: e }, { merge: true }).catch(function () {}); }
+      try { _db.collection('paConfig').doc('uso_' + diaPacifico()).set({ errores: e }, { merge: true }).catch(function (er) { console.warn('[UsoMonitor] no se pudo reportar error:', er && er.message); }); }
       finally { _interno = false; }
     } catch (x) {}
   }
