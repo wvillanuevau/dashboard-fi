@@ -11760,6 +11760,8 @@ function paExportarExcel() {
         var h=Math.floor(Math.abs(m)/60),mn=Math.abs(m)%60;
         return (m<0?'-':'')+(h>0&&mn>0?h+'h '+mn+'min':h>0?h+'h':mn+'min');
       }
+      // Horas → valor de tiempo de Excel (fracción de día), redondeado al minuto
+      function _hXl(h){ return Math.round((+h||0)*60)/1440; }
       function _hDec(hDec){
         if(!hDec||hDec<=0)return '--';
         var t=Math.round(hDec*60),h=Math.floor(t/60),m=t%60;
@@ -11805,16 +11807,18 @@ function paExportarExcel() {
          ['0001-B003','Horas Extras Nocturnas',e.nocturna||0],
          ['0001-B010','HORAS EN FERIADO',e.feriado||0]
         ].forEach(function(c){
+          // Horas en formato h:mm (valor de tiempo de Excel = horas/24), no decimal:
+          // 2.23 se leía como porcentaje; ahora se ve 2:14 y la suma sigue funcionando.
           var row=wsR.addRow([cod,e.nombre,'008-00-00','Mantenimiento',c[0],c[1],
-            (e.diurna||0)+(e.nocturna||0)+(e.feriado||0),c[2],0,'0001',0]);
-          row.height=14; row.eachCell(function(cell,ci){_styleData(cell,bg,ci>2);});
+            _hXl((e.diurna||0)+(e.nocturna||0)+(e.feriado||0)),_hXl(c[2]),0,'0001',0]);
+          row.height=14; row.eachCell(function(cell,ci){_styleData(cell,bg,ci>2); if(ci===7||ci===8) cell.numFmt='[h]:mm';});
         });
         tDiu+=(e.diurna||0); tNoc+=(e.nocturna||0); tFer+=(e.feriado||0);
       });
       wsR.addRow([]);
       [['Total Horas Diurnas',tDiu],['Total Horas Nocturnas',tNoc],['Total de días festivo',tFer]].forEach(function(t){
-        var tr=wsR.addRow(['','','','','',t[0],'',t[1]]);
-        tr.height=16; _styleHdr(tr.getCell(6),BLUE,WHITE);
+        var tr=wsR.addRow(['','','','','',t[0],'',_hXl(t[1])]);
+        tr.height=16; _styleHdr(tr.getCell(6),BLUE,WHITE); tr.getCell(8).numFmt='[h]:mm';
         wsR.mergeCells(tr.number,6,tr.number,7); _styleHdr(tr.getCell(8),BLUE,WHITE);
       });
 
@@ -12238,7 +12242,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-11-26-C';
+var PA_VERSION = 'v2026-11-26-D';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
