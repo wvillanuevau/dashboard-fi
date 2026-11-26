@@ -2,12 +2,12 @@
 // SERVICE WORKER — Dashboard FI / Portal Asistencia
 // ══════════════════════════════════════════════════════
 
-const CACHE_NAME = 'dashboard-fi-v6';
+const CACHE_NAME = 'dashboard-fi-v7';
 const urlsToCache = [
   './',
   './index.html',
   './portal-asistencia.html',
-  './uso-monitor.js?v=3'
+  './uso-monitor.js?v=4'
 ];
 
 self.addEventListener('install', event => {

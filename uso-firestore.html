@@ -59,6 +59,14 @@
 </div>
 
 <div class="card">
+  <b>Dispositivos</b> <span class="mut">(cada navegador/teléfono con el sistema abierto; el ID se ve en la consola con UsoMonitor.dispositivo)</span>
+  <div style="overflow-x:auto;margin-top:8px"><table>
+    <thead><tr><th>ID</th><th>Equipo</th><th>Página</th><th>Último usuario</th><th>Horas activas</th><th style="text-align:right">Lecturas</th><th style="text-align:right">Escrituras</th><th>Último envío</th></tr></thead>
+    <tbody id="disp"></tbody>
+  </table></div>
+</div>
+
+<div class="card">
   <b>Últimos 7 días</b>
   <table style="margin-top:6px"><thead><tr><th>Día (Pacífico)</th><th style="text-align:right">Lecturas</th><th style="text-align:right">Escrituras</th><th style="text-align:right">% máx.</th></tr></thead><tbody id="hist"></tbody></table>
 </div>
@@ -152,6 +160,21 @@ function pintar(){
     var t1=document.createElement('td'); t1.className='n'; t1.textContent=n(f.n); tr.appendChild(t1);
     var t2=document.createElement('td'); t2.className='n'; t2.textContent=(total?Math.round(f.n*100/total):0)+'%'; tr.appendChild(t2);
     tb.appendChild(tr);
+  });
+
+  // dispositivos
+  var db2=document.getElementById('disp'); db2.innerHTML='';
+  var ds=Object.keys(hoy.disp||{}).map(function(id){
+    var d=hoy.disp[id], r=0, w=0, hs=[];
+    Object.keys(d.h||{}).forEach(function(k){ var hh=k.slice(0,2); if(k.slice(-1)==='r') r+=d.h[k]; else w+=d.h[k]; if(hs.indexOf(hh)<0) hs.push(hh); });
+    return {id:id,d:d,r:r,w:w,hs:hs.sort()};
+  }).sort(function(a,b){ return b.r-a.r; });
+  if(!ds.length) db2.innerHTML='<tr><td colspan="8" class="mut">Sin datos de dispositivos todavía.</td></tr>';
+  ds.forEach(function(x){
+    var tr=document.createElement('tr');
+    [x.id, x.d.desc||'', x.d.pagina||'', x.d.usuario||'', x.hs.map(function(h){return h+'h';}).join(' '), n(x.r), n(x.w), x.d.ultimo?new Date(x.d.ultimo).toLocaleTimeString('es-SV'):'']
+      .forEach(function(v,i){ var td=document.createElement('td'); if(i===5||i===6) td.className='n'; td.textContent=v; tr.appendChild(td); });
+    db2.appendChild(tr);
   });
 
   // historial

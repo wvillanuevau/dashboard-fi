@@ -19,6 +19,23 @@
   var FLUSH_MS = 30 * 60 * 1000;
   var PAGINA = (location.pathname.split('/').pop() || 'index').replace(/\.html$/, '') || 'index';
 
+  // Identificador de este dispositivo (no cambia mientras no se borren los datos del navegador)
+  var DISP = (function () {
+    var id = null; try { id = localStorage.getItem('uso_disp_id'); } catch (e) {}
+    if (!id) { id = Math.random().toString(36).slice(2, 7).toUpperCase(); try { localStorage.setItem('uso_disp_id', id); } catch (e) {} }
+    var ua = navigator.userAgent || '';
+    var so = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? ((ua.match(/Android[^;)]*;\s*([^;)]+?)\s*(Build|\))/) || [])[1] || 'Android') : /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : 'Otro';
+    var nav = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Nav';
+    var pwa = false; try { pwa = window.matchMedia('(display-mode: standalone)').matches; } catch (e) {}
+    return { id: id, desc: so + ' · ' + nav + (pwa ? ' (app instalada)' : '') };
+  })();
+  function usuarioActual() {
+    try {
+      if (window.PA) { if (PA.adminNombre) return 'Admin: ' + PA.adminNombre; if (PA.empleado && PA.empleado.nombre) return 'Empleado: ' + PA.empleado.nombre; }
+      if (window.S && S.currentUser) return S.currentUser.nombre || S.currentUser.email || 'usuario';
+    } catch (e) {}
+    return 'sin sesión';
+  }
   var _db = null;          // instancia de Firestore (se toma de la primera operación)
   var _interno = false;    // true mientras el monitor hace sus propias operaciones
   var _pend = {};          // { dia: { r, w, k:{clave:n} } }
@@ -76,6 +93,10 @@
       if (tipo === 'R') b.r += n; else b.w += n;
       var clave = [horaSV(), tipo, limpio(coleccion(ref)), limpio(et || quienLlama()), limpio(PAGINA + '@' + String(window.PA_VERSION || window.APP_VERSION || '').replace(/^v2026-/, ''))].join('~');
       b.k[clave] = (b.k[clave] || 0) + n;
+      var dk = DISP.id + '~' + horaSV();
+      var dd = (b.d || (b.d = {}))[dk] || (b.d[dk] = { r: 0, w: 0 });
+      if (tipo === 'R') dd.r += n; else dd.w += n;
+      b.u = usuarioActual();
       _total += n;
     } catch (e) {}
   }
@@ -175,13 +196,19 @@
       var b = _pend[dia];
       delete _pend[dia];            // se reinserta si falla
       var k = {}; Object.keys(b.k).forEach(function (c) { k[c] = inc(b.k[c]); });
+      var dv = {}; Object.keys(b.d || {}).forEach(function (c) {
+        var p = c.split('~'), x = b.d[c];
+        dv[p[0]] = dv[p[0]] || { desc: DISP.desc, pagina: PAGINA, usuario: b.u || usuarioActual(), ultimo: Date.now(), h: {} };
+        dv[p[0]].h[p[1] + 'r'] = inc(x.r); dv[p[0]].h[p[1] + 'w'] = inc(x.w);
+      });
       _interno = true;
       try {
         _db.collection('paConfig').doc('uso_' + dia).set(
-          { tipo: 'uso', fecha: dia, r: inc(b.r), w: inc(b.w), k: k, actualizado: Date.now() }, { merge: true }
+          { tipo: 'uso', fecha: dia, r: inc(b.r), w: inc(b.w), k: k, disp: dv, actualizado: Date.now() }, { merge: true }
         ).then(function () { guardarLocal(); }, function () {
           var x = _pend[dia] || (_pend[dia] = { r: 0, w: 0, k: {} });
           x.r += b.r; x.w += b.w; Object.keys(b.k).forEach(function (c) { x.k[c] = (x.k[c] || 0) + b.k[c]; });
+          x.d = x.d || {}; Object.keys(b.d || {}).forEach(function (c) { var y = x.d[c] || (x.d[c] = { r: 0, w: 0 }); y.r += b.d[c].r; y.w += b.d[c].w; });
           guardarLocal();
         });
       } finally { _interno = false; }
@@ -231,5 +258,5 @@
   // lo que quedó de una sesión anterior se sube al poco de abrir
   setTimeout(function () { if (Object.keys(_pend).length) flush(true); }, 20000);
 
-  window.UsoMonitor = { flush: function () { flush(true); }, verificar: verificar, limites: { lecturas: LIM_R, escrituras: LIM_W }, _pend: function () { return _pend; } };
+  window.UsoMonitor = { dispositivo: DISP, flush: function () { flush(true); }, verificar: verificar, limites: { lecturas: LIM_R, escrituras: LIM_W }, _pend: function () { return _pend; } };
 })();
