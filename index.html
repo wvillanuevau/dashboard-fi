@@ -19,7 +19,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-<script src="uso-monitor.js?v=4"></script>
+<script src="uso-monitor.js?v=5"></script>
 <script>window.UsoMonitorEsAdmin=function(){ try{ return !!(window.S&&S.currentUser); }catch(e){ return false; } };</script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 <script>
@@ -1996,7 +1996,7 @@ th{ box-shadow:var(--nf-in-sm); }
 
 <script>
 'use strict';
-var APP_VERSION = 'v2026-11-24-A'; // Actualizar en cada deploy
+var APP_VERSION = 'v2026-11-26-A'; // Actualizar en cada deploy
 // ── Logger condicional ────────────────────────────────────────────
 var APP_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);
@@ -3502,6 +3502,15 @@ setInterval(function(){
   }catch(e){}
 },3000);
 window.addEventListener('online',function(){ try{ if(_gdSucias().length)_gdReintentar(); }catch(e){} });
+// Reporte remoto de errores de guardado al monitor de uso (uso-firestore.html → "Errores")
+(function(){
+  try{
+    var _oSync=setSyncUI;
+    setSyncUI=function(st,txt){ try{ if(st==='err'&&window.UsoMonitor) UsoMonitor.reportar('Sync: '+(txt||'error')+' | pendientes: '+_gdSucias().join(',')); }catch(e){} return _oSync.apply(this,arguments); };
+    var _oToast=toast;
+    toast=function(msg,err){ try{ if(err===true&&window.UsoMonitor) UsoMonitor.reportar(msg); }catch(e){} return _oToast.apply(this,arguments); };
+  }catch(e){ console.warn('[UsoMonitor] hook:',e.message); }
+})();
 window.addEventListener('beforeunload',function(e){
   try{ if(_gdSucias().length){ _gdJournalWrite(); e.preventDefault(); e.returnValue='Hay cambios sin guardar en el servidor.'; return e.returnValue; } }catch(x){}
 });
@@ -4096,6 +4105,7 @@ async function _guardarConTransaccion(camposMant,eliminadosMant,otrasSecciones,d
       toast('🛑 El documento de la empresa llegó a su límite de tamaño (1MB) — esto NO se va a resolver reintentando. Hace falta archivar datos viejos de mantenimiento (equipos/OTs de ciclos anteriores). Avisa a soporte.',true,15000);
     } else {
       console.warn('[PP] Transaccion de guardado fallo — no se escribio nada en este ciclo, se reintentara:',e.code||e.message);
+      try{ if(window.UsoMonitor) UsoMonitor.reportar('Guardado falló: '+(e.code||'')+' '+_msg); }catch(x){}
     }
     return null;
   }

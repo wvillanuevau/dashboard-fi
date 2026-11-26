@@ -1015,7 +1015,7 @@ select[style*="border:1px solid var(--border)"]{
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-<script src="uso-monitor.js?v=4"></script>
+<script src="uso-monitor.js?v=5"></script>
 <script>window.UsoMonitorEsAdmin=function(){ return !!document.getElementById('paAdminPanel'); };</script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"></script>
@@ -2102,6 +2102,37 @@ function paHorasLegible(horasDecimal) {
 // ══════════════════════════════════════════════════════
 // LOAD EMPLEADOS
 // ══════════════════════════════════════════════════════
+// ── Memoria corta de lecturas repetidas (v2026-11-26-C) ─────────────────
+// Al abrir el portal la lista de empleados se cargaba 2–3 veces seguidas
+// (cada vez: portalesPublicos + paConfig + TODOS los paPins ≈ 70 lecturas).
+// Ahora el resultado se reutiliza unos segundos/minutos y se descarta solo
+// en cuanto ESTA página escribe en esa colección.
+var _PA_MEMO = {};
+function _paMemo(col, key, ttl, fn) {
+  var k = col + '|' + key, c = _PA_MEMO[k];
+  if (c && (Date.now() - c.ts) < ttl) return c.p;
+  var p = fn(); _PA_MEMO[k] = { ts: Date.now(), p: p };
+  p.catch(function(){ if (_PA_MEMO[k] && _PA_MEMO[k].p === p) delete _PA_MEMO[k]; });
+  return p;
+}
+function _paMemoInvalidar(ref) {
+  try {
+    var col = String((ref && ref.path) || '').split('/')[0]; if (!col) return;
+    Object.keys(_PA_MEMO).forEach(function(k){ if (k.split('|')[0] === col) delete _PA_MEMO[k]; });
+  } catch(e) {}
+}
+(function(){
+  try {
+    var F = firebase.firestore;
+    function env(clase, m, usaArg){
+      var o = clase && clase.prototype && clase.prototype[m]; if (typeof o !== 'function') return;
+      clase.prototype[m] = function(a){ _paMemoInvalidar(usaArg ? a : this); return o.apply(this, arguments); };
+    }
+    ['set','update','delete'].forEach(function(m){ env(F.DocumentReference, m, false); env(F.WriteBatch, m, true); env(F.Transaction, m, true); });
+    env(F.CollectionReference, 'add', false);
+  } catch(e) {}
+})();
+
 function paLoadEmpleados(callback) {
   var list = document.getElementById('empList');
   if (list) list.innerHTML = '<div class="spinner"></div>';
@@ -2112,7 +2143,7 @@ function paLoadEmpleados(callback) {
     return;
   }
   // Leer de portalesPublicos (acceso público) en vez de empresas (requiere auth)
-  paDb.collection('portalesPublicos').doc(PA.empresa).get().then(function(doc) {
+  _paMemo('portalesPublicos', PA.empresa, 120000, function(){ return paDb.collection('portalesPublicos').doc(PA.empresa).get(); }).then(function(doc) {
     var tecnicos = [];
     if (doc.exists) {
       var data = doc.data();
@@ -2125,8 +2156,8 @@ function paLoadEmpleados(callback) {
     // Cargar configuración Y PINs en paralelo — esperar AMBAS antes del callback
     // (antes, paConfig podía llegar después del callback causando horarios null)
     Promise.all([
-      paDb.collection('paConfig').doc(PA.empresa).get(),
-      paDb.collection('paPins').where('empresa','==',PA.empresa).limit(300).get()
+      _paMemo('paConfig', PA.empresa, 120000, function(){ return paDb.collection('paConfig').doc(PA.empresa).get(); }),
+      _paMemo('paPins', PA.empresa, 120000, function(){ return paDb.collection('paPins').where('empresa','==',PA.empresa).limit(300).get(); })
     ]).then(function(results) {
       var cfgDoc  = results[0];
       var snapPins = results[1];
@@ -3037,14 +3068,25 @@ function paUpdateDash() {
   // días libres que la administración le asignó, con el criterio
   // (motivo) y quién lo asignó. Solo días de hoy en adelante.
   if (paDb && PA.empleado && PA.empleado.id) {
-    paDb.collection('paCanjes')
-      .where('empresa','==',PA.empresa)
-      .where('empleadoId','==',PA.empleado.id)
-      .where('esCompensatorio','==',true)
-      .get().then(function(snap) {
+    // Antes: en CADA pantalla del empleado se leían todos sus compensatorios
+    // (incluidos decenas de automáticos viejos). Ahora se guarda 30 min en el teléfono.
+    var _kComp = 'pa_comp_banner_' + PA.empleado.id, _cacheComp = null;
+    try { _cacheComp = JSON.parse(localStorage.getItem(_kComp) || 'null'); } catch(eC) {}
+    var _pComp = (_cacheComp && (Date.now() - _cacheComp.ts) < 30*60000)
+      ? Promise.resolve(_cacheComp.lista)
+      : paDb.collection('paCanjes')
+          .where('empresa','==',PA.empresa)
+          .where('empleadoId','==',PA.empleado.id)
+          .where('esCompensatorio','==',true)
+          .get().then(function(snap){
+            var hoy0 = paHoy(), l = [];
+            snap.forEach(function(d){ var c0 = d.data(); if (c0.fechaLibre && c0.fechaLibre >= hoy0) l.push(c0); });
+            try { localStorage.setItem(_kComp, JSON.stringify({ ts: Date.now(), lista: l })); } catch(eC2) {}
+            return l;
+          });
+    _pComp.then(function(lista) {
         var hoyC = paHoy(), prox = [];
-        snap.forEach(function(d){
-          var cc = d.data();
+        lista.forEach(function(cc){
           // Solo se avisa de los días que un administrador asignó MANUALMENTE.
           // Los generados por el sistema (fin de semana / turno) no se muestran
           // para no crear expectativas.
@@ -12196,7 +12238,7 @@ function paEditarEmp(empId) {
 // ══════════════════════════════════════════════════════
 // ── Sistema de actualización automática ──────────────────────
 // CAMBIAR ESTE STRING EN CADA NUEVO DEPLOY para forzar actualización
-var PA_VERSION = 'v2026-11-26-B';
+var PA_VERSION = 'v2026-11-26-C';
 // ── Logger condicional (PA_DEBUG=true en ?debug=1) ──────────────
 var PA_DEBUG = (typeof window !== 'undefined' && window.location &&
   window.location.search.indexOf('debug=1') >= 0);

@@ -59,6 +59,14 @@
 </div>
 
 <div class="card">
+  <b>⚠ Errores reportados hoy</b> <span class="mut">(mensajes de error que vieron los usuarios: "no se pudo guardar", sesión caída, etc.)</span>
+  <div style="overflow-x:auto;margin-top:8px"><table>
+    <thead><tr><th>Hora</th><th>Usuario</th><th>Equipo</th><th>Página</th><th>Mensaje</th></tr></thead>
+    <tbody id="errs"></tbody>
+  </table></div>
+</div>
+
+<div class="card">
   <b>Dispositivos</b> <span class="mut">(cada navegador/teléfono con el sistema abierto; el ID se ve en la consola con UsoMonitor.dispositivo)</span>
   <div style="overflow-x:auto;margin-top:8px"><table>
     <thead><tr><th>ID</th><th>Equipo</th><th>Página</th><th>Último usuario</th><th>Horas activas</th><th style="text-align:right">Lecturas</th><th style="text-align:right">Escrituras</th><th>Último envío</th></tr></thead>
@@ -160,6 +168,16 @@ function pintar(){
     var t1=document.createElement('td'); t1.className='n'; t1.textContent=n(f.n); tr.appendChild(t1);
     var t2=document.createElement('td'); t2.className='n'; t2.textContent=(total?Math.round(f.n*100/total):0)+'%'; tr.appendChild(t2);
     tb.appendChild(tr);
+  });
+
+  // errores
+  var eb=document.getElementById('errs'); eb.innerHTML='';
+  var es=Object.keys(hoy.errores||{}).map(function(k){ return hoy.errores[k]; }).sort(function(a,b){ return a.hora<b.hora?1:-1; });
+  if(!es.length) eb.innerHTML='<tr><td colspan="5" class="mut">Sin errores reportados.</td></tr>';
+  es.slice(0,60).forEach(function(x){
+    var tr=document.createElement('tr');
+    [x.hora,x.usuario,x.equipo,x.pagina+' '+(x.version||''),x.msg].forEach(function(v){ var td=document.createElement('td'); td.textContent=v||''; tr.appendChild(td); });
+    eb.appendChild(tr);
   });
 
   // dispositivos

@@ -32,7 +32,7 @@
   function usuarioActual() {
     try {
       if (window.PA) { if (PA.adminNombre) return 'Admin: ' + PA.adminNombre; if (PA.empleado && PA.empleado.nombre) return 'Empleado: ' + PA.empleado.nombre; }
-      if (window.S && S.currentUser) return S.currentUser.nombre || S.currentUser.email || 'usuario';
+      /* global S */ if (typeof S !== 'undefined' && S && S.currentUser) return S.currentUser.nombre || S.currentUser.email || 'usuario';
     } catch (e) {}
     return 'sin sesión';
   }
@@ -258,5 +258,20 @@
   // lo que quedó de una sesión anterior se sube al poco de abrir
   setTimeout(function () { if (Object.keys(_pend).length) flush(true); }, 20000);
 
-  window.UsoMonitor = { dispositivo: DISP, flush: function () { flush(true); }, verificar: verificar, limites: { lecturas: LIM_R, escrituras: LIM_W }, _pend: function () { return _pend; } };
+  // Errores visibles al usuario (p. ej. "no se pudo guardar") → se suben al momento
+  var _ultErr = {};
+  function reportar(msg) {
+    try {
+      msg = String(msg || '').replace(/<[^>]*>/g, '').slice(0, 300);
+      if (!msg || (_ultErr[msg] && Date.now() - _ultErr[msg] < 120000)) return;
+      _ultErr[msg] = Date.now();
+      if (!_db) return;
+      var hora = new Intl.DateTimeFormat('es-SV', { timeZone: 'America/El_Salvador', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
+      var e = {}; e[DISP.id + '_' + Date.now()] = { hora: hora, msg: msg, usuario: usuarioActual(), equipo: DISP.desc, pagina: PAGINA, version: String(window.PA_VERSION || window.APP_VERSION || '') };
+      _interno = true;
+      try { _db.collection('paConfig').doc('uso_' + diaPacifico()).set({ errores: e }, { merge: true }).catch(function () {}); }
+      finally { _interno = false; }
+    } catch (x) {}
+  }
+  window.UsoMonitor = { reportar: reportar, dispositivo: DISP, flush: function () { flush(true); }, verificar: verificar, limites: { lecturas: LIM_R, escrituras: LIM_W }, _pend: function () { return _pend; } };
 })();
